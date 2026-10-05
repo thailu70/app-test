@@ -1,0 +1,198 @@
+package com.example.core.localization
+
+enum class AppLanguage(val code: String, val displayName: String) {
+    ENGLISH("en", "English"),
+    AMHARIC("am", "አማርኛ")
+}
+
+object AppStrings {
+    fun get(key: String, lang: AppLanguage): String {
+        val dict = when (lang) {
+            AppLanguage.AMHARIC -> amharicDictionary
+            AppLanguage.ENGLISH -> englishDictionary
+        }
+        return dict[key] ?: englishDictionary[key] ?: key
+    }
+
+    private val englishDictionary = mapOf(
+        "app_title" to "Transport Navigator",
+        "app_tagline" to "Ethiopian Scheduled Transit & Subscriptions",
+        "passenger" to "Passenger",
+        "driver" to "Driver",
+        "admin" to "Admin Dashboard",
+        "role_switcher" to "Switch Role",
+        
+        // Passenger Dashboard
+        "active_subscription" to "Active Subscription",
+        "no_subscription" to "No Active Subscription",
+        "status_active" to "ACTIVE",
+        "status_expired" to "EXPIRED",
+        "status_expiring" to "EXPIRING SOON",
+        "status_paid" to "PAID",
+        "status_pending" to "PENDING",
+        "route" to "Route",
+        "pickup" to "Pickup",
+        "destination" to "Destination",
+        "vehicle" to "Vehicle",
+        "driver_label" to "Driver",
+        "days_remaining" to "Days remaining",
+        "payment" to "Payment",
+        "telebirr" to "Telebirr",
+        "pay_telebirr" to "Pay with Telebirr",
+        "my_qr_code" to "Boarding QR Pass",
+        "qr_instruction" to "Show this QR code to the driver upon boarding the shuttle",
+        "qr_token_rotates" to "Secure dynamic token (auto-rotates for security)",
+        "track_bus" to "Live Vehicle Tracking",
+        "bus_location" to "Bus Location",
+        "distance" to "Distance",
+        "eta" to "Estimated Arrival",
+        "trip_history" to "Trip Attendance",
+        "payment_history" to "Payment History",
+        "financial_balance" to "Financial Account",
+        "current_balance" to "Current Balance",
+        "monthly_fee" to "Monthly Fee",
+        "next_payment" to "Next Payment",
+        "complaints" to "Help & Complaints",
+        "submit_complaint" to "Submit Feedback / Incident",
+        "subscribe_now" to "Subscribe to Route",
+        "renew_subscription" to "Renew Subscription",
+
+        // Driver Dashboard
+        "driver_cockpit" to "Driver Console",
+        "todays_trips" to "Today's Assigned Trips",
+        "morning_trip" to "Morning Trip",
+        "afternoon_trip" to "Afternoon Trip",
+        "passengers_onboard" to "Passengers",
+        "checked_in" to "Checked-In",
+        "remaining" to "Remaining",
+        "pickup_sequence" to "Pickup Stops Sequence",
+        "start_navigation" to "START NAVIGATION",
+        "arrived_stop" to "ARRIVED AT STOP",
+        "passenger_checkin" to "SCAN QR CODE",
+        "skip_noshow" to "SKIP / NO SHOW",
+        "next_stop" to "NEXT STOP",
+        "online_status" to "ONLINE",
+        "offline_status" to "OFFLINE (CACHED)",
+        "syncing_status" to "SYNCING...",
+        "trip_completed" to "Trip Finished",
+
+        // Verification Results
+        "passenger_verified" to "PASSENGER VERIFIED",
+        "not_valid" to "NOT VALID",
+        "reason_expired" to "Subscription expired",
+        "reason_overdue" to "Payment overdue",
+        "reason_wrong_route" to "Wrong route",
+        "reason_wrong_vehicle" to "Wrong vehicle",
+        "reason_invalid_qr" to "Invalid QR / signature",
+        "reason_already_checked" to "Already checked in today",
+
+        // Admin Dashboard
+        "kpi_total_passengers" to "Total Passengers",
+        "kpi_active_subs" to "Active Subscriptions",
+        "kpi_expired_subs" to "Expired Subscriptions",
+        "kpi_today_trips" to "Today's Trips",
+        "kpi_active_drivers" to "Active Drivers",
+        "kpi_active_vehicles" to "Active Fleet",
+        "kpi_today_revenue" to "Today's Revenue",
+        "kpi_monthly_revenue" to "Monthly Revenue",
+        "kpi_outstanding" to "Outstanding Balance",
+        "revenue_chart" to "Monthly Revenue (ETB)",
+        "attendance_rate" to "Daily Route Attendance Rate",
+        "routes_management" to "Routes & Schedules",
+        "vehicles_management" to "Fleet Management",
+        "reconciliation" to "Telebirr Reconciliations",
+        "audit_logs" to "System Audit Trail",
+        "export_report" to "Export Statement (CSV)"
+    )
+
+    private val amharicDictionary = mapOf(
+        "app_title" to "ትራንስፖርት ናቪጌተር",
+        "app_tagline" to "የተቀናጀ የኢትዮጵያ የትራንስፖርት ደንበኝነት አገልግሎት",
+        "passenger" to "ተሳፋሪ",
+        "driver" to "ሹፌር",
+        "admin" to "አስተዳዳሪ",
+        "role_switcher" to "ሚና ቀይር",
+        
+        // Passenger Dashboard
+        "active_subscription" to "ንቁ ደንበኝነት",
+        "no_subscription" to "ምንም ንቁ ደንበኝነት የለም",
+        "status_active" to "ንቁ",
+        "status_expired" to "ጊዜው ያለፈበት",
+        "status_expiring" to "ሊጠናቀቅ የቀረበ",
+        "status_paid" to "የተከፈለ",
+        "status_pending" to "በመጠባበቅ ላይ",
+        "route" to "መስመር",
+        "pickup" to "መነሻ ቦታ",
+        "destination" to "መድረሻ",
+        "vehicle" to "ተሽከርካሪ",
+        "driver_label" to "ሹፌር",
+        "days_remaining" to "የቀሩ ቀናት",
+        "payment" to "ክፍያ",
+        "telebirr" to "ቴሌብር",
+        "pay_telebirr" to "በቴሌብር ይክፈሉ",
+        "my_qr_code" to "የመሳፈሪያ የQR ኮድ",
+        "qr_instruction" to "መኪናው ላይ ሲሳፈሩ ይህንን QR ኮድ ለሹፌሩ ያሳዩ",
+        "qr_token_rotates" to "ደህንነቱ የተጠበቀ ተለዋዋጭ መታወቂያ",
+        "track_bus" to "የአውቶቡስ መገኛ የቀጥታ ክትትል",
+        "bus_location" to "የአውቶቡስ አሁን ያለበት ቦታ",
+        "distance" to "ርቀት",
+        "eta" to "የሚደርስበት ግምታዊ ሰዓት",
+        "trip_history" to "የጉዞ እና የተገኝነት ታሪክ",
+        "payment_history" to "የክፍያ ታሪክ",
+        "financial_balance" to "የሒሳብ መግለጫ",
+        "current_balance" to "አሁን ያለ ቀሪ ሒሳብ",
+        "monthly_fee" to "ወርሃዊ ክፍያ",
+        "next_payment" to "ቀጣይ ክፍያ",
+        "complaints" to "ቅሬታ እና ድጋፍ",
+        "submit_complaint" to "ቅሬታ ወይም አስተያየት ያቅርቡ",
+        "subscribe_now" to "ወርሃዊ ምዝገባ ይጀምሩ",
+        "renew_subscription" to "ደንበኝነት ያድሱ",
+
+        // Driver Dashboard
+        "driver_cockpit" to "የሹፌር መቆጣጠሪያ",
+        "todays_trips" to "የዛሬ የተመደቡ ጉዞዎች",
+        "morning_trip" to "የጠዋት ጉዞ",
+        "afternoon_trip" to "የከሰዓት መመለሻ ጉዞ",
+        "passengers_onboard" to "ተሳፋሪዎች",
+        "checked_in" to "የተሳፈሩ",
+        "remaining" to "የቀሩ",
+        "pickup_sequence" to "የመጫኛ ጣቢያዎች ቅደም ተከተል",
+        "start_navigation" to "ጉዞ ጀምር",
+        "arrived_stop" to "ጣቢያው ላይ ደርሻለሁ",
+        "passenger_checkin" to "QR ኮድ ቃኝ",
+        "skip_noshow" to "ያልመጣ / ዝለል",
+        "next_stop" to "ቀጣይ ጣቢያ",
+        "online_status" to "ኦንላይን",
+        "offline_status" to "ኦፍላይን (የተቀመጠ)",
+        "syncing_status" to "በማመሳሰል ላይ...",
+        "trip_completed" to "ጉዞ ተጠናቋል",
+
+        // Verification Results
+        "passenger_verified" to "ተሳፋሪው ተረጋግጧል ✓",
+        "not_valid" to "ትክክለኛ አይደለም ✕",
+        "reason_expired" to "የደንበኝነት ጊዜ አልቋል",
+        "reason_overdue" to "ክፍያ አልተፈጸመም",
+        "reason_wrong_route" to "የተሳሳተ መስመር ነው",
+        "reason_wrong_vehicle" to "የተሳሳተ መኪና ነው",
+        "reason_invalid_qr" to "የተሳሳተ የQR ኮድ",
+        "reason_already_checked" to "ተሳፋሪው ቀደም ሲል ተመዝግቧል",
+
+        // Admin Dashboard
+        "kpi_total_passengers" to "ጠቅላላ ተሳፋሪዎች",
+        "kpi_active_subs" to "ንቁ ደንበኞች",
+        "kpi_expired_subs" to "ያለቀባቸው",
+        "kpi_today_trips" to "የዛሬ ጉዞዎች",
+        "kpi_active_drivers" to "ንቁ ሹፌሮች",
+        "kpi_active_vehicles" to "የሚሰሩ መኪኖች",
+        "kpi_today_revenue" to "የዛሬ ገቢ",
+        "kpi_monthly_revenue" to "የወሩ ገቢ",
+        "kpi_outstanding" to "ያልተሰበሰበ ሒሳብ",
+        "revenue_chart" to "የወርሃዊ ገቢ በብር (ETB)",
+        "attendance_rate" to "የእለት የመሳፈር ምጣኔ",
+        "routes_management" to "መስመሮች እና ጣቢያዎች",
+        "vehicles_management" to "የተሽከርካሪዎች ቁጥጥር",
+        "reconciliation" to "የቴሌብር ክፍያዎች ማረጋገጫ",
+        "audit_logs" to "የስርዓት ቁጥጥር መዝገብ",
+        "export_report" to "ሪፖርት አውርድ (CSV)"
+    )
+}

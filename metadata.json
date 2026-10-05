@@ -1,0 +1,6 @@
+{
+  "name": "Transport Navigator",
+  "description": "Ethiopian scheduled group transport subscription, GPS tracking, and Telebirr verification platform",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
