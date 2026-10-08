@@ -14,7 +14,7 @@ object ApiClient {
     // Default base URL for Android Emulator -> VPS / Host server
     // User or admin can update this dynamically if connecting to an external VPS IP.
     @Volatile
-    private var baseUrl: String = "http://10.0.2.2:3000/"
+    private var baseUrl: String = "http://62.72.19.170:3000/"
 
     @Volatile
     private var authToken: String? = null
