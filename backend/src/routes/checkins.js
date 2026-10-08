@@ -3,15 +3,26 @@ const router = express.Router();
 const crypto = require('crypto');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { verifySignedQrToken } = require('./subscriptions');
+
+// Standard vehicle capacity limits
+const VEHICLE_TYPE_CAPACITIES = {
+  MINIVAN_8: 8,
+  MINIBUS_14: 14,
+  HIGER_24: 24,
+  ANBESSA_BUS_30: 30
+};
 
 /**
  * POST /api/checkins/scan
  * Driver scans passenger QR boarding pass:
- * 1. Validates QR code authenticity & subscription status.
- * 2. Enforces vehicle capacity limit based on vehicle type (e.g. 14 / 24 / 8 seats).
- * 3. Records check-in attendance and updates occupancy count.
+ * 1. Validates server-signed QR code.
+ * 2. Validates passenger, subscription (ACTIVE), payment (PAID), expiry.
+ * 3. Enforces vehicle capacity inside an atomic transaction (prevents race conditions).
+ * 4. Checks duplicate check-in on this trip.
+ * 5. Records check-in and updates vehicle occupancy.
  */
-router.post('/scan', authenticate, requireRole('DRIVER'), (req, res) => {
+router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
   try {
     const driverId = req.user.id;
     const {
@@ -25,11 +36,11 @@ router.post('/scan', authenticate, requireRole('DRIVER'), (req, res) => {
       return res.status(400).json({
         success: false,
         status: 'INVALID_QR',
-        error: 'QR token is required.'
+        error: 'QR boarding pass token is required.'
       });
     }
 
-    // 1. Identify driver's vehicle
+    // 1. Locate Driver's Vehicle
     const driverUser = DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(driverId);
     let vehicle;
     if (vehicleId) {
@@ -47,31 +58,15 @@ router.post('/scan', authenticate, requireRole('DRIVER'), (req, res) => {
       });
     }
 
-    // 2. CHECK VEHICLE CAPACITY LIMIT (Strict limit based on vehicle type)
-    if (vehicle.currentOccupancy >= vehicle.capacityLimit) {
-      // Record denied attempt
-      const checkinId = `chk_denied_${crypto.randomUUID().slice(0, 8)}`;
-      DB.prepare(`
-        INSERT INTO checkin_records (id, tripId, passengerId, passengerName, routeId, stopName, status, vehicleId, driverId)
-        VALUES (?, ?, 'UNKNOWN', 'Passenger', ?, ?, 'DENIED_CAPACITY_FULL', ?, ?)
-      `).run(checkinId, tripId, vehicle.assignedRouteId || 'route_bole_merkato', currentStop, vehicle.id, driverId);
+    // 2. Validate QR authenticity & Subscription
+    let sub = DB.prepare('SELECT * FROM subscriptions WHERE qrToken = ?').get(qrToken);
 
-      return res.status(409).json({
-        success: false,
-        status: 'DENIED_CAPACITY_FULL',
-        error: `VEHICLE FULL: Capacity limit reached (${vehicle.currentOccupancy}/${vehicle.capacityLimit} seats). Cannot board additional passengers based on ${vehicle.vehicleType} vehicle type limit.`,
-        errorAm: `ተሽከርካሪው ሞልቷል፡ የተሳፋሪ ገደብ ተደርሷል (${vehicle.currentOccupancy}/${vehicle.capacityLimit})። ተጨማሪ ተሳፋሪ መጫን አይቻልም።`,
-        vehicle: {
-          plateNumber: vehicle.plateNumber,
-          vehicleType: vehicle.vehicleType,
-          capacityLimit: vehicle.capacityLimit,
-          currentOccupancy: vehicle.currentOccupancy
-        }
-      });
+    if (!sub && qrToken.startsWith('RP1:')) {
+      const verified = verifySignedQrToken(qrToken);
+      if (verified.valid) {
+        sub = DB.prepare('SELECT * FROM subscriptions WHERE id = ?').get(verified.subId);
+      }
     }
-
-    // 3. Find and validate passenger subscription
-    const sub = DB.prepare('SELECT * FROM subscriptions WHERE qrToken = ?').get(qrToken);
 
     if (!sub) {
       return res.status(404).json({
@@ -82,16 +77,17 @@ router.post('/scan', authenticate, requireRole('DRIVER'), (req, res) => {
       });
     }
 
-    if (sub.subscriptionStatus !== 'ACTIVE' || sub.daysRemaining <= 0) {
+    // Subscription status and payment verification
+    if (sub.subscriptionStatus !== 'ACTIVE' || sub.paymentStatus !== 'PAID' || sub.daysRemaining <= 0) {
       return res.status(403).json({
         success: false,
         status: 'SUBSCRIPTION_EXPIRED',
-        error: 'The passenger is not subscribed (pass expired). Please pay and subscribe for the selected route.',
-        errorAm: 'የተሳፋሪው ፈቃድ አልቋል። እባክዎ በቴሌብር ከፍለው ያድሱ።'
+        error: 'Passenger pass is inactive or expired. Please pay and subscribe for the selected route.',
+        errorAm: 'የተሳፋሪው ፈቃድ አልቋል ወይም አልተከፈለም። እባክዎ በቴሌብር ከፍለው ያድሱ።'
       });
     }
 
-    // 4. Check if passenger already boarded on this trip
+    // Check duplicate check-in on this trip
     const alreadyBoarded = DB.prepare("SELECT id FROM checkin_records WHERE tripId = ? AND passengerId = ? AND status = 'BOARDED'").get(tripId, sub.passengerId);
     if (alreadyBoarded) {
       return res.status(409).json({
@@ -101,61 +97,118 @@ router.post('/scan', authenticate, requireRole('DRIVER'), (req, res) => {
       });
     }
 
-    const passenger = DB.prepare('SELECT fullName, phone FROM users WHERE id = ?').get(sub.passengerId);
-    const passengerName = passenger?.fullName || 'Verified Commuter';
+    // 3. ATOMIC TRANSACTION: Check Capacity & Board Passenger
+    const result = await DB.transaction(async () => {
+      // Re-read vehicle occupancy inside transaction
+      const currentVehicle = DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicle.id);
+      const capacity = currentVehicle.capacityLimit || VEHICLE_TYPE_CAPACITIES[currentVehicle.vehicleType] || 24;
 
-    // 5. Record successful check-in
-    const checkinId = `chk_${crypto.randomUUID().slice(0, 8)}`;
-    DB.prepare(`
-      INSERT INTO checkin_records (id, tripId, passengerId, passengerName, routeId, stopName, status, vehicleId, driverId)
-      VALUES (?, ?, ?, ?, ?, ?, 'BOARDED', ?, ?)
-    `).run(checkinId, tripId, sub.passengerId, passengerName, sub.routeId, currentStop, vehicle.id, driverId);
+      if (currentVehicle.currentOccupancy >= capacity) {
+        // Record denied scan
+        const checkinId = `chk_denied_${crypto.randomUUID().slice(0, 8)}`;
+        DB.prepare(`
+          INSERT INTO checkin_records (id, tripId, passengerId, passengerName, routeId, stopName, status, vehicleId, driverId)
+          VALUES (?, ?, 'UNKNOWN', 'Passenger', ?, ?, 'DENIED_CAPACITY_FULL', ?, ?)
+        `).run(checkinId, tripId, currentVehicle.assignedRouteId || 'route_bole_merkato', currentStop, currentVehicle.id, driverId);
 
-    // 6. Increment vehicle occupancy
-    const newOccupancy = vehicle.currentOccupancy + 1;
-    const isNowFull = newOccupancy >= vehicle.capacityLimit;
+        return {
+          allowed: false,
+          currentOccupancy: currentVehicle.currentOccupancy,
+          capacity
+        };
+      }
 
-    DB.prepare(`
-      UPDATE vehicles
-      SET currentOccupancy = ?, status = ?, updatedAt = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(newOccupancy, isNowFull ? 'FULL' : 'IN_SERVICE', vehicle.id);
+      // Passenger info
+      const passenger = DB.prepare('SELECT fullName, phone FROM users WHERE id = ?').get(sub.passengerId);
+      const passengerName = passenger?.fullName || 'Verified Commuter';
+      const checkinId = `chk_${crypto.randomUUID().slice(0, 8)}`;
+
+      // Record successful check-in
+      DB.prepare(`
+        INSERT INTO checkin_records (id, tripId, passengerId, passengerName, routeId, stopName, status, vehicleId, driverId)
+        VALUES (?, ?, ?, ?, ?, ?, 'BOARDED', ?, ?)
+      `).run(checkinId, tripId, sub.passengerId, passengerName, sub.routeId, currentStop, currentVehicle.id, driverId);
+
+      // Increment vehicle occupancy
+      const newOccupancy = currentVehicle.currentOccupancy + 1;
+      const isNowFull = newOccupancy >= capacity;
+
+      DB.prepare(`
+        UPDATE vehicles
+        SET currentOccupancy = ?, status = ?, updatedAt = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(newOccupancy, isNowFull ? 'FULL' : 'IN_SERVICE', currentVehicle.id);
+
+      // Update active trip occupancy if trip exists
+      DB.prepare(`
+        UPDATE trips
+        SET currentOccupancy = ?, currentStop = ?, updatedAt = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(newOccupancy, currentStop, tripId);
+
+      return {
+        allowed: true,
+        checkinId,
+        passengerName,
+        passengerPhone: passenger?.phone || '',
+        newOccupancy,
+        capacity,
+        isNowFull
+      };
+    });
+
+    if (!result.allowed) {
+      return res.status(409).json({
+        success: false,
+        status: 'DENIED_CAPACITY_FULL',
+        error: `VEHICLE FULL: Capacity limit reached (${result.currentOccupancy}/${result.capacity} seats). Cannot board additional passengers based on ${vehicle.vehicleType} vehicle limit.`,
+        errorAm: `ተሽከርካሪው ሞልቷል፡ የተሳፋሪ ገደብ ተደርሷል (${result.currentOccupancy}/${result.capacity})። ተጨማሪ ተሳፋሪ መጫን አይቻልም።`,
+        vehicle: {
+          plateNumber: vehicle.plateNumber,
+          vehicleType: vehicle.vehicleType,
+          capacityLimit: result.capacity,
+          currentOccupancy: result.currentOccupancy
+        }
+      });
+    }
 
     // Broadcast check-in event to WebSockets
     if (req.app.locals.broadcastWs) {
       req.app.locals.broadcastWs({
         type: 'PASSENGER_BOARDED',
-        checkinId,
-        passengerName,
+        checkinId: result.checkinId,
+        passengerName: result.passengerName,
         stopName: currentStop,
         vehicleId: vehicle.id,
-        currentOccupancy: newOccupancy,
-        capacityLimit: vehicle.capacityLimit,
-        isFull: isNowFull
+        currentOccupancy: result.newOccupancy,
+        capacityLimit: result.capacity,
+        isFull: result.isNowFull
       });
     }
 
     res.json({
       success: true,
       status: 'VERIFIED_BOARDED',
-      message: 'Boarding pass verified. Passenger boarded successfully.',
+      message: 'Commuter boarding pass verified. Boarding granted.',
+      messageAm: 'የተሳፋሪው ፈቃድ ተረጋግጧል፡ መሳፈር ተፈቅዷል!',
       passenger: {
         id: sub.passengerId,
-        fullName: passengerName,
-        phone: passenger?.phone || '',
+        name: result.passengerName,
+        phone: result.passengerPhone,
+        subscriptionId: sub.id,
         daysRemaining: sub.daysRemaining
       },
-      checkin: {
-        id: checkinId,
+      boardingDetails: {
+        checkinId: result.checkinId,
         tripId,
         stopName: currentStop,
         timestamp: new Date().toISOString()
       },
-      vehicleOccupancy: {
-        current: newOccupancy,
-        capacityLimit: vehicle.capacityLimit,
-        availableSeats: Math.max(0, vehicle.capacityLimit - newOccupancy),
-        isFull: isNowFull
+      occupancy: {
+        current: result.newOccupancy,
+        maxCapacity: result.capacity,
+        availableSeats: Math.max(0, result.capacity - result.newOccupancy),
+        isFull: result.isNowFull
       }
     });
   } catch (err) {
@@ -164,20 +217,38 @@ router.post('/scan', authenticate, requireRole('DRIVER'), (req, res) => {
 });
 
 /**
+ * GET /api/checkins/recent
+ * Retrieve recent boarding logs
+ */
+router.get('/recent', authenticate, (req, res) => {
+  try {
+    const list = DB.prepare(`
+      SELECT c.*, v.plateNumber as vehiclePlate
+      FROM checkin_records c
+      LEFT JOIN vehicles v ON c.vehicleId = v.id
+      ORDER BY c.timestamp DESC LIMIT 50
+    `).all();
+
+    res.json({ success: true, checkins: list });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * GET /api/checkins/trip/:tripId
- * List all check-ins for a trip
+ * Get passenger list for a specific trip
  */
 router.get('/trip/:tripId', authenticate, (req, res) => {
   try {
-    const list = DB.prepare(`
-      SELECT * FROM checkin_records WHERE tripId = ? ORDER BY timestamp DESC
-    `).all(req.params.tripId);
+    const { tripId } = req.params;
+    const records = DB.prepare(`
+      SELECT * FROM checkin_records
+      WHERE tripId = ? AND status = 'BOARDED'
+      ORDER BY timestamp ASC
+    `).all(tripId);
 
-    res.json({
-      success: true,
-      count: list.length,
-      checkins: list
-    });
+    res.json({ success: true, tripId, count: records.length, passengers: records });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

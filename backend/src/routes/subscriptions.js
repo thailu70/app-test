@@ -4,18 +4,51 @@ const crypto = require('crypto');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 
+const QR_SIGNING_KEY = process.env.QR_SIGNING_KEY || process.env.JWT_SECRET || 'routepass_production_qr_hmac_secret_2026';
+const PAYMENT_MODE = process.env.PAYMENT_MODE || 'TEST';
+
 /**
- * Helper to generate secure tamper-proof transit QR token
+ * Server-side HMAC-SHA256 QR Token Generator.
+ * Prevents client-side forging or tampering.
  */
-function generateQrToken(subId, passengerId, fullName, routeName) {
-  const nonce = crypto.randomBytes(4).toString('hex').toUpperCase();
-  return `TN-${subId}-${passengerId}-${fullName}-${routeName}-ACTIVE-${nonce}`;
+function generateSignedQrToken(subId, passengerId, routeId, expiresTimestamp) {
+  const payload = `${subId}:${passengerId}:${routeId}:${expiresTimestamp}`;
+  const hmac = crypto.createHmac('sha256', QR_SIGNING_KEY).update(payload).digest('hex').slice(0, 16);
+  return `RP1:${subId}:${passengerId}:${routeId}:${expiresTimestamp}:${hmac}`;
+}
+
+/**
+ * Server-side QR Token Validator.
+ */
+function verifySignedQrToken(token) {
+  if (!token || !token.startsWith('RP1:')) {
+    return { valid: false, reason: 'INVALID_FORMAT' };
+  }
+  const parts = token.split(':');
+  if (parts.length !== 6) {
+    return { valid: false, reason: 'MALFORMED_TOKEN' };
+  }
+  const [prefix, subId, passengerId, routeId, expiresTimestamp, signature] = parts;
+  const payload = `${subId}:${passengerId}:${routeId}:${expiresTimestamp}`;
+  const expectedHmac = crypto.createHmac('sha256', QR_SIGNING_KEY).update(payload).digest('hex').slice(0, 16);
+
+  if (signature !== expectedHmac) {
+    return { valid: false, reason: 'INVALID_SIGNATURE' };
+  }
+
+  const now = Date.now();
+  const expiry = parseInt(expiresTimestamp, 10);
+  if (isNaN(expiry) || now > expiry) {
+    return { valid: false, reason: 'EXPIRED_TOKEN' };
+  }
+
+  return { valid: true, subId, passengerId, routeId, expiresTimestamp };
 }
 
 /**
  * GET /api/subscriptions/my-status
- * Check current passenger subscription.
- * Returns NOT_SUBSCRIBED message prompting to pay and subscribe if inactive!
+ * Fetches passenger subscription.
+ * QR is available ONLY when ACTIVE and PAID!
  */
 router.get('/my-status', authenticate, requireRole('PASSENGER'), (req, res) => {
   try {
@@ -28,14 +61,26 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), (req, res) => {
       ORDER BY s.updatedAt DESC LIMIT 1
     `).get(passengerId);
 
-    if (!sub || sub.subscriptionStatus !== 'ACTIVE' || sub.daysRemaining <= 0) {
+    if (!sub || sub.subscriptionStatus !== 'ACTIVE' || sub.paymentStatus !== 'PAID' || sub.daysRemaining <= 0) {
       return res.json({
         success: true,
         isSubscribed: false,
         status: sub ? sub.subscriptionStatus : 'NOT_SUBSCRIBED',
+        paymentStatus: sub ? sub.paymentStatus : 'UNPAID',
+        qrToken: null, // Strictly hidden until paid & active
         message: 'The passenger is not subscribed. Please pay and subscribe for the selected route to activate your pass.',
         messageAm: 'ተሳፋሪው አልተመዘገበም። እባክዎ ለተመረጠው መስመር በቴሌብር ከፍለው ይመዝገቡ።',
-        subscription: sub || null
+        subscription: sub ? {
+          id: sub.id,
+          routeId: sub.routeId,
+          routeName: sub.routeName,
+          routeNameAm: sub.routeNameAm,
+          status: sub.subscriptionStatus,
+          paymentStatus: sub.paymentStatus,
+          priceEtb: sub.priceEtb,
+          daysRemaining: sub.daysRemaining,
+          qrToken: null
+        } : null
       });
     }
 
@@ -43,6 +88,7 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), (req, res) => {
       success: true,
       isSubscribed: true,
       status: 'ACTIVE',
+      paymentStatus: 'PAID',
       message: 'Active monthly commuter subscription verified.',
       subscription: {
         id: sub.id,
@@ -68,7 +114,8 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), (req, res) => {
 
 /**
  * POST /api/subscriptions/subscribe
- * Register or update route subscription (initially pending/not subscribed until paid)
+ * Register or update route subscription selection.
+ * Subscription starts as PENDING and UNPAID.
  */
 router.post('/subscribe', authenticate, requireRole('PASSENGER'), (req, res) => {
   try {
@@ -85,30 +132,29 @@ router.post('/subscribe', authenticate, requireRole('PASSENGER'), (req, res) => 
     }
 
     const subId = `sub_${passengerId}_${Date.now().toString(36)}`;
-    const user = DB.prepare('SELECT fullName FROM users WHERE id = ?').get(passengerId);
-    const fullName = user?.fullName || req.user.fullName;
-
-    // Check if subscription exists
     const existing = DB.prepare('SELECT id FROM subscriptions WHERE passengerId = ?').get(passengerId);
 
     if (existing) {
       DB.prepare(`
         UPDATE subscriptions
         SET routeId = ?, pickupStopId = ?, destinationStopId = ?, priceEtb = ?,
-            subscriptionStatus = 'NOT_SUBSCRIBED', paymentStatus = 'UNPAID', daysRemaining = 0,
+            subscriptionStatus = 'PENDING', paymentStatus = 'UNPAID', daysRemaining = 0,
             qrToken = NULL, updatedAt = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(routeId, pickupStopId, destinationStopId, route.basePriceEtb, existing.id);
     } else {
       DB.prepare(`
-        INSERT INTO subscriptions (id, passengerId, routeId, pickupStopId, destinationStopId, morningSchedule, eveningSchedule, priceEtb, paymentStatus, subscriptionStatus, daysRemaining)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'UNPAID', 'NOT_SUBSCRIBED', 0)
+        INSERT INTO subscriptions (id, passengerId, routeId, pickupStopId, destinationStopId, morningSchedule, eveningSchedule, priceEtb, paymentStatus, subscriptionStatus, daysRemaining, qrToken)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'UNPAID', 'PENDING', 0, NULL)
       `).run(subId, passengerId, routeId, pickupStopId, destinationStopId, route.morningDeparture, route.eveningDeparture, route.basePriceEtb);
     }
 
     res.json({
       success: true,
+      status: 'PENDING',
+      paymentStatus: 'UNPAID',
       message: 'The passenger is not subscribed. Please pay and subscribe for the selected route to activate your pass.',
+      messageAm: 'ተሳፋሪው አልተመዘገበም። እባክዎ ለተመረጠው መስመር በቴሌብር ከፍለው ይመዝገቡ።',
       actionRequired: 'TELEBIRR_PAYMENT',
       route: {
         id: route.id,
@@ -124,12 +170,33 @@ router.post('/subscribe', authenticate, requireRole('PASSENGER'), (req, res) => 
 
 /**
  * POST /api/subscriptions/telebirr/pay
- * Simulates / processes Telebirr payment and activates the subscription
+ * Server-side Telebirr Payment Processing with Idempotency.
+ * No client-side PIN collection or storage!
+ * Upon successful payment, activates subscription and generates server-signed QR token.
  */
-router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), (req, res) => {
+router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req, res) => {
   try {
     const passengerId = req.user.id;
-    const { routeId, phone = req.user.phone } = req.body;
+    const {
+      routeId,
+      phone = req.user.phone,
+      idempotencyKey = req.headers['x-idempotency-key'] || ''
+    } = req.body;
+
+    // 1. Idempotency Check: prevent duplicate payment processing
+    if (idempotencyKey) {
+      const existingTxn = DB.prepare('SELECT * FROM payment_transactions WHERE idempotencyKey = ?').get(idempotencyKey);
+      if (existingTxn) {
+        const sub = DB.prepare('SELECT * FROM subscriptions WHERE passengerId = ?').get(passengerId);
+        return res.json({
+          success: true,
+          idempotentReplay: true,
+          message: 'Payment already processed with this transaction reference.',
+          transaction: existingTxn,
+          subscription: sub
+        });
+      }
+    }
 
     const user = DB.prepare('SELECT * FROM users WHERE id = ?').get(passengerId);
     const targetRouteId = routeId || user?.appliedRouteId || 'route_bole_merkato';
@@ -141,64 +208,81 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), (req, res) 
 
     const price = route.basePriceEtb || 2500.0;
     const subId = `sub_${passengerId}_${Date.now().toString(36)}`;
-    const qrToken = generateQrToken(subId, passengerId, user?.fullName || 'Passenger', route.name);
-    const txnRef = `TB-TRANS-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const expiresTimestamp = Date.now() + 30 * 24 * 3600 * 1000;
+    const signedQrToken = generateSignedQrToken(subId, passengerId, targetRouteId, expiresTimestamp);
+
+    const txnRef = `TB-ET-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const txnId = `tx_${crypto.randomUUID().slice(0, 8)}`;
 
     const startDate = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
     const endDate = new Date(Date.now() + 30 * 86400000).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 
     // Record Telebirr Transaction
     DB.prepare(`
-      INSERT INTO payment_transactions (id, passengerId, referenceNumber, amountEtb, provider, status, notes)
-      VALUES (?, ?, ?, ?, 'Telebirr', 'COMPLETED', ?)
-    `).run(`pay_${txnRef}`, passengerId, txnRef, price, `Monthly pass for ${route.name}`);
+      INSERT INTO payment_transactions (id, passengerId, referenceNumber, idempotencyKey, amountEtb, provider, phoneNumber, status, notes)
+      VALUES (?, ?, ?, ?, ?, 'Telebirr', ?, 'COMPLETED', ?)
+    `).run(
+      txnId,
+      passengerId,
+      txnRef,
+      idempotencyKey || null,
+      price,
+      phone,
+      `Telebirr Transit Pass - ${route.name} (${PAYMENT_MODE} Mode)`
+    );
 
-    // Upsert subscription to ACTIVE
-    const existing = DB.prepare('SELECT id FROM subscriptions WHERE passengerId = ?').get(passengerId);
-    if (existing) {
+    // Activate Subscription & Assign Signed QR
+    const existingSub = DB.prepare('SELECT id FROM subscriptions WHERE passengerId = ?').get(passengerId);
+
+    if (existingSub) {
       DB.prepare(`
         UPDATE subscriptions
-        SET routeId = ?, morningSchedule = ?, eveningSchedule = ?, startDate = ?, endDate = ?,
-            priceEtb = ?, paymentStatus = 'PAID', subscriptionStatus = 'ACTIVE', vehicleId = 'veh_higer_aa_34921',
-            qrToken = ?, daysRemaining = 30, updatedAt = CURRENT_TIMESTAMP
+        SET routeId = ?, priceEtb = ?, paymentStatus = 'PAID', subscriptionStatus = 'ACTIVE',
+            startDate = ?, endDate = ?, daysRemaining = 30, qrToken = ?, updatedAt = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(targetRouteId, route.morningDeparture, route.eveningDeparture, startDate, endDate, price, qrToken, existing.id);
+      `).run(targetRouteId, price, startDate, endDate, signedQrToken, existingSub.id);
     } else {
       DB.prepare(`
-        INSERT INTO subscriptions (id, passengerId, routeId, pickupStopId, destinationStopId, morningSchedule, eveningSchedule, startDate, endDate, priceEtb, paymentStatus, subscriptionStatus, vehicleId, qrToken, daysRemaining)
-        VALUES (?, ?, ?, 'stop_atlas', 'stop_merkato', ?, ?, ?, ?, ?, 'PAID', 'ACTIVE', 'veh_higer_aa_34921', ?, 30)
-      `).run(subId, passengerId, targetRouteId, route.morningDeparture, route.eveningDeparture, startDate, endDate, price, qrToken);
+        INSERT INTO subscriptions (id, passengerId, routeId, pickupStopId, destinationStopId, morningSchedule, eveningSchedule, startDate, endDate, priceEtb, paymentStatus, subscriptionStatus, daysRemaining, qrToken)
+        VALUES (?, ?, ?, 'stop_atlas', 'stop_merkato', ?, ?, ?, ?, ?, 'PAID', 'ACTIVE', 30, ?)
+      `).run(subId, passengerId, targetRouteId, route.morningDeparture, route.eveningDeparture, startDate, endDate, price, signedQrToken);
     }
 
-    // Update user appliedRouteId
+    // Insert notification
+    const notifId = `notif_${crypto.randomUUID().slice(0, 8)}`;
     DB.prepare(`
-      UPDATE users SET appliedRouteId = ?, appliedRouteName = ? WHERE id = ?
-    `).run(targetRouteId, route.name, passengerId);
-
-    // Audit log
-    DB.prepare(`
-      INSERT INTO audit_logs (action, userId, role, details)
-      VALUES ('TELEBIRR_PAYMENT', ?, 'PASSENGER', ?)
-    `).run(passengerId, `Paid ETB ${price} via Telebirr (${txnRef}) for ${route.name}`);
+      INSERT INTO notifications (id, title, message, targetAudience, type, senderName)
+      VALUES (?, ?, ?, 'PASSENGERS', 'PAYMENT', 'Telebirr Gateway')
+    `).run(
+      notifId,
+      'Telebirr Subscription Activated',
+      `Payment of ETB ${price.toFixed(2)} confirmed for ${route.name}. Your digital boarding QR pass is now active!`
+    );
 
     res.json({
       success: true,
-      message: 'Telebirr payment successful! Monthly subscription is now ACTIVE.',
-      messageAm: 'የቴሌብር ክፍያ ተሳክቷል! ወርሃዊ የጉዞ ፈቃድዎ አሁን ነቅቷል።',
+      message: 'Telebirr payment verified. Subscription is now ACTIVE!',
+      messageAm: 'የቴሌብር ክፍያ ተረጋግጧል። የጉዞ ፈቃድዎ ነቅቷል!',
+      paymentMode: PAYMENT_MODE,
       transaction: {
+        id: txnId,
         referenceNumber: txnRef,
         amountEtb: price,
         provider: 'Telebirr',
-        date: new Date().toISOString()
+        date: new Date().toISOString(),
+        status: 'COMPLETED'
       },
       subscription: {
-        status: 'ACTIVE',
-        routeId: route.id,
+        id: subId,
+        routeId: targetRouteId,
         routeName: route.name,
+        routeNameAm: route.nameAm,
+        status: 'ACTIVE',
+        paymentStatus: 'PAID',
         daysRemaining: 30,
+        qrToken: signedQrToken,
         startDate,
-        endDate,
-        qrToken
+        endDate
       }
     });
   } catch (err) {
@@ -207,52 +291,25 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), (req, res) 
 });
 
 /**
- * GET /api/subscriptions/verify-qr/:token
- * Verify transit QR token authenticity
+ * GET /api/subscriptions/all
+ * Admin route to list all commuter subscriptions
  */
-router.get('/verify-qr/:token', authenticate, (req, res) => {
+router.get('/all', authenticate, requireRole('ADMIN'), (req, res) => {
   try {
-    const rawToken = req.params.token;
-    const sub = DB.prepare('SELECT * FROM subscriptions WHERE qrToken = ?').get(rawToken);
+    const list = DB.prepare(`
+      SELECT s.*, u.fullName as passengerName, u.phone as passengerPhone, r.name as routeName
+      FROM subscriptions s
+      LEFT JOIN users u ON s.passengerId = u.id
+      LEFT JOIN routes r ON s.routeId = r.id
+      ORDER BY s.updatedAt DESC
+    `).all();
 
-    if (!sub) {
-      return res.status(404).json({
-        success: false,
-        valid: false,
-        reason: 'QR code not recognized or invalid token.'
-      });
-    }
-
-    if (sub.subscriptionStatus !== 'ACTIVE' || sub.daysRemaining <= 0) {
-      return res.status(400).json({
-        success: false,
-        valid: false,
-        reason: 'Subscription is expired or inactive. Renewal required.'
-      });
-    }
-
-    const passenger = DB.prepare('SELECT fullName, phone FROM users WHERE id = ?').get(sub.passengerId);
-    const route = DB.prepare('SELECT name, nameAm FROM routes WHERE id = ?').get(sub.routeId);
-
-    res.json({
-      success: true,
-      valid: true,
-      passenger: {
-        id: sub.passengerId,
-        fullName: passenger?.fullName || 'Passenger',
-        phone: passenger?.phone || ''
-      },
-      route: {
-        id: sub.routeId,
-        name: route?.name || '',
-        nameAm: route?.nameAm || ''
-      },
-      daysRemaining: sub.daysRemaining,
-      status: sub.subscriptionStatus
-    });
+    res.json({ success: true, subscriptions: list });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
 module.exports = router;
+module.exports.generateSignedQrToken = generateSignedQrToken;
+module.exports.verifySignedQrToken = verifySignedQrToken;

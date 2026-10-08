@@ -1,28 +1,60 @@
 version: '3.8'
 
+# ====================================================================
+# RoutePass / Transport Navigator - Production Multi-Container Stack
+# Includes Private PostgreSQL 16, Node.js API, and Nginx (SSL/TLS Ready)
+# Production Security: Only ports 80 and 443 are exposed to the internet.
+# ====================================================================
+
 services:
-  # Transport Navigator Core Backend Service
+  # 1. Private Persistent PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    container_name: routepass_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-routepass_db}
+      POSTGRES_USER: ${POSTGRES_USER:-routepass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_routepass_pg_2026}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    # CRITICAL: PostgreSQL is private. No ports published to the host/internet in production.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-routepass} -d ${POSTGRES_DB:-routepass_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - routepass_internal
+
+  # 2. Node.js Express & WebSocket API Server
   api:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: transport_navigator_backend
+    container_name: routepass_api
     restart: unless-stopped
-    ports:
-      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - HOST=0.0.0.0
-      - JWT_SECRET=${JWT_SECRET:-transport_navigator_ethiopia_secret_key_vps_2026}
-      - JWT_EXPIRES_IN=30d
-      - DATA_DIR=/app/data
+      NODE_ENV: production
+      PORT: 3000
+      HOST: 0.0.0.0
+      DATABASE_URL: postgres://${POSTGRES_USER:-routepass}:${POSTGRES_PASSWORD:-secure_routepass_pg_2026}@db:5432/${POSTGRES_DB:-routepass_db}
+      JWT_SECRET: ${JWT_SECRET:-routepass_production_jwt_secret_key_vps_2026}
+      JWT_EXPIRES_IN: 30d
+      ADMIN_REGISTRATION_SECRET: ${ADMIN_REGISTRATION_SECRET:-routepass_admin_invite_secret_2026}
+      PAYMENT_MODE: ${PAYMENT_MODE:-TEST}
+      DATA_DIR: /app/data
+    expose:
+      - "3000"
     volumes:
-      # Persistent volume for SQLite database and audit logs
       - ./data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
-      interval: 30s
+      interval: 15s
       timeout: 5s
       retries: 3
     logging:
@@ -30,18 +62,35 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    networks:
+      - routepass_internal
 
-  # Optional Nginx Reverse Proxy with SSL (uncomment when domain is configured)
-  # nginx:
-  #   image: nginx:alpine
-  #   container_name: transport_navigator_nginx
-  #   restart: unless-stopped
-  #   ports:
-  #     - "80:80"
-  #     - "443:443"
-  #   volumes:
-  #     - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-  #     - ./certbot/conf:/etc/letsencrypt:ro
-  #     - ./certbot/www:/var/www/certbot:ro
-  #   depends_on:
-  #     - api
+  # 3. Nginx Reverse Proxy with HTTPS / SSL & WebSocket Upgrade
+  nginx:
+    image: nginx:alpine
+    container_name: routepass_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - certbot_conf:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+    depends_on:
+      - api
+    networks:
+      - routepass_internal
+
+volumes:
+  postgres_data:
+    name: routepass_postgres_data
+  certbot_conf:
+    name: routepass_certbot_conf
+  certbot_www:
+    name: routepass_certbot_www
+
+networks:
+  routepass_internal:
+    driver: bridge
+    name: routepass_internal_net

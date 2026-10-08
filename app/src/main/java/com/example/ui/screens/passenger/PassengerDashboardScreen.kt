@@ -1132,7 +1132,7 @@ fun TelebirrCheckoutDialog(
                     value = phone,
                     onValueChange = { phone = it },
                     label = { Text("Telebirr Mobile Number") },
-                    placeholder = { Text("09xxxxxxxx") },
+                    placeholder = { Text("09xxxxxxxx or +2519...") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                     singleLine = true,
                     modifier = Modifier
@@ -1140,16 +1140,27 @@ fun TelebirrCheckoutDialog(
                         .testTag("telebirr_phone_input")
                 )
 
-                OutlinedTextField(
-                    value = pin,
-                    onValueChange = { pin = it },
-                    label = { Text("Telebirr 4-Digit PIN") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("telebirr_pin_input")
-                )
+                Surface(
+                    color = Slate100,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.Security, contentDescription = null, tint = TelebirrBlue, modifier = Modifier.size(18.dp))
+                        Text(
+                            text = if (lang == AppLanguage.AMHARIC)
+                                "የቴሌብር ደህንነት፡ ክፍያ በቴሌብር አገልጋይ በኩል ይረጋገጣል። ፒን ቁጥርዎን ለማንም አይስጡ።"
+                            else
+                                "Telebirr Secure Pay: Authorization is processed server-side via Telebirr USSD. Never share your security PIN.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Slate700
+                        )
+                    }
+                }
 
                 statusMessage?.let { msg ->
                     Text(
@@ -1161,8 +1172,8 @@ fun TelebirrCheckoutDialog(
                 }
 
                 Button(
-                    onClick = { onConfirm(phone, pin) },
-                    enabled = !isProcessing && phone.isNotBlank() && pin.isNotBlank(),
+                    onClick = { onConfirm(phone, "") },
+                    enabled = !isProcessing && phone.isNotBlank(),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue),
                     modifier = Modifier

@@ -82,6 +82,9 @@ interface TransportDao {
     suspend fun getVehicleById(vehicleId: String): VehicleEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertVehicle(vehicle: VehicleEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertVehicles(vehicles: List<VehicleEntity>)
 
     @Update

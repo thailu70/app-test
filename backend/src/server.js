@@ -103,7 +103,10 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/routes', require('./routes/routes'));
 app.use('/api/subscriptions', require('./routes/subscriptions'));
 app.use('/api/vehicles', require('./routes/vehicles'));
+app.use('/api/trips', require('./routes/trips'));
 app.use('/api/checkins', require('./routes/checkins'));
+app.use('/api/admin', require('./routes/admin'));
+app.use('/api/complaints', require('./routes/complaints'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/sync', require('./routes/sync'));
 
@@ -146,6 +149,27 @@ wss.on('connection', (ws, req) => {
       // Handle client ping
       if (data.type === 'PING') {
         ws.send(JSON.stringify({ type: 'PONG', timestamp: Date.now() }));
+      } else if (data.type === 'DRIVER_LOCATION_UPDATE' && data.vehicleId) {
+        // Update vehicle in database
+        try {
+          DB.prepare(`
+            UPDATE vehicles
+            SET currentLat = ?, currentLng = ?, updatedAt = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).run(parseFloat(data.latitude), parseFloat(data.longitude), data.vehicleId);
+        } catch (dbErr) {
+          // ignore or log
+        }
+        // Broadcast real GPS location to all connected passengers & admins
+        broadcastWs({
+          type: 'VEHICLE_LOCATION_UPDATE',
+          vehicleId: data.vehicleId,
+          latitude: parseFloat(data.latitude),
+          longitude: parseFloat(data.longitude),
+          speed: parseFloat(data.speed || 0),
+          currentStop: data.currentStop || '',
+          timestamp: new Date().toISOString()
+        });
       }
     } catch (e) {
       // Ignore malformed payloads

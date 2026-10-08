@@ -8,6 +8,7 @@ import com.example.core.payment.TelebirrGateway
 import com.example.core.payment.TelebirrPaymentResult
 import com.example.core.qr.QrSecurityEngine
 import com.example.core.qr.QrValidationResult
+import com.example.data.api.LiveTrackingWebSocket
 import com.example.data.entity.*
 import com.example.data.repository.TransportRepository
 import kotlinx.coroutines.delay
@@ -88,6 +89,19 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
     val currentDriverId: String
         get() = _currentUser.value?.id ?: ""
+
+    init {
+        viewModelScope.launch {
+            try {
+                repository.refreshRoutesFromBackend()
+                repository.refreshVehiclesFromBackend()
+                repository.refreshNotificationsFromBackend()
+                LiveTrackingWebSocket.connect()
+            } catch (e: Exception) {
+                // Offline fallback
+            }
+        }
+    }
 
     // Passenger Flows
     val activeSubscription: StateFlow<SubscriptionEntity?> = _currentUser.flatMapLatest { user ->
@@ -228,6 +242,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         email: String,
         password: String,
         role: AppRole,
+        adminSecret: String = "",
         licenseNumber: String = "",
         companyName: String = "",
         assignedVehiclePlate: String = "",
@@ -255,6 +270,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 email = email,
                 password = password,
                 role = roleStr,
+                adminSecret = adminSecret,
                 licenseNumber = licenseNumber,
                 companyName = companyName,
                 assignedVehiclePlate = assignedVehiclePlate,
@@ -511,7 +527,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         _paymentMessage.value = null
     }
 
-    fun processTelebirrPayment(phone: String, pin: String) {
+    fun processTelebirrPayment(phone: String, pin: String = "") {
         viewModelScope.launch {
             _isProcessingPayment.value = true
             val user = _currentUser.value
@@ -529,8 +545,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 eveningSchedule = "17:30",
                 amountEtb = amount,
                 phoneNumber = phone,
-                telebirrPin = pin,
-                vehicleId = "veh_aa_12345",
+                vehicleId = "veh_higer_aa_34921",
                 idempotencyKey = UUID.randomUUID().toString(),
                 repository = repository
             )

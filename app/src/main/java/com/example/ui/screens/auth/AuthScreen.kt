@@ -54,6 +54,7 @@ fun AuthScreen(
     var licenseNumber by remember { mutableStateOf("") }
     var companyName by remember { mutableStateOf("") }
     var vehiclePlate by remember { mutableStateOf("") }
+    var adminSecret by remember { mutableStateOf("") }
 
     // Applied Route Selection for Passenger and Driver
     var selectedRouteId by remember { mutableStateOf("route_bole_merkato") }
@@ -401,6 +402,18 @@ fun AuthScreen(
                                         .fillMaxWidth()
                                         .testTag("auth_company_input")
                                 )
+
+                                OutlinedTextField(
+                                    value = adminSecret,
+                                    onValueChange = { adminSecret = it },
+                                    label = { Text("Admin Registration Secret Key *") },
+                                    placeholder = { Text("Authorized invitation secret required") },
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("auth_admin_secret_input")
+                                )
                             }
 
                             if (portal == AppRole.DRIVER) {
@@ -589,7 +602,8 @@ fun AuthScreen(
                                         companyName = companyName,
                                         assignedVehiclePlate = vehiclePlate,
                                         appliedRouteId = selectedRouteId,
-                                        appliedRouteName = selectedRouteName
+                                        appliedRouteName = selectedRouteName,
+                                        adminSecret = adminSecret
                                     )
                                 } else {
                                     viewModel.login(phone, password, portal)
