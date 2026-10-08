@@ -32,7 +32,7 @@ class TransportRepository(
      * Authenticate via VPS Backend REST API.
      * Caches authenticated user into Room on success.
      */
-    suspend fun authenticate(identifier: String, role: String, password: String =): UserEntity? {
+    suspend fun authenticate(identifier: String, role: String, password: String): UserEntity? {
         val cleanPhone = identifier.trim()
         val normalizedRole = role.trim().uppercase()
 
