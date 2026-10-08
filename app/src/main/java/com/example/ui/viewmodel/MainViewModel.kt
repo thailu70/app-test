@@ -216,7 +216,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 AppRole.DRIVER -> "DRIVER"
                 AppRole.ADMIN -> "ADMIN"
             }
-            val user = repository.authenticate(identifier, roleStr)
+            val user = repository.authenticate(identifier, roleStr, password)
             if (user != null) {
                 _currentUser.value = user
                 _currentRole.value = role
