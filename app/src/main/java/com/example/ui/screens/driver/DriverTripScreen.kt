@@ -68,7 +68,8 @@ fun DriverTripScreen(
                     tripState = tripState,
                     networkStatus = networkStatus,
                     lang = lang,
-                    onToggleNetwork = { viewModel.toggleNetworkMode() }
+                    onToggleNetwork = { viewModel.toggleNetworkMode() },
+                    onSetVehicleType = { type, cap -> viewModel.setVehicleType(type, cap) }
                 )
             }
 
@@ -114,6 +115,7 @@ fun DriverTripScreen(
             DriverQrScannerDialog(
                 scanResult = scanResult,
                 currentStop = stops.getOrNull(tripState.currentStopIndex)?.stopName ?: "Bole Atlas",
+                tripState = tripState,
                 onScanToken = { token -> viewModel.verifyQrToken(token) },
                 onDismissResult = { viewModel.dismissScanResult() },
                 onCloseScanner = { viewModel.closeScanner() }
@@ -130,9 +132,13 @@ fun DriverCockpitHeaderCard(
     tripState: DriverTripState,
     networkStatus: NetworkStatus,
     lang: AppLanguage,
-    onToggleNetwork: () -> Unit
+    onToggleNetwork: () -> Unit,
+    onSetVehicleType: (String, Int) -> Unit = { _, _ -> }
 ) {
     fun t(key: String) = AppStrings.get(key, lang)
+
+    val isFull = tripState.checkedInCount >= tripState.vehicleCapacity
+    val fillFraction = (tripState.checkedInCount.toFloat() / tripState.vehicleCapacity.toFloat()).coerceIn(0f, 1f)
 
     Card(
         modifier = Modifier
@@ -160,9 +166,9 @@ fun DriverCockpitHeaderCard(
                         color = Color.White
                     )
                     Text(
-                        text = "Toyota Coaster • Plate: $vehiclePlate",
+                        text = "${tripState.vehicleType} • Plate: $vehiclePlate",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Slate400
+                        color = TransportGold
                     )
                 }
 
@@ -215,30 +221,148 @@ fun DriverCockpitHeaderCard(
                 }
             }
 
+            // Vehicle Type & Passenger Limit Switcher (Transporter limit based on vehicle type)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Slate800)
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (lang == AppLanguage.AMHARIC) "የተሽከርካሪ ዓይነት እና የመንገደኞች ገደብ:" else "Vehicle Type & Passenger Limit:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Slate400,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "Max ${tripState.vehicleCapacity} Seats",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TransportGold,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val vehicles = listOf(
+                        Pair("Toyota Coaster", 24),
+                        Pair("Minibus HiAce", 14),
+                        Pair("Minivan", 8)
+                    )
+
+                    vehicles.forEach { (type, cap) ->
+                        val isSelected = tripState.vehicleType == type
+                        Surface(
+                            color = if (isSelected) TransportGreenPrimary else Slate700,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onSetVehicleType(type, cap) }
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(vertical = 6.dp, horizontal = 4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = type.substringBefore(" "),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    fontSize = 10.sp
+                                )
+                                Text(
+                                    text = "$cap seats",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isSelected) TransportGold else Slate300,
+                                    fontSize = 9.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             HorizontalDivider(color = Slate800)
 
+            // Trips and Passenger Limit Meter
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(text = t("todays_trips"), style = MaterialTheme.typography.labelSmall, color = Slate400)
                     Text(text = "Morning Trip (06:30)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = TransportGold)
                     Text(text = routeName, style = MaterialTheme.typography.bodySmall, color = Color.White)
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(text = t("passengers_onboard"), style = MaterialTheme.typography.labelSmall, color = Slate400)
                     Text(
-                        text = "${tripState.checkedInCount} / ${tripState.totalPassengers}",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = StatusActiveGreen
-                    )
-                    Text(
-                        text = "${tripState.totalPassengers - tripState.checkedInCount} remaining",
+                        text = if (lang == AppLanguage.AMHARIC) "የተሳፈሩ / ገደብ" else "Boarded / Capacity Limit",
                         style = MaterialTheme.typography.labelSmall,
                         color = Slate400
                     )
+                    Text(
+                        text = "${tripState.checkedInCount} / ${tripState.vehicleCapacity}",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (isFull) StatusErrorRed else StatusActiveGreen
+                    )
+                    Text(
+                        text = if (isFull)
+                            "0 seats available (FULL)"
+                        else
+                            "${tripState.vehicleCapacity - tripState.checkedInCount} seats available",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isFull) StatusErrorRed else TransportGold,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // Visual Capacity Limit Progress Bar
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                LinearProgressIndicator(
+                    progress = { fillFraction },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp)),
+                    color = if (isFull) StatusErrorRed else if (fillFraction > 0.8f) StatusWarningOrange else StatusActiveGreen,
+                    trackColor = Slate800,
+                )
+
+                if (isFull) {
+                    Surface(
+                        color = StatusErrorRed.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, StatusErrorRed),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Default.Block, contentDescription = null, tint = StatusErrorRed, modifier = Modifier.size(16.dp))
+                            Text(
+                                text = if (lang == AppLanguage.AMHARIC)
+                                    "የተሽከርካሪው የመንገደኛ ገደብ ሞልቷል! ለዚህ ተሽከርካሪ ዓይነት ተጨማሪ መንገደኛ መጫን አይቻልም።"
+                                else
+                                    "PASSENGER LIMIT REACHED: Vehicle is full for this vehicle type (${tripState.vehicleCapacity} max seats).",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -521,10 +645,13 @@ fun StopSequenceRow(
 fun DriverQrScannerDialog(
     scanResult: QrValidationResult?,
     currentStop: String,
+    tripState: DriverTripState,
     onScanToken: (String) -> Unit,
     onDismissResult: () -> Unit,
     onCloseScanner: () -> Unit
 ) {
+    val isCapacityFull = tripState.checkedInCount >= tripState.vehicleCapacity
+
     Dialog(
         onDismissRequest = onCloseScanner,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -557,7 +684,7 @@ fun DriverQrScannerDialog(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Current Stop: $currentStop",
+                            text = "Current Stop: $currentStop • Vehicle: ${tripState.vehicleType}",
                             color = TransportGold,
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -567,11 +694,48 @@ fun DriverQrScannerDialog(
                     }
                 }
 
+                // Vehicle Capacity Alert Banner if Full
+                if (isCapacityFull) {
+                    Surface(
+                        color = StatusErrorRed.copy(alpha = 0.25f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, StatusErrorRed),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Block, contentDescription = null, tint = StatusErrorRed)
+                            Text(
+                                text = "⛔ VEHICLE AT FULL CAPACITY (${tripState.checkedInCount}/${tripState.vehicleCapacity} Seats). Further boarding will be rejected for this vehicle type.",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                } else {
+                    Surface(
+                        color = StatusActiveGreen.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = "SEATS AVAILABLE: ${tripState.vehicleCapacity - tripState.checkedInCount} of ${tripState.vehicleCapacity} left",
+                            color = StatusActiveGreen,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
                 // Center Reticle
                 Box(
                     modifier = Modifier
-                        .size(260.dp)
-                        .border(3.dp, StatusActiveGreen, RoundedCornerShape(16.dp))
+                        .size(240.dp)
+                        .border(3.dp, if (isCapacityFull) StatusErrorRed else StatusActiveGreen, RoundedCornerShape(16.dp))
                         .padding(12.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -580,11 +744,11 @@ fun DriverQrScannerDialog(
                             Icons.Default.QrCodeScanner,
                             contentDescription = null,
                             tint = Color.White.copy(alpha = 0.8f),
-                            modifier = Modifier.size(64.dp)
+                            modifier = Modifier.size(56.dp)
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            text = "Align passenger QR inside frame",
+                            text = if (isCapacityFull) "Vehicle at capacity limit" else "Align passenger QR inside frame",
                             color = Color.White.copy(alpha = 0.8f),
                             style = MaterialTheme.typography.bodySmall,
                             textAlign = TextAlign.Center
@@ -613,7 +777,7 @@ fun DriverQrScannerDialog(
                     ) {
                         Icon(Icons.Default.CheckCircle, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("SCAN PASSENGER ABEBE (VALID)")
+                        Text("SCAN PASSENGER ABEBE (VALID PASS)")
                     }
 
                     Row(
@@ -628,7 +792,7 @@ fun DriverQrScannerDialog(
                                 .testTag("scan_expired_button"),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
                         ) {
-                            Text("Test Expired", fontSize = 12.sp)
+                            Text("Test Expired", fontSize = 11.sp)
                         }
 
                         OutlinedButton(
@@ -639,7 +803,7 @@ fun DriverQrScannerDialog(
                                 .testTag("scan_wrong_route_button"),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
                         ) {
-                            Text("Wrong Route", fontSize = 12.sp)
+                            Text("Wrong Route", fontSize = 11.sp)
                         }
                     }
                 }

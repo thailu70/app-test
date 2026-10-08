@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
         AuditLogEntity::class,
         NotificationEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class TransportDatabase : RoomDatabase() {
@@ -62,7 +62,7 @@ abstract class TransportDatabase : RoomDatabase() {
         }
 
         private suspend fun populateInitialData(dao: TransportDao) {
-            // Seed Users with passwords & roles
+            // Seed Users with passwords, roles, and applied routes
             val users = listOf(
                 UserEntity(
                     id = "usr_p_abebe",
@@ -71,7 +71,9 @@ abstract class TransportDatabase : RoomDatabase() {
                     phone = "+251911223344",
                     email = "abebe.kebede@example.com",
                     avatarInitials = "AK",
-                    password = "password123"
+                    password = "password123",
+                    appliedRouteId = "route_bole_merkato",
+                    appliedRouteName = "Bole → Merkato"
                 ),
                 UserEntity(
                     id = "usr_p_hana",
@@ -80,7 +82,9 @@ abstract class TransportDatabase : RoomDatabase() {
                     phone = "+251922334455",
                     email = "hana.t@example.com",
                     avatarInitials = "HT",
-                    password = "password123"
+                    password = "password123",
+                    appliedRouteId = "route_cmc_bole",
+                    appliedRouteName = "CMC → Bole"
                 ),
                 UserEntity(
                     id = "usr_p_dawit",
@@ -89,7 +93,9 @@ abstract class TransportDatabase : RoomDatabase() {
                     phone = "+251933445566",
                     email = "dawit.b@example.com",
                     avatarInitials = "DB",
-                    password = "password123"
+                    password = "password123",
+                    appliedRouteId = "route_saris_kazanchis",
+                    appliedRouteName = "Saris → Kazanchis"
                 ),
                 UserEntity(
                     id = "usr_p_meron",
@@ -98,7 +104,9 @@ abstract class TransportDatabase : RoomDatabase() {
                     phone = "+251944556677",
                     email = "meron.h@example.com",
                     avatarInitials = "MH",
-                    password = "password123"
+                    password = "password123",
+                    appliedRouteId = "route_bole_merkato",
+                    appliedRouteName = "Bole → Merkato"
                 ),
                 UserEntity(
                     id = "usr_d_alemu",
@@ -109,7 +117,9 @@ abstract class TransportDatabase : RoomDatabase() {
                     licenseNumber = "ET-AA-789012",
                     avatarInitials = "AA",
                     password = "password123",
-                    assignedVehiclePlate = "AA-12345"
+                    assignedVehiclePlate = "AA-12345",
+                    appliedRouteId = "route_bole_merkato",
+                    appliedRouteName = "Bole → Merkato"
                 ),
                 UserEntity(
                     id = "usr_d_girma",
@@ -120,7 +130,9 @@ abstract class TransportDatabase : RoomDatabase() {
                     licenseNumber = "ET-AA-345678",
                     avatarInitials = "GT",
                     password = "password123",
-                    assignedVehiclePlate = "AA-67890"
+                    assignedVehiclePlate = "AA-67890",
+                    appliedRouteId = "route_cmc_bole",
+                    appliedRouteName = "CMC → Bole"
                 ),
                 UserEntity(
                     id = "usr_admin",

@@ -67,16 +67,19 @@ fun PassengerDashboardScreen(
                 subscription = subscription,
                 userAppliedRoute = currentUser?.appliedRouteName,
                 lang = lang,
-                onRenewClick = { viewModel.openTelebirrDialog() }
+                onRenewClick = { viewModel.openTelebirrDialog() },
+                onCancelClick = { viewModel.cancelSubscription() }
             )
         }
 
         // 2. Dynamic Boarding QR Code Card
         item {
             PassengerQrCard(
-                token = subscription?.qrToken ?: "ET-NAV-2026-BOLE-AK7899",
-                status = subscription?.subscriptionStatus ?: "ACTIVE",
-                lang = lang
+                isSubscribed = subscription != null && subscription?.subscriptionStatus == "ACTIVE",
+                token = subscription?.qrToken ?: "",
+                status = subscription?.subscriptionStatus ?: "NOT_SUBSCRIBED",
+                lang = lang,
+                onSubscribeClick = { viewModel.openTelebirrDialog() }
             )
         }
 
@@ -152,14 +155,15 @@ fun SubscriptionStatusCard(
     subscription: com.example.data.entity.SubscriptionEntity?,
     userAppliedRoute: String?,
     lang: AppLanguage,
-    onRenewClick: () -> Unit
+    onRenewClick: () -> Unit,
+    onCancelClick: () -> Unit = {}
 ) {
     fun t(key: String) = AppStrings.get(key, lang)
 
+    val isSubscribed = subscription != null && subscription.subscriptionStatus == "ACTIVE"
     val routeDisplayName = if (!userAppliedRoute.isNullOrBlank()) userAppliedRoute else "Bole → Merkato"
-    val days = subscription?.daysRemaining ?: 30
-    val statusText = subscription?.subscriptionStatus ?: "ACTIVE"
-    val priceVal = (subscription?.priceEtb ?: 2500.0).toInt()
+    val days = if (isSubscribed) (subscription?.daysRemaining ?: 30) else 0
+    val priceVal = (subscription?.priceEtb ?: if (routeDisplayName.contains("CMC")) 3000.0 else if (routeDisplayName.contains("Saris")) 2800.0 else 2500.0).toInt()
     val pickupName = if (routeDisplayName.contains("CMC")) "CMC Station" else if (routeDisplayName.contains("Saris")) "Saris Abo" else "Bole Atlas"
     val destinationName = if (routeDisplayName.contains("CMC")) "Bole Medhanialem" else if (routeDisplayName.contains("Kazanchis")) "Kazanchis UNECA" else "Merkato"
 
@@ -176,7 +180,10 @@ fun SubscriptionStatusCard(
                 .fillMaxWidth()
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(TransportGreenDark, Slate900)
+                        if (isSubscribed)
+                            listOf(TransportGreenDark, Slate900)
+                        else
+                            listOf(Color(0xFF3B1510), Slate900)
                     )
                 )
                 .padding(20.dp)
@@ -188,7 +195,7 @@ fun SubscriptionStatusCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = routeDisplayName,
                             style = MaterialTheme.typography.titleMedium,
@@ -196,15 +203,19 @@ fun SubscriptionStatusCard(
                             color = Color.White
                         )
                         Text(
-                            text = "Toyota Coaster • AA-12345",
+                            text = if (isSubscribed) "Toyota Coaster • Plate: AA-12345" else "Selected Transit Route",
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate400
                         )
                     }
+
                     Surface(
-                        color = StatusActiveGreen.copy(alpha = 0.2f),
+                        color = if (isSubscribed) StatusActiveGreen.copy(alpha = 0.2f) else StatusErrorRed.copy(alpha = 0.2f),
                         shape = RoundedCornerShape(12.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, StatusActiveGreen)
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isSubscribed) StatusActiveGreen else StatusErrorRed
+                        )
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
@@ -212,13 +223,13 @@ fun SubscriptionStatusCard(
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Icon(
-                                Icons.Default.CheckCircle,
+                                imageVector = if (isSubscribed) Icons.Default.CheckCircle else Icons.Default.Cancel,
                                 contentDescription = null,
-                                tint = StatusActiveGreen,
+                                tint = if (isSubscribed) StatusActiveGreen else StatusErrorRed,
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
-                                text = statusText,
+                                text = if (isSubscribed) "ACTIVE ✓" else "NOT SUBSCRIBED ✕",
                                 color = Color.White,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold
@@ -227,9 +238,50 @@ fun SubscriptionStatusCard(
                     }
                 }
 
+                // If NOT subscribed, show prominent notice banner
+                if (!isSubscribed) {
+                    Surface(
+                        color = Color(0xFFFEF3C7).copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.WarningAmber,
+                                contentDescription = null,
+                                tint = Color(0xFFFBBF24),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = if (lang == AppLanguage.AMHARIC)
+                                        "ይህ ተሳፋሪ እስካሁን አልተመዘገበም!"
+                                    else
+                                        "Passenger is not subscribed yet!",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFFDE68A)
+                                )
+                                Text(
+                                    text = if (lang == AppLanguage.AMHARIC)
+                                        "እባክዎ ለተመረጠው የጉዞ መስመር ($routeDisplayName) ክፍያ ፈጽመው ይመዝገቡ። ከዚያ በኋላ ደንበኝነቱ ንቁ (Active) ይሆናል።"
+                                    else
+                                        "The passenger is not subscribed. Please pay and subscribe for the selected route ($routeDisplayName). After payment, your monthly subscription will be ACTIVE.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+                }
+
                 HorizontalDivider(color = Slate700)
 
-                // Route details
+                // Route pickup & destination details
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -237,7 +289,7 @@ fun SubscriptionStatusCard(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(text = t("pickup"), style = MaterialTheme.typography.labelMedium, color = Slate400)
                         Text(text = pickupName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
-                        Text(text = "06:30 AM", style = MaterialTheme.typography.labelSmall, color = TransportGold)
+                        Text(text = "06:30 AM Pickup", style = MaterialTheme.typography.labelSmall, color = TransportGold)
                     }
                     Icon(
                         Icons.Default.ArrowForward,
@@ -250,7 +302,7 @@ fun SubscriptionStatusCard(
                     Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
                         Text(text = t("destination"), style = MaterialTheme.typography.labelMedium, color = Slate400)
                         Text(text = destinationName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
-                        Text(text = "07:30 AM", style = MaterialTheme.typography.labelSmall, color = TransportGold)
+                        Text(text = "17:30 PM Return", style = MaterialTheme.typography.labelSmall, color = TransportGold)
                     }
                 }
 
@@ -265,31 +317,84 @@ fun SubscriptionStatusCard(
                 ) {
                     Column {
                         Text(text = t("driver_label"), style = MaterialTheme.typography.labelSmall, color = Slate400)
-                        Text(text = "Abebe Alemu", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(
+                            text = if (isSubscribed) "Abebe Alemu" else "Pending Payment",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
                     }
                     Column {
                         Text(text = t("days_remaining"), style = MaterialTheme.typography.labelSmall, color = Slate400)
-                        Text(text = "$days Days", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = TransportGold)
+                        Text(
+                            text = if (isSubscribed) "$days Days" else "0 Days",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSubscribed) TransportGold else Slate400
+                        )
                     }
                     Column {
                         Text(text = t("payment"), style = MaterialTheme.typography.labelSmall, color = Slate400)
-                        Text(text = "PAID (ETB $priceVal)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = StatusActiveGreen)
+                        Text(
+                            text = if (isSubscribed) "PAID (ETB $priceVal)" else "UNPAID (ETB $priceVal)",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSubscribed) StatusActiveGreen else StatusErrorRed
+                        )
                     }
                 }
 
-                // Action button
-                OutlinedButton(
-                    onClick = onRenewClick,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("renew_subscription_button"),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, TelebirrBlue)
-                ) {
-                    Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = TelebirrBlue)
-                    Spacer(Modifier.width(8.dp))
-                    Text(text = t("renew_subscription"), fontWeight = FontWeight.SemiBold)
+                // Action button: Pay & Subscribe vs Renew
+                if (!isSubscribed) {
+                    Button(
+                        onClick = onRenewClick,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("pay_and_subscribe_button"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue)
+                    ) {
+                        Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = Color.White)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = if (lang == AppLanguage.AMHARIC)
+                                "በቴሌብር ይክፈሉ እና ይመዝገቡ (ETB $priceVal)"
+                            else
+                                "Pay & Subscribe with Telebirr (ETB $priceVal)",
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onRenewClick,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("renew_subscription_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, TelebirrBlue)
+                        ) {
+                            Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = TelebirrBlue)
+                            Spacer(Modifier.width(6.dp))
+                            Text(text = t("renew_subscription"), fontWeight = FontWeight.SemiBold)
+                        }
+
+                        TextButton(
+                            onClick = onCancelClick,
+                            modifier = Modifier.testTag("cancel_sub_button")
+                        ) {
+                            Text(
+                                text = "Cancel Pass",
+                                color = Slate400,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -298,9 +403,11 @@ fun SubscriptionStatusCard(
 
 @Composable
 fun PassengerQrCard(
+    isSubscribed: Boolean,
     token: String,
     status: String,
-    lang: AppLanguage
+    lang: AppLanguage,
+    onSubscribeClick: () -> Unit = {}
 ) {
     fun t(key: String) = AppStrings.get(key, lang)
 
@@ -344,18 +451,18 @@ fun PassengerQrCard(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = t("qr_token_rotates"),
+                        text = if (isSubscribed) t("qr_token_rotates") else "Subscription required to generate pass",
                         style = MaterialTheme.typography.bodySmall,
                         color = Slate600
                     )
                 }
                 Surface(
-                    color = StatusActiveGreen.copy(alpha = 0.15f),
+                    color = if (isSubscribed) StatusActiveGreen.copy(alpha = 0.15f) else StatusErrorRed.copy(alpha = 0.15f),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
-                        text = "ACTIVE ✓",
-                        color = StatusActiveGreen,
+                        text = if (isSubscribed) "ACTIVE ✓" else "NOT SUBSCRIBED ✕",
+                        color = if (isSubscribed) StatusActiveGreen else StatusErrorRed,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -363,44 +470,111 @@ fun PassengerQrCard(
                 }
             }
 
-            // High-resolution Canvas QR Code with Glowing Animated Border
-            Box(
-                modifier = Modifier
-                    .size(230.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .border(3.dp, TransportGreenPrimary.copy(alpha = pulseAlpha), RoundedCornerShape(20.dp))
-                    .padding(8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                QrCodeCanvas(
-                    token = token,
-                    modifier = Modifier.fillMaxSize(),
-                    moduleColor = Slate900,
-                    backgroundColor = Color.White
-                )
-            }
+            if (isSubscribed && token.isNotBlank()) {
+                // High-resolution Canvas QR Code with Glowing Animated Border
+                Box(
+                    modifier = Modifier
+                        .size(230.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .border(3.dp, TransportGreenPrimary.copy(alpha = pulseAlpha), RoundedCornerShape(20.dp))
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    QrCodeCanvas(
+                        token = token,
+                        modifier = Modifier.fillMaxSize(),
+                        moduleColor = Slate900,
+                        backgroundColor = Color.White
+                    )
+                }
 
-            // Secure Token text representation
-            Surface(
-                color = Slate100,
-                shape = RoundedCornerShape(8.dp)
-            ) {
+                // Secure Token text representation
+                Surface(
+                    color = Slate100,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = "ID: ${token.take(18)}...",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        color = Slate700,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+
                 Text(
-                    text = "ID: ${token.take(18)}...",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                    color = Slate700,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    text = t("qr_instruction"),
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    color = Slate600,
+                    modifier = Modifier.padding(horizontal = 16.dp)
                 )
-            }
+            } else {
+                // Locked / Not Subscribed Placeholder
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = Slate100,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Slate300)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = StatusWarningOrange.copy(alpha = 0.2f),
+                            modifier = Modifier.size(56.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = StatusWarningOrange,
+                                    modifier = Modifier.size(30.dp)
+                                )
+                            }
+                        }
 
-            Text(
-                text = t("qr_instruction"),
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center,
-                color = Slate600,
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
+                        Text(
+                            text = if (lang == AppLanguage.AMHARIC) "የመሳፈሪያ QR ኮድ አልነቃም" else "QR Boarding Pass Inactive",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Slate900
+                        )
+
+                        Text(
+                            text = if (lang == AppLanguage.AMHARIC)
+                                "የዲጂታል መሳፈሪያ QR ኮድ ለማግኘት እባክዎ አስቀድመው ለተመረጠው መስመር በቴሌብር ክፍያ ፈጽመው ይመዝገቡ።"
+                            else
+                                "The dynamic QR boarding pass is locked because you do not have an active monthly subscription. Pay with Telebirr to activate your pass.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Slate600,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Button(
+                            onClick = onSubscribeClick,
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue),
+                            modifier = Modifier.padding(top = 4.dp)
+                        ) {
+                            Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = Color.White)
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = if (lang == AppLanguage.AMHARIC) "በቴሌብር ይክፈሉ" else "Pay & Subscribe via Telebirr",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

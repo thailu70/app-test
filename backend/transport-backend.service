@@ -1,0 +1,28 @@
+[Unit]
+Description=Transport Navigator VPS Backend Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/transport-backend
+ExecStart=/usr/bin/node src/server.js
+Restart=always
+RestartSec=5
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=transport-backend
+
+# Environment variables
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOST=0.0.0.0
+Environment=DATA_DIR=/var/www/transport-backend/data
+Environment=JWT_SECRET=transport_navigator_production_secret_key_2026
+
+# Resource limits & Security
+LimitNOFILE=65536
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target

@@ -38,7 +38,7 @@ object QrSecurityEngine {
     }
 
     /**
-     * Driver scans QR token and backend checks all 8 rules.
+     * Driver scans QR token and backend checks all rules including vehicle capacity limits.
      */
     suspend fun validateToken(
         qrToken: String,
@@ -47,11 +47,21 @@ object QrSecurityEngine {
         currentVehicleId: String,
         currentStopName: String,
         driverId: String,
-        repository: TransportRepository
+        repository: TransportRepository,
+        vehicleCapacity: Int = 24,
+        currentPassengerCount: Int = 0
     ): QrValidationResult {
         val trimmedToken = qrToken.trim()
 
-        // 1. Token format & basic check
+        // 1. Vehicle Capacity Limit Check based on vehicle type
+        if (currentPassengerCount >= vehicleCapacity) {
+            return QrValidationResult.Invalid(
+                reason = "reason_capacity_full",
+                details = "Vehicle capacity limit reached ($currentPassengerCount/$vehicleCapacity seats full). No further passengers can be boarded on this vehicle type."
+            )
+        }
+
+        // 2. Token format & basic check
         if (trimmedToken.isBlank()) {
             return QrValidationResult.Invalid("reason_invalid_qr", "QR code is blank or unreadable.")
         }

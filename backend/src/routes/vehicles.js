@@ -1,0 +1,154 @@
+const express = require('express');
+const router = express.Router();
+const { DB } = require('../db');
+const { authenticate, requireRole } = require('../middleware/auth');
+
+// Vehicle Type Standard Capacities
+const VEHICLE_TYPE_CAPACITIES = {
+  MINIVAN_8: 8,
+  MINIBUS_14: 14,
+  HIGER_24: 24,
+  ANBESSA_BUS_30: 30
+};
+
+/**
+ * GET /api/vehicles
+ * List all active vehicles with capacity metrics
+ */
+router.get('/', (req, res) => {
+  try {
+    const vehicles = DB.prepare(`
+      SELECT v.*, r.name as routeName, r.nameAm as routeNameAm
+      FROM vehicles v
+      LEFT JOIN routes r ON v.assignedRouteId = r.id
+      ORDER BY v.plateNumber ASC
+    `).all();
+
+    res.json({
+      success: true,
+      count: vehicles.length,
+      vehicles: vehicles.map(v => ({
+        ...v,
+        isFull: v.currentOccupancy >= v.capacityLimit,
+        availableSeats: Math.max(0, v.capacityLimit - v.currentOccupancy),
+        occupancyPercentage: Math.round((v.currentOccupancy / v.capacityLimit) * 100)
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/vehicles/:id
+ * Get single vehicle details
+ */
+router.get('/:id', (req, res) => {
+  try {
+    const vehicle = DB.prepare(`
+      SELECT v.*, r.name as routeName, r.nameAm as routeNameAm
+      FROM vehicles v
+      LEFT JOIN routes r ON v.assignedRouteId = r.id
+      WHERE v.id = ?
+    `).get(req.params.id);
+
+    if (!vehicle) {
+      return res.status(404).json({ success: false, error: 'Vehicle not found' });
+    }
+
+    res.json({
+      success: true,
+      vehicle: {
+        ...vehicle,
+        isFull: vehicle.currentOccupancy >= vehicle.capacityLimit,
+        availableSeats: Math.max(0, vehicle.capacityLimit - vehicle.currentOccupancy),
+        occupancyPercentage: Math.round((vehicle.currentOccupancy / vehicle.capacityLimit) * 100)
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * PATCH /api/vehicles/:id/type
+ * Driver or Admin: Update vehicle type and enforce passenger limit
+ */
+router.patch('/:id/type', authenticate, requireRole('DRIVER', 'ADMIN'), (req, res) => {
+  try {
+    const { vehicleType, capacityLimit } = req.body;
+    const vehicle = DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
+
+    if (!vehicle) {
+      return res.status(404).json({ success: false, error: 'Vehicle not found' });
+    }
+
+    const standardCapacity = capacityLimit !== undefined ? parseInt(capacityLimit, 10) : (VEHICLE_TYPE_CAPACITIES[vehicleType] || 14);
+    const newOccupancy = req.body.currentOccupancy !== undefined ? parseInt(req.body.currentOccupancy, 10) : Math.min(vehicle.currentOccupancy, standardCapacity);
+    const newStatus = newOccupancy >= standardCapacity ? 'FULL' : 'IN_SERVICE';
+
+    DB.prepare(`
+      UPDATE vehicles
+      SET vehicleType = ?, capacityLimit = ?, currentOccupancy = ?, status = ?, updatedAt = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(vehicleType, standardCapacity, newOccupancy, newStatus, req.params.id);
+
+    DB.prepare(`
+      INSERT INTO audit_logs (action, userId, role, details)
+      VALUES ('VEHICLE_TYPE_UPDATED', ?, ?, ?)
+    `).run(req.user.id, req.user.role, `Updated vehicle ${vehicle.plateNumber} to ${vehicleType} (Limit: ${standardCapacity} seats)`);
+
+    const updated = DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
+
+    res.json({
+      success: true,
+      message: `Vehicle capacity limit set to ${standardCapacity} passengers based on ${vehicleType}.`,
+      vehicle: updated
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/vehicles/:id/location
+ * Driver: Send GPS location telemetry (broadcasts to WebSocket clients)
+ */
+router.post('/:id/location', authenticate, requireRole('DRIVER'), (req, res) => {
+  try {
+    const { latitude, longitude, speed = 0, currentStop = '' } = req.body;
+
+    if (latitude === undefined || longitude === undefined) {
+      return res.status(400).json({ success: false, error: 'Latitude and longitude are required.' });
+    }
+
+    DB.prepare(`
+      UPDATE vehicles
+      SET currentLat = ?, currentLng = ?, updatedAt = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(parseFloat(latitude), parseFloat(longitude), req.params.id);
+
+    // Broadcast telemetry via global ws broadcast if available
+    if (req.app.locals.broadcastWs) {
+      req.app.locals.broadcastWs({
+        type: 'VEHICLE_LOCATION_UPDATE',
+        vehicleId: req.params.id,
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
+        speed: parseFloat(speed),
+        currentStop,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Telemetry updated successfully',
+      location: { latitude, longitude }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+module.exports = router;

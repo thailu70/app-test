@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  # Transport Navigator Core Backend Service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: transport_navigator_backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOST=0.0.0.0
+      - JWT_SECRET=${JWT_SECRET:-transport_navigator_ethiopia_secret_key_vps_2026}
+      - JWT_EXPIRES_IN=30d
+      - DATA_DIR=/app/data
+    volumes:
+      # Persistent volume for SQLite database and audit logs
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional Nginx Reverse Proxy with SSL (uncomment when domain is configured)
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: transport_navigator_nginx
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+  #     - ./certbot/conf:/etc/letsencrypt:ro
+  #     - ./certbot/www:/var/www/certbot:ro
+  #   depends_on:
+  #     - api

@@ -56,6 +56,12 @@ object AppStrings {
         "submit_complaint" to "Submit Feedback / Incident",
         "subscribe_now" to "Subscribe to Route",
         "renew_subscription" to "Renew Subscription",
+        "status_not_subscribed" to "NOT SUBSCRIBED ✕",
+        "not_subscribed_notice" to "You are not subscribed yet. Please pay and subscribe for your selected route to activate your transport pass.",
+        "vehicle_capacity_limit" to "Vehicle Passenger Limit",
+        "capacity_reached" to "CAPACITY LIMIT REACHED (FULL) ⛔",
+        "seats_remaining" to "seats available",
+        "change_vehicle_type" to "Vehicle Type & Capacity Limit",
 
         // Driver Dashboard
         "driver_cockpit" to "Driver Console",
@@ -85,6 +91,7 @@ object AppStrings {
         "reason_wrong_vehicle" to "Wrong vehicle",
         "reason_invalid_qr" to "Invalid QR / signature",
         "reason_already_checked" to "Already checked in today",
+        "reason_capacity_full" to "VEHICLE AT MAXIMUM CAPACITY! Passenger limit reached for this vehicle type.",
 
         // Admin Dashboard
         "kpi_total_passengers" to "Total Passengers",
@@ -147,6 +154,12 @@ object AppStrings {
         "submit_complaint" to "ቅሬታ ወይም አስተያየት ያቅርቡ",
         "subscribe_now" to "ወርሃዊ ምዝገባ ይጀምሩ",
         "renew_subscription" to "ደንበኝነት ያድሱ",
+        "status_not_subscribed" to "ያልተመዘገበ / ያልተከፈለ ✕",
+        "not_subscribed_notice" to "እባክዎ የተመረጠውን መስመር አገልግሎት ለማግኝት ክፍያ ፈጽመው ይመዝገቡ።",
+        "vehicle_capacity_limit" to "የተሽከርካሪ የመንገደኞች ገደብ",
+        "capacity_reached" to "የተሽከርካሪው የመንገደኛ ገደብ ሞልቷል (ሙሉ) ⛔",
+        "seats_remaining" to "ክፍት መቀመጫዎች",
+        "change_vehicle_type" to "የተሽከርካሪ ዓይነት እና የመንገደኞች ገደብ",
 
         // Driver Dashboard
         "driver_cockpit" to "የሹፌር መቆጣጠሪያ",
@@ -176,6 +189,7 @@ object AppStrings {
         "reason_wrong_vehicle" to "የተሳሳተ መኪና ነው",
         "reason_invalid_qr" to "የተሳሳተ የQR ኮድ",
         "reason_already_checked" to "ተሳፋሪው ቀደም ሲል ተመዝግቧል",
+        "reason_capacity_full" to "የተሽከርካሪው የመንገደኞች ገደብ ሞልቷል! ለዚህ ተሽከርካሪ ዓይነት ተጨማሪ መንገደኛ መጫን አይቻልም።",
 
         // Admin Dashboard
         "kpi_total_passengers" to "ጠቅላላ ተሳፋሪዎች",

@@ -39,6 +39,8 @@ data class DriverTripState(
     val routeId: String = "route_bole_merkato",
     val routeName: String = "Bole → Merkato",
     val vehiclePlate: String = "AA-12345",
+    val vehicleType: String = "Toyota Coaster",
+    val vehicleCapacity: Int = 24,
     val departureTime: String = "06:30",
     val currentStopIndex: Int = 0,
     val isNavigating: Boolean = false,
@@ -47,7 +49,7 @@ data class DriverTripState(
     val currentDistanceKm: Double = 1.2,
     val currentEtaMins: Int = 4,
     val checkedInCount: Int = 4,
-    val totalPassengers: Int = 20
+    val totalPassengers: Int = 24
 )
 
 class MainViewModel(private val repository: TransportRepository) : ViewModel() {
@@ -461,6 +463,16 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         _scanResult.value = null
     }
 
+    fun setVehicleType(type: String, capacity: Int) {
+        _driverTrip.update {
+            it.copy(
+                vehicleType = type,
+                vehicleCapacity = capacity,
+                totalPassengers = capacity
+            )
+        }
+    }
+
     fun verifyQrToken(rawToken: String) {
         viewModelScope.launch {
             val stops = routeStops.value
@@ -472,7 +484,9 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 currentVehicleId = "veh_aa_12345",
                 currentStopName = currentStop,
                 driverId = currentDriverId,
-                repository = repository
+                repository = repository,
+                vehicleCapacity = _driverTrip.value.vehicleCapacity,
+                currentPassengerCount = _driverTrip.value.checkedInCount
             )
             _scanResult.value = result
 
@@ -500,14 +514,20 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     fun processTelebirrPayment(phone: String, pin: String) {
         viewModelScope.launch {
             _isProcessingPayment.value = true
+            val user = _currentUser.value
+            val appliedRouteId = user?.appliedRouteId?.ifBlank { "route_bole_merkato" } ?: "route_bole_merkato"
+            val routesList = repository.allRoutes.firstOrNull() ?: emptyList()
+            val matchedRoute = routesList.find { it.id == appliedRouteId }
+            val amount = matchedRoute?.basePriceEtb ?: 2500.0
+
             val result = TelebirrGateway.processSubscriptionPayment(
                 passengerId = currentPassengerId,
-                routeId = "route_bole_merkato",
+                routeId = appliedRouteId,
                 pickupStopId = "stop_atlas",
                 destinationStopId = "stop_merkato",
                 morningSchedule = "06:30",
                 eveningSchedule = "17:30",
-                amountEtb = 2500.0,
+                amountEtb = amount,
                 phoneNumber = phone,
                 telebirrPin = pin,
                 vehicleId = "veh_aa_12345",
@@ -528,6 +548,15 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 else -> {
                     _paymentMessage.value = "Payment cancelled or timed out."
                 }
+            }
+        }
+    }
+
+    fun cancelSubscription() {
+        viewModelScope.launch {
+            val sub = activeSubscription.value
+            if (sub != null) {
+                repository.insertSubscription(sub.copy(subscriptionStatus = "EXPIRED", daysRemaining = 0))
             }
         }
     }
