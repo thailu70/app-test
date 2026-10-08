@@ -32,7 +32,7 @@ class TransportRepository(
      * Authenticate via VPS Backend REST API.
      * Caches authenticated user into Room on success.
      */
-    suspend fun authenticate(identifier: String, role: String, password: String = "123456"): UserEntity? {
+    suspend fun authenticate(identifier: String, role: String, password: String =): UserEntity? {
         val cleanPhone = identifier.trim()
         val normalizedRole = role.trim().uppercase()
 
@@ -67,12 +67,10 @@ class TransportRepository(
                 logAction("ONLINE_LOGIN", user.id, user.role, "Logged into VPS Backend (${user.phone})")
                 user
             } else {
-                // Offline fallback
-                dao.authenticateUser(cleanPhone, normalizedRole)
+               null
             }
         } catch (e: Exception) {
-            // Offline fallback to Room database
-            dao.authenticateUser(cleanPhone, normalizedRole)
+           null
         }
     }
 
