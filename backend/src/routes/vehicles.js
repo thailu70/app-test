@@ -15,9 +15,9 @@ const VEHICLE_TYPE_CAPACITIES = {
  * GET /api/vehicles
  * List all active vehicles with capacity metrics
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const vehicles = DB.prepare(`
+    const vehicles = await DB.prepare(`
       SELECT v.*, r.name as routeName, r.nameAm as routeNameAm
       FROM vehicles v
       LEFT JOIN routes r ON v.assignedRouteId = r.id
@@ -35,7 +35,8 @@ router.get('/', (req, res) => {
       }))
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -43,9 +44,9 @@ router.get('/', (req, res) => {
  * GET /api/vehicles/:id
  * Get single vehicle details
  */
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const vehicle = DB.prepare(`
+    const vehicle = await DB.prepare(`
       SELECT v.*, r.name as routeName, r.nameAm as routeNameAm
       FROM vehicles v
       LEFT JOIN routes r ON v.assignedRouteId = r.id
@@ -54,6 +55,12 @@ router.get('/:id', (req, res) => {
 
     if (!vehicle) {
       return res.status(404).json({ success: false, error: 'Vehicle not found' });
+    }
+    if (req.user.role === 'DRIVER' && !(vehicle.driverId === req.user.id)) {
+      const driver = DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(req.user.id);
+      if (!driver || driver.assignedVehiclePlate !== vehicle.plateNumber) {
+        return res.status(403).json({ success: false, error: 'Vehicle is not assigned to this driver.' });
+      }
     }
 
     res.json({
@@ -66,7 +73,8 @@ router.get('/:id', (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -74,10 +82,10 @@ router.get('/:id', (req, res) => {
  * PATCH /api/vehicles/:id/type
  * Driver or Admin: Update vehicle type and enforce passenger limit
  */
-router.patch('/:id/type', authenticate, requireRole('DRIVER', 'ADMIN'), (req, res) => {
+router.patch('/:id/type', authenticate, requireRole('DRIVER', 'ADMIN'), async (req, res) => {
   try {
     const { vehicleType, capacityLimit } = req.body;
-    const vehicle = DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
+    const vehicle = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
 
     if (!vehicle) {
       return res.status(404).json({ success: false, error: 'Vehicle not found' });
@@ -87,18 +95,18 @@ router.patch('/:id/type', authenticate, requireRole('DRIVER', 'ADMIN'), (req, re
     const newOccupancy = req.body.currentOccupancy !== undefined ? parseInt(req.body.currentOccupancy, 10) : Math.min(vehicle.currentOccupancy, standardCapacity);
     const newStatus = newOccupancy >= standardCapacity ? 'FULL' : 'IN_SERVICE';
 
-    DB.prepare(`
+    await DB.prepare(`
       UPDATE vehicles
       SET vehicleType = ?, capacityLimit = ?, currentOccupancy = ?, status = ?, updatedAt = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(vehicleType, standardCapacity, newOccupancy, newStatus, req.params.id);
 
-    DB.prepare(`
+    await DB.prepare(`
       INSERT INTO audit_logs (action, userId, role, details)
       VALUES ('VEHICLE_TYPE_UPDATED', ?, ?, ?)
     `).run(req.user.id, req.user.role, `Updated vehicle ${vehicle.plateNumber} to ${vehicleType} (Limit: ${standardCapacity} seats)`);
 
-    const updated = DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
+    const updated = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
 
     res.json({
       success: true,
@@ -106,7 +114,8 @@ router.patch('/:id/type', authenticate, requireRole('DRIVER', 'ADMIN'), (req, re
       vehicle: updated
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -114,15 +123,21 @@ router.patch('/:id/type', authenticate, requireRole('DRIVER', 'ADMIN'), (req, re
  * POST /api/vehicles/:id/location
  * Driver: Send GPS location telemetry (broadcasts to WebSocket clients)
  */
-router.post('/:id/location', authenticate, requireRole('DRIVER'), (req, res) => {
+router.post('/:id/location', authenticate, requireRole('DRIVER'), async (req, res) => {
   try {
     const { latitude, longitude, speed = 0, currentStop = '' } = req.body;
+    const vehicle = DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
+    if (!vehicle) return res.status(404).json({ success: false, error: 'Vehicle not found.' });
+    const driver = DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(req.user.id);
+    if (!(vehicle.driverId === req.user.id || (driver?.assignedVehiclePlate && vehicle.plateNumber === driver.assignedVehiclePlate))) {
+      return res.status(403).json({ success: false, error: 'Vehicle is not assigned to this driver.' });
+    }
 
-    if (latitude === undefined || longitude === undefined) {
+    if (latitude === undefined || longitude === undefined || !Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude)) || Number(latitude) < -90 || Number(latitude) > 90 || Number(longitude) < -180 || Number(longitude) > 180) {
       return res.status(400).json({ success: false, error: 'Latitude and longitude are required.' });
     }
 
-    DB.prepare(`
+    await DB.prepare(`
       UPDATE vehicles
       SET currentLat = ?, currentLng = ?, updatedAt = CURRENT_TIMESTAMP
       WHERE id = ?
@@ -147,7 +162,8 @@ router.post('/:id/location', authenticate, requireRole('DRIVER'), (req, res) => 
       location: { latitude, longitude }
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
