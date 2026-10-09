@@ -389,7 +389,7 @@ fun DriverCockpitHeaderCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(text = t("todays_trips"), style = MaterialTheme.typography.labelSmall, color = Slate400)
-                    Text(text = "Morning Trip (06:30)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = TransportGold)
+                    Text(text = "Scheduled trip (${tripState.departureTime})", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = TransportGold)
                     Text(text = routeName, style = MaterialTheme.typography.bodySmall, color = Color.White)
                 }
                 Column(horizontalAlignment = Alignment.End) {
