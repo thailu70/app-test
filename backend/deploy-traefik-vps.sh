@@ -87,7 +87,13 @@ if [[ ! -f "${APP_DIR}/.env" ]] && docker volume inspect routepass_postgres_data
 fi
 
 echo "Preparing files in ${APP_DIR}..."
-mkdir -p "${APP_DIR}" "${APP_DIR}/src"
+for required in public/admin/index.html public/admin/admin.css public/admin/admin.js scripts/bootstrap-admin.py; do
+  [[ -f "${CURRENT_DIR}/${required}" ]] || {
+    echo "Required source file missing: ${CURRENT_DIR}/${required}" >&2
+    exit 6
+  }
+done
+mkdir -p "${APP_DIR}" "${APP_DIR}/src" "${APP_DIR}/public/admin" "${APP_DIR}/scripts"
 for file in docker-compose.yml docker-compose.traefik.yml Dockerfile nginx.conf nginx.bootstrap.conf init-db.sql package.json package-lock.json; do
   [[ -f "${CURRENT_DIR}/${file}" ]] || {
     echo "Required source file missing: ${CURRENT_DIR}/${file}" >&2
@@ -96,8 +102,12 @@ for file in docker-compose.yml docker-compose.traefik.yml Dockerfile nginx.conf 
   install -m 0644 "${CURRENT_DIR}/${file}" "${APP_DIR}/${file}"
 done
 cp -R "${CURRENT_DIR}/src/." "${APP_DIR}/src/"
+install -m 0644 "${CURRENT_DIR}/public/admin/index.html" "${APP_DIR}/public/admin/index.html"
+install -m 0644 "${CURRENT_DIR}/public/admin/admin.css" "${APP_DIR}/public/admin/admin.css"
+install -m 0644 "${CURRENT_DIR}/public/admin/admin.js" "${APP_DIR}/public/admin/admin.js"
+install -m 0755 "${CURRENT_DIR}/scripts/bootstrap-admin.py" "${APP_DIR}/scripts/bootstrap-admin.py"
 # Keep app source readable by the non-root Node.js user inside the image.
-chmod 755 "${APP_DIR}" "${APP_DIR}/src"
+chmod 755 "${APP_DIR}" "${APP_DIR}/src" "${APP_DIR}/public" "${APP_DIR}/public/admin" "${APP_DIR}/scripts"
 find "${APP_DIR}/src" -type d -exec chmod 755 {} +
 find "${APP_DIR}/src" -type f -exec chmod 644 {} +
 
