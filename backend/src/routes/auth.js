@@ -97,8 +97,7 @@ router.post('/register', authLimiter, async (req, res) => {
       });
     }
 
-    const salt = bcrypt.genSaltSync(10);
-    const passwordHash = bcrypt.hashSync(password, salt);
+    const passwordHash = await bcrypt.hash(password, 12);
 
     const userId = `usr_${normalizedRole.toLowerCase().slice(0, 3)}_${crypto.randomUUID().slice(0, 8)}`;
     const finalEmail = email?.trim() || `${phone.trim()}@transport.et`;
