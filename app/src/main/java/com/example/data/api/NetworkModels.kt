@@ -224,6 +224,7 @@ data class TrackedVehicleDto(
     val currentOccupancy: Int = 0,
     val assignedRouteId: String? = null,
     val routeName: String? = null,
+    val morningDeparture: String? = null,
     val driverId: String? = null,
     val driverName: String? = null,
     val latitude: Double? = null,
