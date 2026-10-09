@@ -44,42 +44,14 @@ router.post('/pull', authenticate, async (req, res) => {
  * POST /api/sync/push
  * Mobile clients push offline check-ins / logs collected during offline mode
  */
-router.post('/push', authenticate, async (req, res) => {
-  try {
-    const { offlineCheckins = [] } = req.body;
-
-    const insertCheckin = DB.prepare(`
-      INSERT OR IGNORE INTO checkin_records (id, tripId, passengerId, passengerName, routeId, stopName, status, vehicleId, driverId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    let processedCount = 0;
-    for (const chk of offlineCheckins) {
-      if (chk.id && chk.passengerId) {
-        await insertCheckin.run(
-          chk.id,
-          chk.tripId || 'offline_trip',
-          chk.passengerId,
-          chk.passengerName || 'Offline Passenger',
-          chk.routeId || '',
-          chk.stopName || '',
-          chk.status || 'BOARDED',
-          chk.vehicleId || '',
-          req.user.id
-        );
-        processedCount++;
-      }
-    }
-
-    res.json({
-      success: true,
-      message: `Successfully synchronized ${processedCount} offline check-in records.`,
-      serverTime: new Date().toISOString()
-    });
-  } catch (err) {
-    console.error('[RoutePass] request failed:', err);
-    res.status(500).json({ success: false, error: 'Internal server error.' });
-  }
-});
+router.post('/push', authenticate, requireRole('DRIVER'), (req, res) => {
+  // Client-originated offline events have no verifiable server signature. Accepting them
+  // as boarding records would bypass online QR, trip ownership, payment and capacity checks.
+  return res.status(409).json({
+    success: false,
+    code: 'OFFLINE_CHECKIN_SYNC_DISABLED',
+    error: 'Offline boarding records are not accepted until a signed offline validation protocol is deployed.'
+  });
+});;
 
 module.exports = router;
