@@ -125,7 +125,7 @@ router.post('/register', authLimiter, async (req, res) => {
     await DB.transaction(async (tx) => {
       await tx.prepare(`
         INSERT INTO users (id, role, fullName, phone, email, passwordHash, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName)
-        VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         userId,
         normalizedRole,
@@ -133,6 +133,7 @@ router.post('/register', authLimiter, async (req, res) => {
         phone.trim(),
         finalEmail,
         passwordHash,
+        normalizedRole === 'DRIVER' ? 'PENDING_APPROVAL' : 'ACTIVE',
         normalizedRole === 'DRIVER' ? String(licenseNumber).trim() : (normalizedRole === 'ADMIN' ? String(licenseNumber).trim() : ''),
         normalizedRole === 'DRIVER' ? String(companyName || '').trim() : (normalizedRole === 'ADMIN' ? String(companyName || '').trim() : ''),
         driverVehiclePlate,
@@ -195,21 +196,21 @@ router.post('/register', authLimiter, async (req, res) => {
 
     res.status(201).json({
       success: true,
-      token,
+      token: normalizedRole === 'DRIVER' ? null : token,
       user: {
         id: userId,
         role: normalizedRole,
         fullName: fullName.trim(),
         phone: phone.trim(),
         email: finalEmail,
-        status: 'ACTIVE',
+        status: normalizedRole === 'DRIVER' ? 'PENDING_APPROVAL' : 'ACTIVE',
         assignedVehiclePlate: driverVehiclePlate,
         appliedRouteId: normalizedRole === 'PASSENGER' ? String(appliedRouteId || '').trim() : '',
         appliedRouteName: normalizedRole === 'PASSENGER' ? String(appliedRouteName || '').trim() : ''
       },
       subscription: initialSub,
       message: normalizedRole === 'DRIVER'
-        ? 'Driver account and owned vehicle registered. An administrator must assign an active route before you can start a trip.'
+        ? 'Thank you for registering. An administrator will review your licence and vehicle, approve your account, assign your route, and contact you when your account is ready.'
         : (normalizedRole === 'PASSENGER' && appliedRouteId
           ? 'Account created. Subscription is PENDING payment; ask an administrator for a manual test recharge during testing.'
           : 'Registration successful.')
@@ -250,7 +251,12 @@ router.post('/login', authLimiter, async (req, res) => {
     }
 
     if (user.status && user.status !== 'ACTIVE') {
-      return res.status(403).json({ success: false, error: 'This account is inactive. Contact your transport administrator.' });
+      const error = user.status === 'PENDING_APPROVAL'
+        ? 'Thank you for registering. Your account is awaiting administrator approval and route assignment. Please try signing in after the administrator contacts you.'
+        : (user.status === 'REJECTED'
+          ? 'Your driver registration was not approved. Please contact RoutePass administration.'
+          : 'This account is inactive. Contact your transport administrator.');
+      return res.status(403).json({ success: false, error, code: user.status });
     }
 
     if (role && user.role !== role.toUpperCase()) {
