@@ -75,6 +75,8 @@ function normalizeRow(row) {
     if (lowerKey === 'appliedroutename' || lowerKey === 'applied_route_name') normalized.appliedRouteName = val;
     if (lowerKey === 'passengerid' || lowerKey === 'passenger_id') normalized.passengerId = val;
     if (lowerKey === 'passengername' || lowerKey === 'passenger_name') normalized.passengerName = val;
+    if (lowerKey === 'passengerphone' || lowerKey === 'passenger_phone') normalized.passengerPhone = val;
+    if (lowerKey === 'vehicleplate' || lowerKey === 'vehicle_plate') normalized.vehiclePlate = val;
     if (lowerKey === 'routeid' || lowerKey === 'route_id') normalized.routeId = val;
     if (lowerKey === 'routename' || lowerKey === 'route_name') normalized.routeName = val;
     if (lowerKey === 'routenameam' || lowerKey === 'route_name_am') normalized.routeNameAm = val;
@@ -131,6 +133,8 @@ function translateSqlForPostgres(sql) {
     .replace(/\bcurrentLng\b/g, 'current_lng')
     .replace(/\bpassengerId\b/g, 'passenger_id')
     .replace(/\bpassengerName\b/g, 'passenger_name')
+    .replace(/\bpassengerPhone\b/g, 'passenger_phone')
+    .replace(/\bvehiclePlate\b/g, 'vehicle_plate')
     .replace(/\brouteId\b/g, 'route_id')
     .replace(/\bnameAm\b/g, 'name_am')
     .replace(/\bstopNameAm\b/g, 'stop_name_am')
