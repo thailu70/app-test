@@ -13,6 +13,7 @@ RUN npm ci --only=production
 
 # Copy application source code
 COPY src/ ./src/
+COPY public/ ./public/
 
 # Create persistent data directory for SQLite database
 RUN mkdir -p /app/data && chown -R node:node /app
