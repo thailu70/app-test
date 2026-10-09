@@ -18,7 +18,7 @@ router.get('/stats', async (req, res) => {
   try {
     const totalPassengers = (await DB.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'PASSENGER'").get()).c;
     const totalDrivers = (await DB.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'DRIVER'").get()).c;
-    const activeRoutes = (await DB.prepare('SELECT COUNT(*) as c FROM routes WHERE active = 1').get()).c;
+    const activeRoutes = (await DB.prepare('SELECT COUNT(*) as c FROM routes WHERE active = TRUE').get()).c;
     const activeVehicles = (await DB.prepare("SELECT COUNT(*) as c FROM vehicles WHERE status != 'MAINTENANCE'").get()).c;
     const activeSubscriptions = (await DB.prepare("SELECT COUNT(*) as c FROM subscriptions WHERE subscriptionStatus = 'ACTIVE'").get()).c;
     const totalRevenue = (await DB.prepare("SELECT COALESCE(SUM(amountEtb), 0) as s FROM payment_transactions WHERE status = 'COMPLETED'").get()).s;
@@ -64,7 +64,7 @@ router.post('/drivers', async (req, res) => {
 
     const vehicle = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicleId);
     if (!vehicle) return res.status(404).json({ success: false, error: 'Vehicle not found.' });
-    const route = await DB.prepare('SELECT * FROM routes WHERE id = ? AND active = 1').get(routeId);
+    const route = await DB.prepare('SELECT * FROM routes WHERE id = ? AND active = TRUE').get(routeId);
     if (!route) return res.status(404).json({ success: false, error: 'Active route not found.' });
 
     const driverId = `usr_drv_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
