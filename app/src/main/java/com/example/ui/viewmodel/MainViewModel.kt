@@ -290,6 +290,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                                 vehicleType = vehicle.vehicleType,
                                 vehicleCapacity = vehicle.capacityLimit,
                                 totalPassengers = vehicle.capacityLimit,
+                                departureTime = vehicle.morningDeparture ?: "06:30",
                                 routeId = vehicle.assignedRouteId.orEmpty(),
                                 routeName = vehicle.routeName.orEmpty()
                             )
@@ -379,7 +380,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                                 vehiclePlate = vehicle.plateNumber,
                                 vehicleType = vehicle.vehicleType,
                                 vehicleCapacity = vehicle.capacityLimit,
-                                totalPassengers = vehicle.capacityLimit
+                                totalPassengers = vehicle.capacityLimit,
+                                departureTime = vehicle.morningDeparture ?: "06:30"
                             )
                         }
                     } catch (_: Exception) {}
@@ -506,7 +508,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     vehiclePlate = trip.plateNumber ?: vehicle.plateNumber,
                     vehicleType = trip.vehicleType ?: vehicle.vehicleType,
                     vehicleCapacity = trip.capacityLimit ?: vehicle.capacityLimit,
-                    departureTime = user.appliedRouteName.ifBlank { "06:30" },
+                    departureTime = vehicle.morningDeparture ?: "06:30",
                     currentStopIndex = 0,
                     isNavigating = true,
                     isArrivedAtStop = false,
