@@ -132,6 +132,71 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
 });
 
 /**
+ * PUT /api/routes/:id
+ * Update route metadata and optionally replace the ordered stop list.
+ */
+router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
+  try {
+    const current = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(req.params.id);
+    if (!current) return res.status(404).json({ success: false, error: 'Route not found.' });
+
+    const name = String(req.body.name ?? current.name).trim();
+    const nameAm = String(req.body.nameAm ?? current.nameAm).trim();
+    if (!name || !nameAm) return res.status(400).json({ success: false, error: 'Route names in English and Amharic are required.' });
+
+    await DB.transaction(async (tx) => {
+      await tx.prepare(`
+        UPDATE routes SET name = ?, nameAm = ?, description = ?,
+          morningDeparture = ?, eveningDeparture = ?, distanceKm = ?, basePriceEtb = ?, active = ?
+        WHERE id = ?
+      `).run(
+        name,
+        nameAm,
+        String(req.body.description ?? current.description ?? '').trim(),
+        String(req.body.morningDeparture ?? current.morningDeparture ?? '06:30'),
+        String(req.body.eveningDeparture ?? current.eveningDeparture ?? '17:30'),
+        Number(req.body.distanceKm ?? current.distanceKm ?? 10),
+        Number(req.body.basePriceEtb ?? current.basePriceEtb ?? 2500),
+        req.body.active === undefined ? current.active : (req.body.active ? true : false),
+        req.params.id
+      );
+
+      if (Array.isArray(req.body.stops)) {
+        await tx.prepare('DELETE FROM route_stops WHERE routeId = ?').run(req.params.id);
+        for (const [idx, stop] of req.body.stops.entries()) {
+          await tx.prepare(`
+            INSERT INTO route_stops
+              (id, routeId, stopName, stopNameAm, stopOrder, latitude, longitude, scheduledMorningTime, scheduledEveningTime, maxCapacity)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            String(stop.id || `stop_${crypto.randomUUID().slice(0, 8)}`),
+            req.params.id,
+            String(stop.stopName || `Stop ${idx + 1}`).trim(),
+            String(stop.stopNameAm || `ማቆሚያ ${idx + 1}`).trim(),
+            idx + 1,
+            Number(stop.latitude ?? (9.01 + idx * 0.005)),
+            Number(stop.longitude ?? (38.75 + idx * 0.005)),
+            String(stop.scheduledMorningTime || req.body.morningDeparture || current.morningDeparture || '06:30'),
+            String(stop.scheduledEveningTime || req.body.eveningDeparture || current.eveningDeparture || '17:30'),
+            Number(stop.maxCapacity || 20)
+          );
+        }
+      }
+
+      await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
+        .run('ROUTE_UPDATED', req.user.id, 'ADMIN', `Updated route ${req.params.id}: ${name}`);
+    });
+
+    const route = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(req.params.id);
+    const stops = await DB.prepare('SELECT * FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC').all(req.params.id);
+    res.json({ success: true, route, stops });
+  } catch (err) {
+    console.error('[RoutePass] route update failed:', err);
+    res.status(500).json({ success: false, error: 'Could not update route.' });
+  }
+});
+
+/**
  * DELETE /api/routes/:id
  * Admin only: Delete route
  */
