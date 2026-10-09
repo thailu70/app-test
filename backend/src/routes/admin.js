@@ -183,7 +183,7 @@ router.post('/subscriptions/:id/recharge', async (req, res) => {
       sub.id,
       sub.passengerId,
       sub.routeId,
-      Math.floor(end.getTime() / 1000)
+      end.getTime()
     );
     const amount = Number(sub.priceEtb || 0);
     const reference = `RP-ADMIN-TEST-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
