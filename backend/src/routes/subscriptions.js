@@ -236,6 +236,15 @@ async function verifyTelebirrServerSide(txnRef, expectedAmount) {
  * Verifies HMAC/RSA signature and records transaction as VERIFIED.
  */
 router.post('/telebirr/webhook', async (req, res) => {
+  // Fail closed until the canonical signing format and callback contract are validated
+  // against the merchant's official integration specification and sandbox.
+  if (PAYMENT_MODE === 'PRODUCTION') {
+    return res.status(503).json({
+      success: false,
+      code: 'LIVE_TELEBIRR_NOT_CONFIGURED',
+      error: 'Live Telebirr callbacks are disabled until merchant verification is validated.'
+    });
+  }
   try {
     const signature = req.headers['x-telebirr-signature'] || req.body.signature;
     const { outTradeNo, transactionNo, totalAmount, tradeStatus } = req.body;
@@ -297,7 +306,8 @@ router.post('/telebirr/webhook', async (req, res) => {
 
     res.json({ code: -1, message: 'TRADE_NOT_COMPLETED' });
   } catch (err) {
-    res.status(500).json({ code: -1, error: err.message });
+    console.error('[Telebirr webhook] request failed:', err);
+    res.status(500).json({ code: -1, error: 'Internal server error.' });
   }
 });
 
@@ -308,6 +318,15 @@ router.post('/telebirr/webhook', async (req, res) => {
  * Upon successful payment, activates subscription and generates server-signed QR token.
  */
 router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req, res) => {
+  // This repository does not yet contain a validated Telebirr checkout/order lifecycle.
+  // Production must not accept client transaction references as proof of payment.
+  if (PAYMENT_MODE === 'PRODUCTION') {
+    return res.status(503).json({
+      success: false,
+      code: 'LIVE_TELEBIRR_NOT_CONFIGURED',
+      error: 'Live Telebirr payments are disabled until merchant checkout, signature verification, and reconciliation pass sandbox tests. No payment or subscription was created.'
+    });
+  }
   try {
     const passengerId = req.user.id;
 
