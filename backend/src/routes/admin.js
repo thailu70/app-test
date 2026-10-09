@@ -57,8 +57,34 @@ router.post('/drivers', (req, res) => {
 });
 
 /**
+ * PATCH /api/admin/drivers/:id/approval
+ * An administrator must approve a newly registered driver before route assignment.
+ */
+router.patch('/drivers/:id/approval', async (req, res) => {
+  try {
+    const status = String(req.body.status || '').trim().toUpperCase();
+    if (!['ACTIVE', 'REJECTED'].includes(status)) {
+      return res.status(400).json({ success: false, error: 'Set driver status to ACTIVE to approve or REJECTED to reject.' });
+    }
+    const driver = await DB.prepare("SELECT * FROM users WHERE id = ? AND role = 'DRIVER'").get(req.params.id);
+    if (!driver) return res.status(404).json({ success: false, error: 'Driver account not found.' });
+
+    await DB.transaction(async (tx) => {
+      await tx.prepare("UPDATE users SET status = ? WHERE id = ? AND role = 'DRIVER'").run(status, driver.id);
+      await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
+        .run(status === 'ACTIVE' ? 'DRIVER_APPROVED' : 'DRIVER_REJECTED', req.user.id, 'ADMIN', `${status === 'ACTIVE' ? 'Approved' : 'Rejected'} driver ${driver.id} (${driver.phone})`);
+    });
+
+    res.json({ success: true, driver: { id: driver.id, fullName: driver.fullName, status }, message: status === 'ACTIVE' ? 'Driver approved. You can now assign an active route.' : 'Driver registration rejected.' });
+  } catch (err) {
+    console.error('[Admin] driver approval failed:', err);
+    res.status(500).json({ success: false, error: 'Could not update driver approval.' });
+  }
+});
+
+/**
  * PATCH /api/admin/drivers/:id/route
- * Assign an active route to a driver's own registered vehicle.
+ * Assign an active route to a driver's own registered vehicle after approval.
  */
 router.patch('/drivers/:id/route', async (req, res) => {
   try {
@@ -67,6 +93,7 @@ router.patch('/drivers/:id/route', async (req, res) => {
 
     const driver = await DB.prepare("SELECT * FROM users WHERE id = ? AND role = 'DRIVER'").get(req.params.id);
     if (!driver) return res.status(404).json({ success: false, error: 'Driver account not found.' });
+    if (driver.status !== 'ACTIVE') return res.status(409).json({ success: false, error: 'Approve this driver before assigning a route.' });
     const route = await DB.prepare('SELECT * FROM routes WHERE id = ? AND active = TRUE').get(routeId);
     if (!route) return res.status(404).json({ success: false, error: 'Active route not found.' });
     const vehicle = await DB.prepare('SELECT * FROM vehicles WHERE driverId = ? LIMIT 1').get(driver.id);
