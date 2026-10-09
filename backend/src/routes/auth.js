@@ -125,7 +125,7 @@ router.post('/register', authLimiter, async (req, res) => {
     await DB.transaction(async (tx) => {
       await tx.prepare(`
         INSERT INTO users (id, role, fullName, phone, email, passwordHash, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         userId,
         normalizedRole,
