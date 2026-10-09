@@ -1,5 +1,8 @@
 package com.example.ui.screens.passenger
 
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -33,6 +36,7 @@ import com.example.core.localization.AppStrings
 import com.example.data.entity.PaymentTransactionEntity
 import com.example.ui.components.QrCodeCanvas
 import com.example.ui.components.MiniVehicleMap
+import com.example.ui.components.AssignedRosterCard
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.MainViewModel
 
@@ -43,6 +47,8 @@ fun PassengerDashboardScreen(
 ) {
     val lang by viewModel.currentLanguage.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
+    val assignedRoster by viewModel.assignedRoster.collectAsState()
+    val rosterMessage by viewModel.rosterMessage.collectAsState()
     val trackedVehicle by viewModel.trackedVehicle.collectAsState()
     val trackingMessage by viewModel.trackingMessage.collectAsState()
     val subscription by viewModel.activeSubscription.collectAsState()
@@ -56,6 +62,13 @@ fun PassengerDashboardScreen(
     val isComplaintOpen by viewModel.isComplaintDialogOpen.collectAsState()
 
     fun t(key: String): String = AppStrings.get(key, lang)
+
+    LaunchedEffect(currentUser?.id) {
+        if (currentUser?.id != null) {
+            viewModel.refreshAssignedRoster()
+            while (true) { delay(30000); viewModel.refreshAssignedRoster() }
+        }
+    }
 
     LazyColumn(
         modifier = modifier
@@ -86,12 +99,23 @@ fun PassengerDashboardScreen(
             )
         }
 
-        // 3. Server-reported driver location. No demo coordinates are shown as live.
+        // 3. Identity details for the driver assigned to this active monthly subscription.
+        item {
+            AssignedRosterCard(
+                title = "Your assigned driver",
+                people = assignedRoster.filter { it.role == "DRIVER" },
+                message = rosterMessage,
+                showVehicle = true,
+                modifier = Modifier.testTag("passenger_assigned_driver")
+            )
+        }
+
+        // 4. Server-reported driver location. No demo coordinates are shown as live.
         item {
             MiniVehicleMap(vehicle = trackedVehicle, modifier = Modifier.testTag("passenger_live_vehicle_map"), serverMessage = trackingMessage)
         }
 
-        // 4. Passenger Financial Account & Balance
+        // 5. Passenger Financial Account & Balance
         item {
             FinancialBalanceCard(
                 lang = lang,
@@ -99,7 +123,7 @@ fun PassengerDashboardScreen(
             )
         }
 
-        // 5. Telebirr Payment History
+        // 6. Telebirr Payment History
         item {
             PaymentHistoryCard(
                 payments = payments,
@@ -108,12 +132,12 @@ fun PassengerDashboardScreen(
             )
         }
 
-        // 6. Trip Attendance History
+        // 7. Trip Attendance History
         item {
             TripAttendanceCard(checkIns = checkIns, lang = lang)
         }
 
-        // 7. Complaints & Support
+        // 8. Complaints & Support
         item {
             ComplaintsCard(
                 complaints = complaints,
