@@ -48,7 +48,8 @@ for file in docker-compose.yml Dockerfile nginx.conf nginx.bootstrap.conf init-d
   fi
   cp "${CURRENT_DIR}/${file}" "${APP_DIR}/${file}"
 done
-cp -R "${CURRENT_DIR}/src" "${APP_DIR}/src"
+mkdir -p "${APP_DIR}/src"
+cp -R "${CURRENT_DIR}/src/." "${APP_DIR}/src/"
 chmod -R go-rwx "${APP_DIR}/certbot/conf" || true
 
 echo "[3/7] Creating production secrets (existing .env will never be overwritten)..."
@@ -128,7 +129,6 @@ certbot certonly --non-interactive --agree-tos --email "${ADMIN_EMAIL}" \
   -d "${DOMAIN_NAME}"
 
 echo "[6/7] Enabling HTTPS-only Nginx and verifying configuration..."
-sed "s/__DOMAIN_NAME__/${DOMAIN_NAME}/g" "${APP_DIR}/nginx.conf" >/dev/null
 # Render the committed HTTPS template, not the temporary bootstrap file.
 sed "s/__DOMAIN_NAME__/${DOMAIN_NAME}/g" "${CURRENT_DIR}/nginx.conf" > "${APP_DIR}/nginx.conf"
 docker compose exec -T nginx nginx -t
