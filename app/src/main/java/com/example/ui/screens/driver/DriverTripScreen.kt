@@ -1,5 +1,16 @@
 package com.example.ui.screens.driver
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.os.Looper
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -19,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -30,6 +42,7 @@ import com.example.core.localization.AppLanguage
 import com.example.core.localization.AppStrings
 import com.example.core.qr.QrValidationResult
 import com.example.data.entity.RouteStopEntity
+import com.example.ui.components.MiniVehicleMap
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DriverTripState
 import com.example.ui.viewmodel.MainViewModel
@@ -45,6 +58,9 @@ fun DriverTripScreen(
     val currentUser by viewModel.currentUser.collectAsState()
     val tripState by viewModel.driverTrip.collectAsState()
     val stops by viewModel.routeStops.collectAsState()
+    val trackedVehicle by viewModel.trackedVehicle.collectAsState()
+    val driverActionMessage by viewModel.driverActionMessage.collectAsState()
+    var gpsStatus by remember { mutableStateOf("Waiting for GPS permission.") }
     val networkStatus by viewModel.networkStatus.collectAsState()
     val isScannerOpen by viewModel.isScannerOpen.collectAsState()
     val scanResult by viewModel.scanResult.collectAsState()
@@ -52,6 +68,11 @@ fun DriverTripScreen(
     fun t(key: String) = AppStrings.get(key, lang)
 
     Box(modifier = modifier.fillMaxSize()) {
+        DriverLocationReporter(
+            viewModel = viewModel,
+            currentStop = stops.getOrNull(tripState.currentStopIndex)?.stopName.orEmpty(),
+            onStatusChanged = { gpsStatus = it }
+        )
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -73,7 +94,18 @@ fun DriverTripScreen(
                 )
             }
 
-            // 2. High-Visibility Big Navigation HUD
+            // 2. Actual vehicle position, reported by this driver's phone.
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MiniVehicleMap(vehicle = trackedVehicle, modifier = Modifier.testTag("driver_live_vehicle_map"), mapHeight = 190)
+                    Text(gpsStatus, style = MaterialTheme.typography.bodySmall, color = Slate600)
+                    driverActionMessage?.let { message ->
+                        Text(message, style = MaterialTheme.typography.bodySmall, color = if (message.contains("not") || message.contains("failed", true) || message.contains("could not", true)) StatusErrorRed else TransportGreenPrimary)
+                    }
+                }
+            }
+
+            // 3. High-Visibility Big Navigation HUD
             item {
                 DriverNavigationHudCard(
                     tripState = tripState,
@@ -87,7 +119,7 @@ fun DriverTripScreen(
                 )
             }
 
-            // 3. Stop Sequence & Passenger Attendance
+            // 4. Stop Sequence & Passenger Attendance
             item {
                 Text(
                     text = t("pickup_sequence"),
@@ -110,7 +142,7 @@ fun DriverTripScreen(
             }
         }
 
-        // Scanner Dialog with Live Camera Viewfinder Simulation
+        // Camera-backed scanner dialog; each decoded QR is checked by the VPS.
         if (isScannerOpen) {
             DriverQrScannerDialog(
                 scanResult = scanResult,
@@ -120,6 +152,79 @@ fun DriverTripScreen(
                 onDismissResult = { viewModel.dismissScanResult() },
                 onCloseScanner = { viewModel.closeScanner() }
             )
+        }
+    }
+}
+
+/**
+ * Requests foreground location permission and reports fresh phone GPS fixes to the VPS.
+ * Reporting runs only while the driver screen is open; background tracking is not claimed.
+ */
+@Composable
+private fun DriverLocationReporter(
+    viewModel: MainViewModel,
+    currentStop: String,
+    onStatusChanged: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val locationManager = remember(context) {
+        context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    }
+    val latestStop = rememberUpdatedState(currentStop)
+    var hasPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        hasPermission = grants.values.any { it }
+        onStatusChanged(if (hasPermission) "Location permission granted. Waiting for GPS fix…" else "Location permission was denied. Allow location to share live vehicle position.")
+    }
+
+    LaunchedEffect(Unit) {
+        if (!hasPermission) {
+            permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
+    }
+
+    DisposableEffect(hasPermission, context) {
+        if (!hasPermission) {
+            onStatusChanged("Allow location permission to share live vehicle position.")
+            onDispose { }
+        } else {
+            val listener = object : LocationListener {
+                override fun onLocationChanged(location: Location) {
+                    viewModel.submitDriverLocation(
+                        latitude = location.latitude,
+                        longitude = location.longitude,
+                        speed = location.speed.toDouble().coerceAtLeast(0.0),
+                        currentStop = latestStop.value
+                    )
+                    onStatusChanged("GPS fix received · " + String.format(java.util.Locale.US, "%.5f, %.5f", location.latitude, location.longitude))
+                }
+            }
+            val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+                .filter { provider -> runCatching { locationManager.isProviderEnabled(provider) }.getOrDefault(false) }
+            if (providers.isEmpty()) {
+                onStatusChanged("Turn on Location on your phone to share the vehicle position.")
+            } else {
+                providers.forEach { provider ->
+                    try {
+                        locationManager.requestLocationUpdates(provider, 5000L, 5f, listener, Looper.getMainLooper())
+                        locationManager.getLastKnownLocation(provider)?.let(listener::onLocationChanged)
+                    } catch (_: SecurityException) {
+                        onStatusChanged("Location access was denied. Re-enable permission in Android settings.")
+                    } catch (_: IllegalArgumentException) {
+                        // This provider is not available on the device.
+                    }
+                }
+            }
+            onDispose {
+                runCatching { locationManager.removeUpdates(listener) }
+            }
         }
     }
 }
