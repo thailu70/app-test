@@ -15,6 +15,9 @@ const { DB } = require('./db');
 const { verifyToken } = require('./middleware/auth');
 
 if (process.env.NODE_ENV === 'production') {
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+    throw new Error('[FATAL CONFIGURATION ERROR] JWT_SECRET must be at least 32 characters in production.');
+  }
   if (process.env.PAYMENT_MODE !== 'PRODUCTION') {
     throw new Error('[FATAL CONFIGURATION ERROR] PAYMENT_MODE must be explicitly set to PRODUCTION.');
   }
@@ -170,14 +173,10 @@ if (locationFlushTimer.unref) {
 }
 
 wss.on('connection', (ws, req) => {
-  // Extract token from query param or auth header
+  // Avoid JWT query parameters: reverse proxies commonly log full request URLs.
+  // The Android client authenticates using the first in-band AUTHENTICATE message.
   let token = null;
-  try {
-    const urlObj = new URL(req.url, 'http://localhost');
-    token = urlObj.searchParams.get('token');
-  } catch (e) {}
-
-  if (!token && req.headers['authorization']) {
+  if (req.headers['authorization']) {
     const parts = req.headers['authorization'].split(' ');
     if (parts.length === 2 && parts[0] === 'Bearer') {
       token = parts[1];
