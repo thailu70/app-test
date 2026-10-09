@@ -20,8 +20,23 @@ process.env.PORT = PORT;
 process.env.NODE_ENV = 'test';
 
 const { server } = require('../src/server');
+const testProfilePhoto = () => [{ documentType: 'PROFILE_PHOTO', fileName: 'profile.jpg', mimeType: 'image/jpeg', dataBase64: '/9j/AA==' }];
+const testDriverDocuments = () => [
+  ...testProfilePhoto(),
+  { documentType: 'DRIVER_LICENSE_DOCUMENT', fileName: 'driver-license.pdf', mimeType: 'application/pdf', dataBase64: 'JVBERi0x' },
+  { documentType: 'NATIONAL_ID_DOCUMENT', fileName: 'national-id.pdf', mimeType: 'application/pdf', dataBase64: 'JVBERi0x' },
+  { documentType: 'VEHICLE_PHOTO', fileName: 'vehicle.jpg', mimeType: 'image/jpeg', dataBase64: '/9j/AA==' },
+  { documentType: 'VEHICLE_TRADE_LICENSE', fileName: 'vehicle-trade-license.pdf', mimeType: 'application/pdf', dataBase64: 'JVBERi0x' }
+];
+function includeRegistrationUploads(path, body) {
+  if (path !== '/api/auth/register' || !body || body.uploads) return body;
+  if (body.role === 'PASSENGER') return { ...body, uploads: testProfilePhoto() };
+  if (body.role === 'DRIVER') return { ...body, uploads: testDriverDocuments() };
+  return body;
+}
 
 function makeRequest(method, path, body = null, token = null, headers = {}) {
+  body = includeRegistrationUploads(path, body);
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : null;
     const req = http.request({
