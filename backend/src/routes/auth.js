@@ -133,7 +133,7 @@ router.post('/register', authLimiter, async (req, res) => {
         phone.trim(),
         finalEmail,
         passwordHash,
-        normalizedRole === 'DRIVER' ? 'PENDING_APPROVAL' : 'ACTIVE',
+        normalizedRole === 'DRIVER' ? 'PENDING' : 'ACTIVE',
         normalizedRole === 'DRIVER' ? String(licenseNumber).trim() : (normalizedRole === 'ADMIN' ? String(licenseNumber).trim() : ''),
         normalizedRole === 'DRIVER' ? String(companyName || '').trim() : (normalizedRole === 'ADMIN' ? String(companyName || '').trim() : ''),
         driverVehiclePlate,
@@ -203,7 +203,7 @@ router.post('/register', authLimiter, async (req, res) => {
         fullName: fullName.trim(),
         phone: phone.trim(),
         email: finalEmail,
-        status: normalizedRole === 'DRIVER' ? 'PENDING_APPROVAL' : 'ACTIVE',
+        status: normalizedRole === 'DRIVER' ? 'PENDING' : 'ACTIVE',
         assignedVehiclePlate: driverVehiclePlate,
         appliedRouteId: normalizedRole === 'PASSENGER' ? String(appliedRouteId || '').trim() : '',
         appliedRouteName: normalizedRole === 'PASSENGER' ? String(appliedRouteName || '').trim() : ''
@@ -251,7 +251,7 @@ router.post('/login', authLimiter, async (req, res) => {
     }
 
     if (user.status && user.status !== 'ACTIVE') {
-      const error = user.status === 'PENDING_APPROVAL'
+      const error = user.status === 'PENDING'
         ? 'Thank you for registering. Your account is awaiting administrator approval and route assignment. Please try signing in after the administrator contacts you.'
         : (user.status === 'REJECTED'
           ? 'Your driver registration was not approved. Please contact RoutePass administration.'
