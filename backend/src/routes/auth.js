@@ -48,6 +48,10 @@ router.post('/register', authLimiter, async (req, res) => {
       });
     }
 
+    if (typeof password !== 'string' || password.length < 10) {
+      return res.status(400).json({ success: false, error: 'Password must contain at least 10 characters.' });
+    }
+
     const normalizedRole = role.toUpperCase();
     if (!['PASSENGER', 'DRIVER', 'ADMIN'].includes(normalizedRole)) {
       return res.status(400).json({
@@ -63,6 +67,14 @@ router.post('/register', authLimiter, async (req, res) => {
         success: false,
         error: 'Driver registration requires administrator approval.'
       });
+    }
+
+    // Allow secret-gated bootstrap only while no administrator exists.
+    if (normalizedRole === 'ADMIN') {
+      const existingAdmin = await DB.prepare("SELECT id FROM users WHERE role = 'ADMIN' LIMIT 1").get();
+      if (existingAdmin) {
+        return res.status(403).json({ success: false, error: 'An administrator already exists. Additional admin access must be provisioned offline.' });
+      }
     }
 
     // Security: Admin accounts cannot freely register!
@@ -196,6 +208,10 @@ router.post('/login', authLimiter, async (req, res) => {
         success: false,
         error: 'Invalid mobile number or credentials.'
       });
+    }
+
+    if (user.status && user.status !== 'ACTIVE') {
+      return res.status(403).json({ success: false, error: 'This account is inactive. Contact your transport administrator.' });
     }
 
     if (role && user.role !== role.toUpperCase()) {
