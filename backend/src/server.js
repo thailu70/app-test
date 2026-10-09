@@ -392,7 +392,7 @@ function broadcastAuthorized(payload, targetRouteId = null) {
     } else if (role === 'PASSENGER') {
       // Commuters receive GPS telemetry strictly for their authorized/monitored transit corridor
       const commuterCorridor = client.monitoredRouteId;
-      if (targetRouteId && commuterCorridor && commuterCorridor !== targetRouteId) {
+      if (!commuterCorridor || (targetRouteId && commuterCorridor !== targetRouteId)) {
         // Drop broadcast: recipient is not authorized/subscribed to this vehicle's corridor
         continue;
       }
@@ -403,18 +403,31 @@ function broadcastAuthorized(payload, targetRouteId = null) {
 
 app.locals.broadcastWs = broadcastAuthorized;
 
-// Start Server
-if (process.env.NODE_ENV !== 'test') {
+// Start only after applying the additive runtime GPS-table migration. This supports existing
+// PostgreSQL installations where init-db.sql was executed before vehicle_live_locations existed.
+async function startServer() {
+  await DB.prepare(`
+    CREATE TABLE IF NOT EXISTS vehicle_live_locations (
+      vehicle_id VARCHAR(64) PRIMARY KEY REFERENCES vehicles(id) ON DELETE CASCADE,
+      latitude NUMERIC(10,6) NOT NULL,
+      longitude NUMERIC(10,6) NOT NULL,
+      speed NUMERIC(7,2) DEFAULT 0,
+      current_stop VARCHAR(100) DEFAULT '',
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+
   server.listen(PORT, HOST, () => {
-    console.log(`================================================================`);
-    console.log(`  TRANSPORT NAVIGATOR - VPS PRODUCTION TRANSIT SERVER`);
-    console.log(`================================================================`);
-    console.log('  REST API       : served on the configured internal listener');
-    console.log('  WebSocket      : /ws (use wss:// through the HTTPS reverse proxy)');
-    console.log('  Health Check   : /api/health (liveness) and /api/ready (database readiness)');
-    console.log(`  Environment    : ${process.env.NODE_ENV || 'production'}`);
-    console.log(`  Local Database : ./data/transport.db`);
-    console.log(`================================================================`);
+    console.log('RoutePass API listening on the configured internal listener');
+    console.log('REST API /api/health and /api/ready; WebSocket /ws');
+    console.log(`Environment: ${process.env.NODE_ENV || 'production'}`);
+  });
+}
+
+if (process.env.NODE_ENV !== 'test') {
+  startServer().catch((err) => {
+    console.error('[Startup] Database migration failed:', err);
+    process.exit(1);
   });
 }
 
