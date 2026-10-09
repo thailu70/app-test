@@ -8,6 +8,12 @@ plugins {
   // alias(libs.plugins.google.services)
 }
 
+// Configure for each deployment with -PROUTEPASS_API_BASE_URL=https://api.yourdomain.com/
+val routePassApiBaseUrl = providers.gradleProperty("ROUTEPASS_API_BASE_URL")
+  .orElse("https://api.example.com/")
+  .get()
+  .let { if (it.endsWith("/")) it else "$it/" }
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -18,6 +24,7 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
+    buildConfigField("String", "ROUTEPASS_API_BASE_URL", "\"$routePassApiBaseUrl\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
