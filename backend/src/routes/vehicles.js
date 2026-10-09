@@ -56,7 +56,7 @@ router.get('/:id', async (req, res) => {
     if (!vehicle) {
       return res.status(404).json({ success: false, error: 'Vehicle not found' });
     }
-    if (req.user.role === 'DRIVER' && !(vehicle.driverId === req.user.id)) {
+    if (req.user.role === 'DRIVER' && !(vehicle.driverId === req.user.id || (!vehicle.driverId && driver?.assignedVehiclePlate === vehicle.plateNumber))) {
       const driver = DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(req.user.id);
       if (!driver || driver.assignedVehiclePlate !== vehicle.plateNumber) {
         return res.status(403).json({ success: false, error: 'Vehicle is not assigned to this driver.' });
@@ -129,7 +129,7 @@ router.post('/:id/location', authenticate, requireRole('DRIVER'), async (req, re
     const vehicle = DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
     if (!vehicle) return res.status(404).json({ success: false, error: 'Vehicle not found.' });
     const driver = DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(req.user.id);
-    if (!(vehicle.driverId === req.user.id || (driver?.assignedVehiclePlate && vehicle.plateNumber === driver.assignedVehiclePlate))) {
+    if (!(vehicle.driverId === req.user.id || (!vehicle.driverId && driver?.assignedVehiclePlate && vehicle.plateNumber === driver.assignedVehiclePlate))) {
       return res.status(403).json({ success: false, error: 'Vehicle is not assigned to this driver.' });
     }
 
