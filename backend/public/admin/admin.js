@@ -167,7 +167,8 @@
         '<div class="field"><label for="route-morning">Morning departure</label><input id="route-morning" name="morningDeparture" type="time" value="06:30" required></div>' +
         '<div class="field"><label for="route-evening">Evening departure</label><input id="route-evening" name="eveningDeparture" type="time" value="17:30" required></div>' +
         '<div class="field"><label for="route-price">Monthly tariff (ETB)</label><input id="route-price" name="basePriceEtb" type="number" min="0" step="1" value="2500" required></div>' +
-        '</div><div class="form-actions"><button class="btn btn-primary" type="submit">Create route</button></div><p id="route-form-message" class="form-message" hidden role="status"></p></form>') +
+        '</div><div class="field" style="margin-top:14px"><label for="route-stops">Ordered route stops *</label><textarea id="route-stops" name="stopsText" rows="5" required placeholder="Bole Medhanialem | ቦሌ መድኃኔዓለም | 8.995000 | 38.788000&#10;Bole Atlas | ቦሌ አትላስ | 9.006000 | 38.780000&#10;Merkato Bus Terminal | መርካቶ ተርሚናል | 9.031000 | 38.736000"></textarea><span class="hint">One stop per line: English name | Amharic name | latitude | longitude. Keep stops in travel order and use real coordinates from a map.</span></div>' +
+        '<div class="form-actions"><button class="btn btn-primary" type="submit">Create route</button></div><p id="route-form-message" class="form-message" hidden role="status"></p></form>') +
       section("Existing routes", routes.length + " route(s)",
         table([
           { label: "Route", render: r => "<strong>" + esc(value(r, "name")) + "</strong><br><span class=\"muted\">" + esc(value(r, "nameAm", "name_am")) + "</span>" },
@@ -313,12 +314,39 @@
       $("#retry-button")?.addEventListener("click", renderView);
     }
   }
+  function parseStopsText(value) {
+    const lines = String(value || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    if (lines.length < 2) throw new Error("Add at least two ordered route stops.");
+    return lines.map((line, index) => {
+      const parts = line.split("|").map(part => part.trim());
+      if (parts.length < 4 || !parts[0] || !parts[1]) {
+        throw new Error("Stop line " + (index + 1) + " must include English name | Amharic name | latitude | longitude.");
+      }
+      const latitude = Number(parts[2]);
+      const longitude = Number(parts[3]);
+      if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+          !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+        throw new Error("Stop line " + (index + 1) + " has invalid coordinates.");
+      }
+      return { stopName: parts[0], stopNameAm: parts[1], latitude, longitude };
+    });
+  }
+
   async function submitRoute(event) {
     event.preventDefault();
     const form = event.currentTarget;
     const button = form.querySelector('button[type="submit"]');
     const message = $("#route-form-message");
     const data = Object.fromEntries(new FormData(form).entries());
+    try {
+      data.stops = parseStopsText(data.stopsText);
+    } catch (error) {
+      message.textContent = error.message;
+      message.className = "form-message error";
+      message.hidden = false;
+      return;
+    }
+    delete data.stopsText;
     data.distanceKm = Number(data.distanceKm);
     data.basePriceEtb = Number(data.basePriceEtb);
     button.disabled = true;
@@ -378,29 +406,46 @@
 
   async function editRoute(button) {
     const id = button.dataset.editRoute;
-    const route = (state.cache.routes || []).find(item => item.id === id);
-    if (!route) return toast("Route data is stale. Refresh and try again.", true);
-    const name = window.prompt("Route name (English):", value(route, "name"));
-    if (name === null) return;
-    const nameAm = window.prompt("Route name (Amharic):", value(route, "nameAm", "name_am"));
-    if (nameAm === null) return;
-    const description = window.prompt("Description:", value(route, "description") === "—" ? "" : value(route, "description"));
-    if (description === null) return;
-    const morningDeparture = window.prompt("Morning departure (HH:MM):", value(route, "morningDeparture", "morning_departure"));
-    if (morningDeparture === null) return;
-    const eveningDeparture = window.prompt("Evening departure (HH:MM):", value(route, "eveningDeparture", "evening_departure"));
-    if (eveningDeparture === null) return;
-    const basePriceEtb = Number(window.prompt("Monthly tariff in ETB:", value(route, "basePriceEtb", "base_price_etb")));
-    if (!Number.isFinite(basePriceEtb) || basePriceEtb < 0) return toast("Tariff must be a valid non-negative number.", true);
+    const summary = (state.cache.routes || []).find(item => item.id === id);
+    if (!summary) return toast("Route data is stale. Refresh and try again.", true);
     button.disabled = true;
     try {
+      const details = await api("/api/routes/" + encodeURIComponent(id));
+      const route = details.route || summary;
+      const currentStops = asArray(details, "stops");
+      const stopsTextDefault = currentStops.map(stop =>
+        [value(stop, "stopName", "stop_name"), value(stop, "stopNameAm", "stop_name_am"),
+          value(stop, "latitude"), value(stop, "longitude")].join(" | ")
+      ).join("\n");
+      const name = window.prompt("Route name (English):", value(route, "name"));
+      if (name === null) return;
+      const nameAm = window.prompt("Route name (Amharic):", value(route, "nameAm", "name_am"));
+      if (nameAm === null) return;
+      const description = window.prompt("Description:", value(route, "description") === "—" ? "" : value(route, "description"));
+      if (description === null) return;
+      const morningDeparture = window.prompt("Morning departure (HH:MM):", value(route, "morningDeparture", "morning_departure"));
+      if (morningDeparture === null) return;
+      const eveningDeparture = window.prompt("Evening departure (HH:MM):", value(route, "eveningDeparture", "evening_departure"));
+      if (eveningDeparture === null) return;
+      const basePriceEtb = Number(window.prompt("Monthly tariff in ETB:", value(route, "basePriceEtb", "base_price_etb")));
+      if (!Number.isFinite(basePriceEtb) || basePriceEtb < 0) return toast("Tariff must be a valid non-negative number.", true);
+      const editedStopsText = window.prompt(
+        "Stops, one per line: English | Amharic | latitude | longitude. Edit the existing list as needed:",
+        stopsTextDefault
+      );
+      if (editedStopsText === null) return;
+      const stops = parseStopsText(editedStopsText);
       await api("/api/routes/" + encodeURIComponent(id), {
         method: "PUT",
-        body: JSON.stringify({ ...route, name, nameAm, description, morningDeparture, eveningDeparture, basePriceEtb })
+        body: JSON.stringify({ ...route, name, nameAm, description, morningDeparture, eveningDeparture, basePriceEtb, stops })
       });
-      toast("Route updated.");
+      toast("Route and stops updated.");
       await renderView();
-    } catch (error) { toast(error.message, true); button.disabled = false; }
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
   }
 
   async function toggleRoute(button) {
