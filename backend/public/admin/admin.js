@@ -468,13 +468,13 @@
 
   async function rechargeSubscription(button) {
     const id = button.dataset.recharge;
-    if (!window.confirm("Activate this passenger subscription for 30 test days? This is an ADMIN_TEST entry, not a real Telebirr payment.")) return;
+    if (!window.confirm("Manually activate this passenger subscription for 30 days? This audited ADMIN_MANUAL override is not a Telebirr payment confirmation.")) return;
     button.disabled = true;
     try {
       const result = await api("/api/admin/subscriptions/" + encodeURIComponent(id) + "/recharge", {
         method: "POST", body: JSON.stringify({ days: 30 })
       });
-      toast(result.message || "Manual test recharge complete.");
+      toast(result.message || "Manual admin activation complete.");
       await renderView();
     } catch (error) { toast(error.message, true); button.disabled = false; }
   }
