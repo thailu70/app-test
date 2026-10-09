@@ -28,7 +28,6 @@ import com.example.core.localization.AppStrings
 import com.example.data.database.TransportDatabase
 import com.example.data.repository.TransportRepository
 import com.example.ui.components.NotificationTrayDialog
-import com.example.ui.screens.admin.AdminDashboardScreen
 import com.example.ui.screens.auth.AuthScreen
 import com.example.ui.screens.driver.DriverTripScreen
 import com.example.ui.screens.passenger.PassengerDashboardScreen
@@ -257,7 +256,19 @@ fun MainTransportApp(viewModel: MainViewModel) {
                         DriverTripScreen(viewModel = viewModel)
                     }
                     AppRole.ADMIN -> {
-                        AdminDashboardScreen(viewModel = viewModel)
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(24.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                "The administrator portal is available in your browser only.",
+                                style = MaterialTheme.typography.titleMedium,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            Text("Open https://routepass.duckdns.org/admin/ to manage RoutePass.")
+                            Button(onClick = { viewModel.logout() }) { Text("Return to sign in") }
+                        }
                     }
                 }
             }
