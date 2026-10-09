@@ -178,6 +178,22 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Private profile and vehicle document metadata. Binary files are stored in the
+-- persistent routepass_uploads volume and served only through authenticated API routes.
+CREATE TABLE IF NOT EXISTS routepass_documents (
+    id VARCHAR(64) PRIMARY KEY,
+    owner_user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    vehicle_id VARCHAR(64) REFERENCES vehicles(id) ON DELETE CASCADE,
+    document_type VARCHAR(40) NOT NULL,
+    storage_name VARCHAR(80) NOT NULL UNIQUE,
+    original_name VARCHAR(120) NOT NULL,
+    mime_type VARCHAR(80) NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_routepass_documents_owner_type
+    ON routepass_documents(owner_user_id, document_type, created_at);
+
 -- ====================================================================
 -- Initial Seed Data
 -- ====================================================================
