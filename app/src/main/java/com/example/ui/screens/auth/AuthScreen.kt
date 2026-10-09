@@ -590,7 +590,6 @@ fun AuthScreen(
                             }
                         }
 
-                        if (!isRegisterMode || portal != AppRole.DRIVER) {
                         OutlinedTextField(
                             value = phone,
                             onValueChange = { phone = it },
@@ -614,7 +613,6 @@ fun AuthScreen(
                                 .fillMaxWidth()
                                 .testTag("auth_password_input")
                         )
-                        }
 
                         authError?.let { err ->
                             Text(
@@ -637,6 +635,8 @@ fun AuthScreen(
                                         licenseNumber = licenseNumber,
                                         companyName = companyName,
                                         assignedVehiclePlate = vehiclePlate,
+                                        vehicleModel = vehicleModel,
+                                        vehicleType = vehicleType,
                                         appliedRouteId = selectedRouteId,
                                         appliedRouteName = selectedRouteName,
                                         adminSecret = adminSecret
