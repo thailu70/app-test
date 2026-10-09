@@ -37,6 +37,8 @@ router.post('/register', authLimiter, async (req, res) => {
       licenseNumber = '',
       companyName = '',
       assignedVehiclePlate = '',
+      vehicleModel = '',
+      vehicleType = 'MINIBUS_14',
       appliedRouteId = '',
       appliedRouteName = ''
     } = req.body;
@@ -60,13 +62,31 @@ router.post('/register', authLimiter, async (req, res) => {
       });
     }
 
-    // Drivers must be created or approved by an administrator; public self-registration
-    // must never grant a transport-operating role or client-selected assignments.
+    // Drivers register their own account and the vehicle they own. The server creates
+    // the vehicle with no route; only an administrator may assign an approved route.
+    const vehicleCapacities = {
+      MINIVAN_8: 8,
+      MINIBUS_14: 14,
+      HIGER_24: 24,
+      ANBESSA_BUS_30: 30
+    };
+    let driverVehiclePlate = '';
+    let driverVehicleModel = '';
+    let driverVehicleType = '';
     if (normalizedRole === 'DRIVER') {
-      return res.status(403).json({
-        success: false,
-        error: 'Driver registration requires administrator approval.'
-      });
+      driverVehiclePlate = String(assignedVehiclePlate || '').trim().toUpperCase();
+      driverVehicleModel = String(vehicleModel || '').trim();
+      driverVehicleType = String(vehicleType || '').trim().toUpperCase();
+      if (!licenseNumber || !String(licenseNumber).trim() || !driverVehiclePlate || !driverVehicleModel || !vehicleCapacities[driverVehicleType]) {
+        return res.status(400).json({
+          success: false,
+          error: 'Driver registration requires a commercial licence number, vehicle plate, vehicle model and valid vehicle type.'
+        });
+      }
+      const existingPlate = await DB.prepare('SELECT id FROM vehicles WHERE plateNumber = ?').get(driverVehiclePlate);
+      if (existingPlate) {
+        return res.status(409).json({ success: false, error: 'That vehicle plate is already registered. Contact support if you are the legal owner.' });
+      }
     }
 
     // Allow secret-gated bootstrap only while no administrator exists.
@@ -102,22 +122,40 @@ router.post('/register', authLimiter, async (req, res) => {
     const userId = `usr_${normalizedRole.toLowerCase().slice(0, 3)}_${crypto.randomUUID().slice(0, 8)}`;
     const finalEmail = email?.trim() || `${phone.trim()}@transport.et`;
 
-    await DB.prepare(`
-      INSERT INTO users (id, role, fullName, phone, email, passwordHash, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName)
-      VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
-    `).run(
-      userId,
-      normalizedRole,
-      fullName.trim(),
-      phone.trim(),
-      finalEmail,
-      passwordHash,
-      normalizedRole === 'ADMIN' ? licenseNumber.trim() : '',
-      normalizedRole === 'ADMIN' ? companyName.trim() : '',
-      '',
-      normalizedRole === 'PASSENGER' ? appliedRouteId.trim() : '',
-      normalizedRole === 'PASSENGER' ? appliedRouteName.trim() : ''
-    );
+    await DB.transaction(async (tx) => {
+      await tx.prepare(`
+        INSERT INTO users (id, role, fullName, phone, email, passwordHash, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName)
+        VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
+      `).run(
+        userId,
+        normalizedRole,
+        fullName.trim(),
+        phone.trim(),
+        finalEmail,
+        passwordHash,
+        normalizedRole === 'DRIVER' ? String(licenseNumber).trim() : (normalizedRole === 'ADMIN' ? String(licenseNumber).trim() : ''),
+        normalizedRole === 'DRIVER' ? String(companyName || '').trim() : (normalizedRole === 'ADMIN' ? String(companyName || '').trim() : ''),
+        driverVehiclePlate,
+        normalizedRole === 'PASSENGER' ? String(appliedRouteId || '').trim() : '',
+        normalizedRole === 'PASSENGER' ? String(appliedRouteName || '').trim() : ''
+      );
+
+      if (normalizedRole === 'DRIVER') {
+        const vehicleId = `veh_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+        await tx.prepare(`
+          INSERT INTO vehicles (id, plateNumber, model, vehicleType, capacityLimit, currentOccupancy, assignedRouteId, driverId, driverName, status)
+          VALUES (?, ?, ?, ?, ?, 0, NULL, ?, ?, 'OFF_DUTY')
+        `).run(
+          vehicleId,
+          driverVehiclePlate,
+          driverVehicleModel,
+          driverVehicleType,
+          vehicleCapacities[driverVehicleType],
+          userId,
+          fullName.trim()
+        );
+      }
+    });
 
     // CRITICAL: Registration does NOT activate a subscription!
     // If passenger selected a route during signup, create a PENDING unpaid subscription.
@@ -165,14 +203,16 @@ router.post('/register', authLimiter, async (req, res) => {
         phone: phone.trim(),
         email: finalEmail,
         status: 'ACTIVE',
-        assignedVehiclePlate: '',
-        appliedRouteId: normalizedRole === 'PASSENGER' ? appliedRouteId.trim() : '',
-        appliedRouteName: normalizedRole === 'PASSENGER' ? appliedRouteName.trim() : ''
+        assignedVehiclePlate: driverVehiclePlate,
+        appliedRouteId: normalizedRole === 'PASSENGER' ? String(appliedRouteId || '').trim() : '',
+        appliedRouteName: normalizedRole === 'PASSENGER' ? String(appliedRouteName || '').trim() : ''
       },
       subscription: initialSub,
-      message: normalizedRole === 'PASSENGER' && appliedRouteId
-        ? 'Account created. Subscription is PENDING payment via Telebirr.'
-        : 'Registration successful.'
+      message: normalizedRole === 'DRIVER'
+        ? 'Driver account and owned vehicle registered. An administrator must assign an active route before you can start a trip.'
+        : (normalizedRole === 'PASSENGER' && appliedRouteId
+          ? 'Account created. Subscription is PENDING payment; ask an administrator for a manual test recharge during testing.'
+          : 'Registration successful.')
     });
   } catch (err) {
     console.error('[RoutePass] request failed:', err);
