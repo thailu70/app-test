@@ -21,6 +21,23 @@ permissions:
   contents: read
 
 jobs:
+  compose-traefik:
+    name: Traefik Compose and installer syntax checks
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci_compose_password_only
+      JWT_SECRET: ci_jwt_secret_only_for_compose_validation
+      ADMIN_REGISTRATION_SECRET: ci_admin_secret_only_for_compose_validation
+      QR_SIGNING_KEY: ci_qr_secret_only_for_compose_validation
+      PAYMENT_MODE: PRODUCTION
+      ROUTEPASS_DOMAIN: routepass.example.com
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check deployment script syntax
+        run: bash -n backend/deploy-traefik-vps.sh
+      - name: Validate Compose configuration without starting containers
+        run: docker compose -f backend/docker-compose.yml -f backend/docker-compose.traefik.yml config --quiet
+
   backend-sqlite:
     name: Backend syntax and SQLite integration
     runs-on: ubuntu-latest
