@@ -50,10 +50,7 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
         .get(driverUser?.assignedVehiclePlate || '', driverId);
     }
 
-    const assignedToDriver = vehicle && (
-      vehicle.driverId === driverId ||
-      (driverUser?.assignedVehiclePlate && vehicle.plateNumber === driverUser.assignedVehiclePlate)
-    );
+    const assignedToDriver = vehicle && vehicle.driverId === driverId;
     if (vehicle && !assignedToDriver) {
       return res.status(403).json({ success: false, status: 'VEHICLE_NOT_ASSIGNED', error: 'This vehicle is not assigned to your driver account.' });
     }
@@ -120,6 +117,15 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
     const result = await DB.transaction(async (tx) => {
       // Re-read vehicle occupancy inside transaction
       const currentVehicle = await tx.prepare(tx.isPostgres ? 'SELECT * FROM vehicles WHERE id = ? FOR UPDATE' : 'SELECT * FROM vehicles WHERE id = ?').get(vehicle.id);
+      if (!currentVehicle || currentVehicle.driverId !== driverId) {
+        throw new Error('Vehicle assignment changed during check-in; retry with the currently assigned vehicle.');
+      }
+      // Re-check inside the same transaction so two concurrent scans cannot board the same
+      // passenger twice even when they arrived before either request committed.
+      const duplicate = await tx.prepare("SELECT id FROM checkin_records WHERE tripId = ? AND passengerId = ? AND status = 'BOARDED' LIMIT 1").get(tripId, sub.passengerId);
+      if (duplicate) {
+        return { allowed: false, reason: 'ALREADY_CHECKED_IN' };
+      }
       const capacity = currentVehicle.capacityLimit || VEHICLE_TYPE_CAPACITIES[currentVehicle.vehicleType] || 24;
 
       if (currentVehicle.currentOccupancy >= capacity) {
@@ -176,6 +182,13 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
       };
     });
 
+    if (!result.allowed && result.reason === 'ALREADY_CHECKED_IN') {
+      return res.status(409).json({
+        success: false,
+        status: 'ALREADY_CHECKED_IN',
+        error: 'Passenger has already boarded this scheduled trip.'
+      });
+    }
     if (!result.allowed) {
       return res.status(409).json({
         success: false,
