@@ -74,7 +74,7 @@ const limiter = rateLimit({
 app.use('/api/', limiter);
 
 // Welcome & API Status
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {
   res.json({
     service: 'Transport Navigator VPS API',
     region: 'Ethiopia (Addis Ababa)',
@@ -94,14 +94,14 @@ app.get('/', (req, res) => {
 });
 
 // VPS System Health Check
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
   // Public liveness only. Never disclose passenger/operational counts or database errors.
   res.json({ status: 'HEALTHY', service: 'RoutePass API', timestamp: new Date().toISOString() });
 });
 
 app.get('/api/ready', async (req, res) => {
   try {
-    DB.prepare('SELECT 1 AS ok').get();
+    await DB.prepare('SELECT 1 AS ok').get();
     res.json({ status: 'READY' });
   } catch (err) {
     console.error('[Readiness] database query failed:', err);
@@ -122,7 +122,7 @@ app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/sync', require('./routes/sync'));
 
 // 404 Handler
-app.use((req, res) => {
+app.use(async (req, res) => {
   res.status(404).json({
     success: false,
     error: 'Endpoint not found.'
@@ -150,11 +150,11 @@ const driverLastGpsTime = new Map();
 
 // Periodic flush of vehicle locations to database every 30 seconds
 const FLUSH_INTERVAL_MS = 30000;
-const locationFlushTimer = setInterval(() => {
+const locationFlushTimer = setInterval(async () => {
   if (inMemoryVehicleLocations.size === 0) return;
   for (const [vehicleId, loc] of inMemoryVehicleLocations.entries()) {
     try {
-      await DB.prepare(`
+      DB.prepare(`
         UPDATE vehicles
         SET currentLat = ?, currentLng = ?, updatedAt = CURRENT_TIMESTAMP
         WHERE id = ?
@@ -201,7 +201,7 @@ wss.on('connection', (ws, req) => {
     timestamp: new Date().toISOString()
   }));
 
-  ws.on('message', (message) => {
+  ws.on('message', async (message) => {
     try {
       const data = JSON.parse(message);
 
@@ -266,12 +266,12 @@ wss.on('connection', (ws, req) => {
         if (!vehicleId || typeof vehicleId !== 'string') {
           return ws.send(JSON.stringify({ type: 'GPS_REJECTED', reason: 'MISSING_VEHICLE_ID' }));
         }
-        const vehicle = DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicleId);
+        const vehicle = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicleId);
         if (!vehicle) {
           return ws.send(JSON.stringify({ type: 'GPS_REJECTED', reason: 'UNKNOWN_VEHICLE' }));
         }
         if (userRole === 'DRIVER') {
-          const driver = DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(driverId);
+          const driver = await DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(driverId);
           const isAssigned = vehicle.driverId === driverId ||
             (driver?.assignedVehiclePlate && driver.assignedVehiclePlate === vehicle.plateNumber);
           if (!isAssigned) {
