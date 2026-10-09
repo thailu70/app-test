@@ -67,6 +67,16 @@ CREATE TABLE IF NOT EXISTS vehicles (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Actual GPS reports are kept separately from seeded/default display coordinates.
+CREATE TABLE IF NOT EXISTS vehicle_live_locations (
+    vehicle_id VARCHAR(64) PRIMARY KEY REFERENCES vehicles(id) ON DELETE CASCADE,
+    latitude NUMERIC(10,6) NOT NULL,
+    longitude NUMERIC(10,6) NOT NULL,
+    speed NUMERIC(7,2) DEFAULT 0,
+    current_stop VARCHAR(100) DEFAULT '',
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 5. Subscriptions Table
 CREATE TABLE IF NOT EXISTS subscriptions (
     id VARCHAR(64) PRIMARY KEY,
