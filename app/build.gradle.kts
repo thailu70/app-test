@@ -119,6 +119,13 @@ dependencies {
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
+  // Real camera QR scanning (bundled ML Kit model works without a first-run model download).
+  implementation("androidx.camera:camera-camera2:1.6.2")
+  implementation("androidx.camera:camera-lifecycle:1.6.2")
+  implementation("androidx.camera:camera-view:1.6.2")
+  implementation("com.google.mlkit:barcode-scanning:17.3.0")
+  // Compact OpenStreetMap view for actual vehicle coordinates (no Google Maps API key).
+  implementation("org.osmdroid:osmdroid-android:6.1.20")
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
