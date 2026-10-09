@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { DB } = require('../db');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requireRole } = require('../middleware/auth');
 
 /**
  * POST /api/sync/pull
