@@ -106,7 +106,7 @@ async function run() {
     assert.equal(result.status, 201, 'Driver owner self-registration must create the pending driver and owned vehicle');
     const driver = result.data.user;
     assert.equal(driver.role, 'DRIVER');
-    assert.equal(driver.status, 'PENDING_APPROVAL');
+    assert.equal(driver.status, 'PENDING');
     assert.equal(result.data.token, null, 'Pending driver registration must not create a login session');
     assert.equal(driver.assignedVehiclePlate, '3-CI-0001');
     assert.equal(driver.appliedRouteId, '', 'A newly registered driver must not choose their own route');
@@ -117,7 +117,7 @@ async function run() {
       role: 'DRIVER'
     });
     assert.equal(result.status, 403, 'Pending driver must not log in before admin approval');
-    assert.equal(result.data.code, 'PENDING_APPROVAL');
+    assert.equal(result.data.code, 'PENDING');
 
     result = await requestJson(baseUrl, `/api/admin/drivers/${encodeURIComponent(driver.id)}/approval`, 'PATCH', {
       status: 'ACTIVE'
