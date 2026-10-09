@@ -89,6 +89,7 @@ async function run() {
     });
     assert.equal(result.status, 201, 'Passenger registration must work against PostgreSQL');
     const passengerToken = result.data.token;
+    const passengerId = result.data.user.id;
     const passengerSubscriptionId = result.data.subscription.id;
 
     result = await requestJson(baseUrl, '/api/subscriptions/telebirr/pay', 'POST', {
