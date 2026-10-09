@@ -191,10 +191,10 @@ async function runTests() {
     // Configure vehicle with capacity limit = 1 to test boarding then strict denial
     const testVehId = 'veh_higer_aa_34921'; // assigned Higer vehicle for the authenticated driver
     await makeRequest('PATCH', `/api/vehicles/${testVehId}/type`, {
-      vehicleType: 'MINIVAN_8',
+      vehicleType: 'HIGER_24',
       capacityLimit: 1,
       currentOccupancy: 0
-    }, driverToken);
+    }, adminToken);
 
     // First scan: Board passenger 1 -> Should succeed
     const scan1 = await makeRequest('POST', '/api/checkins/scan', {
