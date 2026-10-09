@@ -13,11 +13,12 @@ object ApiClient {
 
     // Central VPS Host & URL configuration
     const val DEFAULT_VPS_HOST = "62.72.19.170"
-    const val DEFAULT_HTTP_URL = "http://62.72.19.170:3000/"
     const val DEFAULT_HTTPS_URL = "https://62.72.19.170/"
+    const val DEFAULT_HTTP_DEV_URL = "http://62.72.19.170:3000/"
 
+    // Valid HTTPS is the production Android default
     @Volatile
-    private var baseUrl: String = DEFAULT_HTTP_URL
+    private var baseUrl: String = DEFAULT_HTTPS_URL
 
     @Volatile
     private var authToken: String? = null
@@ -36,8 +37,13 @@ object ApiClient {
         chain.proceed(requestBuilder.build())
     }
 
+    // Security Policy: Never log sensitive authentication tokens, passwords, PINs, or PII in production
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
-        level = HttpLoggingInterceptor.Level.BODY
+        redactHeader("Authorization")
+        redactHeader("Cookie")
+        redactHeader("X-Telebirr-Signature")
+        redactHeader("X-Idempotency-Key")
+        level = HttpLoggingInterceptor.Level.NONE
     }
 
     private val okHttpClient: OkHttpClient by lazy {

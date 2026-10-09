@@ -33,7 +33,11 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 if (process.env.NODE_ENV !== 'test') {
-  app.use(morgan('combined'));
+  // Security Policy: Never log sensitive tokens, PINs, passwords, or secrets in HTTP request logs
+  morgan.token('safe-url', (req) => {
+    return (req.originalUrl || req.url).replace(/([?&](?:token|password|pin|telebirrPin|secret|key)=)[^&]+/gi, '$1[REDACTED]');
+  });
+  app.use(morgan(':remote-addr - :remote-user [:date[clf]] ":method :safe-url HTTP/:http-version" :status :res[content-length]'));
 }
 
 // Rate Limiting
@@ -221,6 +225,22 @@ wss.on('connection', (ws, req) => {
         }
       }
 
+      // Handle Route Subscription / Corridor Filter for Connected Commuter
+      if (data.type === 'SUBSCRIBE_ROUTE' && data.routeId) {
+        if (!ws.authenticated) {
+          return ws.send(JSON.stringify({
+            type: 'SUBSCRIPTION_REJECTED',
+            reason: 'AUTHENTICATION_REQUIRED'
+          }));
+        }
+        ws.monitoredRouteId = data.routeId;
+        return ws.send(JSON.stringify({
+          type: 'ROUTE_SUBSCRIBED',
+          routeId: data.routeId,
+          timestamp: Date.now()
+        }));
+      }
+
       // Handle Driver GPS Location Update
       if (data.type === 'DRIVER_LOCATION_UPDATE') {
         // Enforce Authentication: must be authenticated DRIVER or ADMIN
@@ -279,16 +299,26 @@ wss.on('connection', (ws, req) => {
           timestamp: now
         });
 
-        // Broadcast real GPS location strictly to authorized/connected users
+        // Cache vehicle route for recipient authorization
+        let routeId = data.routeId;
+        if (!routeId) {
+          try {
+            const veh = DB.prepare('SELECT assignedRouteId FROM vehicles WHERE id = ?').get(vehicleId);
+            routeId = veh?.assignedRouteId;
+          } catch (e) {}
+        }
+
+        // Broadcast real GPS location strictly to authorized recipients
         broadcastAuthorized({
           type: 'VEHICLE_LOCATION_UPDATE',
           vehicleId: vehicleId,
+          routeId: routeId || '',
           latitude: lat,
           longitude: lng,
           speed: speed,
           currentStop: data.currentStop || '',
           timestamp: new Date(now).toISOString()
-        });
+        }, routeId);
 
         ws.send(JSON.stringify({
           type: 'GPS_ACK',
@@ -312,12 +342,27 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-// Broadcast Helper: Distributes live telemetry to clients
-function broadcastAuthorized(payload) {
+// Broadcast Helper: Distributes live telemetry strictly to authorized recipients
+function broadcastAuthorized(payload, targetRouteId = null) {
   const json = JSON.stringify(payload);
   for (const client of clients) {
-    if (client.readyState === WebSocket.OPEN) {
-      // Send to authenticated users or active telemetry listeners
+    if (client.readyState !== WebSocket.OPEN) continue;
+
+    // 1. Mandatory Authentication: Unauthenticated guests never receive live telemetry
+    if (!client.authenticated || !client.user) continue;
+
+    // 2. Per-Recipient Authorization:
+    const role = (client.user.role || '').toUpperCase();
+    if (role === 'ADMIN' || role === 'DRIVER') {
+      // Operations dispatchers and commercial drivers have fleet-wide telemetry visibility
+      client.send(json);
+    } else if (role === 'PASSENGER') {
+      // Commuters receive GPS telemetry strictly for their authorized/monitored transit corridor
+      const commuterCorridor = client.monitoredRouteId || client.user.appliedRouteId;
+      if (targetRouteId && commuterCorridor && commuterCorridor !== targetRouteId) {
+        // Drop broadcast: recipient is not authorized/subscribed to this vehicle's corridor
+        continue;
+      }
       client.send(json);
     }
   }

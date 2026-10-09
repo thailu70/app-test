@@ -1,16 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Trust system and user certificates for HTTPS connections -->
-    <base-config cleartextTrafficPermitted="true">
+    <!-- Production Android Default: Strictly enforce HTTPS with trusted System Certificate Authorities -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Developer debug overrides: allow local emulator cleartext only during debug builds -->
+    <debug-overrides>
         <trust-anchors>
             <certificates src="system" />
             <certificates src="user" />
         </trust-anchors>
-    </base-config>
+    </debug-overrides>
 
-    <!-- Specific domain configurations for development and VPS deployments -->
+    <!-- Isolated development hosts for local developer testing -->
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">62.72.19.170</domain>
         <domain includeSubdomains="true">10.0.2.2</domain>
         <domain includeSubdomains="true">127.0.0.1</domain>
         <domain includeSubdomains="true">localhost</domain>

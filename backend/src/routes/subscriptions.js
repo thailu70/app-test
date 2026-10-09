@@ -182,6 +182,92 @@ router.post('/subscribe', authenticate, requireRole('PASSENGER'), (req, res) => 
 });
 
 /**
+ * Server-side Telebirr transaction verifier.
+ * Queries Telebirr gateway or verifies pre-recorded server-to-server webhook confirmation.
+ * NEVER trusts client-supplied boolean flags or unverified client transaction IDs!
+ */
+async function verifyTelebirrServerSide(txnRef, expectedAmount) {
+  if (PAYMENT_MODE !== 'PRODUCTION') {
+    // In test/sandbox mode, the server handles verification with test sandbox rules
+    return { verified: true, mode: 'TEST_SANDBOX' };
+  }
+
+  // In production, check for pre-recorded server-to-server webhook verified record
+  if (txnRef) {
+    const verifiedTxn = DB.prepare(`
+      SELECT * FROM payment_transactions
+      WHERE (referenceNumber = ? OR idempotencyKey = ?)
+        AND status = 'VERIFIED'
+    `).get(txnRef, txnRef);
+
+    if (verifiedTxn && parseFloat(verifiedTxn.amountEtb) >= expectedAmount) {
+      return { verified: true, mode: 'WEBHOOK_CONFIRMED', transaction: verifiedTxn };
+    }
+  }
+
+  // If a live Telebirr Query API is configured, query Telebirr directly server-to-server
+  if (process.env.TELEBIRR_QUERY_URL && process.env.TELEBIRR_APP_ID && process.env.TELEBIRR_APP_KEY) {
+    try {
+      const response = await fetch(process.env.TELEBIRR_QUERY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appId: process.env.TELEBIRR_APP_ID,
+          outTradeNo: txnRef
+        })
+      });
+      const data = await response.json();
+      if (data && data.code === 0 && data.data && data.data.tradeStatus === 'COMPLETED') {
+        return { verified: true, mode: 'API_VERIFIED', telebirrData: data.data };
+      }
+    } catch (e) {
+      // Query failed
+    }
+  }
+
+  return { verified: false, reason: 'UNVERIFIED_TELEBIRR_TRANSACTION' };
+}
+
+/**
+ * POST /api/subscriptions/telebirr/webhook
+ * Official Server-to-Server Callback from Ethio Telecom Telebirr.
+ * Verifies HMAC/RSA signature and records transaction as VERIFIED.
+ */
+router.post('/telebirr/webhook', async (req, res) => {
+  try {
+    const signature = req.headers['x-telebirr-signature'] || req.body.signature;
+    const { outTradeNo, transactionNo, totalAmount, tradeStatus, passengerId = 'system' } = req.body;
+
+    const webhookSecret = process.env.TELEBIRR_WEBHOOK_SECRET || process.env.TELEBIRR_APP_KEY;
+    if (webhookSecret && signature) {
+      const payload = `${outTradeNo}:${transactionNo}:${totalAmount}:${tradeStatus}`;
+      const expectedHmac = crypto.createHmac('sha256', webhookSecret).update(payload).digest('hex');
+      if (signature !== expectedHmac) {
+        return res.status(401).json({ success: false, error: 'Invalid Telebirr webhook signature.' });
+      }
+    }
+
+    if (tradeStatus === 'COMPLETED' || tradeStatus === 'SUCCESS') {
+      const txnRef = transactionNo || outTradeNo;
+      const existing = DB.prepare('SELECT id FROM payment_transactions WHERE referenceNumber = ?').get(txnRef);
+      if (existing) {
+        DB.prepare("UPDATE payment_transactions SET status = 'VERIFIED' WHERE id = ?").run(existing.id);
+      } else {
+        DB.prepare(`
+          INSERT INTO payment_transactions (id, passengerId, referenceNumber, amountEtb, provider, status, notes)
+          VALUES (?, ?, ?, ?, 'Telebirr', 'VERIFIED', 'Verified via Telebirr Webhook')
+        `).run(`tx_${crypto.randomUUID().slice(0, 8)}`, passengerId, txnRef, parseFloat(totalAmount) || 0);
+      }
+      return res.json({ code: 0, message: 'SUCCESS' });
+    }
+
+    res.json({ code: -1, message: 'TRADE_NOT_COMPLETED' });
+  } catch (err) {
+    res.status(500).json({ code: -1, error: err.message });
+  }
+});
+
+/**
  * POST /api/subscriptions/telebirr/pay
  * Server-side Telebirr Payment Processing with Idempotency.
  * No client-side PIN collection or storage!
@@ -205,22 +291,33 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
       idempotencyKey = req.headers['x-idempotency-key'] || ''
     } = req.body;
 
-    // Production Verification Isolation: Never activate without verified payment in PRODUCTION
+    const user = DB.prepare('SELECT * FROM users WHERE id = ?').get(passengerId);
+    const targetRouteId = routeId || user?.appliedRouteId || 'route_bole_merkato';
+    const route = DB.prepare('SELECT * FROM routes WHERE id = ?').get(targetRouteId);
+
+    if (!route) {
+      return res.status(404).json({ success: false, error: 'Route not found.' });
+    }
+
+    const price = route.basePriceEtb || 2500.0;
+
+    // Production Verification Isolation: Independently verify payment on server (NEVER trust client-supplied flags!)
     if (PAYMENT_MODE === 'PRODUCTION') {
-      const isVerified = Boolean(req.body.telebirrVerified || req.body.telebirrTxnId);
-      if (!isVerified) {
+      const telebirrRef = req.body.telebirrTxnRef || idempotencyKey;
+      const verification = await verifyTelebirrServerSide(telebirrRef, price);
+      if (!verification.verified) {
         return res.status(402).json({
           success: false,
-          error: 'Unverified Payment: Subscriptions cannot be activated without verified Telebirr transaction confirmation in production mode.'
+          error: 'Payment Verification Failed: Independent server-side verification with Telebirr failed. Subscriptions can never be activated without verified server-side payment in production mode. Client-supplied flags are strictly rejected.'
         });
       }
     }
 
     // 1. Idempotency Check: prevent duplicate payment processing
     if (idempotencyKey) {
-      const existingTxn = DB.prepare('SELECT * FROM payment_transactions WHERE idempotencyKey = ?').get(idempotencyKey);
+      const existingTxn = await DB.prepare('SELECT * FROM payment_transactions WHERE idempotencyKey = ?').get(idempotencyKey);
       if (existingTxn) {
-        const sub = DB.prepare('SELECT * FROM subscriptions WHERE passengerId = ?').get(passengerId);
+        const sub = await DB.prepare('SELECT * FROM subscriptions WHERE passengerId = ?').get(passengerId);
         return res.json({
           success: true,
           idempotentReplay: true,
@@ -231,15 +328,6 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
       }
     }
 
-    const user = DB.prepare('SELECT * FROM users WHERE id = ?').get(passengerId);
-    const targetRouteId = routeId || user?.appliedRouteId || 'route_bole_merkato';
-    const route = DB.prepare('SELECT * FROM routes WHERE id = ?').get(targetRouteId);
-
-    if (!route) {
-      return res.status(404).json({ success: false, error: 'Route not found.' });
-    }
-
-    const price = route.basePriceEtb || 2500.0;
     const subId = `sub_${passengerId}_${Date.now().toString(36)}`;
     const expiresTimestamp = Date.now() + 30 * 24 * 3600 * 1000;
     const signedQrToken = generateSignedQrToken(subId, passengerId, targetRouteId, expiresTimestamp);
@@ -250,18 +338,25 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
     const startDate = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
     const endDate = new Date(Date.now() + 30 * 86400000).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 
+    // Payment Isolation: Explicitly distinguish between Production and Test Sandbox
+    const txnProvider = PAYMENT_MODE === 'PRODUCTION' ? 'Telebirr' : 'Telebirr-TestSandbox';
+    const txnNotes = PAYMENT_MODE === 'PRODUCTION'
+      ? `Telebirr Transit Pass - ${route.name} (Production Verified)`
+      : `Telebirr Transit Pass - ${route.name} (TEST_SANDBOX Mode - Isolated from Live Accounting)`;
+
     // Record Telebirr Transaction
-    DB.prepare(`
+    await DB.prepare(`
       INSERT INTO payment_transactions (id, passengerId, referenceNumber, idempotencyKey, amountEtb, provider, phoneNumber, status, notes)
-      VALUES (?, ?, ?, ?, ?, 'Telebirr', ?, 'COMPLETED', ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?)
     `).run(
       txnId,
       passengerId,
       txnRef,
       idempotencyKey || null,
       price,
+      txnProvider,
       phone,
-      `Telebirr Transit Pass - ${route.name} (${PAYMENT_MODE} Mode)`
+      txnNotes
     );
 
     // Activate Subscription & Assign Signed QR

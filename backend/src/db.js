@@ -39,6 +39,117 @@ if (!pgPool) {
   console.log(`[Database] Initialized SQLite database at: ${DB_FILE}`);
 }
 
+function normalizeRow(row) {
+  if (!row || typeof row !== 'object') return row;
+  const normalized = { ...row };
+  for (const [key, val] of Object.entries(row)) {
+    const lowerKey = key.toLowerCase();
+    if (lowerKey === 'fullname' || lowerKey === 'full_name') normalized.fullName = val;
+    if (lowerKey === 'passwordhash' || lowerKey === 'password_hash') normalized.passwordHash = val;
+    if (lowerKey === 'platenumber' || lowerKey === 'plate_number') normalized.plateNumber = val;
+    if (lowerKey === 'vehicletype' || lowerKey === 'vehicle_type') normalized.vehicleType = val;
+    if (lowerKey === 'capacitylimit' || lowerKey === 'capacity_limit') normalized.capacityLimit = val;
+    if (lowerKey === 'currentoccupancy' || lowerKey === 'current_occupancy') normalized.currentOccupancy = val;
+    if (lowerKey === 'assignedrouteid' || lowerKey === 'assigned_route_id') normalized.assignedRouteId = val;
+    if (lowerKey === 'driverid' || lowerKey === 'driver_id') normalized.driverId = val;
+    if (lowerKey === 'drivername' || lowerKey === 'driver_name') normalized.driverName = val;
+    if (lowerKey === 'currentlat' || lowerKey === 'current_lat') normalized.currentLat = val;
+    if (lowerKey === 'currentlng' || lowerKey === 'current_lng') normalized.currentLng = val;
+    if (lowerKey === 'licensenumber' || lowerKey === 'license_number') normalized.licenseNumber = val;
+    if (lowerKey === 'companyname' || lowerKey === 'company_name') normalized.companyName = val;
+    if (lowerKey === 'assignedvehicleplate' || lowerKey === 'assigned_vehicle_plate') normalized.assignedVehiclePlate = val;
+    if (lowerKey === 'appliedrouteid' || lowerKey === 'applied_route_id') normalized.appliedRouteId = val;
+    if (lowerKey === 'appliedroutename' || lowerKey === 'applied_route_name') normalized.appliedRouteName = val;
+    if (lowerKey === 'passengerid' || lowerKey === 'passenger_id') normalized.passengerId = val;
+    if (lowerKey === 'passengername' || lowerKey === 'passenger_name') normalized.passengerName = val;
+    if (lowerKey === 'routeid' || lowerKey === 'route_id') normalized.routeId = val;
+    if (lowerKey === 'routename' || lowerKey === 'route_name') normalized.routeName = val;
+    if (lowerKey === 'routenameam' || lowerKey === 'route_name_am') normalized.routeNameAm = val;
+    if (lowerKey === 'nameam' || lowerKey === 'name_am') normalized.nameAm = val;
+    if (lowerKey === 'stopname' || lowerKey === 'stop_name') normalized.stopName = val;
+    if (lowerKey === 'stopnameam' || lowerKey === 'stop_name_am') normalized.stopNameAm = val;
+    if (lowerKey === 'stoporder' || lowerKey === 'stop_order') normalized.stopOrder = val;
+    if (lowerKey === 'morningdeparture' || lowerKey === 'morning_departure') normalized.morningDeparture = val;
+    if (lowerKey === 'eveningdeparture' || lowerKey === 'evening_departure') normalized.eveningDeparture = val;
+    if (lowerKey === 'morningschedule' || lowerKey === 'morning_schedule') normalized.morningSchedule = val;
+    if (lowerKey === 'eveningschedule' || lowerKey === 'evening_schedule') normalized.eveningSchedule = val;
+    if (lowerKey === 'pickupstopid' || lowerKey === 'pickup_stop_id') normalized.pickupStopId = val;
+    if (lowerKey === 'destinationstopid' || lowerKey === 'destination_stop_id') normalized.destinationStopId = val;
+    if (lowerKey === 'startdate' || lowerKey === 'start_date') normalized.startDate = val;
+    if (lowerKey === 'enddate' || lowerKey === 'end_date') normalized.endDate = val;
+    if (lowerKey === 'priceetb' || lowerKey === 'price_etb') normalized.priceEtb = val;
+    if (lowerKey === 'basepriceetb' || lowerKey === 'base_price_etb') normalized.basePriceEtb = val;
+    if (lowerKey === 'amountetb' || lowerKey === 'amount_etb') normalized.amountEtb = val;
+    if (lowerKey === 'paymentstatus' || lowerKey === 'payment_status') normalized.paymentStatus = val;
+    if (lowerKey === 'subscriptionstatus' || lowerKey === 'subscription_status') normalized.subscriptionStatus = val;
+    if (lowerKey === 'qrtoken' || lowerKey === 'qr_token') normalized.qrToken = val;
+    if (lowerKey === 'daysremaining' || lowerKey === 'days_remaining') normalized.daysRemaining = val;
+    if (lowerKey === 'starttime' || lowerKey === 'start_time') normalized.startTime = val;
+    if (lowerKey === 'endtime' || lowerKey === 'end_time') normalized.endTime = val;
+    if (lowerKey === 'referencenumber' || lowerKey === 'reference_number') normalized.referenceNumber = val;
+    if (lowerKey === 'idempotencykey' || lowerKey === 'idempotency_key') normalized.idempotencyKey = val;
+    if (lowerKey === 'targetaudience' || lowerKey === 'target_audience') normalized.targetAudience = val;
+    if (lowerKey === 'sendername' || lowerKey === 'sender_name') normalized.senderName = val;
+    if (lowerKey === 'createdat' || lowerKey === 'created_at') normalized.createdAt = val;
+    if (lowerKey === 'updatedat' || lowerKey === 'updated_at') normalized.updatedAt = val;
+  }
+  return normalized;
+}
+
+function translateSqlForPostgres(sql) {
+  let paramIndex = 1;
+  let pgSql = sql.replace(/\?/g, () => `$${paramIndex++}`);
+  pgSql = pgSql
+    .replace(/\bfullName\b/g, 'full_name')
+    .replace(/\bpasswordHash\b/g, 'password_hash')
+    .replace(/\blicenseNumber\b/g, 'license_number')
+    .replace(/\bcompanyName\b/g, 'company_name')
+    .replace(/\bassignedVehiclePlate\b/g, 'assigned_vehicle_plate')
+    .replace(/\bappliedRouteId\b/g, 'applied_route_id')
+    .replace(/\bappliedRouteName\b/g, 'applied_route_name')
+    .replace(/\bplateNumber\b/g, 'plate_number')
+    .replace(/\bvehicleType\b/g, 'vehicle_type')
+    .replace(/\bcapacityLimit\b/g, 'capacity_limit')
+    .replace(/\bcurrentOccupancy\b/g, 'current_occupancy')
+    .replace(/\bassignedRouteId\b/g, 'assigned_route_id')
+    .replace(/\bdriverId\b/g, 'driver_id')
+    .replace(/\bdriverName\b/g, 'driver_name')
+    .replace(/\bcurrentLat\b/g, 'current_lat')
+    .replace(/\bcurrentLng\b/g, 'current_lng')
+    .replace(/\bpassengerId\b/g, 'passenger_id')
+    .replace(/\bpassengerName\b/g, 'passenger_name')
+    .replace(/\brouteId\b/g, 'route_id')
+    .replace(/\bnameAm\b/g, 'name_am')
+    .replace(/\bstopNameAm\b/g, 'stop_name_am')
+    .replace(/\bstopName\b/g, 'stop_name')
+    .replace(/\bstopOrder\b/g, 'stop_order')
+    .replace(/\bmorningDeparture\b/g, 'morning_departure')
+    .replace(/\beveningDeparture\b/g, 'evening_departure')
+    .replace(/\bmorningSchedule\b/g, 'morning_schedule')
+    .replace(/\beveningSchedule\b/g, 'evening_schedule')
+    .replace(/\bpickupStopId\b/g, 'pickup_stop_id')
+    .replace(/\bdestinationStopId\b/g, 'destination_stop_id')
+    .replace(/\bstartDate\b/g, 'start_date')
+    .replace(/\bendDate\b/g, 'end_date')
+    .replace(/\bpriceEtb\b/g, 'price_etb')
+    .replace(/\bbasePriceEtb\b/g, 'base_price_etb')
+    .replace(/\bamountEtb\b/g, 'amount_etb')
+    .replace(/\bpaymentStatus\b/g, 'payment_status')
+    .replace(/\bsubscriptionStatus\b/g, 'subscription_status')
+    .replace(/\bqrToken\b/g, 'qr_token')
+    .replace(/\bdaysRemaining\b/g, 'days_remaining')
+    .replace(/\bstartTime\b/g, 'start_time')
+    .replace(/\bendTime\b/g, 'end_time')
+    .replace(/\breferenceNumber\b/g, 'reference_number')
+    .replace(/\bidempotencyKey\b/g, 'idempotency_key')
+    .replace(/\bphoneNumber\b/g, 'phone_number')
+    .replace(/\btargetAudience\b/g, 'target_audience')
+    .replace(/\bsenderName\b/g, 'sender_name')
+    .replace(/\bcreatedAt\b/g, 'created_at')
+    .replace(/\bupdatedAt\b/g, 'updated_at');
+  return pgSql;
+}
+
 /**
  * Universal Database Interface
  */
@@ -50,7 +161,7 @@ const DB = {
     if (sqliteDb) {
       return sqliteDb.exec(sql);
     }
-    return pgPool.query(sql);
+    return pgPool.query(translateSqlForPostgres(sql));
   },
 
   // Prepared statement abstraction for both SQLite and PostgreSQL
@@ -71,9 +182,7 @@ const DB = {
     }
 
     // PostgreSQL async prepared wrapper
-    // Converts SQLite '?' placeholders to PostgreSQL '$1', '$2', ...
-    let paramIndex = 1;
-    const pgSql = sql.replace(/\?/g, () => `$${paramIndex++}`);
+    const pgSql = translateSqlForPostgres(sql);
 
     return {
       async run(...params) {
@@ -82,11 +191,11 @@ const DB = {
       },
       async get(...params) {
         const res = await pgPool.query(pgSql, params);
-        return res.rows[0] || null;
+        return res.rows[0] ? normalizeRow(res.rows[0]) : null;
       },
       async all(...params) {
         const res = await pgPool.query(pgSql, params);
-        return res.rows;
+        return res.rows.map(normalizeRow);
       }
     };
   },
@@ -100,10 +209,9 @@ const DB = {
       }
       return stmt.run(...params);
     }
-    let paramIndex = 1;
-    const pgSql = sql.replace(/\?/g, () => `$${paramIndex++}`);
+    const pgSql = translateSqlForPostgres(sql);
     const res = await pgPool.query(pgSql, params);
-    return res.rows;
+    return res.rows.map(normalizeRow);
   },
 
   // Transaction runner for atomic capacity checks
