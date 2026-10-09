@@ -108,7 +108,7 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
     // 3. ATOMIC TRANSACTION: Check Capacity & Board Passenger
     const result = await DB.transaction(async (tx) => {
       // Re-read vehicle occupancy inside transaction
-      const currentVehicle = await tx.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicle.id);
+      const currentVehicle = await tx.prepare(tx.isPostgres ? 'SELECT * FROM vehicles WHERE id = ? FOR UPDATE' : 'SELECT * FROM vehicles WHERE id = ?').get(vehicle.id);
       const capacity = currentVehicle.capacityLimit || VEHICLE_TYPE_CAPACITIES[currentVehicle.vehicleType] || 24;
 
       if (currentVehicle.currentOccupancy >= capacity) {
