@@ -368,9 +368,9 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
 
     // 1. Idempotency Check: prevent duplicate payment processing
     if (idempotencyKey) {
-      const existingTxn = DB.prepare('SELECT * FROM payment_transactions WHERE idempotencyKey = ?').get(idempotencyKey);
+      const existingTxn = await DB.prepare('SELECT * FROM payment_transactions WHERE idempotencyKey = ?').get(idempotencyKey);
       if (existingTxn) {
-        const sub = DB.prepare('SELECT * FROM subscriptions WHERE passengerId = ?').get(passengerId);
+        const sub = await DB.prepare('SELECT * FROM subscriptions WHERE passengerId = ?').get(passengerId);
         return res.json({
           success: true,
           idempotentReplay: true,
@@ -398,7 +398,7 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
       : `Telebirr Transit Pass - ${route.name} (TEST_SANDBOX Mode - Isolated from Live Accounting)`;
 
     // Record Telebirr Transaction
-    DB.prepare(`
+    await DB.prepare(`
       INSERT INTO payment_transactions (id, passengerId, referenceNumber, idempotencyKey, amountEtb, provider, phoneNumber, status, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?)
     `).run(
