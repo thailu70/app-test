@@ -13,6 +13,7 @@ import com.example.data.api.TrackedVehicleDto
 import com.example.data.entity.*
 import com.example.data.repository.TransportRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -65,6 +66,30 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     // Authentication Session State
     private val _currentUser = MutableStateFlow<UserEntity?>(null)
     val currentUser: StateFlow<UserEntity?> = _currentUser.asStateFlow()
+
+    private var passengerSubscriptionRefreshJob: Job? = null
+
+    private fun startPassengerSubscriptionRefresh(passengerId: String) {
+        passengerSubscriptionRefreshJob?.cancel()
+        passengerSubscriptionRefreshJob = viewModelScope.launch {
+            while (true) {
+                try {
+                    repository.refreshSubscriptionFromBackend(passengerId)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Keep the last known subscription visible; retry on the next interval.
+                }
+                delay(15000)
+            }
+        }
+    }
+
+    private fun stopPassengerSubscriptionRefresh() {
+        passengerSubscriptionRefreshJob?.cancel()
+        passengerSubscriptionRefreshJob = null
+    }
+
 
     private val _isAuthenticated = MutableStateFlow(false)
     val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
@@ -273,7 +298,9 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                         // UI will show registration or route assignment status instead of fabricated trip data.
                     }
                 } else if (role == AppRole.PASSENGER) {
-                    try { repository.refreshSubscriptionFromBackend(user.id) } catch (_: Exception) {}
+                    startPassengerSubscriptionRefresh(user.id)
+                } else {
+                    stopPassengerSubscriptionRefresh()
                 }
                 repository.logAction("LOGIN_SUCCESS", user.id, roleStr, "User logged in as $roleStr")
             } else {
@@ -357,7 +384,9 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                         }
                     } catch (_: Exception) {}
                 } else if (role == AppRole.PASSENGER) {
-                    try { repository.refreshSubscriptionFromBackend(user.id) } catch (_: Exception) {}
+                    startPassengerSubscriptionRefresh(user.id)
+                } else {
+                    stopPassengerSubscriptionRefresh()
                 }
             } catch (e: Exception) {
                 _authError.value = e.message ?: "Registration failed. Check the information and try again."
@@ -366,6 +395,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     }
 
     fun logout() {
+        stopPassengerSubscriptionRefresh()
         _currentUser.value = null
         _isAuthenticated.value = false
         _authError.value = null
