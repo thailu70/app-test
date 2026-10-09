@@ -253,7 +253,7 @@ router.get('/trip/:tripId', authenticate, requireRole('ADMIN', 'DRIVER'), async 
   try {
     const { tripId } = req.params;
     if (req.user.role !== 'ADMIN') {
-      const authorizedTrip = DB.prepare('SELECT id FROM trips WHERE id = ? AND driverId = ?').get(tripId, req.user.id);
+      const authorizedTrip = await DB.prepare('SELECT id FROM trips WHERE id = ? AND driverId = ?').get(tripId, req.user.id);
       if (!authorizedTrip) {
         return res.status(403).json({ success: false, error: 'Access denied for this trip.' });
       }
