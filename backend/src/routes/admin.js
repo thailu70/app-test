@@ -63,8 +63,8 @@ router.post('/drivers', (req, res) => {
 router.patch('/drivers/:id/approval', async (req, res) => {
   try {
     const status = String(req.body.status || '').trim().toUpperCase();
-    if (!['ACTIVE', 'REJECTED'].includes(status)) {
-      return res.status(400).json({ success: false, error: 'Set driver status to ACTIVE to approve or REJECTED to reject.' });
+    if (!['ACTIVE', 'SUSPENDED'].includes(status)) {
+      return res.status(400).json({ success: false, error: 'Set driver status to ACTIVE to approve or SUSPENDED to reject/suspend.' });
     }
     const driver = await DB.prepare("SELECT * FROM users WHERE id = ? AND role = 'DRIVER'").get(req.params.id);
     if (!driver) return res.status(404).json({ success: false, error: 'Driver account not found.' });
@@ -72,10 +72,10 @@ router.patch('/drivers/:id/approval', async (req, res) => {
     await DB.transaction(async (tx) => {
       await tx.prepare("UPDATE users SET status = ? WHERE id = ? AND role = 'DRIVER'").run(status, driver.id);
       await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
-        .run(status === 'ACTIVE' ? 'DRIVER_APPROVED' : 'DRIVER_REJECTED', req.user.id, 'ADMIN', `${status === 'ACTIVE' ? 'Approved' : 'Rejected'} driver ${driver.id} (${driver.phone})`);
+        .run(status === 'ACTIVE' ? 'DRIVER_APPROVED' : 'DRIVER_REJECTED', req.user.id, 'ADMIN', `${status === 'ACTIVE' ? 'Approved' : 'Rejected/suspended'} driver ${driver.id} (${driver.phone})`);
     });
 
-    res.json({ success: true, driver: { id: driver.id, fullName: driver.fullName, status }, message: status === 'ACTIVE' ? 'Driver approved. You can now assign an active route.' : 'Driver registration rejected.' });
+    res.json({ success: true, driver: { id: driver.id, fullName: driver.fullName, status }, message: status === 'ACTIVE' ? 'Driver approved. You can now assign an active route.' : 'Driver registration rejected/suspended.' });
   } catch (err) {
     console.error('[Admin] driver approval failed:', err);
     res.status(500).json({ success: false, error: 'Could not update driver approval.' });
