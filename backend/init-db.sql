@@ -130,6 +130,12 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
     notes TEXT
 );
 
+-- Keep existing installations compatible with the VERIFIED webhook/payment state.
+ALTER TABLE payment_transactions DROP CONSTRAINT IF EXISTS payment_transactions_status_check;
+ALTER TABLE payment_transactions
+    ADD CONSTRAINT payment_transactions_status_check
+    CHECK (status IN ('COMPLETED', 'PENDING', 'FAILED', 'VERIFIED'));
+
 -- 9. Passenger Complaints
 CREATE TABLE IF NOT EXISTS complaints (
     id VARCHAR(64) PRIMARY KEY,
