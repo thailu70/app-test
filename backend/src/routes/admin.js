@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { generateSignedQrToken } = require('./subscriptions');
 
 /**
  * All endpoints here require ADMIN role
@@ -45,65 +46,67 @@ router.get('/stats', async (req, res) => {
 });
 
 /**
- * POST /api/admin/drivers
- * Provision a driver only through an authenticated administrator. The server controls
- * role, status, vehicle assignment and route assignment; public signup cannot do this.
+ * Public driver self-registration is required. Admins may assign a route to a driver's
+ * own registered vehicle, but cannot create a driver account or transfer vehicle ownership.
  */
-router.post('/drivers', async (req, res) => {
-  try {
-    const { fullName, phone, email = '', password, licenseNumber, companyName, vehicleId, routeId } = req.body;
-    if (!fullName || !phone || !password || !licenseNumber || !companyName || !vehicleId || !routeId) {
-      return res.status(400).json({ success: false, error: 'Name, phone, password, license, company, vehicle and route are required.' });
-    }
-    if (typeof password !== 'string' || password.length < 12) {
-      return res.status(400).json({ success: false, error: 'Driver passwords must contain at least 12 characters.' });
-    }
-    const cleanPhone = String(phone).trim();
-    const existingUser = await DB.prepare('SELECT id FROM users WHERE phone = ?').get(cleanPhone);
-    if (existingUser) return res.status(409).json({ success: false, error: 'Phone number is already registered.' });
+router.post('/drivers', (req, res) => {
+  res.status(410).json({
+    success: false,
+    error: 'Driver accounts must be self-registered by the vehicle owner. Use PATCH /api/admin/drivers/:id/route to assign a route.'
+  });
+});
 
-    const vehicle = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicleId);
-    if (!vehicle) return res.status(404).json({ success: false, error: 'Vehicle not found.' });
+/**
+ * PATCH /api/admin/drivers/:id/route
+ * Assign an active route to a driver's own registered vehicle.
+ */
+router.patch('/drivers/:id/route', async (req, res) => {
+  try {
+    const routeId = String(req.body.routeId || '').trim();
+    if (!routeId) return res.status(400).json({ success: false, error: 'An active route is required.' });
+
+    const driver = await DB.prepare("SELECT * FROM users WHERE id = ? AND role = 'DRIVER'").get(req.params.id);
+    if (!driver) return res.status(404).json({ success: false, error: 'Driver account not found.' });
     const route = await DB.prepare('SELECT * FROM routes WHERE id = ? AND active = TRUE').get(routeId);
     if (!route) return res.status(404).json({ success: false, error: 'Active route not found.' });
-
-    const driverId = `usr_drv_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-    const passwordHash = await bcrypt.hash(password, 12);
-    const cleanName = String(fullName).trim();
-    const finalEmail = String(email || '').trim() || `${cleanPhone}@transport.et`;
+    const vehicle = await DB.prepare('SELECT * FROM vehicles WHERE driverId = ? LIMIT 1').get(driver.id);
+    if (!vehicle) return res.status(409).json({ success: false, error: 'This driver has not registered an owned vehicle yet.' });
 
     await DB.transaction(async (tx) => {
-      if (vehicle.driverId) {
-        await tx.prepare("UPDATE users SET assignedVehiclePlate = '', appliedRouteId = '', appliedRouteName = '' WHERE id = ? AND role = 'DRIVER'").run(vehicle.driverId);
-      }
-      await tx.prepare(`
-        INSERT INTO users (id, role, fullName, phone, email, passwordHash, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName)
-        VALUES (?, 'DRIVER', ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
-      `).run(driverId, cleanName, cleanPhone, finalEmail, passwordHash, String(licenseNumber).trim(), String(companyName).trim(), vehicle.plateNumber, route.id, route.name);
       await tx.prepare(`
         UPDATE vehicles
-        SET driverId = ?, driverName = ?, assignedRouteId = ?, status = 'IN_SERVICE', updatedAt = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(driverId, cleanName, route.id, vehicle.id);
+        SET assignedRouteId = ?, status = 'IN_SERVICE', updatedAt = CURRENT_TIMESTAMP
+        WHERE id = ? AND driverId = ?
+      `).run(route.id, vehicle.id, driver.id);
+      await tx.prepare('UPDATE users SET appliedRouteId = ?, appliedRouteName = ? WHERE id = ? AND role = \'DRIVER\'')
+        .run(route.id, route.name, driver.id);
       await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
-        .run('DRIVER_CREATED_AND_ASSIGNED', req.user.id, 'ADMIN', `Created driver ${driverId}; vehicle ${vehicle.plateNumber}; route ${route.name}`);
+        .run('DRIVER_ROUTE_ASSIGNED', req.user.id, 'ADMIN', `Assigned route ${route.name} to driver ${driver.id} and owner vehicle ${vehicle.plateNumber}`);
     });
 
-    res.status(201).json({
+    res.json({
       success: true,
-      driver: {
-        id: driverId, role: 'DRIVER', fullName: cleanName, phone: cleanPhone,
-        email: finalEmail, status: 'ACTIVE', licenseNumber: String(licenseNumber).trim(),
-        companyName: String(companyName).trim(), assignedVehiclePlate: vehicle.plateNumber,
-        appliedRouteId: route.id, appliedRouteName: route.name
-      }
+      driver: { id: driver.id, fullName: driver.fullName, phone: driver.phone, licenseNumber: driver.licenseNumber },
+      vehicle: { id: vehicle.id, plateNumber: vehicle.plateNumber, model: vehicle.model },
+      route: { id: route.id, name: route.name, nameAm: route.nameAm }
     });
   } catch (err) {
-    console.error('[Admin] driver provisioning failed:', err);
-    if (err.code === '23505' || String(err.code || '').startsWith('SQLITE_CONSTRAINT')) {
-      return res.status(409).json({ success: false, error: 'A conflicting driver or assignment already exists.' });
-    }
-    res.status(500).json({ success: false, error: 'Driver provisioning failed.' });
+    console.error('[Admin] driver route assignment failed:', err);
+    res.status(500).json({ success: false, error: 'Could not assign route to driver.' });
+  }
+});
+
+/**
+ * GET /api/admin/routes
+ * Return active and inactive routes for browser-based administration.
+ */
+router.get('/routes', async (req, res) => {
+  try {
+    const routes = await DB.prepare('SELECT * FROM routes ORDER BY active DESC, name ASC').all();
+    res.json({ success: true, routes });
+  } catch (err) {
+    console.error('[Admin] route list failed:', err);
+    res.status(500).json({ success: false, error: 'Could not load routes.' });
   }
 });
 
@@ -134,10 +137,13 @@ router.get('/drivers', async (req, res) => {
 router.get('/subscriptions', async (req, res) => {
   try {
     const list = await DB.prepare(`
-      SELECT s.*, u.fullName as passengerName, u.phone as passengerPhone, r.name as routeName
+      SELECT s.*, u.fullName as passengerName, u.phone as passengerPhone,
+             r.name as routeName, v.plateNumber as vehiclePlate, v.driverName as driverName,
+             v.driverId as driverId
       FROM subscriptions s
       LEFT JOIN users u ON s.passengerId = u.id
       LEFT JOIN routes r ON s.routeId = r.id
+      LEFT JOIN vehicles v ON s.vehicleId = v.id
       ORDER BY s.updatedAt DESC
     `).all();
 
@@ -145,6 +151,111 @@ router.get('/subscriptions', async (req, res) => {
   } catch (err) {
     console.error('[RoutePass] request failed:', err);
     res.status(500).json({ success: false, error: 'Internal server error.' });
+  }
+});
+
+/**
+ * POST /api/admin/subscriptions/:id/recharge
+ * Manual TEST recharge only. This is an audited admin override, not a Telebirr payment.
+ */
+router.post('/subscriptions/:id/recharge', async (req, res) => {
+  try {
+    const days = Number.parseInt(req.body.days ?? 30, 10);
+    if (!Number.isInteger(days) || days < 1 || days > 90) {
+      return res.status(400).json({ success: false, error: 'Test recharge days must be between 1 and 90.' });
+    }
+
+    const sub = await DB.prepare('SELECT * FROM subscriptions WHERE id = ?').get(req.params.id);
+    if (!sub) return res.status(404).json({ success: false, error: 'Subscription not found.' });
+    const passenger = await DB.prepare("SELECT id, phone FROM users WHERE id = ? AND role = 'PASSENGER'").get(sub.passengerId);
+    if (!passenger) return res.status(404).json({ success: false, error: 'Passenger account not found.' });
+
+    const now = new Date();
+    const previousEnd = sub.endDate ? new Date(sub.endDate) : null;
+    const base = sub.subscriptionStatus === 'ACTIVE' && sub.paymentStatus === 'PAID' &&
+      previousEnd && Number.isFinite(previousEnd.getTime()) && previousEnd.getTime() > now.getTime()
+      ? previousEnd : now;
+    const end = new Date(base.getTime() + days * 86400000);
+    const startDate = now.toISOString().slice(0, 10);
+    const endDate = end.toISOString().slice(0, 10);
+    const daysRemaining = Math.max(1, Math.ceil((end.getTime() - now.getTime()) / 86400000));
+    const qrToken = generateSignedQrToken(
+      sub.id,
+      sub.passengerId,
+      sub.routeId,
+      Math.floor(end.getTime() / 1000)
+    );
+    const amount = Number(sub.priceEtb || 0);
+    const reference = `RP-ADMIN-TEST-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+    const note = `MANUAL TEST RECHARGE by admin ${req.user.id}; NOT A TELEBIRR PAYMENT; ${days} days`;
+
+    await DB.transaction(async (tx) => {
+      await tx.prepare(`
+        UPDATE subscriptions
+        SET paymentStatus = 'PAID', subscriptionStatus = 'ACTIVE',
+            startDate = ?, endDate = ?, daysRemaining = ?, qrToken = ?, updatedAt = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(startDate, endDate, daysRemaining, qrToken, sub.id);
+
+      await tx.prepare(`
+        INSERT INTO payment_transactions (id, passengerId, referenceNumber, idempotencyKey, amountEtb, provider, phoneNumber, status, notes)
+        VALUES (?, ?, ?, ?, ?, 'ADMIN_TEST', ?, 'COMPLETED', ?)
+      `).run(`pay_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`, sub.passengerId, reference, reference, amount, passenger.phone, note);
+
+      await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
+        .run('SUBSCRIPTION_MANUAL_TEST_RECHARGE', req.user.id, 'ADMIN', `Test-recharged subscription ${sub.id} for ${days} days, ETB ${amount}. Not a real payment.`);
+    });
+
+    res.json({
+      success: true,
+      testOnly: true,
+      message: 'Subscription activated by manual admin test recharge. This is not a real payment.',
+      subscription: { id: sub.id, passengerId: sub.passengerId, routeId: sub.routeId, paymentStatus: 'PAID', subscriptionStatus: 'ACTIVE', startDate, endDate, daysRemaining, qrToken },
+      transaction: { referenceNumber: reference, provider: 'ADMIN_TEST', status: 'COMPLETED', amountEtb: amount, realPayment: false }
+    });
+  } catch (err) {
+    console.error('[Admin] manual test recharge failed:', err);
+    res.status(500).json({ success: false, error: 'Manual test recharge failed.' });
+  }
+});
+
+/**
+ * PATCH /api/admin/subscriptions/:id/assignment
+ * Assign a passenger subscription to a driver-owned vehicle on the same route.
+ */
+router.patch('/subscriptions/:id/assignment', async (req, res) => {
+  try {
+    const vehicleId = String(req.body.vehicleId || '').trim();
+    const sub = await DB.prepare('SELECT * FROM subscriptions WHERE id = ?').get(req.params.id);
+    if (!sub) return res.status(404).json({ success: false, error: 'Subscription not found.' });
+
+    if (!vehicleId) {
+      await DB.prepare('UPDATE subscriptions SET vehicleId = NULL, updatedAt = CURRENT_TIMESTAMP WHERE id = ?').run(sub.id);
+      await DB.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
+        .run('SUBSCRIPTION_VEHICLE_UNASSIGNED', req.user.id, 'ADMIN', `Unassigned vehicle from subscription ${sub.id}`);
+      return res.json({ success: true, vehicle: null, subscriptionId: sub.id });
+    }
+
+    const vehicle = await DB.prepare(`
+      SELECT v.*, u.fullName AS driverName FROM vehicles v
+      LEFT JOIN users u ON u.id = v.driverId AND u.role = 'DRIVER'
+      WHERE v.id = ? AND v.driverId IS NOT NULL
+    `).get(vehicleId);
+    if (!vehicle) return res.status(404).json({ success: false, error: 'Choose a vehicle registered by a driver.' });
+    if (vehicle.assignedRouteId !== sub.routeId) {
+      return res.status(409).json({ success: false, error: 'The vehicle owner must be assigned to the passenger subscription route first.' });
+    }
+
+    await DB.transaction(async (tx) => {
+      await tx.prepare('UPDATE subscriptions SET vehicleId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?').run(vehicle.id, sub.id);
+      await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
+        .run('SUBSCRIPTION_VEHICLE_ASSIGNED', req.user.id, 'ADMIN', `Assigned owner vehicle ${vehicle.plateNumber} to subscription ${sub.id}`);
+    });
+
+    res.json({ success: true, subscriptionId: sub.id, vehicle: { id: vehicle.id, plateNumber: vehicle.plateNumber, driverName: vehicle.driverName || '', routeId: vehicle.assignedRouteId } });
+  } catch (err) {
+    console.error('[Admin] subscription vehicle assignment failed:', err);
+    res.status(500).json({ success: false, error: 'Could not assign vehicle to passenger subscription.' });
   }
 });
 
