@@ -10,6 +10,8 @@ import com.example.core.qr.QrSecurityEngine
 import com.example.core.qr.QrValidationResult
 import com.example.data.api.LiveTrackingWebSocket
 import com.example.data.api.TrackedVehicleDto
+import com.example.data.api.RosterPersonDto
+import com.example.data.api.RegistrationUploadDto
 import com.example.data.entity.*
 import com.example.data.repository.TransportRepository
 import kotlinx.coroutines.CancellationException
@@ -104,6 +106,24 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     val registrationMessage: StateFlow<String?> = _registrationMessage.asStateFlow()
 
     fun clearRegistrationMessage() { _registrationMessage.value = null }
+
+    private val _assignedRoster = MutableStateFlow<List<RosterPersonDto>>(emptyList())
+    val assignedRoster: StateFlow<List<RosterPersonDto>> = _assignedRoster.asStateFlow()
+
+    private val _rosterMessage = MutableStateFlow("Your assigned people will appear when a monthly subscription is active.")
+    val rosterMessage: StateFlow<String> = _rosterMessage.asStateFlow()
+
+    fun refreshAssignedRoster() {
+        viewModelScope.launch {
+            try {
+                val result = repository.fetchAssignedRoster()
+                _assignedRoster.value = result.people
+                _rosterMessage.value = result.message ?: ""
+            } catch (error: Exception) {
+                _rosterMessage.value = error.message ?: "Assigned roster is temporarily unavailable."
+            }
+        }
+    }
 
     private val _networkStatus = MutableStateFlow(NetworkStatus.ONLINE)
     val networkStatus: StateFlow<NetworkStatus> = _networkStatus.asStateFlow()
@@ -284,6 +304,16 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     fun login(identifier: String, password: String, role: AppRole) {
         viewModelScope.launch {
             _authError.value = null
+            val requiredUploads = when (role) {
+                AppRole.PASSENGER -> setOf("PROFILE_PHOTO")
+                AppRole.DRIVER -> setOf("PROFILE_PHOTO", "DRIVER_LICENSE_DOCUMENT", "NATIONAL_ID_DOCUMENT", "VEHICLE_PHOTO", "VEHICLE_TRADE_LICENSE")
+                AppRole.ADMIN -> emptySet()
+            }
+            val missingUploads = requiredUploads - uploads.map { it.documentType }.toSet()
+            if (missingUploads.isNotEmpty()) {
+                _authError.value = "Please select all required registration photos and documents: " + missingUploads.joinToString { it.replace("_", " ").lowercase().replaceFirstChar { ch -> ch.uppercase() } }
+                return@launch
+            }
             val roleStr = when (role) {
                 AppRole.PASSENGER -> "PASSENGER"
                 AppRole.DRIVER -> "DRIVER"
@@ -293,6 +323,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
             if (user != null) {
                 _currentUser.value = user
                 _currentRole.value = role
+                _assignedRoster.value = emptyList()
+                refreshAssignedRoster()
                 _isAuthenticated.value = true
                 if (role == AppRole.DRIVER) {
                     _driverTrip.value = DriverTripState(
@@ -343,7 +375,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         vehicleModel: String = "",
         vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
-        appliedRouteName: String = ""
+        appliedRouteName: String = "",
+        uploads: List<RegistrationUploadDto> = emptyList()
     ) {
         viewModelScope.launch {
             _authError.value = null
@@ -381,10 +414,11 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     vehicleModel = vehicleModel,
                     vehicleType = vehicleType,
                     appliedRouteId = appliedRouteId,
-                    appliedRouteName = appliedRouteName
+                    appliedRouteName = appliedRouteName,
+                    uploads = uploads
                 )
                 if (role == AppRole.DRIVER) {
-                    _registrationMessage.value = "Thank you for registering. We will review your licence and vehicle, authorize your account, assign your route, and connect appropriate passenger subscriptions to your vehicle. We will contact you when it is ready. You can sign in after approval."
+                    _registrationMessage.value = "Your registration photos and documents were submitted. We will review your driving licence, ID and vehicle trade licence, approve your account and assign your route. You can sign in after approval."
                     return@launch
                 }
                 _currentUser.value = user
@@ -423,6 +457,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     fun logout() {
         stopPassengerSubscriptionRefresh()
         _currentUser.value = null
+        _assignedRoster.value = emptyList()
         _isAuthenticated.value = false
         _authError.value = null
     }
