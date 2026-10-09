@@ -357,6 +357,18 @@ function initSqliteSchema() {
       updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS routepass_documents (
+      id TEXT PRIMARY KEY,
+      owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      vehicle_id TEXT REFERENCES vehicles(id) ON DELETE CASCADE,
+      document_type TEXT NOT NULL,
+      storage_name TEXT NOT NULL UNIQUE,
+      original_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS vehicle_live_locations (
       vehicle_id TEXT PRIMARY KEY,
       latitude REAL NOT NULL,
