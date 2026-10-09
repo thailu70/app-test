@@ -135,7 +135,7 @@ router.post('/:id/location', authenticate, requireRole('DRIVER'), async (req, re
     const { latitude, longitude, speed = 0, currentStop = '' } = req.body;
     const vehicle = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
     if (!vehicle) return res.status(404).json({ success: false, error: 'Vehicle not found.' });
-    const driver = DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(req.user.id);
+    const driver = await DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(req.user.id);
     if (!(vehicle.driverId === req.user.id || (!vehicle.driverId && driver?.assignedVehiclePlate && vehicle.plateNumber === driver.assignedVehiclePlate))) {
       return res.status(403).json({ success: false, error: 'Vehicle is not assigned to this driver.' });
     }
