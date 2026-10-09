@@ -7,6 +7,7 @@
   const labels = {
     overview: ["Overview", "A live snapshot of RoutePass service operations."],
     drivers: ["Drivers & routes", "Review driver-owned vehicles and assign approved operating routes."],
+    documents: ["Documents & photos", "Privately review driver IDs, driving licences, vehicle photos and trade licences."]
     routes: ["Manage routes", "Create, edit, activate and deactivate RoutePass transit routes."],
     vehicles: ["Vehicles", "Fleet availability and current assignments."],
     subscriptions: ["Subscriptions", "Passenger subscription records and payment state."],
@@ -160,6 +161,58 @@
         ], data));
   }
 
+  async function renderDocuments() {
+    const data = asArray(await api("/api/admin/documents"), "documents");
+    const labels = {
+      PROFILE_PHOTO: "Profile photo",
+      DRIVER_LICENSE_DOCUMENT: "Driver licence",
+      NATIONAL_ID_DOCUMENT: "National ID",
+      VEHICLE_PHOTO: "Vehicle photo",
+      VEHICLE_TRADE_LICENSE: "Vehicle trade licence"
+    };
+    return pageHeader("Identity documents & photos", "Sensitive files are private and only administrators can review all submissions. Profile photos are also shared with the assigned monthly driver/passenger only.") +
+      section("Uploaded registration files", data.length + " file(s)",
+        table([
+          { label: "Owner", render: r => "<strong>" + esc(value(r, "ownerName")) + "</strong><br><span class=\"muted\">" + esc(value(r, "ownerRole")) + "</span>" },
+          { label: "Document / photo", render: r => esc(labels[value(r, "documentType")] || value(r, "documentType")) },
+          { label: "Vehicle", keys: ["vehiclePlate"] },
+          { label: "File", keys: ["fileName"] },
+          { label: "Size", render: r => (Number(value(r, "sizeBytes", "size_bytes")) / 1024).toFixed(0) + " KB" },
+          { label: "Uploaded", render: r => esc(dateText(value(r, "uploadedAt", "uploaded_at"))) },
+          { label: "Review", render: r => '<button class="btn btn-secondary" data-open-document="' + esc(value(r, "id")) + '">View / download</button>' }
+        ], data, "No registration documents have been uploaded yet."));
+  }
+
+  async function openDocument(button) {
+    const id = button.dataset.openDocument;
+    const newTab = window.open("about:blank", "_blank");
+    try {
+      const response = await fetch("/api/documents/" + encodeURIComponent(id) + "/content", {
+        headers: { Authorization: "Bearer " + state.token, Accept: "application/pdf,image/*" },
+        credentials: "same-origin",
+        cache: "no-store"
+      });
+      if (!response.ok) throw new Error("The document could not be opened (" + response.status + ").");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      if (newTab) {
+        newTab.opener = null;
+        newTab.location.href = url;
+      } else {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "routepass-document-" + id;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+      if (newTab) newTab.close();
+      toast(error.message || "Could not open document.", true);
+    }
+  }
+
   async function renderRoutes() {
     const result = await api("/api/admin/routes");
     const routes = asArray(result, "routes");
@@ -207,7 +260,7 @@
     await loadLookups();
     const data = asArray(await api("/api/admin/subscriptions"), "subscriptions");
     const eligibleVehicles = state.cache.vehicles || [];
-    return pageHeader("Subscriptions & passenger assignments", "Assign a driver-owned vehicle on the same route and manually activate passes for testing. Manual recharges are NOT real payments.") +
+    return pageHeader("Subscriptions & passenger assignments", "Assign a driver-owned vehicle on the same route and manually activate subscriptions while Telebirr integration is pending. Manual activation is audited and is not a Telebirr payment.") +
       section("Passenger subscriptions", data.length + " record(s)",
         table([
           { label: "Passenger", render: r => "<strong>" + esc(value(r, "passengerName", "passenger_name")) + "</strong>" },
@@ -231,7 +284,7 @@
           { label: "Payment", render: r => pill(value(r, "paymentStatus", "payment_status")) },
           { label: "Subscription", render: r => pill(value(r, "subscriptionStatus", "subscription_status")) },
           { label: "End date", keys: ["endDate", "end_date"] },
-          { label: "Testing action", render: r => '<button class="btn btn-primary" data-recharge="' + esc(value(r, "id")) + '">Recharge 30 days (test)</button>' }
+          { label: "Manual activation", render: r => '<button class="btn btn-primary" data-recharge="' + esc(value(r, "id")) + '">Recharge 30 days</button>' }
         ], data));
   }
   async function renderPayments() {
@@ -303,6 +356,7 @@
       let html;
       switch (state.view) {
         case "drivers": html = await renderDrivers(); break;
+        case "documents": html = await renderDocuments(); break;
         case "routes": html = await renderRoutes(); break;
         case "vehicles": html = await renderVehicles(); break;
         case "subscriptions": html = await renderSubscriptions(); break;
@@ -522,6 +576,8 @@
     if (navButton) { state.view = navButton.dataset.view; renderView(); return; }
     const goButton = event.target.closest("[data-go]");
     if (goButton) { state.view = goButton.dataset.go; renderView(); return; }
+    const openDocumentButton = event.target.closest("[data-open-document]");
+    if (openDocumentButton) { openDocument(openDocumentButton); return; }
     const approvalButton = event.target.closest("[data-driver-approval]");
     if (approvalButton) { updateDriverApproval(approvalButton); return; }
     const assignRouteButton = event.target.closest("[data-assign-route]");
