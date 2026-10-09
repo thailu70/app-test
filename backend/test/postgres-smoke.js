@@ -82,18 +82,23 @@ async function run() {
     assert.equal(result.status, 503, 'Production-mode real-money payment must fail closed until Telebirr integration is validated');
     assert.equal(result.data.code, 'LIVE_TELEBIRR_NOT_CONFIGURED');
 
-    result = await requestJson(baseUrl, '/api/admin/drivers', 'POST', {
-      fullName: 'CI Driver',
+    // A driver registers their own identity and owned vehicle; the admin assigns only the operating route.
+    result = await requestJson(baseUrl, '/api/auth/register', 'POST', {
+      fullName: 'CI Driver Owner',
       phone: '+251900000103',
       password: 'CI_Driver_Password#2026',
+      role: 'DRIVER',
       licenseNumber: 'CI-DL-1',
       companyName: 'CI Transport',
-      vehicleId: 'veh_higer_aa_34921',
-      routeId: 'route_bole_merkato'
-    }, adminToken);
-    assert.equal(result.status, 201, 'Admin-only driver provisioning transaction must commit');
-    const driver = result.data.driver;
-    assert.equal(driver.appliedRouteId, 'route_bole_merkato');
+      assignedVehiclePlate: '3-CI-0001',
+      vehicleModel: 'CI Minibus',
+      vehicleType: 'MINIBUS_14'
+    });
+    assert.equal(result.status, 201, 'Driver owner self-registration must create the driver and owned vehicle');
+    const driver = result.data.user;
+    assert.equal(driver.role, 'DRIVER');
+    assert.equal(driver.assignedVehiclePlate, '3-CI-0001');
+    assert.equal(driver.appliedRouteId, '', 'A newly registered driver must not choose their own route');
 
     result = await requestJson(baseUrl, '/api/auth/login', 'POST', {
       phone: '+251900000103',
@@ -102,6 +107,13 @@ async function run() {
     });
     assert.equal(result.status, 200, 'Created driver must be able to login');
     const driverToken = result.data.token;
+
+    result = await requestJson(baseUrl, `/api/admin/drivers/${encodeURIComponent(driver.id)}/route`, 'PATCH', {
+      routeId: 'route_bole_merkato'
+    }, adminToken);
+    assert.equal(result.status, 200, 'Admin should assign an active route to the driver-owned vehicle');
+    assert.equal(result.data.vehicle.plateNumber, '3-CI-0001');
+
 
     result = await requestJson(baseUrl, '/api/trips/start', 'POST', {
       routeId: 'route_bole_merkato'
