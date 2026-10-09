@@ -61,45 +61,21 @@ The installer verifies that the named Traefik container is running in host mode 
 
 It intentionally does **not** change UFW or your existing Traefik/9router containers. Traefik discovers the API by its explicit Docker labels and routes the hostname to port 3000 on the private Docker bridge. PostgreSQL has no published host port.
 
-## Admin portal and first administrator
+## Update an existing RoutePass VPS
 
-The browser-based admin portal is served from the same HTTPS hostname:
+For the VPS that is already running at `https://routepass.duckdns.org`, follow [Updating an existing RoutePass VPS](UPDATING_EXISTING_VPS.md). This guide updates the API, web admin assets and Compose setting while keeping the current `.env`, PostgreSQL volume, Traefik and 9Router intact.
 
-```text
-https://routepass.duckdns.org/admin/
-```
+**Do not rerun** `deploy-traefik-vps.sh` on an existing installation and do not run `docker compose down -v`.
 
-For this existing VPS, first update the deployed code using the safe in-place commands below, then create the first administrator:
+The administrator signs in at `https://routepass.duckdns.org/admin/` with the existing admin phone number and password. Do not create a second administrator or expose the admin registration secret in chat.
 
-```bash
-cd /opt/routepass-source
-git fetch origin
-git checkout audit/production-readiness-2026-10-09
-git pull --ff-only origin audit/production-readiness-2026-10-09
+### Account and vehicle ownership model
 
-install -m 0644 backend/Dockerfile /var/www/routepass/Dockerfile
-cp -R backend/src/. /var/www/routepass/src/
-mkdir -p /var/www/routepass/public/admin /var/www/routepass/scripts
-cp -R backend/public/. /var/www/routepass/public/
-install -m 0755 backend/scripts/bootstrap-admin.py /var/www/routepass/scripts/bootstrap-admin.py
-
-cd /var/www/routepass
-docker compose -p routepass -f docker-compose.yml -f docker-compose.traefik.yml up -d --build api
-```
-
-This rebuilds only the API container; it does not remove the database volume or restart Traefik/9Router. Check that `https://routepass.duckdns.org/api/ready` succeeds, then run the first-admin helper:
-
-```bash
-python3 /var/www/routepass/scripts/bootstrap-admin.py
-```
-
-The helper reads the one-time admin registration secret from the root-only `/var/www/routepass/.env`, prompts you for a password without echoing it, and creates the first administrator. **The login username is the administrator's phone number.** Use the phone number and password you enter to sign in at the portal. Do not paste the environment file or secret into chat. If it reports that an administrator already exists, use that existing account; it will not reset or reveal existing credentials.
-
-Drivers cannot self-register from the public app: the API blocks driver-role public registration to prevent unapproved accounts from operating vehicles. After signing in to the portal, use **Create driver** to set the driver's login password and assign an available vehicle and active route.
-
-## Updating an existing install in place
-
-Do not run the first-install script again after the RoutePass containers already exist. To update code from the audit branch, use the in-place commands above, then recreate only the `api` service with `docker compose ... up -d --build api`. Keep `/var/www/routepass/.env` and the PostgreSQL volume intact.
+- Passengers register in the Android app and choose their subscription route.
+- Drivers register themselves in Android with their commercial licence and their own vehicle details. The backend registers that owned vehicle with no operating route.
+- The administrator can create/edit/activate routes, assign an active route to a driver's owned vehicle and assign a matching driver-owned vehicle to a passenger subscription. The administrator does not create drivers or transfer vehicle ownership.
+- Manual subscription recharge is disabled by default. Enable `ALLOW_MANUAL_TEST_RECHARGE=true` only for testing, and turn it off before real public operations. This activation is logged as `ADMIN_TEST`, is not a real Telebirr payment, and is excluded from revenue totals.
+- The driver must allow location permission and start a live trip before scanning. The QR scanner uses the phone camera and the server validates the signed pass. The passenger map displays actual GPS reports, not seed/demo coordinates.
 
 ## 4. Verify services
 
