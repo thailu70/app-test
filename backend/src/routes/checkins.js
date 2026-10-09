@@ -118,7 +118,15 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
       // Re-read vehicle occupancy inside transaction
       const currentVehicle = await tx.prepare(tx.isPostgres ? 'SELECT * FROM vehicles WHERE id = ? FOR UPDATE' : 'SELECT * FROM vehicles WHERE id = ?').get(vehicle.id);
       if (!currentVehicle || currentVehicle.driverId !== driverId) {
-        throw new Error('Vehicle assignment changed during check-in; retry with the currently assigned vehicle.');
+        return { allowed: false, reason: 'VEHICLE_NOT_ASSIGNED' };
+      }
+      const currentTrip = await tx.prepare(tx.isPostgres
+        ? 'SELECT * FROM trips WHERE id = ? FOR UPDATE'
+        : 'SELECT * FROM trips WHERE id = ?').get(tripId);
+      if (!currentTrip || currentTrip.status !== 'IN_PROGRESS' ||
+          currentTrip.driverId !== driverId || currentTrip.vehicleId !== currentVehicle.id ||
+          currentTrip.routeId !== sub.routeId) {
+        return { allowed: false, reason: 'TRIP_NOT_ACTIVE' };
       }
       // Re-check inside the same transaction so two concurrent scans cannot board the same
       // passenger twice even when they arrived before either request committed.
@@ -182,6 +190,20 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
       };
     });
 
+    if (!result.allowed && result.reason === 'VEHICLE_NOT_ASSIGNED') {
+      return res.status(403).json({
+        success: false,
+        status: 'VEHICLE_NOT_ASSIGNED',
+        error: 'Vehicle assignment changed; refresh the assigned vehicle and retry.'
+      });
+    }
+    if (!result.allowed && result.reason === 'TRIP_NOT_ACTIVE') {
+      return res.status(409).json({
+        success: false,
+        status: 'TRIP_NOT_ACTIVE',
+        error: 'The trip ended or changed during this check-in. Refresh and retry only on the assigned active trip.'
+      });
+    }
     if (!result.allowed && result.reason === 'ALREADY_CHECKED_IN') {
       return res.status(409).json({
         success: false,
