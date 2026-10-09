@@ -34,8 +34,9 @@
 6. **The transaction wrapper does not reliably make route operations transactional in PostgreSQL.** `DB.transaction(fn)` opens a transaction on a checked-out client, but the route callback uses the global `DB.prepare(...)` interface, whose queries go through the pool rather than that checked-out client. The check-in capacity flow therefore cannot be assumed atomic in PostgreSQL.
    - **Required remediation:** expose a transaction-scoped query interface bound to the checked-out client; perform the read/lock/check/update on that client. Add concurrent integration tests that attempt to board beyond capacity.
 
-7. **PostgreSQL payment status constraint conflicts with application code.** `backend/init-db.sql` constrains `payment_transactions.status` to `COMPLETED`, `PENDING`, or `FAILED`, while the webhook/verifier queries and writes `VERIFIED`. PostgreSQL will reject that status update.
-   - **Required remediation:** define a consistent payment state machine and migration, then test it on PostgreSQL. Do not rely on SQLite behavior as proof of PostgreSQL compatibility.
+7. **PostgreSQL payment status constraint conflicted with application code.** `backend/init-db.sql` constrained `payment_transactions.status` to `COMPLETED`, `PENDING`, or `FAILED`, while the webhook/verifier queries and writes `VERIFIED`.
+   - **Branch fix:** added `VERIFIED` to the allowed state set and an idempotent constraint replacement for existing installations.
+   - **Remaining requirement:** run this SQL against a real PostgreSQL instance and test the payment state machine. Do not rely on SQLite behavior as proof of PostgreSQL compatibility.
 
 ### P1 — Authorization and data isolation
 
