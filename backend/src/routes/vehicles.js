@@ -79,19 +79,12 @@ router.get('/tracking', authenticate, async (req, res) => {
           WHERE v.id = ? AND v.assignedRouteId = ? AND v.driverId IS NOT NULL
           LIMIT 1
         `).get(sub.vehicleId, sub.routeId);
-      }
-      if (!row) {
-        row = await DB.prepare(`
-          SELECT v.*, r.name AS routeName, l.latitude, l.longitude, l.speed,
-                 l.current_stop AS currentStop, l.updated_at AS lastGpsAt
-          FROM vehicles v
-          LEFT JOIN routes r ON r.id = v.assignedRouteId
-          LEFT JOIN vehicle_live_locations l ON l.vehicle_id = v.id
-          WHERE v.assignedRouteId = ? AND v.driverId IS NOT NULL
-            AND v.status IN ('IN_SERVICE', 'FULL')
-          ORDER BY CASE WHEN l.updated_at IS NULL THEN 1 ELSE 0 END, l.updated_at DESC
-          LIMIT 1
-        `).get(sub.routeId);
+      } else {
+        return res.json({
+          success: true,
+          vehicle: null,
+          message: 'The administrator has not assigned a driver-owned vehicle to your subscription yet.'
+        });
       }
     } else {
       return res.status(403).json({ success: false, error: 'Only drivers and passengers can access vehicle tracking.' });
