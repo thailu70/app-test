@@ -154,7 +154,7 @@ const locationFlushTimer = setInterval(async () => {
   if (inMemoryVehicleLocations.size === 0) return;
   for (const [vehicleId, loc] of inMemoryVehicleLocations.entries()) {
     try {
-      DB.prepare(`
+      await DB.prepare(`
         UPDATE vehicles
         SET currentLat = ?, currentLng = ?, updatedAt = CURRENT_TIMESTAMP
         WHERE id = ?
