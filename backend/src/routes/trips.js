@@ -37,29 +37,46 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
       return res.status(403).json({ success: false, error: 'The requested route is not assigned to this vehicle.' });
     }
 
-    const existingTrip = await DB.prepare("SELECT id FROM trips WHERE vehicleId = ? AND status = 'IN_PROGRESS' LIMIT 1").get(vehicle.id);
-    if (existingTrip) {
-      return res.status(409).json({ success: false, error: 'This vehicle already has an active trip.' });
+    const route = await DB.prepare("SELECT id FROM routes WHERE id = ? AND active = TRUE").get(routeId);
+    if (!route) {
+      return res.status(404).json({ success: false, error: 'Active route not found.' });
     }
 
     // Get initial route stop
     const firstStop = await DB.prepare('SELECT stopName FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC LIMIT 1').get(routeId);
     const initialStop = firstStop?.stopName || 'Terminal Hub';
+    const tripId = `trip_${Date.now().toString(36)}_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
 
-    const tripId = `trip_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 4)}`;
+    // Lock the assigned vehicle before checking active trips. This serializes simultaneous
+    // start requests for the same vehicle and keeps occupancy reset + trip creation atomic.
+    const tripStart = await DB.transaction(async (tx) => {
+      const currentVehicle = await tx.prepare(tx.isPostgres
+        ? 'SELECT * FROM vehicles WHERE id = ? FOR UPDATE'
+        : 'SELECT * FROM vehicles WHERE id = ?').get(vehicle.id);
+      if (!currentVehicle || currentVehicle.driverId !== driverId) {
+        return { status: 'ASSIGNMENT_CHANGED' };
+      }
+      const existingTrip = await tx.prepare("SELECT id FROM trips WHERE vehicleId = ? AND status = 'IN_PROGRESS' LIMIT 1").get(currentVehicle.id);
+      if (existingTrip) return { status: 'TRIP_ALREADY_ACTIVE' };
 
-    // Reset vehicle occupancy and mark in service
-    await DB.prepare(`
-      UPDATE vehicles
-      SET currentOccupancy = 0, status = 'IN_SERVICE', assignedRouteId = ?, updatedAt = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(routeId, vehicle.id);
+      await tx.prepare(`
+        UPDATE vehicles
+        SET currentOccupancy = 0, status = 'IN_SERVICE', assignedRouteId = ?, updatedAt = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(routeId, currentVehicle.id);
+      await tx.prepare(`
+        INSERT INTO trips (id, driverId, vehicleId, routeId, direction, currentStop, currentOccupancy, status)
+        VALUES (?, ?, ?, ?, ?, ?, 0, 'IN_PROGRESS')
+      `).run(tripId, driverId, currentVehicle.id, routeId, direction, initialStop);
+      return { status: 'STARTED', vehicle: currentVehicle };
+    });
 
-    // Insert new active trip
-    await DB.prepare(`
-      INSERT INTO trips (id, driverId, vehicleId, routeId, direction, currentStop, currentOccupancy, status)
-      VALUES (?, ?, ?, ?, ?, ?, 0, 'IN_PROGRESS')
-    `).run(tripId, driverId, vehicle.id, routeId, direction, initialStop);
+    if (tripStart.status === 'ASSIGNMENT_CHANGED') {
+      return res.status(403).json({ success: false, error: 'Vehicle assignment changed; refresh your assigned vehicle.' });
+    }
+    if (tripStart.status === 'TRIP_ALREADY_ACTIVE') {
+      return res.status(409).json({ success: false, error: 'This vehicle already has an active trip.' });
+    }
 
     // Broadcast trip start
     if (req.app.locals.broadcastWs) {
