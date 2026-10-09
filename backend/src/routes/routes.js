@@ -8,16 +8,17 @@ const { authenticate, requireRole } = require('../middleware/auth');
  * GET /api/routes
  * List all active transit lines
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const routes = DB.prepare('SELECT * FROM routes WHERE active = 1 ORDER BY name ASC').all();
+    const routes = await DB.prepare('SELECT * FROM routes WHERE active = 1 ORDER BY name ASC').all();
     res.json({
       success: true,
       count: routes.length,
       routes
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -25,14 +26,14 @@ router.get('/', (req, res) => {
  * GET /api/routes/:id
  * Get single route with its ordered stops
  */
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const route = DB.prepare('SELECT * FROM routes WHERE id = ?').get(req.params.id);
+    const route = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(req.params.id);
     if (!route) {
       return res.status(404).json({ success: false, error: 'Route not found' });
     }
 
-    const stops = DB.prepare('SELECT * FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC').all(req.params.id);
+    const stops = await DB.prepare('SELECT * FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC').all(req.params.id);
 
     res.json({
       success: true,
@@ -40,7 +41,8 @@ router.get('/:id', (req, res) => {
       stops
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -48,7 +50,7 @@ router.get('/:id', (req, res) => {
  * POST /api/routes
  * Admin/Operator only: Create a new transit route with stops
  */
-router.post('/', authenticate, requireRole('ADMIN'), (req, res) => {
+router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
   try {
     const {
       name,
@@ -70,7 +72,7 @@ router.post('/', authenticate, requireRole('ADMIN'), (req, res) => {
 
     const routeId = `route_${crypto.randomUUID().slice(0, 8)}`;
 
-    DB.prepare(`
+    await DB.prepare(`
       INSERT INTO routes (id, name, nameAm, description, morningDeparture, eveningDeparture, distanceKm, basePriceEtb, active)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
     `).run(
@@ -93,7 +95,7 @@ router.post('/', authenticate, requireRole('ADMIN'), (req, res) => {
     if (Array.isArray(stops)) {
       stops.forEach((s, idx) => {
         const stopId = `stop_${crypto.randomUUID().slice(0, 8)}`;
-        insertStop.run(
+        await insertStop.run(
           stopId,
           routeId,
           s.stopName || `Stop ${idx + 1}`,
@@ -109,13 +111,13 @@ router.post('/', authenticate, requireRole('ADMIN'), (req, res) => {
     }
 
     // Audit log
-    DB.prepare(`
+    await DB.prepare(`
       INSERT INTO audit_logs (action, userId, role, details)
       VALUES ('ROUTE_CREATED', ?, 'ADMIN', ?)
     `).run(req.user.id, `Created route: ${name} (ETB ${basePriceEtb})`);
 
-    const createdRoute = DB.prepare('SELECT * FROM routes WHERE id = ?').get(routeId);
-    const createdStops = DB.prepare('SELECT * FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC').all(routeId);
+    const createdRoute = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(routeId);
+    const createdStops = await DB.prepare('SELECT * FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC').all(routeId);
 
     res.status(201).json({
       success: true,
@@ -124,7 +126,8 @@ router.post('/', authenticate, requireRole('ADMIN'), (req, res) => {
       stops: createdStops
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -132,17 +135,17 @@ router.post('/', authenticate, requireRole('ADMIN'), (req, res) => {
  * DELETE /api/routes/:id
  * Admin only: Delete route
  */
-router.delete('/:id', authenticate, requireRole('ADMIN'), (req, res) => {
+router.delete('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
   try {
-    const route = DB.prepare('SELECT * FROM routes WHERE id = ?').get(req.params.id);
+    const route = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(req.params.id);
     if (!route) {
       return res.status(404).json({ success: false, error: 'Route not found' });
     }
 
-    DB.prepare('DELETE FROM route_stops WHERE routeId = ?').run(req.params.id);
-    DB.prepare('DELETE FROM routes WHERE id = ?').run(req.params.id);
+    await DB.prepare('DELETE FROM route_stops WHERE routeId = ?').run(req.params.id);
+    await DB.prepare('DELETE FROM routes WHERE id = ?').run(req.params.id);
 
-    DB.prepare(`
+    await DB.prepare(`
       INSERT INTO audit_logs (action, userId, role, details)
       VALUES ('ROUTE_DELETED', ?, 'ADMIN', ?)
     `).run(req.user.id, `Deleted route: ${route.name} (${req.params.id})`);
@@ -152,7 +155,8 @@ router.delete('/:id', authenticate, requireRole('ADMIN'), (req, res) => {
       message: `Route '${route.name}' deleted successfully.`
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
