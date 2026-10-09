@@ -12,6 +12,12 @@ Node.js/Express API and WebSocket service for RoutePass. The production topology
 - Offline `/api/sync/push` boarding imports are disabled (HTTP 409) until a signed, verifiable offline protocol exists.
 - PostgreSQL production initialization omits all default user credentials. The SQLite-only developer test fallback seeds mock accounts for the legacy integration test; never deploy SQLite/test mode publicly.
 
+## Browser admin portal and account provisioning
+
+After the admin portal files have been deployed, open `https://YOUR-DOMAIN/admin/`. The administrator signs in with the phone number used during first-admin setup (the phone number serves as the username) and their chosen password. To securely create the first administrator on the VPS, use `python3 /var/www/routepass/scripts/bootstrap-admin.py`; it reads the private `ADMIN_REGISTRATION_SECRET` from the deployment environment file and prompts for the password without echoing it. No default admin username/password is shipped.
+
+Driver self-registration is intentionally rejected. An authenticated administrator creates drivers through `POST /api/admin/drivers`, choosing an available vehicle and active route. This prevents a public sign-up from creating an operational driver account without assignment.
+
 ## Deployment
 
 Follow the root [VPS deployment guide](../DEPLOYMENT.md). It covers DNS, the domain-aware installer, TLS, bootstrap administrator creation, backups, application updates, Android URL configuration, and current feature restrictions.
