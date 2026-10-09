@@ -14,6 +14,14 @@ data class LoginRequest(
 )
 
 @JsonClass(generateAdapter = true)
+data class RegistrationUploadDto(
+    val documentType: String,
+    val fileName: String,
+    val mimeType: String,
+    val dataBase64: String
+)
+
+@JsonClass(generateAdapter = true)
 data class RegisterRequest(
     val fullName: String,
     val phone: String,
@@ -27,7 +35,8 @@ data class RegisterRequest(
     val vehicleModel: String? = null,
     val vehicleType: String? = null,
     val appliedRouteId: String? = null,
-    val appliedRouteName: String? = null
+    val appliedRouteName: String? = null,
+    val uploads: List<RegistrationUploadDto> = emptyList()
 )
 
 @JsonClass(generateAdapter = true)
@@ -54,6 +63,35 @@ data class AuthResponse(
     val error: String? = null,
     val errorAm: String? = null,
     val message: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class RosterPersonDto(
+    val personId: String,
+    val fullName: String,
+    val role: String,
+    val profilePhotoDataUrl: String? = null,
+    val vehiclePhotoDataUrl: String? = null,
+    val vehicleId: String? = null,
+    val vehiclePlate: String? = null,
+    val vehicleModel: String? = null,
+    val vehicleType: String? = null,
+    val subscriptionId: String? = null,
+    val subscriptionStart: String? = null,
+    val subscriptionEnd: String? = null,
+    val morningSchedule: String? = null,
+    val eveningSchedule: String? = null,
+    val pickupStopName: String? = null,
+    val destinationStopName: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class RosterResponse(
+    val success: Boolean,
+    val role: String? = null,
+    val people: List<RosterPersonDto> = emptyList(),
+    val message: String? = null,
+    val error: String? = null
 )
 
 // -------------------------------------------------------------
