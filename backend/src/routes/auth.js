@@ -165,9 +165,9 @@ router.post('/register', authLimiter, async (req, res) => {
         phone: phone.trim(),
         email: finalEmail,
         status: 'ACTIVE',
-        assignedVehiclePlate: assignedVehiclePlate.trim(),
-        appliedRouteId: appliedRouteId.trim(),
-        appliedRouteName: appliedRouteName.trim()
+        assignedVehiclePlate: '',
+        appliedRouteId: normalizedRole === 'PASSENGER' ? appliedRouteId.trim() : '',
+        appliedRouteName: normalizedRole === 'PASSENGER' ? appliedRouteName.trim() : ''
       },
       subscription: initialSub,
       message: normalizedRole === 'PASSENGER' && appliedRouteId
