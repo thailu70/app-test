@@ -1,12 +1,22 @@
 name: RoutePass Android Test APK
 
 on:
+  push:
+    branches:
+      - audit/production-readiness-2026-10-09
+    paths:
+      - ".github/workflows/routepass-android-build.yml"
+      - "app/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle.properties"
+      - "gradle/**"
   workflow_dispatch:
     inputs:
       api_base_url:
         description: "Public HTTPS RoutePass API base URL (include trailing slash)"
         required: true
-        default: "https://api.example.com/"
+        default: "https://routepass.duckdns.org/"
         type: string
 
 permissions:
@@ -17,8 +27,10 @@ jobs:
     name: Build installable Android test APK
     runs-on: ubuntu-latest
     steps:
-      - name: Check out selected branch
+      - name: Check out production-readiness test branch
         uses: actions/checkout@v4
+        with:
+          ref: audit/production-readiness-2026-10-09
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -33,7 +45,9 @@ jobs:
         with:
           gradle-version: "9.3.1"
       - name: Assemble debug APK against configured HTTPS host
-        run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=${{ inputs.api_base_url }}"
+        env:
+          ROUTEPASS_API_BASE_URL: ${{ github.event.inputs.api_base_url || 'https://routepass.duckdns.org/' }}
+        run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=$ROUTEPASS_API_BASE_URL"
       - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:
