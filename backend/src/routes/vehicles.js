@@ -41,78 +41,6 @@ router.get('/', async (req, res) => {
 });
 
 /**
- * GET /api/vehicles/:id
- * Get single vehicle details
- */
-router.get('/:id', async (req, res) => {
-  try {
-    const vehicle = await DB.prepare(`
-      SELECT v.*, r.name as routeName, r.nameAm as routeNameAm
-      FROM vehicles v
-      LEFT JOIN routes r ON v.assignedRouteId = r.id
-      WHERE v.id = ?
-    `).get(req.params.id);
-
-    if (!vehicle) {
-      return res.status(404).json({ success: false, error: 'Vehicle not found' });
-    }
-    res.json({
-      success: true,
-      vehicle: {
-        ...vehicle,
-        isFull: vehicle.currentOccupancy >= vehicle.capacityLimit,
-        availableSeats: Math.max(0, vehicle.capacityLimit - vehicle.currentOccupancy),
-        occupancyPercentage: Math.round((vehicle.currentOccupancy / vehicle.capacityLimit) * 100)
-      }
-    });
-  } catch (err) {
-    console.error('[RoutePass] request failed:', err);
-    res.status(500).json({ success: false, error: 'Internal server error.' });
-  }
-});
-
-/**
- * PATCH /api/vehicles/:id/type
- * Driver or Admin: Update vehicle type and enforce passenger limit
- */
-router.patch('/:id/type', authenticate, requireRole('ADMIN'), async (req, res) => {
-  try {
-    const { vehicleType, capacityLimit } = req.body;
-    const vehicle = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
-
-    if (!vehicle) {
-      return res.status(404).json({ success: false, error: 'Vehicle not found' });
-    }
-
-    const standardCapacity = capacityLimit !== undefined ? parseInt(capacityLimit, 10) : (VEHICLE_TYPE_CAPACITIES[vehicleType] || 14);
-    const newOccupancy = req.body.currentOccupancy !== undefined ? parseInt(req.body.currentOccupancy, 10) : Math.min(vehicle.currentOccupancy, standardCapacity);
-    const newStatus = newOccupancy >= standardCapacity ? 'FULL' : 'IN_SERVICE';
-
-    await DB.prepare(`
-      UPDATE vehicles
-      SET vehicleType = ?, capacityLimit = ?, currentOccupancy = ?, status = ?, updatedAt = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(vehicleType, standardCapacity, newOccupancy, newStatus, req.params.id);
-
-    await DB.prepare(`
-      INSERT INTO audit_logs (action, userId, role, details)
-      VALUES ('VEHICLE_TYPE_UPDATED', ?, ?, ?)
-    `).run(req.user.id, req.user.role, `Updated vehicle ${vehicle.plateNumber} to ${vehicleType} (Limit: ${standardCapacity} seats)`);
-
-    const updated = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
-
-    res.json({
-      success: true,
-      message: `Vehicle capacity limit set to ${standardCapacity} passengers based on ${vehicleType}.`,
-      vehicle: updated
-    });
-  } catch (err) {
-    console.error('[RoutePass] request failed:', err);
-    res.status(500).json({ success: false, error: 'Internal server error.' });
-  }
-});
-
-/**
  * GET /api/vehicles/tracking
  * Return only the caller's owned vehicle (driver) or the vehicle for the caller's active
  * paid subscription (passenger). Only genuine GPS reports are returned as a live location.
@@ -194,6 +122,78 @@ router.get('/tracking', authenticate, async (req, res) => {
   } catch (err) {
     console.error('[RoutePass] vehicle tracking query failed:', err);
     res.status(500).json({ success: false, error: 'Could not load vehicle tracking.' });
+  }
+});
+
+/**
+ * GET /api/vehicles/:id
+ * Get single vehicle details
+ */
+router.get('/:id', async (req, res) => {
+  try {
+    const vehicle = await DB.prepare(`
+      SELECT v.*, r.name as routeName, r.nameAm as routeNameAm
+      FROM vehicles v
+      LEFT JOIN routes r ON v.assignedRouteId = r.id
+      WHERE v.id = ?
+    `).get(req.params.id);
+
+    if (!vehicle) {
+      return res.status(404).json({ success: false, error: 'Vehicle not found' });
+    }
+    res.json({
+      success: true,
+      vehicle: {
+        ...vehicle,
+        isFull: vehicle.currentOccupancy >= vehicle.capacityLimit,
+        availableSeats: Math.max(0, vehicle.capacityLimit - vehicle.currentOccupancy),
+        occupancyPercentage: Math.round((vehicle.currentOccupancy / vehicle.capacityLimit) * 100)
+      }
+    });
+  } catch (err) {
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
+  }
+});
+
+/**
+ * PATCH /api/vehicles/:id/type
+ * Driver or Admin: Update vehicle type and enforce passenger limit
+ */
+router.patch('/:id/type', authenticate, requireRole('ADMIN'), async (req, res) => {
+  try {
+    const { vehicleType, capacityLimit } = req.body;
+    const vehicle = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
+
+    if (!vehicle) {
+      return res.status(404).json({ success: false, error: 'Vehicle not found' });
+    }
+
+    const standardCapacity = capacityLimit !== undefined ? parseInt(capacityLimit, 10) : (VEHICLE_TYPE_CAPACITIES[vehicleType] || 14);
+    const newOccupancy = req.body.currentOccupancy !== undefined ? parseInt(req.body.currentOccupancy, 10) : Math.min(vehicle.currentOccupancy, standardCapacity);
+    const newStatus = newOccupancy >= standardCapacity ? 'FULL' : 'IN_SERVICE';
+
+    await DB.prepare(`
+      UPDATE vehicles
+      SET vehicleType = ?, capacityLimit = ?, currentOccupancy = ?, status = ?, updatedAt = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(vehicleType, standardCapacity, newOccupancy, newStatus, req.params.id);
+
+    await DB.prepare(`
+      INSERT INTO audit_logs (action, userId, role, details)
+      VALUES ('VEHICLE_TYPE_UPDATED', ?, ?, ?)
+    `).run(req.user.id, req.user.role, `Updated vehicle ${vehicle.plateNumber} to ${vehicleType} (Limit: ${standardCapacity} seats)`);
+
+    const updated = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
+
+    res.json({
+      success: true,
+      message: `Vehicle capacity limit set to ${standardCapacity} passengers based on ${vehicleType}.`,
+      vehicle: updated
+    });
+  } catch (err) {
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
