@@ -111,6 +111,7 @@ jobs:
           ADMIN_REGISTRATION_SECRET: ci_admin_secret_only_for_tests_2026
           QR_SIGNING_KEY: ci_qr_secret_only_for_tests_2026
           PAYMENT_MODE: PRODUCTION
+          ALLOW_MANUAL_TEST_RECHARGE: "true"
         run: node test/postgres-smoke.js
         working-directory: backend
 
