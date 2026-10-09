@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { DB } = require('../db');
 const { signToken, authenticate } = require('../middleware/auth');
+const { validateRegistrationUploads, saveUpload } = require('../documents/store');
 
 function resolveAdminSecret() {
   if (process.env.ADMIN_REGISTRATION_SECRET && process.env.ADMIN_REGISTRATION_SECRET.trim().length > 0) {
@@ -40,7 +41,8 @@ router.post('/register', authLimiter, async (req, res) => {
       vehicleModel = '',
       vehicleType = 'MINIBUS_14',
       appliedRouteId = '',
-      appliedRouteName = ''
+      appliedRouteName = '',
+      uploads = []
     } = req.body;
 
     if (!fullName || !phone || !password || !role) {
@@ -62,6 +64,15 @@ router.post('/register', authLimiter, async (req, res) => {
       });
     }
 
+    let validatedUploads = [];
+    if (normalizedRole !== 'ADMIN') {
+      try {
+        validatedUploads = validateRegistrationUploads(normalizedRole, uploads);
+      } catch (uploadError) {
+        return res.status(400).json({ success: false, error: uploadError.message });
+      }
+    }
+
     // Drivers register their own account and the vehicle they own. The server creates
     // the vehicle with no route; only an administrator may assign an approved route.
     const vehicleCapacities = {
@@ -73,6 +84,7 @@ router.post('/register', authLimiter, async (req, res) => {
     let driverVehiclePlate = '';
     let driverVehicleModel = '';
     let driverVehicleType = '';
+    let driverVehicleId = '';
     if (normalizedRole === 'DRIVER') {
       driverVehiclePlate = String(assignedVehiclePlate || '').trim().toUpperCase();
       driverVehicleModel = String(vehicleModel || '').trim();
@@ -87,6 +99,7 @@ router.post('/register', authLimiter, async (req, res) => {
       if (existingPlate) {
         return res.status(409).json({ success: false, error: 'That vehicle plate is already registered. Contact support if you are the legal owner.' });
       }
+      driverVehicleId = 'veh_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
     }
 
     // Allow secret-gated bootstrap only while no administrator exists.
@@ -142,12 +155,11 @@ router.post('/register', authLimiter, async (req, res) => {
       );
 
       if (normalizedRole === 'DRIVER') {
-        const vehicleId = `veh_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
         await tx.prepare(`
           INSERT INTO vehicles (id, plateNumber, model, vehicleType, capacityLimit, currentOccupancy, assignedRouteId, driverId, driverName, status)
           VALUES (?, ?, ?, ?, ?, 0, NULL, ?, ?, 'OFF_DUTY')
         `).run(
-          vehicleId,
+          driverVehicleId,
           driverVehiclePlate,
           driverVehicleModel,
           driverVehicleType,
@@ -157,6 +169,12 @@ router.post('/register', authLimiter, async (req, res) => {
         );
       }
     });
+
+    for (const upload of validatedUploads) {
+      const documentVehicleId = normalizedRole === 'DRIVER' && ['VEHICLE_PHOTO', 'VEHICLE_TRADE_LICENSE'].includes(upload.documentType)
+        ? driverVehicleId : null;
+      await saveUpload(DB, userId, documentVehicleId, upload);
+    }
 
     // CRITICAL: Registration does NOT activate a subscription!
     // If passenger selected a route during signup, create a PENDING unpaid subscription.
@@ -209,11 +227,12 @@ router.post('/register', authLimiter, async (req, res) => {
         appliedRouteName: normalizedRole === 'PASSENGER' ? String(appliedRouteName || '').trim() : ''
       },
       subscription: initialSub,
+      uploadedDocuments: validatedUploads.length,
       message: normalizedRole === 'DRIVER'
-        ? 'Thank you for registering. An administrator will review your licence and vehicle, approve your account, assign your route, and contact you when your account is ready.'
+        ? 'Registration and required documents received. An administrator will review your identity, driving licence, vehicle photo and trade licence, approve your account, assign your route, and contact you when ready.'
         : (normalizedRole === 'PASSENGER' && appliedRouteId
-          ? 'Account created. Subscription is PENDING payment; ask an administrator for a manual test recharge during testing.'
-          : 'Registration successful.')
+          ? 'Account and profile photo created. Your subscription is PENDING until an administrator manually activates it.'
+          : 'Registration and profile photo completed.')
     });
   } catch (err) {
     console.error('[RoutePass] request failed:', err);
