@@ -28,10 +28,13 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
     }
 
     if (!vehicle) {
-      return res.status(404).json({ success: false, error: 'Vehicle not found for driver.' });
+      return res.status(404).json({ success: false, error: 'No vehicle registered to this driver was found.' });
     }
     if (vehicle.driverId !== driverId) {
-      return res.status(403).json({ success: false, error: 'This vehicle is not assigned to your driver account.' });
+      return res.status(403).json({ success: false, error: 'This vehicle is not owned by your driver account.' });
+    }
+    if (!vehicle.assignedRouteId) {
+      return res.status(403).json({ success: false, error: 'Your vehicle has no assigned route yet. Contact the RoutePass administrator.' });
     }
     if (vehicle.assignedRouteId && vehicle.assignedRouteId !== routeId) {
       return res.status(403).json({ success: false, error: 'The requested route is not assigned to this vehicle.' });
