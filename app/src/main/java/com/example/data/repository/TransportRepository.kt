@@ -207,42 +207,58 @@ class TransportRepository(
     suspend fun refreshRoutesFromBackend() {
         try {
             val response = apiService.getRoutes()
-            if (response.isSuccessful && response.body()?.success == true) {
-                val dtoList = response.body()?.routes ?: emptyList()
-                dtoList.forEach { r ->
-                    val entity = RouteEntity(
-                        id = r.id,
-                        name = r.name,
-                        nameAm = r.nameAm,
-                        description = r.description ?: "",
-                        morningDeparture = r.morningDeparture ?: "06:30",
-                        eveningDeparture = r.eveningDeparture ?: "17:30",
-                        distanceKm = r.distanceKm ?: 12.0,
-                        basePriceEtb = r.basePriceEtb ?: 2500.0,
-                        active = r.active ?: true
-                    )
-                    dao.insertRoute(entity)
+            if (!response.isSuccessful || response.body()?.success != true) return
 
-                    r.stops?.forEach { s ->
-                        dao.insertStop(
-                            RouteStopEntity(
-                                id = s.id,
-                                routeId = s.routeId,
-                                stopName = s.stopName,
-                                stopNameAm = s.stopNameAm,
-                                stopOrder = s.stopOrder,
-                                latitude = s.latitude,
-                                longitude = s.longitude,
-                                scheduledMorningTime = s.scheduledMorningTime ?: "",
-                                scheduledEveningTime = s.scheduledEveningTime ?: "",
-                                maxCapacity = s.maxCapacity ?: 25
-                            )
+            val routeList = response.body()?.routes ?: emptyList()
+            for (summary in routeList) {
+                // GET /api/routes/:id returns { success, route, stops }, not a bare RouteDto.
+                // Fetch this authoritative detail response so newly created/edited stop lists
+                // replace stale Room values instead of leaving the driver with demo stops.
+                val detailsResponse = try {
+                    apiService.getRouteById(summary.id)
+                } catch (_: Exception) {
+                    null
+                }
+                val details = detailsResponse?.takeIf { it.isSuccessful }?.body()
+                val route = details?.route ?: summary
+                val stops = if (details?.success == true) details.stops else (summary.stops ?: emptyList())
+
+                dao.insertRoute(
+                    RouteEntity(
+                        id = route.id,
+                        name = route.name,
+                        nameAm = route.nameAm,
+                        description = route.description ?: "",
+                        morningDeparture = route.morningDeparture ?: "06:30",
+                        eveningDeparture = route.eveningDeparture ?: "17:30",
+                        distanceKm = route.distanceKm ?: 12.0,
+                        basePriceEtb = route.basePriceEtb ?: 2500.0,
+                        active = route.active ?: true
+                    )
+                )
+
+                // The server is authoritative for stops. Remove obsolete cached stop rows
+                // before inserting the current ordered route stop list.
+                if (details?.success == true) dao.deleteStopsForRoute(route.id)
+                stops.forEach { stop ->
+                    dao.insertStop(
+                        RouteStopEntity(
+                            id = stop.id,
+                            routeId = stop.routeId,
+                            stopName = stop.stopName,
+                            stopNameAm = stop.stopNameAm,
+                            stopOrder = stop.stopOrder,
+                            latitude = stop.latitude,
+                            longitude = stop.longitude,
+                            scheduledMorningTime = stop.scheduledMorningTime ?: route.morningDeparture.orEmpty(),
+                            scheduledEveningTime = stop.scheduledEveningTime ?: route.eveningDeparture.orEmpty(),
+                            maxCapacity = stop.maxCapacity ?: 25
                         )
-                    }
+                    )
                 }
             }
         } catch (e: Exception) {
-            // Keep existing Room cache
+            // Keep last-known cache if the server is temporarily unavailable.
         }
     }
 
