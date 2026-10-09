@@ -751,6 +751,12 @@ fun DriverQrScannerDialog(
         )
     }
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
+    DisposableEffect(scanner, cameraExecutor) {
+        onDispose {
+            runCatching { scanner.close() }
+            cameraExecutor.shutdown()
+        }
+    }
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
@@ -838,8 +844,8 @@ fun DriverQrScannerDialog(
                 disposed = true
                 try {
                     if (boundProvider != null) {
-                        val useCases = listOfNotNull(boundPreview, boundAnalysis)
-                        boundProvider?.unbind(*useCases.toTypedArray())
+                        boundPreview?.let { boundProvider?.unbind(it) }
+                        boundAnalysis?.let { boundProvider?.unbind(it) }
                     }
                 } catch (_: Exception) {
                 }
