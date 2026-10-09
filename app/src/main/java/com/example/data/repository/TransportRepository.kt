@@ -105,7 +105,8 @@ class TransportRepository(
         vehicleModel: String = "",
         vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
-        appliedRouteName: String = ""
+        appliedRouteName: String = "",
+        uploads: List<RegistrationUploadDto> = emptyList()
     ): UserEntity {
         val normalizedRole = role.trim().uppercase()
         val cleanPhone = phone.trim()
@@ -123,7 +124,8 @@ class TransportRepository(
             vehicleModel = vehicleModel.ifBlank { null },
             vehicleType = vehicleType.ifBlank { null },
             appliedRouteId = appliedRouteId.ifBlank { null },
-            appliedRouteName = appliedRouteName.ifBlank { null }
+            appliedRouteName = appliedRouteName.ifBlank { null },
+            uploads = uploads
         )
 
         val response = try {
@@ -362,6 +364,15 @@ class TransportRepository(
             if (!errorBody.isNullOrBlank()) org.json.JSONObject(errorBody).optString("error") else null
         } catch (_: Exception) { null }
         throw IllegalStateException(message ?: response.body()?.error ?: "Could not start trip. Check your route assignment.")
+    }
+
+    suspend fun fetchAssignedRoster(): RosterResponse {
+        val response = apiService.getAssignedRoster()
+        if (response.isSuccessful && response.body()?.success == true) return response.body()!!
+        val message = try {
+            response.errorBody()?.string()?.let { org.json.JSONObject(it).optString("error") }
+        } catch (_: Exception) { null }
+        throw IllegalStateException(message ?: "Could not load the assigned passenger/driver roster.")
     }
 
     // Vehicles & Fleet Management
