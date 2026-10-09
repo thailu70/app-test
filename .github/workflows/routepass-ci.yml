@@ -54,6 +54,12 @@ jobs:
       - name: Check JavaScript syntax
         run: find src test -type f -name '*.js' -print0 | xargs -0 -n1 node --check
         working-directory: backend
+      - name: Check admin portal JavaScript syntax
+        run: node --check public/admin/admin.js
+        working-directory: backend
+      - name: Check first-admin bootstrap helper syntax
+        run: python3 -m py_compile scripts/bootstrap-admin.py
+        working-directory: backend
       - name: Run API integration suite
         env:
           NODE_ENV: test
