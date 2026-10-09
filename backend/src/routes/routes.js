@@ -10,7 +10,7 @@ const { authenticate, requireRole } = require('../middleware/auth');
  */
 router.get('/', async (req, res) => {
   try {
-    const routes = await DB.prepare('SELECT * FROM routes WHERE active = 1 ORDER BY name ASC').all();
+    const routes = await DB.prepare('SELECT * FROM routes WHERE active = TRUE ORDER BY name ASC').all();
     res.json({
       success: true,
       count: routes.length,
