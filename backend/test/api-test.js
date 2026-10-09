@@ -77,7 +77,7 @@ async function runTests() {
     // 2. Authentication with seeded accounts
     const pasLogin = await makeRequest('POST', '/api/auth/login', {
       phone: '+251911223344',
-      password: '123456',
+      password: 'RoutePassTest#2026',
       role: 'PASSENGER'
     });
     if (!pasLogin.data.success) throw new Error('Passenger login failed: ' + JSON.stringify(pasLogin.data));
@@ -128,7 +128,7 @@ async function runTests() {
     const newPasReg = await makeRequest('POST', '/api/auth/register', {
       fullName: 'Hiwot Bekele',
       phone: testPassengerPhone,
-      password: '123456',
+      password: 'RoutePassTest#2026',
       role: 'PASSENGER',
       appliedRouteId: 'route_bole_merkato',
       appliedRouteName: 'Bole - Merkato Express'
@@ -189,7 +189,7 @@ async function runTests() {
 
     // 8. Vehicle Capacity Limits & Atomic Transaction Verification
     // Configure vehicle with capacity limit = 1 to test boarding then strict denial
-    const testVehId = 'veh_minivan_aa_11093'; // 8-seat minivan
+    const testVehId = 'veh_higer_aa_34921'; // assigned Higer vehicle for the authenticated driver
     await makeRequest('PATCH', `/api/vehicles/${testVehId}/type`, {
       vehicleType: 'MINIVAN_8',
       capacityLimit: 1,
