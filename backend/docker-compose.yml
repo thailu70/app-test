@@ -15,7 +15,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-routepass_db}
       POSTGRES_USER: ${POSTGRES_USER:-routepass}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_routepass_pg_2026}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in backend/.env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
@@ -42,11 +42,11 @@ services:
       NODE_ENV: production
       PORT: 3000
       HOST: 0.0.0.0
-      DATABASE_URL: postgres://${POSTGRES_USER:-routepass}:${POSTGRES_PASSWORD:-secure_routepass_pg_2026}@db:5432/${POSTGRES_DB:-routepass_db}
-      JWT_SECRET: ${JWT_SECRET:-routepass_production_jwt_secret_key_vps_2026}
+      DATABASE_URL: postgres://${POSTGRES_USER:-routepass}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in backend/.env}@db:5432/${POSTGRES_DB:-routepass_db}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in backend/.env}
       JWT_EXPIRES_IN: 30d
-      ADMIN_REGISTRATION_SECRET: ${ADMIN_REGISTRATION_SECRET:-routepass_admin_invite_secret_2026}
-      PAYMENT_MODE: ${PAYMENT_MODE:-TEST}
+      ADMIN_REGISTRATION_SECRET: ${ADMIN_REGISTRATION_SECRET:?Set ADMIN_REGISTRATION_SECRET in backend/.env}
+      PAYMENT_MODE: ${PAYMENT_MODE:?Set PAYMENT_MODE explicitly in backend/.env}
       DATA_DIR: /app/data
     expose:
       - "3000"
