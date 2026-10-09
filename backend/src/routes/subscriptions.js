@@ -4,7 +4,20 @@ const crypto = require('crypto');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 
-const QR_SIGNING_KEY = process.env.QR_SIGNING_KEY || process.env.JWT_SECRET || 'routepass_production_qr_hmac_secret_2026';
+function resolveQrSigningKey() {
+  if (process.env.QR_SIGNING_KEY && process.env.QR_SIGNING_KEY.trim().length > 0) {
+    return process.env.QR_SIGNING_KEY.trim();
+  }
+  if (process.env.JWT_SECRET && process.env.JWT_SECRET.trim().length > 0) {
+    return process.env.JWT_SECRET.trim();
+  }
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('[FATAL SECURITY ERROR] QR_SIGNING_KEY or JWT_SECRET is required in production.');
+  }
+  return 'routepass_production_qr_hmac_secret_2026';
+}
+
+const QR_SIGNING_KEY = resolveQrSigningKey();
 const PAYMENT_MODE = process.env.PAYMENT_MODE || 'TEST';
 
 /**
@@ -177,11 +190,31 @@ router.post('/subscribe', authenticate, requireRole('PASSENGER'), (req, res) => 
 router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req, res) => {
   try {
     const passengerId = req.user.id;
+
+    // Security Guard: Never accept or process Telebirr PINs in application server
+    if (req.body.pin || req.body.telebirrPin) {
+      return res.status(400).json({
+        success: false,
+        error: 'Security Policy Violation: Telebirr PINs must NEVER be collected or transmitted to merchant backend. Customer authentication is strictly handled through official Telebirr USSD/app.'
+      });
+    }
+
     const {
       routeId,
       phone = req.user.phone,
       idempotencyKey = req.headers['x-idempotency-key'] || ''
     } = req.body;
+
+    // Production Verification Isolation: Never activate without verified payment in PRODUCTION
+    if (PAYMENT_MODE === 'PRODUCTION') {
+      const isVerified = Boolean(req.body.telebirrVerified || req.body.telebirrTxnId);
+      if (!isVerified) {
+        return res.status(402).json({
+          success: false,
+          error: 'Unverified Payment: Subscriptions cannot be activated without verified Telebirr transaction confirmation in production mode.'
+        });
+      }
+    }
 
     // 1. Idempotency Check: prevent duplicate payment processing
     if (idempotencyKey) {

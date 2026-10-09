@@ -5,7 +5,17 @@ const crypto = require('crypto');
 const { DB } = require('../db');
 const { signToken, authenticate } = require('../middleware/auth');
 
-const ADMIN_REGISTRATION_SECRET = process.env.ADMIN_REGISTRATION_SECRET || 'routepass_admin_invite_secret_2026';
+function resolveAdminSecret() {
+  if (process.env.ADMIN_REGISTRATION_SECRET && process.env.ADMIN_REGISTRATION_SECRET.trim().length > 0) {
+    return process.env.ADMIN_REGISTRATION_SECRET.trim();
+  }
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('[FATAL SECURITY ERROR] ADMIN_REGISTRATION_SECRET is required in production.');
+  }
+  return 'routepass_admin_invite_secret_2026';
+}
+
+const ADMIN_REGISTRATION_SECRET = resolveAdminSecret();
 
 /**
  * POST /api/auth/register

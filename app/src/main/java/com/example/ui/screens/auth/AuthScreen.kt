@@ -661,7 +661,7 @@ fun AuthScreen(
                                 ) {
                                     Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(Modifier.width(8.dp))
-                                    Text("Log In as Passenger (Abebe Kebede)")
+                                    Text("Log In as Passenger (Alemayehu Haile)")
                                 }
                             }
                             AppRole.DRIVER -> {
@@ -675,7 +675,7 @@ fun AuthScreen(
                                 ) {
                                     Icon(Icons.Default.DirectionsBus, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(Modifier.width(8.dp))
-                                    Text("Log In as Transporter / Driver (Abebe Alemu)")
+                                    Text("Log In as Transporter / Driver (Kassahun Tadesse)")
                                 }
                             }
                             AppRole.ADMIN -> {
@@ -689,7 +689,7 @@ fun AuthScreen(
                                 ) {
                                     Icon(Icons.Default.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(Modifier.width(8.dp))
-                                    Text("Log In as Transport Operator / Admin")
+                                    Text("Log In as Transport Operator / Admin (Addis Transit)")
                                 }
                             }
                         }

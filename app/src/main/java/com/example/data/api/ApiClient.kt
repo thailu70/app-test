@@ -11,10 +11,13 @@ import java.util.concurrent.TimeUnit
 
 object ApiClient {
 
-    // Default base URL for Android Emulator -> VPS / Host server
-    // User or admin can update this dynamically if connecting to an external VPS IP.
+    // Central VPS Host & URL configuration
+    const val DEFAULT_VPS_HOST = "62.72.19.170"
+    const val DEFAULT_HTTP_URL = "http://62.72.19.170:3000/"
+    const val DEFAULT_HTTPS_URL = "https://62.72.19.170/"
+
     @Volatile
-    private var baseUrl: String = "http://62.72.19.170:3000/"
+    private var baseUrl: String = DEFAULT_HTTP_URL
 
     @Volatile
     private var authToken: String? = null

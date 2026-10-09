@@ -1,6 +1,16 @@
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'transport_navigator_ethiopia_secret_key_vps_2026';
+function resolveJwtSecret() {
+  if (process.env.JWT_SECRET && process.env.JWT_SECRET.trim().length > 0) {
+    return process.env.JWT_SECRET.trim();
+  }
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('[FATAL SECURITY ERROR] JWT_SECRET environment variable is missing in production environment. A secure key must be provided.');
+  }
+  return 'transport_navigator_ethiopia_secret_key_vps_2026';
+}
+
+const JWT_SECRET = resolveJwtSecret();
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d';
 
 function signToken(payload) {
@@ -8,6 +18,7 @@ function signToken(payload) {
 }
 
 function verifyToken(token) {
+  if (!token) return null;
   try {
     return jwt.verify(token, JWT_SECRET);
   } catch (err) {
@@ -46,17 +57,20 @@ function authenticate(req, res, next) {
  */
 function requireRole(...allowedRoles) {
   return (req, res, next) => {
-    if (!req.user) {
+    if (!req.user || !req.user.role) {
       return res.status(401).json({
         success: false,
         error: 'Authentication required.'
       });
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
+    const userRole = req.user.role.toUpperCase();
+    const normalizedAllowed = allowedRoles.map(r => r.toUpperCase());
+
+    if (!normalizedAllowed.includes(userRole)) {
       return res.status(403).json({
         success: false,
-        error: `Access denied. Role '${req.user.role}' is not authorized for this resource. Required role(s): [${allowedRoles.join(', ')}].`
+        error: `Forbidden: Access restricted. Required role: [${allowedRoles.join(', ')}], current role: ${req.user.role}`
       });
     }
 
@@ -65,6 +79,7 @@ function requireRole(...allowedRoles) {
 }
 
 module.exports = {
+  JWT_SECRET,
   signToken,
   verifyToken,
   authenticate,

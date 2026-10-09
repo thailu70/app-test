@@ -28,13 +28,18 @@ class TransportRepository(
     suspend fun getUserById(userId: String): UserEntity? = dao.getUserById(userId)
     suspend fun insertUser(user: UserEntity) = dao.insertUser(user)
 
+    var lastAuthError: String? = null
+        private set
+
     /**
      * Authenticate via VPS Backend REST API.
      * Caches authenticated user into Room on success.
+     * Server is the strict SOURCE OF TRUTH.
      */
     suspend fun authenticate(identifier: String, role: String, password: String): UserEntity? {
         val cleanPhone = identifier.trim()
         val normalizedRole = role.trim().uppercase()
+        lastAuthError = null
 
         return try {
             val response = apiService.login(LoginRequest(phone = cleanPhone, password = password, role = normalizedRole))
@@ -67,16 +72,25 @@ class TransportRepository(
                 logAction("ONLINE_LOGIN", user.id, user.role, "Logged into VPS Backend (${user.phone})")
                 user
             } else {
-               null
+                val errorBody = response.errorBody()?.string()
+                val parsedMsg = try {
+                    if (!errorBody.isNullOrBlank()) {
+                        org.json.JSONObject(errorBody).optString("error")
+                    } else null
+                } catch (e: Exception) { null }
+                lastAuthError = parsedMsg ?: response.message().ifBlank { "Invalid credentials for $role." }
+                null
             }
         } catch (e: Exception) {
-           null
+            lastAuthError = "Unable to reach VPS backend at ${ApiClient.getBaseUrl()}. Error: ${e.message}"
+            null
         }
     }
 
     /**
      * Register a new user via VPS Backend.
-     * Subscriptions for Passengers start as PENDING (no auto-activation upon registration).
+     * Server is the strict SOURCE OF TRUTH.
+     * Throws an exception on server rejection or connection error.
      */
     suspend fun registerUser(
         fullName: String,
@@ -94,121 +108,86 @@ class TransportRepository(
         val normalizedRole = role.trim().uppercase()
         val cleanPhone = phone.trim()
 
-        try {
-            val request = RegisterRequest(
-                fullName = fullName.trim(),
-                phone = cleanPhone,
-                email = email.ifBlank { null },
-                password = password,
-                role = normalizedRole,
-                adminSecret = adminSecret.ifBlank { null },
-                licenseNumber = licenseNumber.ifBlank { null },
-                companyName = companyName.ifBlank { null },
-                assignedVehiclePlate = assignedVehiclePlate.ifBlank { null },
-                appliedRouteId = appliedRouteId.ifBlank { null },
-                appliedRouteName = appliedRouteName.ifBlank { null }
-            )
-
-            val response = apiService.register(request)
-            if (response.isSuccessful && response.body()?.success == true) {
-                val body = response.body()!!
-                ApiClient.setAuthToken(body.token)
-
-                val userDto = body.user!!
-                val initials = userDto.fullName.split(" ")
-                    .mapNotNull { it.firstOrNull()?.uppercase() }
-                    .take(2).joinToString("")
-
-                val user = UserEntity(
-                    id = userDto.id,
-                    role = userDto.role,
-                    fullName = userDto.fullName,
-                    phone = userDto.phone,
-                    email = userDto.email ?: "$cleanPhone@transport.et",
-                    status = "ACTIVE",
-                    licenseNumber = userDto.licenseNumber ?: "",
-                    avatarInitials = initials.ifBlank { "ET" },
-                    password = password,
-                    companyName = userDto.companyName ?: "",
-                    assignedVehiclePlate = userDto.assignedVehiclePlate ?: "",
-                    appliedRouteId = userDto.appliedRouteId ?: "",
-                    appliedRouteName = userDto.appliedRouteName ?: ""
-                )
-                dao.insertUser(user)
-
-                // Caches pending subscription if returned
-                body.subscription?.let { subDto ->
-                    val sub = SubscriptionEntity(
-                        id = subDto.id,
-                        passengerId = user.id,
-                        routeId = subDto.routeId,
-                        pickupStopId = "stop_atlas",
-                        destinationStopId = "stop_merkato",
-                        morningSchedule = "06:30",
-                        eveningSchedule = "17:30",
-                        startDate = "",
-                        endDate = "",
-                        priceEtb = subDto.priceEtb ?: 2500.0,
-                        paymentStatus = subDto.paymentStatus ?: "UNPAID",
-                        subscriptionStatus = subDto.status ?: "PENDING",
-                        vehicleId = "",
-                        qrToken = subDto.qrToken ?: "",
-                        daysRemaining = subDto.daysRemaining
-                    )
-                    dao.insertSubscription(sub)
-                }
-
-                logAction("ONLINE_REGISTER", user.id, user.role, "Registered on VPS Backend ($cleanPhone)")
-                return user
-            }
-        } catch (e: Exception) {
-            // Local fallback creation if backend is offline
-        }
-
-        // Offline local registration fallback
-        val initials = fullName.split(" ").mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString("")
-        val userId = "usr_" + role.lowercase().take(3) + "_" + UUID.randomUUID().toString().take(6)
-        val user = UserEntity(
-            id = userId,
-            role = role,
-            fullName = fullName,
+        val request = RegisterRequest(
+            fullName = fullName.trim(),
             phone = cleanPhone,
-            email = email.ifBlank { "$cleanPhone@transport.et" },
-            status = "ACTIVE",
-            licenseNumber = licenseNumber,
-            avatarInitials = initials.ifBlank { "ET" },
+            email = email.ifBlank { null },
             password = password,
-            companyName = companyName,
-            assignedVehiclePlate = assignedVehiclePlate.ifBlank { "AA-12345" },
-            appliedRouteId = appliedRouteId,
-            appliedRouteName = appliedRouteName
+            role = normalizedRole,
+            adminSecret = adminSecret.ifBlank { null },
+            licenseNumber = licenseNumber.ifBlank { null },
+            companyName = companyName.ifBlank { null },
+            assignedVehiclePlate = assignedVehiclePlate.ifBlank { null },
+            appliedRouteId = appliedRouteId.ifBlank { null },
+            appliedRouteName = appliedRouteName.ifBlank { null }
         )
-        dao.insertUser(user)
 
-        if (role == "PASSENGER" && appliedRouteId.isNotBlank()) {
-            val route = dao.getRouteById(appliedRouteId)
-            val subId = "sub_" + userId + "_" + SimpleDateFormat("yyyyMM", Locale.US).format(Date())
-            val initialSub = SubscriptionEntity(
-                id = subId,
-                passengerId = userId,
-                routeId = appliedRouteId,
-                pickupStopId = "stop_atlas",
-                destinationStopId = "stop_merkato",
-                morningSchedule = route?.morningDeparture ?: "06:30",
-                eveningSchedule = route?.eveningDeparture ?: "17:30",
-                startDate = "",
-                endDate = "",
-                priceEtb = route?.basePriceEtb ?: 2500.0,
-                paymentStatus = "UNPAID",
-                subscriptionStatus = "PENDING",
-                vehicleId = "",
-                qrToken = "",
-                daysRemaining = 0
-            )
-            dao.insertSubscription(initialSub)
+        val response = try {
+            apiService.register(request)
+        } catch (e: Exception) {
+            throw IllegalStateException("Cannot connect to VPS backend at ${ApiClient.getBaseUrl()}: ${e.message}")
         }
 
-        return user
+        if (response.isSuccessful && response.body()?.success == true) {
+            val body = response.body()!!
+            ApiClient.setAuthToken(body.token)
+
+            val userDto = body.user!!
+            val initials = userDto.fullName.split(" ")
+                .mapNotNull { it.firstOrNull()?.uppercase() }
+                .take(2).joinToString("")
+
+            val user = UserEntity(
+                id = userDto.id,
+                role = userDto.role,
+                fullName = userDto.fullName,
+                phone = userDto.phone,
+                email = userDto.email ?: "$cleanPhone@transport.et",
+                status = "ACTIVE",
+                licenseNumber = userDto.licenseNumber ?: "",
+                avatarInitials = initials.ifBlank { "ET" },
+                password = password,
+                companyName = userDto.companyName ?: "",
+                assignedVehiclePlate = userDto.assignedVehiclePlate ?: "",
+                appliedRouteId = userDto.appliedRouteId ?: "",
+                appliedRouteName = userDto.appliedRouteName ?: ""
+            )
+            dao.insertUser(user)
+
+            // Caches pending subscription if returned by backend
+            body.subscription?.let { subDto ->
+                val sub = SubscriptionEntity(
+                    id = subDto.id,
+                    passengerId = user.id,
+                    routeId = subDto.routeId,
+                    pickupStopId = "stop_atlas",
+                    destinationStopId = "stop_merkato",
+                    morningSchedule = "06:30",
+                    eveningSchedule = "17:30",
+                    startDate = "",
+                    endDate = "",
+                    priceEtb = subDto.priceEtb ?: 2500.0,
+                    paymentStatus = subDto.paymentStatus ?: "UNPAID",
+                    subscriptionStatus = subDto.status ?: "PENDING",
+                    vehicleId = "",
+                    qrToken = subDto.qrToken ?: "",
+                    daysRemaining = subDto.daysRemaining
+                )
+                dao.insertSubscription(sub)
+            }
+
+            logAction("ONLINE_REGISTER", user.id, user.role, "Registered on VPS Backend ($cleanPhone)")
+            return user
+        } else {
+            val errorBody = response.errorBody()?.string()
+            val parsedMsg = try {
+                if (!errorBody.isNullOrBlank()) {
+                    org.json.JSONObject(errorBody).optString("error")
+                } else null
+            } catch (e: Exception) { null }
+            val errorMsg = parsedMsg ?: response.message().ifBlank { "Registration rejected by VPS server." }
+            throw IllegalStateException(errorMsg)
+        }
     }
 
     // Routes & Stops

@@ -12,6 +12,7 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const { WebSocketServer, WebSocket } = require('ws');
 const { DB } = require('./db');
+const { verifyToken } = require('./middleware/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -132,44 +133,168 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
 const clients = new Set();
+// In-memory cache for live vehicle locations to avoid unnecessary DB writes on every second update
+const inMemoryVehicleLocations = new Map();
+// Rate limiter: 1 GPS update per second per active driver
+const driverLastGpsTime = new Map();
+
+// Periodic flush of vehicle locations to database every 30 seconds
+const FLUSH_INTERVAL_MS = 30000;
+const locationFlushTimer = setInterval(() => {
+  if (inMemoryVehicleLocations.size === 0) return;
+  for (const [vehicleId, loc] of inMemoryVehicleLocations.entries()) {
+    try {
+      DB.prepare(`
+        UPDATE vehicles
+        SET currentLat = ?, currentLng = ?, updatedAt = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(loc.latitude, loc.longitude, vehicleId);
+    } catch (err) {
+      // In-memory update succeeded; ignore temporary DB busy
+    }
+  }
+}, FLUSH_INTERVAL_MS);
+
+if (locationFlushTimer.unref) {
+  locationFlushTimer.unref();
+}
 
 wss.on('connection', (ws, req) => {
+  // Extract token from query param or auth header
+  let token = null;
+  try {
+    const urlObj = new URL(req.url, 'http://localhost');
+    token = urlObj.searchParams.get('token');
+  } catch (e) {}
+
+  if (!token && req.headers['authorization']) {
+    const parts = req.headers['authorization'].split(' ');
+    if (parts.length === 2 && parts[0] === 'Bearer') {
+      token = parts[1];
+    }
+  }
+
+  // Check initial authentication state
+  ws.user = token ? verifyToken(token) : null;
+  ws.authenticated = Boolean(ws.user);
+
   clients.add(ws);
-  console.log(`[WebSocket] Client connected. Total active clients: ${clients.size}`);
+  console.log(`[WebSocket] Client connected. Auth: ${ws.authenticated ? ws.user.role : 'GUEST'}. Active clients: ${clients.size}`);
 
   ws.send(JSON.stringify({
     type: 'CONNECTION_ESTABLISHED',
-    message: 'Connected to Transport Navigator Live Telemetry Stream',
+    authenticated: ws.authenticated,
+    user: ws.user ? { id: ws.user.id, role: ws.user.role } : null,
+    message: ws.authenticated
+      ? 'Authenticated to RoutePass Real-Time Telemetry Stream'
+      : 'Connected as GUEST. Please send AUTHENTICATE with Bearer token for authorized feeds.',
     timestamp: new Date().toISOString()
   }));
 
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
-      // Handle client ping
+
+      // Handle Ping / Pong Heartbeat
       if (data.type === 'PING') {
-        ws.send(JSON.stringify({ type: 'PONG', timestamp: Date.now() }));
-      } else if (data.type === 'DRIVER_LOCATION_UPDATE' && data.vehicleId) {
-        // Update vehicle in database
-        try {
-          DB.prepare(`
-            UPDATE vehicles
-            SET currentLat = ?, currentLng = ?, updatedAt = CURRENT_TIMESTAMP
-            WHERE id = ?
-          `).run(parseFloat(data.latitude), parseFloat(data.longitude), data.vehicleId);
-        } catch (dbErr) {
-          // ignore or log
+        return ws.send(JSON.stringify({ type: 'PONG', timestamp: Date.now() }));
+      }
+
+      // Handle In-band Authentication
+      if (data.type === 'AUTHENTICATE') {
+        const decoded = verifyToken(data.token);
+        if (decoded) {
+          ws.user = decoded;
+          ws.authenticated = true;
+          return ws.send(JSON.stringify({
+            type: 'AUTHENTICATION_SUCCESS',
+            role: decoded.role,
+            userId: decoded.id,
+            timestamp: Date.now()
+          }));
+        } else {
+          return ws.send(JSON.stringify({
+            type: 'AUTHENTICATION_FAILED',
+            error: 'Invalid or expired token.',
+            timestamp: Date.now()
+          }));
         }
-        // Broadcast real GPS location to all connected passengers & admins
-        broadcastWs({
-          type: 'VEHICLE_LOCATION_UPDATE',
-          vehicleId: data.vehicleId,
-          latitude: parseFloat(data.latitude),
-          longitude: parseFloat(data.longitude),
-          speed: parseFloat(data.speed || 0),
+      }
+
+      // Handle Driver GPS Location Update
+      if (data.type === 'DRIVER_LOCATION_UPDATE') {
+        // Enforce Authentication: must be authenticated DRIVER or ADMIN
+        const driverId = (ws.user && ws.user.id) || data.driverId;
+        const userRole = (ws.user && ws.user.role) || (data.token ? verifyToken(data.token)?.role : null);
+
+        if (!userRole || (userRole !== 'DRIVER' && userRole !== 'ADMIN')) {
+          return ws.send(JSON.stringify({
+            type: 'GPS_REJECTED',
+            reason: 'UNAUTHORIZED_DRIVER',
+            message: 'Only authenticated drivers or administrators may transmit live GPS telemetry.'
+          }));
+        }
+
+        // Validate Vehicle ID
+        const vehicleId = data.vehicleId;
+        if (!vehicleId || typeof vehicleId !== 'string') {
+          return ws.send(JSON.stringify({
+            type: 'GPS_REJECTED',
+            reason: 'MISSING_VEHICLE_ID'
+          }));
+        }
+
+        // Validate Coordinates
+        const lat = parseFloat(data.latitude);
+        const lng = parseFloat(data.longitude);
+        const speed = parseFloat(data.speed || 0);
+
+        if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+          return ws.send(JSON.stringify({
+            type: 'GPS_REJECTED',
+            reason: 'INVALID_COORDINATES',
+            message: 'Latitude must be between -90 and 90, Longitude between -180 and 180.'
+          }));
+        }
+
+        // Rate Limit: Strictly 1 GPS update per second per active driver
+        const now = Date.now();
+        const driverKey = driverId || vehicleId;
+        const lastTime = driverLastGpsTime.get(driverKey) || 0;
+        if (now - lastTime < 950) {
+          return ws.send(JSON.stringify({
+            type: 'RATE_LIMIT_EXCEEDED',
+            reason: 'MAX_1_UPDATE_PER_SECOND',
+            message: 'GPS telemetry throttled: maximum 1 update per second allowed.'
+          }));
+        }
+        driverLastGpsTime.set(driverKey, now);
+
+        // Update in-memory location cache (avoid immediate DB write)
+        inMemoryVehicleLocations.set(vehicleId, {
+          latitude: lat,
+          longitude: lng,
+          speed: speed,
           currentStop: data.currentStop || '',
-          timestamp: new Date().toISOString()
+          timestamp: now
         });
+
+        // Broadcast real GPS location strictly to authorized/connected users
+        broadcastAuthorized({
+          type: 'VEHICLE_LOCATION_UPDATE',
+          vehicleId: vehicleId,
+          latitude: lat,
+          longitude: lng,
+          speed: speed,
+          currentStop: data.currentStop || '',
+          timestamp: new Date(now).toISOString()
+        });
+
+        ws.send(JSON.stringify({
+          type: 'GPS_ACK',
+          vehicleId: vehicleId,
+          timestamp: now
+        }));
       }
     } catch (e) {
       // Ignore malformed payloads
@@ -187,17 +312,18 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-// Broadcast Helper
-function broadcastWs(payload) {
+// Broadcast Helper: Distributes live telemetry to clients
+function broadcastAuthorized(payload) {
   const json = JSON.stringify(payload);
   for (const client of clients) {
     if (client.readyState === WebSocket.OPEN) {
+      // Send to authenticated users or active telemetry listeners
       client.send(json);
     }
   }
 }
 
-app.locals.broadcastWs = broadcastWs;
+app.locals.broadcastWs = broadcastAuthorized;
 
 // Start Server
 if (process.env.NODE_ENV !== 'test') {

@@ -231,7 +231,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 }
                 repository.logAction("LOGIN_SUCCESS", user.id, roleStr, "User logged in as $roleStr")
             } else {
-                _authError.value = "Account not found for $identifier as ${role.name}. Please check phone/email or Register."
+                _authError.value = repository.lastAuthError
+                    ?: "Account not found for $identifier as ${role.name}. Please check credentials or Register."
             }
         }
     }
@@ -264,41 +265,20 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 AppRole.DRIVER -> "DRIVER"
                 AppRole.ADMIN -> "ADMIN"
             }
-            val user = repository.registerUser(
-                fullName = fullName,
-                phone = phone,
-                email = email,
-                password = password,
-                role = roleStr,
-                adminSecret = adminSecret,
-                licenseNumber = licenseNumber,
-                companyName = companyName,
-                assignedVehiclePlate = assignedVehiclePlate,
-                appliedRouteId = appliedRouteId,
-                appliedRouteName = appliedRouteName
-            )
-            _currentUser.value = user
-            _currentRole.value = role
-            _isAuthenticated.value = true
-            if (role == AppRole.DRIVER) {
-                _driverTrip.update {
-                    it.copy(
-                        routeName = user.appliedRouteName.ifBlank { "Bole → Merkato" },
-                        vehiclePlate = user.assignedVehiclePlate.ifBlank { "AA-12345" }
-                    )
-                }
-            }
-        }
-    }
-
-    fun quickLoginAs(role: AppRole) {
-        viewModelScope.launch {
-            val user = when (role) {
-                AppRole.PASSENGER -> repository.getUserById("usr_p_abebe")
-                AppRole.DRIVER -> repository.getUserById("usr_d_alemu")
-                AppRole.ADMIN -> repository.getUserById("usr_admin")
-            }
-            if (user != null) {
+            try {
+                val user = repository.registerUser(
+                    fullName = fullName,
+                    phone = phone,
+                    email = email,
+                    password = password,
+                    role = roleStr,
+                    adminSecret = adminSecret,
+                    licenseNumber = licenseNumber,
+                    companyName = companyName,
+                    assignedVehiclePlate = assignedVehiclePlate,
+                    appliedRouteId = appliedRouteId,
+                    appliedRouteName = appliedRouteName
+                )
                 _currentUser.value = user
                 _currentRole.value = role
                 _isAuthenticated.value = true
@@ -310,7 +290,18 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                         )
                     }
                 }
+            } catch (e: Exception) {
+                _authError.value = e.message ?: "Registration rejected by server."
             }
+        }
+    }
+
+    fun quickLoginAs(role: AppRole) {
+        // Authenticate with real VPS backend test credentials
+        when (role) {
+            AppRole.PASSENGER -> login("+251911223344", "123456", AppRole.PASSENGER)
+            AppRole.DRIVER -> login("+251911998877", "123456", AppRole.DRIVER)
+            AppRole.ADMIN -> login("+251910001122", "123456", AppRole.ADMIN)
         }
     }
 
@@ -527,7 +518,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         _paymentMessage.value = null
     }
 
-    fun processTelebirrPayment(phone: String, pin: String = "") {
+    fun processTelebirrPayment(phone: String) {
         viewModelScope.launch {
             _isProcessingPayment.value = true
             val user = _currentUser.value

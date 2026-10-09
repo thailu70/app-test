@@ -7,7 +7,9 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "seed": "node src/seed.js",
-    "test": "node test/api-test.js"
+    "backup": "node src/backup.js",
+    "test": "node test/api-test.js",
+    "test:gps": "node test/gps-load-test.js"
   },
   "keywords": [
     "transport",
@@ -23,7 +25,7 @@
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
+    "dotenv": "^16.6.1",
     "express": "^4.19.2",
     "express-rate-limit": "^7.3.1",
     "helmet": "^7.1.0",

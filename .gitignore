@@ -16,3 +16,19 @@
 local.properties
 .env
 debug.keystore
+
+# Backend sensitive data and runtime artifacts
+backend/.env
+backend/.env.local
+backend/.env.*.local
+backend/node_modules/
+backend/data/
+backend/data/*.db
+backend/data/*.sqlite
+backend/data/*.sqlite3
+backend/data/*.backup
+backend/logs/
+*.db
+*.sqlite
+*.sqlite3
+*.log

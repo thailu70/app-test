@@ -62,16 +62,30 @@ object LiveTrackingWebSocket {
     fun connect(baseUrl: String = ApiClient.getBaseUrl()) {
         if (webSocket != null) return
 
-        val wsUrl = baseUrl
+        val authToken = ApiClient.getAuthToken()
+        val baseWsUrl = baseUrl
             .replace("http://", "ws://")
             .replace("https://", "wss://")
             .let { if (it.endsWith("/")) "${it}ws" else "$it/ws" }
 
-        val request = Request.Builder().url(wsUrl).build()
+        val finalWsUrl = if (!authToken.isNullOrBlank()) {
+            "$baseWsUrl?token=$authToken"
+        } else {
+            baseWsUrl
+        }
+
+        val request = Request.Builder().url(finalWsUrl).build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 _isConnected.value = true
+                authToken?.let { token ->
+                    val authMsg = JSONObject().apply {
+                        put("type", "AUTHENTICATE")
+                        put("token", token)
+                    }
+                    webSocket.send(authMsg.toString())
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {

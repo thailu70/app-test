@@ -127,7 +127,7 @@ fun PassengerDashboardScreen(
             statusMessage = paymentMessage,
             lang = lang,
             onDismiss = { viewModel.closeTelebirrDialog() },
-            onConfirm = { phone, pin -> viewModel.processTelebirrPayment(phone, pin) }
+            onConfirm = { phone -> viewModel.processTelebirrPayment(phone) }
         )
     }
 
@@ -1045,10 +1045,9 @@ fun TelebirrCheckoutDialog(
     statusMessage: String?,
     lang: AppLanguage,
     onDismiss: () -> Unit,
-    onConfirm: (phone: String, pin: String) -> Unit
+    onConfirm: (phone: String) -> Unit
 ) {
     var phone by remember { mutableStateOf("0911223344") }
-    var pin by remember { mutableStateOf("1234") }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -1172,7 +1171,7 @@ fun TelebirrCheckoutDialog(
                 }
 
                 Button(
-                    onClick = { onConfirm(phone, "") },
+                    onClick = { onConfirm(phone) },
                     enabled = !isProcessing && phone.isNotBlank(),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue),
