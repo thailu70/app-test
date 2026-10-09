@@ -3,7 +3,22 @@ const { server } = require('../src/server');
 
 const host = '127.0.0.1';
 const bootstrapSecret = process.env.ADMIN_REGISTRATION_SECRET;
+const testProfilePhoto = () => [{ documentType: 'PROFILE_PHOTO', fileName: 'profile.jpg', mimeType: 'image/jpeg', dataBase64: '/9j/AA==' }];
+const testDriverDocuments = () => [
+  ...testProfilePhoto(),
+  { documentType: 'DRIVER_LICENSE_DOCUMENT', fileName: 'driver-license.pdf', mimeType: 'application/pdf', dataBase64: 'JVBERi0x' },
+  { documentType: 'NATIONAL_ID_DOCUMENT', fileName: 'national-id.pdf', mimeType: 'application/pdf', dataBase64: 'JVBERi0x' },
+  { documentType: 'VEHICLE_PHOTO', fileName: 'vehicle.jpg', mimeType: 'image/jpeg', dataBase64: '/9j/AA==' },
+  { documentType: 'VEHICLE_TRADE_LICENSE', fileName: 'vehicle-trade-license.pdf', mimeType: 'application/pdf', dataBase64: 'JVBERi0x' }
+];
+function includeRegistrationUploads(path, body) {
+  if (path !== '/api/auth/register' || !body || body.uploads) return body;
+  if (body.role === 'PASSENGER') return { ...body, uploads: testProfilePhoto() };
+  if (body.role === 'DRIVER') return { ...body, uploads: testDriverDocuments() };
+  return body;
+}
 const requestJson = async (baseUrl, path, method = 'GET', body = null, token = null) => {
+  body = includeRegistrationUploads(path, body);
   const response = await fetch(new URL(path, baseUrl), {
     method,
     headers: {
@@ -87,8 +102,8 @@ async function run() {
       days: 30
     }, adminToken);
     assert.equal(result.status, 200, 'Admin manual test recharge should activate the pass');
-    assert.equal(result.data.testOnly, true, 'Manual recharge must be marked test-only');
-    assert.equal(result.data.transaction.provider, 'ADMIN_TEST', 'Manual recharge must not masquerade as Telebirr');
+    assert.equal(result.data.manualOverride, true, 'Manual recharge must be marked as an audited admin override');
+    assert.equal(result.data.transaction.provider, 'ADMIN_MANUAL', 'Manual recharge must not masquerade as Telebirr');
     assert.match(result.data.subscription.qrToken, /^RP1:/, 'Manual recharge must issue a signed QR pass');
 
     // A driver self-registers, awaits admin approval, then receives a route assignment.
@@ -162,6 +177,16 @@ async function run() {
     assert.equal(result.data.vehicle.id, driverVehicleId);
     assert.equal(result.data.vehicle.hasGpsLocation, true, 'Passenger tracking must return server-confirmed GPS coordinates');
     assert.equal(result.data.vehicle.latitude, 9.01);
+
+    result = await requestJson(baseUrl, '/api/documents/roster', 'GET', null, driverToken);
+    assert.equal(result.status, 200, 'Driver monthly passenger roster endpoint must work');
+    assert.ok(result.data.people.some(person => person.personId === passengerId), 'Driver must see passengers assigned to their active monthly vehicle');
+    assert.ok(result.data.people.find(person => person.personId === passengerId).profilePhotoDataUrl.startsWith('data:image/jpeg;base64,'), 'Driver roster must include authorized passenger profile photo');
+
+    result = await requestJson(baseUrl, '/api/documents/roster', 'GET', null, passengerToken);
+    assert.equal(result.status, 200, 'Passenger assigned-driver roster endpoint must work');
+    assert.equal(result.data.people[0].personId, driver.id, 'Passenger must see assigned active driver');
+    assert.ok(result.data.people[0].profilePhotoDataUrl.startsWith('data:image/jpeg;base64,'), 'Passenger roster must include authorized driver profile photo');
 
     // No test should produce a server-confirmed live payment in production mode.
     console.log('PostgreSQL API smoke test passed: readiness, read, write, transaction, auth, and payment fail-closed.');
