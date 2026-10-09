@@ -41,13 +41,21 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
     }
 
     // 1. Locate Driver's Vehicle
-    const driverUser = DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(driverId);
+    const driverUser = await DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(driverId);
     let vehicle;
     if (vehicleId) {
-      vehicle = DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicleId);
+      vehicle = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicleId);
     } else {
-      vehicle = DB.prepare('SELECT * FROM vehicles WHERE plateNumber = ? OR driverId = ? LIMIT 1')
-        .get(driverUser?.assignedVehiclePlate || '3-AA-34921', driverId);
+      vehicle = await DB.prepare('SELECT * FROM vehicles WHERE plateNumber = ? OR driverId = ? LIMIT 1')
+        .get(driverUser?.assignedVehiclePlate || '', driverId);
+    }
+
+    const assignedToDriver = vehicle && (
+      vehicle.driverId === driverId ||
+      (driverUser?.assignedVehiclePlate && vehicle.plateNumber === driverUser.assignedVehiclePlate)
+    );
+    if (vehicle && !assignedToDriver) {
+      return res.status(403).json({ success: false, status: 'VEHICLE_NOT_ASSIGNED', error: 'This vehicle is not assigned to your driver account.' });
     }
 
     if (!vehicle) {
@@ -59,12 +67,12 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
     }
 
     // 2. Validate QR authenticity & Subscription
-    let sub = DB.prepare('SELECT * FROM subscriptions WHERE qrToken = ?').get(qrToken);
+    let sub = await DB.prepare('SELECT * FROM subscriptions WHERE qrToken = ?').get(qrToken);
 
     if (!sub && qrToken.startsWith('RP1:')) {
       const verified = verifySignedQrToken(qrToken);
       if (verified.valid) {
-        sub = DB.prepare('SELECT * FROM subscriptions WHERE id = ?').get(verified.subId);
+        sub = await DB.prepare('SELECT * FROM subscriptions WHERE id = ?').get(verified.subId);
       }
     }
 
@@ -88,7 +96,7 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
     }
 
     // Check duplicate check-in on this trip
-    const alreadyBoarded = DB.prepare("SELECT id FROM checkin_records WHERE tripId = ? AND passengerId = ? AND status = 'BOARDED'").get(tripId, sub.passengerId);
+    const alreadyBoarded = await DB.prepare("SELECT id FROM checkin_records WHERE tripId = ? AND passengerId = ? AND status = 'BOARDED'").get(tripId, sub.passengerId);
     if (alreadyBoarded) {
       return res.status(409).json({
         success: false,
@@ -98,15 +106,15 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
     }
 
     // 3. ATOMIC TRANSACTION: Check Capacity & Board Passenger
-    const result = await DB.transaction(async () => {
+    const result = await DB.transaction(async (tx) => {
       // Re-read vehicle occupancy inside transaction
-      const currentVehicle = DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicle.id);
+      const currentVehicle = await tx.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicle.id);
       const capacity = currentVehicle.capacityLimit || VEHICLE_TYPE_CAPACITIES[currentVehicle.vehicleType] || 24;
 
       if (currentVehicle.currentOccupancy >= capacity) {
         // Record denied scan
         const checkinId = `chk_denied_${crypto.randomUUID().slice(0, 8)}`;
-        DB.prepare(`
+        await tx.prepare(`
           INSERT INTO checkin_records (id, tripId, passengerId, passengerName, routeId, stopName, status, vehicleId, driverId)
           VALUES (?, ?, 'UNKNOWN', 'Passenger', ?, ?, 'DENIED_CAPACITY_FULL', ?, ?)
         `).run(checkinId, tripId, currentVehicle.assignedRouteId || 'route_bole_merkato', currentStop, currentVehicle.id, driverId);
@@ -119,12 +127,12 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
       }
 
       // Passenger info
-      const passenger = DB.prepare('SELECT fullName, phone FROM users WHERE id = ?').get(sub.passengerId);
+      const passenger = await tx.prepare('SELECT fullName, phone FROM users WHERE id = ?').get(sub.passengerId);
       const passengerName = passenger?.fullName || 'Verified Commuter';
       const checkinId = `chk_${crypto.randomUUID().slice(0, 8)}`;
 
       // Record successful check-in
-      DB.prepare(`
+      await tx.prepare(`
         INSERT INTO checkin_records (id, tripId, passengerId, passengerName, routeId, stopName, status, vehicleId, driverId)
         VALUES (?, ?, ?, ?, ?, ?, 'BOARDED', ?, ?)
       `).run(checkinId, tripId, sub.passengerId, passengerName, sub.routeId, currentStop, currentVehicle.id, driverId);
@@ -133,14 +141,14 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
       const newOccupancy = currentVehicle.currentOccupancy + 1;
       const isNowFull = newOccupancy >= capacity;
 
-      DB.prepare(`
+      await tx.prepare(`
         UPDATE vehicles
         SET currentOccupancy = ?, status = ?, updatedAt = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(newOccupancy, isNowFull ? 'FULL' : 'IN_SERVICE', currentVehicle.id);
 
       // Update active trip occupancy if trip exists
-      DB.prepare(`
+      await tx.prepare(`
         UPDATE trips
         SET currentOccupancy = ?, currentStop = ?, updatedAt = CURRENT_TIMESTAMP
         WHERE id = ?
@@ -212,7 +220,8 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -220,9 +229,9 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
  * GET /api/checkins/recent
  * Retrieve recent boarding logs
  */
-router.get('/recent', authenticate, (req, res) => {
+router.get('/recent', authenticate, requireRole('ADMIN'), async (req, res) => {
   try {
-    const list = DB.prepare(`
+    const list = await DB.prepare(`
       SELECT c.*, v.plateNumber as vehiclePlate
       FROM checkin_records c
       LEFT JOIN vehicles v ON c.vehicleId = v.id
@@ -231,7 +240,8 @@ router.get('/recent', authenticate, (req, res) => {
 
     res.json({ success: true, checkins: list });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -239,10 +249,16 @@ router.get('/recent', authenticate, (req, res) => {
  * GET /api/checkins/trip/:tripId
  * Get passenger list for a specific trip
  */
-router.get('/trip/:tripId', authenticate, (req, res) => {
+router.get('/trip/:tripId', authenticate, requireRole('ADMIN', 'DRIVER'), async (req, res) => {
   try {
     const { tripId } = req.params;
-    const records = DB.prepare(`
+    if (req.user.role !== 'ADMIN') {
+      const authorizedTrip = DB.prepare('SELECT id FROM trips WHERE id = ? AND driverId = ?').get(tripId, req.user.id);
+      if (!authorizedTrip) {
+        return res.status(403).json({ success: false, error: 'Access denied for this trip.' });
+      }
+    }
+    const records = await DB.prepare(`
       SELECT * FROM checkin_records
       WHERE tripId = ? AND status = 'BOARDED'
       ORDER BY timestamp ASC
@@ -250,7 +266,8 @@ router.get('/trip/:tripId', authenticate, (req, res) => {
 
     res.json({ success: true, tripId, count: records.length, passengers: records });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
