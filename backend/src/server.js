@@ -57,7 +57,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 if (process.env.NODE_ENV !== 'test') {
@@ -119,6 +119,7 @@ app.get('/api/ready', async (req, res) => {
 
 // Mount Route Modules
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/documents', require('./routes/documents'));
 app.use('/api/routes', require('./routes/routes'));
 app.use('/api/subscriptions', require('./routes/subscriptions'));
 app.use('/api/vehicles', require('./routes/vehicles'));
@@ -416,6 +417,21 @@ async function startServer() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `).run();
+
+  await DB.prepare(`
+    CREATE TABLE IF NOT EXISTS routepass_documents (
+      id VARCHAR(64) PRIMARY KEY,
+      owner_user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      vehicle_id VARCHAR(64) REFERENCES vehicles(id) ON DELETE CASCADE,
+      document_type VARCHAR(40) NOT NULL,
+      storage_name VARCHAR(80) NOT NULL UNIQUE,
+      original_name VARCHAR(120) NOT NULL,
+      mime_type VARCHAR(80) NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+  await DB.prepare('CREATE INDEX IF NOT EXISTS idx_routepass_documents_owner_type ON routepass_documents(owner_user_id, document_type, created_at)').run();
 
   server.listen(PORT, HOST, () => {
     console.log('RoutePass API listening on the configured internal listener');
