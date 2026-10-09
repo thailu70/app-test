@@ -36,7 +36,8 @@ import org.osmdroid.views.overlay.Marker
 fun MiniVehicleMap(
     vehicle: TrackedVehicleDto?,
     modifier: Modifier = Modifier,
-    mapHeight: Int = 210
+    mapHeight: Int = 210,
+    serverMessage: String? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -97,10 +98,11 @@ fun MiniVehicleMap(
                 }
             )
             val status = when {
-                vehicle == null -> "No vehicle has been assigned to this account/subscription yet."
+                !serverMessage.isNullOrBlank() -> serverMessage
+                vehicle == null -> "No eligible vehicle is available. The administrator must approve the driver, assign a route, assign the vehicle to this passenger subscription, and activate the subscription."
                 vehicle.hasGpsLocation && !vehicle.lastGpsAt.isNullOrBlank() ->
-                    "Last GPS report: " + vehicle.lastGpsAt
-                else -> "Waiting for the driver's first real GPS report. The map center is not a vehicle location."
+                    "RoutePass server received the vehicle GPS at " + vehicle.lastGpsAt
+                else -> "Vehicle is assigned, but the server has not received a GPS report yet. Keep the driver's screen open and confirm GPS upload succeeds."
             }
             Text(status, style = MaterialTheme.typography.bodySmall)
             Text("Map data © OpenStreetMap contributors", style = MaterialTheme.typography.labelSmall)
