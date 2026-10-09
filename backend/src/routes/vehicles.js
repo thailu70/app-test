@@ -50,7 +50,7 @@ router.get('/tracking', authenticate, async (req, res) => {
     let row = null;
     if (req.user.role === 'DRIVER') {
       row = await DB.prepare(`
-        SELECT v.*, r.name AS routeName, l.latitude, l.longitude, l.speed,
+        SELECT v.*, r.name AS routeName, r.morningDeparture AS morningDeparture, l.latitude, l.longitude, l.speed,
                l.current_stop AS currentStop, l.updated_at AS lastGpsAt
         FROM vehicles v
         LEFT JOIN routes r ON r.id = v.assignedRouteId
@@ -71,7 +71,7 @@ router.get('/tracking', authenticate, async (req, res) => {
 
       if (sub.vehicleId) {
         row = await DB.prepare(`
-          SELECT v.*, r.name AS routeName, l.latitude, l.longitude, l.speed,
+          SELECT v.*, r.name AS routeName, r.morningDeparture AS morningDeparture, l.latitude, l.longitude, l.speed,
                  l.current_stop AS currentStop, l.updated_at AS lastGpsAt
           FROM vehicles v
           LEFT JOIN routes r ON r.id = v.assignedRouteId
@@ -102,6 +102,7 @@ router.get('/tracking', authenticate, async (req, res) => {
         currentOccupancy: row.currentOccupancy,
         assignedRouteId: row.assignedRouteId,
         routeName: row.routeName || '',
+        morningDeparture: row.morningDeparture || '06:30',
         driverId: row.driverId,
         driverName: row.driverName || '',
         latitude: row.latitude == null ? null : Number(row.latitude),
