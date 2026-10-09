@@ -73,6 +73,7 @@ fun DriverTripScreen(
     val tripState by viewModel.driverTrip.collectAsState()
     val stops by viewModel.routeStops.collectAsState()
     val trackedVehicle by viewModel.trackedVehicle.collectAsState()
+    val trackingMessage by viewModel.trackingMessage.collectAsState()
     val driverActionMessage by viewModel.driverActionMessage.collectAsState()
     var gpsStatus by remember { mutableStateOf("Waiting for GPS permission.") }
     val networkStatus by viewModel.networkStatus.collectAsState()
@@ -111,7 +112,7 @@ fun DriverTripScreen(
             // 2. Actual vehicle position, reported by this driver's phone.
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MiniVehicleMap(vehicle = trackedVehicle, modifier = Modifier.testTag("driver_live_vehicle_map"), mapHeight = 190)
+                    MiniVehicleMap(vehicle = trackedVehicle, modifier = Modifier.testTag("driver_live_vehicle_map"), mapHeight = 190, serverMessage = trackingMessage)
                     Text(gpsStatus, style = MaterialTheme.typography.bodySmall, color = Slate600)
                     driverActionMessage?.let { message ->
                         Text(message, style = MaterialTheme.typography.bodySmall, color = if (message.contains("not") || message.contains("failed", true) || message.contains("could not", true)) StatusErrorRed else TransportGreenPrimary)
@@ -211,13 +212,20 @@ private fun DriverLocationReporter(
         } else {
             val listener = object : LocationListener {
                 override fun onLocationChanged(location: Location) {
+                    val coordinates = String.format(java.util.Locale.US, "%.5f, %.5f", location.latitude, location.longitude)
+                    onStatusChanged("Phone GPS fix received; uploading to RoutePass server… · $coordinates")
                     viewModel.submitDriverLocation(
                         latitude = location.latitude,
                         longitude = location.longitude,
                         speed = location.speed.toDouble().coerceAtLeast(0.0),
-                        currentStop = latestStop.value
+                        currentStop = latestStop.value,
+                        onResult = { accepted, message ->
+                            onStatusChanged(
+                                if (accepted) "GPS uploaded successfully to RoutePass server · $coordinates"
+                                else "Phone GPS works, but server upload failed: $message · $coordinates"
+                            )
+                        }
                     )
-                    onStatusChanged("GPS fix received · " + String.format(java.util.Locale.US, "%.5f, %.5f", location.latitude, location.longitude))
                 }
             }
             val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
