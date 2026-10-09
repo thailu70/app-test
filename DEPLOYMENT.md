@@ -1,3 +1,5 @@
+> **Important for an existing Traefik VPS:** Your server already runs Traefik on ports 80/443. Do **not** run `backend/deploy-vps.sh`, which starts Nginx on those same ports. Use the Traefik-specific guide and installer instead: [backend/DEPLOYMENT_TRAEFIK.md](backend/DEPLOYMENT_TRAEFIK.md) and [backend/deploy-traefik-vps.sh](backend/deploy-traefik-vps.sh). This preserves existing proxy containers and does not change UFW.
+
 # RoutePass VPS deployment guide
 
 This guide deploys the **API and PostgreSQL database** from the branch `audit/production-readiness-2026-10-09` behind HTTPS. It is intentionally explicit about two unfinished features: **live Telebirr checkout/callbacks and offline boarding sync are disabled** until provider signing and offline validation are implemented and tested. Do not accept real payments based on this branch.
