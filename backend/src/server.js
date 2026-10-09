@@ -5,6 +5,7 @@
 
 require('dotenv').config();
 const http = require('http');
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -127,6 +128,13 @@ app.use('/api/admin', require('./routes/admin'));
 app.use('/api/complaints', require('./routes/complaints'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/sync', require('./routes/sync'));
+
+// Browser-based admin portal. Keep it same-origin with the API and use a strict, portal-specific CSP.
+app.use('/admin', (req, res, next) => {
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' wss:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+}, express.static(path.join(__dirname, '..', 'public', 'admin'), { index: 'index.html', maxAge: 0, etag: false }));
 
 // 404 Handler
 app.use(async (req, res) => {
