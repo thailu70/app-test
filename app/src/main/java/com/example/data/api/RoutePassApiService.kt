@@ -17,6 +17,12 @@ interface RoutePassApiService {
     @GET("api/auth/me")
     suspend fun getCurrentUser(): Response<AuthResponse>
 
+    @GET("api/documents/roster")
+    suspend fun getAssignedRoster(): Response<RosterResponse>
+
+    @POST("api/documents/upload")
+    suspend fun uploadDocument(@Body upload: RegistrationUploadDto): Response<Map<String, Any>>
+
     // -------------------------------------------------------------
     // Transit Routes & Stops
     // -------------------------------------------------------------
