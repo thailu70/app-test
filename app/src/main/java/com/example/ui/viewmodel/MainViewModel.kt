@@ -100,6 +100,11 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     private val _authError = MutableStateFlow<String?>(null)
     val authError: StateFlow<String?> = _authError.asStateFlow()
 
+    private val _registrationMessage = MutableStateFlow<String?>(null)
+    val registrationMessage: StateFlow<String?> = _registrationMessage.asStateFlow()
+
+    fun clearRegistrationMessage() { _registrationMessage.value = null }
+
     private val _networkStatus = MutableStateFlow(NetworkStatus.ONLINE)
     val networkStatus: StateFlow<NetworkStatus> = _networkStatus.asStateFlow()
 
@@ -193,20 +198,34 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     private val _driverActionMessage = MutableStateFlow<String?>(null)
     val driverActionMessage: StateFlow<String?> = _driverActionMessage.asStateFlow()
 
+    private val _trackingMessage = MutableStateFlow("Tracking status is loading.")
+    val trackingMessage: StateFlow<String> = _trackingMessage.asStateFlow()
+
     val trackedVehicle: StateFlow<TrackedVehicleDto?> = _currentUser.flatMapLatest { user ->
         if (user == null || (user.role != "DRIVER" && user.role != "PASSENGER")) {
-            flowOf<TrackedVehicleDto?>(null)
+            flow {
+                _trackingMessage.value = "Sign in as a driver or passenger to view vehicle tracking."
+                emit(null)
+            }
         } else {
             flow {
                 while (true) {
-                    val vehicle = try {
-                        repository.fetchTrackedVehicle()
+                    try {
+                        val response = repository.fetchTrackedVehicleStatus()
+                        val vehicle = response.vehicle
+                        _trackingMessage.value = response.message ?: when {
+                            vehicle == null -> "No vehicle is available for this account yet."
+                            vehicle.hasGpsLocation && !vehicle.lastGpsAt.isNullOrBlank() ->
+                                "RoutePass server received a GPS report at ${vehicle.lastGpsAt}."
+                            else -> "Vehicle found, but RoutePass has not received a GPS report for it yet."
+                        }
+                        emit(vehicle)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
-                    } catch (_: Exception) {
-                        null
+                    } catch (error: Exception) {
+                        _trackingMessage.value = "Tracking refresh failed: ${error.message ?: "server unavailable"}"
+                        emit(null)
                     }
-                    emit(vehicle)
                     delay(5000)
                 }
             }
@@ -328,6 +347,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     ) {
         viewModelScope.launch {
             _authError.value = null
+            _registrationMessage.value = null
             if (fullName.isBlank() || phone.isBlank()) {
                 _authError.value = "Full Name and Phone Number are required."
                 return@launch
@@ -363,6 +383,10 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     appliedRouteId = appliedRouteId,
                     appliedRouteName = appliedRouteName
                 )
+                if (role == AppRole.DRIVER) {
+                    _registrationMessage.value = "Thank you for registering. We will review your licence and vehicle, authorize your account, assign your route, and contact you when it is ready. You can sign in after approval."
+                    return@launch
+                }
                 _currentUser.value = user
                 _currentRole.value = role
                 _isAuthenticated.value = true
@@ -523,13 +547,23 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         }
     }
 
-    fun submitDriverLocation(latitude: Double, longitude: Double, speed: Double = 0.0, currentStop: String = "") {
+    fun submitDriverLocation(
+        latitude: Double,
+        longitude: Double,
+        speed: Double = 0.0,
+        currentStop: String = "",
+        onResult: ((Boolean, String) -> Unit)? = null
+    ) {
         viewModelScope.launch {
             try {
                 repository.submitDriverLocation(latitude, longitude, speed, currentStop)
-                _driverActionMessage.value = "Live GPS location updated."
+                val message = "RoutePass server accepted the live GPS update."
+                _driverActionMessage.value = message
+                onResult?.invoke(true, message)
             } catch (e: Exception) {
-                _driverActionMessage.value = e.message ?: "GPS update failed."
+                val message = e.message ?: "GPS update failed."
+                _driverActionMessage.value = message
+                onResult?.invoke(false, message)
             }
         }
     }
