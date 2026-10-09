@@ -384,7 +384,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     appliedRouteName = appliedRouteName
                 )
                 if (role == AppRole.DRIVER) {
-                    _registrationMessage.value = "Thank you for registering. We will review your licence and vehicle, authorize your account, assign your route, and contact you when it is ready. You can sign in after approval."
+                    _registrationMessage.value = "Thank you for registering. We will review your licence and vehicle, authorize your account, assign your route, and connect appropriate passenger subscriptions to your vehicle. We will contact you when it is ready. You can sign in after approval."
                     return@launch
                 }
                 _currentUser.value = user
