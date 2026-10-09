@@ -96,7 +96,10 @@ for file in docker-compose.yml docker-compose.traefik.yml Dockerfile nginx.conf 
   install -m 0644 "${CURRENT_DIR}/${file}" "${APP_DIR}/${file}"
 done
 cp -R "${CURRENT_DIR}/src/." "${APP_DIR}/src/"
-chmod -R go-rwx "${APP_DIR}"
+# Keep app source readable by the non-root Node.js user inside the image.
+chmod 755 "${APP_DIR}" "${APP_DIR}/src"
+find "${APP_DIR}/src" -type d -exec chmod 755 {} +
+find "${APP_DIR}/src" -type f -exec chmod 644 {} +
 
 echo "Preparing protected environment file..."
 if [[ ! -f "${APP_DIR}/.env" ]]; then
