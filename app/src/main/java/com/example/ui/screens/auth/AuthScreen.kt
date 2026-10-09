@@ -40,6 +40,7 @@ fun AuthScreen(
 ) {
     val lang by viewModel.currentLanguage.collectAsState()
     val authError by viewModel.authError.collectAsState()
+    val registrationMessage by viewModel.registrationMessage.collectAsState()
     val availableRoutes by viewModel.allRoutes.collectAsState()
 
     // Dedicated Independent Portal Gateway (null = selecting portal; non-null = inside specific portal)
@@ -51,6 +52,8 @@ fun AuthScreen(
     var phone by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    var registrationValidationMessage by remember { mutableStateOf<String?>(null) }
     var licenseNumber by remember { mutableStateOf("") }
     var companyName by remember { mutableStateOf("") }
     var vehiclePlate by remember { mutableStateOf("") }
@@ -75,7 +78,17 @@ fun AuthScreen(
     LaunchedEffect(selectedPortal, isRegisterMode) {
         phone = ""
         password = ""
+        confirmPassword = ""
+        registrationValidationMessage = null
         if (isRegisterMode) fullName = ""
+    }
+
+    LaunchedEffect(registrationMessage) {
+        if (!registrationMessage.isNullOrBlank() && selectedPortal == AppRole.DRIVER) {
+            isRegisterMode = false
+            password = ""
+            confirmPassword = ""
+        }
     }
 
     // Handle back button when inside a portal to safely return to Portal Gateway
@@ -310,7 +323,10 @@ fun AuthScreen(
                     )
                     Tab(
                         selected = isRegisterMode,
-                        onClick = { isRegisterMode = true },
+                        onClick = {
+                            viewModel.clearRegistrationMessage()
+                            isRegisterMode = true
+                        },
                         text = {
                             Text(
                                 text = if (lang == AppLanguage.AMHARIC) "ተመዝገብ (Register)" else "Register New Account",
@@ -604,7 +620,10 @@ fun AuthScreen(
 
                         OutlinedTextField(
                             value = password,
-                            onValueChange = { password = it },
+                            onValueChange = {
+                                password = it
+                                registrationValidationMessage = null
+                            },
                             label = { Text("Security Password / PIN") },
                             visualTransformation = PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -614,6 +633,32 @@ fun AuthScreen(
                                 .testTag("auth_password_input")
                         )
 
+                        if (isRegisterMode) {
+                            OutlinedTextField(
+                                value = confirmPassword,
+                                onValueChange = {
+                                    confirmPassword = it
+                                    registrationValidationMessage = null
+                                },
+                                label = { Text("Confirm password") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                                singleLine = true,
+                                isError = confirmPassword.isNotEmpty() && password != confirmPassword,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("auth_confirm_password_input")
+                            )
+                        }
+
+                        registrationValidationMessage?.let { message ->
+                            Text(
+                                text = message,
+                                color = StatusExpiredRed,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                         authError?.let { err ->
                             Text(
                                 text = err,
@@ -622,26 +667,49 @@ fun AuthScreen(
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
+                        registrationMessage?.let { message ->
+                            Text(
+                                text = message,
+                                color = TransportGreenPrimary,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFECFDF5), RoundedCornerShape(10.dp))
+                                    .padding(12.dp)
+                            )
+                        }
 
                         Button(
                             onClick = {
                                 if (isRegisterMode) {
-                                    viewModel.register(
-                                        fullName = fullName,
-                                        phone = phone,
-                                        email = email,
-                                        password = password,
-                                        role = portal,
-                                        licenseNumber = licenseNumber,
-                                        companyName = companyName,
-                                        assignedVehiclePlate = vehiclePlate,
-                                        vehicleModel = vehicleModel,
-                                        vehicleType = vehicleType,
-                                        appliedRouteId = selectedRouteId,
-                                        appliedRouteName = selectedRouteName,
-                                        adminSecret = adminSecret
-                                    )
+                                    val validationMessage = when {
+                                        password.length < 10 -> "Use a password with at least 10 characters."
+                                        password != confirmPassword -> "The two passwords do not match. Please re-enter them."
+                                        else -> null
+                                    }
+                                    if (validationMessage != null) {
+                                        registrationValidationMessage = validationMessage
+                                    } else {
+                                        registrationValidationMessage = null
+                                        viewModel.register(
+                                            fullName = fullName,
+                                            phone = phone,
+                                            email = email,
+                                            password = password,
+                                            role = portal,
+                                            licenseNumber = licenseNumber,
+                                            companyName = companyName,
+                                            assignedVehiclePlate = vehiclePlate,
+                                            vehicleModel = vehicleModel,
+                                            vehicleType = vehicleType,
+                                            appliedRouteId = selectedRouteId,
+                                            appliedRouteName = selectedRouteName,
+                                            adminSecret = adminSecret
+                                        )
+                                    }
                                 } else {
+                                    viewModel.clearRegistrationMessage()
                                     viewModel.login(phone, password, portal)
                                 }
                             },
@@ -659,7 +727,7 @@ fun AuthScreen(
                                 .testTag("auth_submit_button")
                         ) {
                             Text(
-                                text = if (isRegisterMode) "COMPLETE REGISTRATION & ENTER" else "SIGN IN TO PORTAL",
+                                text = if (isRegisterMode && portal == AppRole.DRIVER) "SUBMIT DRIVER REGISTRATION" else if (isRegisterMode) "COMPLETE REGISTRATION & ENTER" else "SIGN IN TO PORTAL",
                                 fontWeight = FontWeight.Bold
                             )
                         }
