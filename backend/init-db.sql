@@ -173,7 +173,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 -- ====================================================================
 
 -- Routes
-INSERT INTO routes (id, name, nameAm, description, morning_departure, evening_departure, distance_km, base_price_etb, active)
+INSERT INTO routes (id, name, name_am, description, morning_departure, evening_departure, distance_km, base_price_etb, active)
 VALUES
 ('route_bole_merkato', 'Bole - Merkato Express', 'ቦሌ - መርካቶ ኤክስፕረስ', 'Primary transit corridor connecting Bole, Meskel Square, and Merkato.', '06:30', '17:30', 14.5, 2500.0, TRUE),
 ('route_megenagna_torhailoch', 'Megenagna - Torhailoch Line', 'መገናኛ - ጦር ኃይሎች መስመር', 'Cross-capital transit spanning Megenagna Hub, Kazanchis, Stadium, and Torhailoch.', '06:45', '17:15', 16.0, 2700.0, TRUE),
