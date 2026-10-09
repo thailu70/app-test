@@ -272,8 +272,7 @@ wss.on('connection', (ws, req) => {
         }
         if (userRole === 'DRIVER') {
           const driver = await DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(driverId);
-          const isAssigned = vehicle.driverId === driverId ||
-            (driver?.assignedVehiclePlate && driver.assignedVehiclePlate === vehicle.plateNumber);
+          const isAssigned = vehicle.driverId === driverId;
           if (!isAssigned) {
             return ws.send(JSON.stringify({ type: 'GPS_REJECTED', reason: 'VEHICLE_NOT_ASSIGNED' }));
           }
@@ -288,7 +287,7 @@ wss.on('connection', (ws, req) => {
         const lng = parseFloat(data.longitude);
         const speed = parseFloat(data.speed || 0);
 
-        if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180 || !Number.isFinite(speed) || speed < 0 || speed > 300) {
           return ws.send(JSON.stringify({
             type: 'GPS_REJECTED',
             reason: 'INVALID_COORDINATES',
