@@ -11,7 +11,7 @@ router.post('/pull', authenticate, async (req, res) => {
   try {
     const { lastSyncTime } = req.body;
 
-    const routes = await DB.prepare('SELECT * FROM routes WHERE active = 1').all();
+    const routes = await DB.prepare('SELECT * FROM routes WHERE active = TRUE').all();
     const stops = await DB.prepare('SELECT * FROM route_stops ORDER BY routeId, stopOrder ASC').all();
     const vehicles = await DB.prepare('SELECT * FROM vehicles').all();
 
