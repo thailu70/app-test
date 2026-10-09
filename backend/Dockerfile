@@ -16,7 +16,7 @@ COPY src/ ./src/
 COPY public/ ./public/
 
 # Create persistent data directory for SQLite database
-RUN mkdir -p /app/data && chown -R node:node /app
+RUN mkdir -p /app/data/uploads && chown -R node:node /app
 
 # Switch to non-root unprivileged user for security
 USER node
