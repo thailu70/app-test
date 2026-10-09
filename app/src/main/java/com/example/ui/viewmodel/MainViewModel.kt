@@ -306,15 +306,6 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         }
     }
 
-    fun quickLoginAs(role: AppRole) {
-        // Authenticate with real VPS backend test credentials
-        when (role) {
-            AppRole.PASSENGER -> login("+251911223344", "123456", AppRole.PASSENGER)
-            AppRole.DRIVER -> login("+251911998877", "123456", AppRole.DRIVER)
-            AppRole.ADMIN -> login("+251910001122", "123456", AppRole.ADMIN)
-        }
-    }
-
     fun logout() {
         _currentUser.value = null
         _isAuthenticated.value = false
