@@ -74,6 +74,7 @@ async function run() {
     });
     assert.equal(result.status, 201, 'Passenger registration must work against PostgreSQL');
     const passengerToken = result.data.token;
+    const passengerSubscriptionId = result.data.subscription.id;
 
     result = await requestJson(baseUrl, '/api/subscriptions/telebirr/pay', 'POST', {
       routeId: 'route_bole_merkato',
@@ -81,6 +82,14 @@ async function run() {
     }, passengerToken);
     assert.equal(result.status, 503, 'Production-mode real-money payment must fail closed until Telebirr integration is validated');
     assert.equal(result.data.code, 'LIVE_TELEBIRR_NOT_CONFIGURED');
+
+    result = await requestJson(baseUrl, `/api/admin/subscriptions/${encodeURIComponent(passengerSubscriptionId)}/recharge`, 'POST', {
+      days: 30
+    }, adminToken);
+    assert.equal(result.status, 200, 'Admin manual test recharge should activate the pass');
+    assert.equal(result.data.testOnly, true, 'Manual recharge must be marked test-only');
+    assert.equal(result.data.transaction.provider, 'ADMIN_TEST', 'Manual recharge must not masquerade as Telebirr');
+    assert.match(result.data.subscription.qrToken, /^RP1:/, 'Manual recharge must issue a signed QR pass');
 
     // A driver registers their own identity and owned vehicle; the admin assigns only the operating route.
     result = await requestJson(baseUrl, '/api/auth/register', 'POST', {
