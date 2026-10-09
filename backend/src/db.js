@@ -8,6 +8,9 @@ const path = require('path');
 const fs = require('fs');
 
 const isPostgres = Boolean(process.env.DATABASE_URL);
+if (process.env.NODE_ENV === 'production' && !isPostgres) {
+  throw new Error('[FATAL CONFIGURATION ERROR] DATABASE_URL is required in production; refusing to start with local SQLite.');
+}
 let pgPool = null;
 let sqliteDb = null;
 
@@ -23,7 +26,10 @@ if (isPostgres) {
     });
     console.log('[Database] Initialized PostgreSQL connection pool');
   } catch (err) {
-    console.warn('[Database] Failed to initialize PostgreSQL pool, falling back to SQLite:', err.message);
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(`[FATAL DATABASE ERROR] Cannot initialize PostgreSQL driver: ${err.message}`);
+    }
+    console.warn('[Database] Failed to initialize PostgreSQL pool; using SQLite only in non-production:', err.message);
   }
 }
 
@@ -219,7 +225,7 @@ const DB = {
     if (sqliteDb) {
       sqliteDb.exec('BEGIN IMMEDIATE');
       try {
-        const result = await fn(sqliteDb);
+        const result = await fn(DB);
         sqliteDb.exec('COMMIT');
         return result;
       } catch (err) {
@@ -230,7 +236,28 @@ const DB = {
       const client = await pgPool.connect();
       try {
         await client.query('BEGIN');
-        const result = await fn(client);
+        // All transaction work must use this client, never the shared pool.
+        const tx = {
+          isPostgres: true,
+          prepare(sql) {
+            const pgSql = translateSqlForPostgres(sql);
+            return {
+              async run(...params) {
+                const res = await client.query(pgSql, params);
+                return { changes: res.rowCount };
+              },
+              async get(...params) {
+                const res = await client.query(pgSql, params);
+                return res.rows[0] ? normalizeRow(res.rows[0]) : null;
+              },
+              async all(...params) {
+                const res = await client.query(pgSql, params);
+                return res.rows.map(normalizeRow);
+              }
+            };
+          }
+        };
+        const result = await fn(tx);
         await client.query('COMMIT');
         return result;
       } catch (err) {
