@@ -143,8 +143,8 @@
           { label: "Approval", render: r => {
             const id = esc(value(r, "id"));
             const status = String(r.status || "").toUpperCase();
-            if (status === "PENDING_APPROVAL") return '<div class="inline-actions"><button class="btn btn-primary" data-driver-id="' + id + '" data-driver-approval="ACTIVE">Approve</button><button class="btn btn-secondary" data-driver-id="' + id + '" data-driver-approval="REJECTED">Reject</button></div>';
-            if (status === "REJECTED") return '<div class="inline-actions">' + pill(status) + '<button class="btn btn-secondary" data-driver-id="' + id + '" data-driver-approval="ACTIVE">Approve</button></div>';
+            if (status === "PENDING") return '<div class="inline-actions"><button class="btn btn-primary" data-driver-id="' + id + '" data-driver-approval="ACTIVE">Approve</button><button class="btn btn-secondary" data-driver-id="' + id + '" data-driver-approval="SUSPENDED">Reject</button></div>';
+            if (status === "SUSPENDED") return '<div class="inline-actions">' + pill(status) + '<button class="btn btn-secondary" data-driver-id="' + id + '" data-driver-approval="ACTIVE">Approve</button></div>';
             return pill(status);
           }},
           { label: "Assigned route", keys: ["appliedRouteName", "applied_route_name"] },
@@ -373,7 +373,7 @@
   async function updateDriverApproval(button) {
     const driverId = button.dataset.driverId;
     const status = button.dataset.driverApproval;
-    if (status === "REJECTED" && !window.confirm("Reject this driver registration? The driver will not be able to sign in.")) return;
+    if (status === "SUSPENDED" && !window.confirm("Reject/suspend this driver registration? The driver will not be able to sign in.")) return;
     button.disabled = true;
     try {
       const result = await api("/api/admin/drivers/" + encodeURIComponent(driverId) + "/approval", {
