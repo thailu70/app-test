@@ -99,10 +99,11 @@ object TelebirrGateway {
                 TelebirrPaymentResult.Failed("PAYMENT_REJECTED", errorMsg)
             }
         } catch (e: Exception) {
-            // Local fallback simulation if server is temporarily unreachable in dev mode
-            repository.processOfflinePayment(
-                passengerId, routeId, pickupStopId, destinationStopId,
-                morningSchedule, eveningSchedule, amountEtb, cleanPhone, vehicleId, idempotencyKey
+            // A network failure is not evidence of payment. Never mint a local
+            // active subscription or QR pass when the server cannot verify payment.
+            TelebirrPaymentResult.Failed(
+                "PAYMENT_STATUS_UNKNOWN",
+                "Payment could not be verified. Check your connection and subscription status before trying again."
             )
         }
     }
