@@ -102,6 +102,8 @@ class TransportRepository(
         licenseNumber: String = "",
         companyName: String = "",
         assignedVehiclePlate: String = "",
+        vehicleModel: String = "",
+        vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
         appliedRouteName: String = ""
     ): UserEntity {
@@ -118,6 +120,8 @@ class TransportRepository(
             licenseNumber = licenseNumber.ifBlank { null },
             companyName = companyName.ifBlank { null },
             assignedVehiclePlate = assignedVehiclePlate.ifBlank { null },
+            vehicleModel = vehicleModel.ifBlank { null },
+            vehicleType = vehicleType.ifBlank { null },
             appliedRouteId = appliedRouteId.ifBlank { null },
             appliedRouteName = appliedRouteName.ifBlank { null }
         )
@@ -304,6 +308,42 @@ class TransportRepository(
         dao.deleteStopsForRoute(routeId)
         dao.deleteRoute(routeId)
         logAction("ROUTE_DELETED", "admin", "ADMIN", "Deleted route $routeId")
+    }
+
+    // Server-authoritative driver-owned vehicle and live location
+    suspend fun fetchTrackedVehicle(): TrackedVehicleDto? {
+        val response = apiService.getTrackingVehicle()
+        if (response.isSuccessful && response.body()?.success == true) {
+            return response.body()?.vehicle
+        }
+        val errorBody = response.errorBody()?.string()
+        val message = try {
+            if (!errorBody.isNullOrBlank()) org.json.JSONObject(errorBody).optString("error") else null
+        } catch (_: Exception) { null }
+        throw IllegalStateException(message ?: response.body()?.message ?: "Could not load assigned vehicle tracking.")
+    }
+
+    suspend fun submitDriverLocation(latitude: Double, longitude: Double, speed: Double = 0.0, currentStop: String = "") {
+        val response = apiService.updateMyLocation(LocationUpdateRequest(latitude, longitude, speed, currentStop))
+        if (!response.isSuccessful || response.body()?.success != true) {
+            val errorBody = response.errorBody()?.string()
+            val message = try {
+                if (!errorBody.isNullOrBlank()) org.json.JSONObject(errorBody).optString("error") else null
+            } catch (_: Exception) { null }
+            throw IllegalStateException(message ?: response.body()?.message ?: "GPS update rejected by server.")
+        }
+    }
+
+    suspend fun startDriverTrip(routeId: String, vehicleId: String): TripDto {
+        val response = apiService.startTrip(StartTripRequest(routeId = routeId, vehicleId = vehicleId))
+        if (response.isSuccessful && response.body()?.success == true && response.body()?.trip != null) {
+            return response.body()!!.trip!!
+        }
+        val errorBody = response.errorBody()?.string()
+        val message = try {
+            if (!errorBody.isNullOrBlank()) org.json.JSONObject(errorBody).optString("error") else null
+        } catch (_: Exception) { null }
+        throw IllegalStateException(message ?: response.body()?.error ?: "Could not start trip. Check your route assignment.")
     }
 
     // Vehicles & Fleet Management
