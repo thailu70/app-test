@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false });
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { DB } = require('../db');
@@ -23,7 +25,7 @@ const ADMIN_REGISTRATION_SECRET = resolveAdminSecret();
  * Note: Admin cannot freely register - requires adminSecret.
  * Registration does NOT activate a subscription. Subscriptions start as PENDING.
  */
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
   try {
     const {
       fullName,
@@ -54,6 +56,15 @@ router.post('/register', async (req, res) => {
       });
     }
 
+    // Drivers must be created or approved by an administrator; public self-registration
+    // must never grant a transport-operating role or client-selected assignments.
+    if (normalizedRole === 'DRIVER') {
+      return res.status(403).json({
+        success: false,
+        error: 'Driver registration requires administrator approval.'
+      });
+    }
+
     // Security: Admin accounts cannot freely register!
     if (normalizedRole === 'ADMIN') {
       if (!adminSecret || adminSecret !== ADMIN_REGISTRATION_SECRET) {
@@ -66,7 +77,7 @@ router.post('/register', async (req, res) => {
     }
 
     // Check if phone is already registered
-    const existing = DB.prepare('SELECT id FROM users WHERE phone = ?').get(phone.trim());
+    const existing = await DB.prepare('SELECT id FROM users WHERE phone = ?').get(phone.trim());
     if (existing) {
       return res.status(409).json({
         success: false,
@@ -80,7 +91,7 @@ router.post('/register', async (req, res) => {
     const userId = `usr_${normalizedRole.toLowerCase().slice(0, 3)}_${crypto.randomUUID().slice(0, 8)}`;
     const finalEmail = email?.trim() || `${phone.trim()}@transport.et`;
 
-    DB.prepare(`
+    await DB.prepare(`
       INSERT INTO users (id, role, fullName, phone, email, passwordHash, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName)
       VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
     `).run(
@@ -90,21 +101,21 @@ router.post('/register', async (req, res) => {
       phone.trim(),
       finalEmail,
       passwordHash,
-      licenseNumber.trim(),
-      companyName.trim(),
-      assignedVehiclePlate.trim(),
-      appliedRouteId.trim(),
-      appliedRouteName.trim()
+      normalizedRole === 'ADMIN' ? licenseNumber.trim() : '',
+      normalizedRole === 'ADMIN' ? companyName.trim() : '',
+      '',
+      normalizedRole === 'PASSENGER' ? appliedRouteId.trim() : '',
+      normalizedRole === 'PASSENGER' ? appliedRouteName.trim() : ''
     );
 
     // CRITICAL: Registration does NOT activate a subscription!
     // If passenger selected a route during signup, create a PENDING unpaid subscription.
     let initialSub = null;
     if (normalizedRole === 'PASSENGER' && appliedRouteId) {
-      const route = DB.prepare('SELECT * FROM routes WHERE id = ?').get(appliedRouteId);
+      const route = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(appliedRouteId);
       const subId = `sub_${userId}_${Date.now().toString(36)}`;
 
-      DB.prepare(`
+      await DB.prepare(`
         INSERT INTO subscriptions (id, passengerId, routeId, pickupStopId, destinationStopId, morningSchedule, eveningSchedule, startDate, endDate, priceEtb, paymentStatus, subscriptionStatus, vehicleId, qrToken, daysRemaining)
         VALUES (?, ?, ?, 'stop_atlas', 'stop_merkato', ?, ?, '', '', ?, 'UNPAID', 'PENDING', '', NULL, 0)
       `).run(
@@ -153,7 +164,8 @@ router.post('/register', async (req, res) => {
         : 'Registration successful.'
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -161,7 +173,7 @@ router.post('/register', async (req, res) => {
  * POST /api/auth/login
  * Role-isolated login using phone and password
  */
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   try {
     const { phone, password, role } = req.body;
 
@@ -177,7 +189,7 @@ router.post('/login', async (req, res) => {
       ? '0' + cleanPhone.slice(4)
       : (cleanPhone.startsWith('0') ? '+251' + cleanPhone.slice(1) : cleanPhone);
 
-    const user = DB.prepare('SELECT * FROM users WHERE phone = ? OR phone = ?').get(cleanPhone, altPhone);
+    const user = await DB.prepare('SELECT * FROM users WHERE phone = ? OR phone = ?').get(cleanPhone, altPhone);
 
     if (!user) {
       return res.status(401).json({
@@ -226,7 +238,8 @@ router.post('/login', async (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -234,9 +247,9 @@ router.post('/login', async (req, res) => {
  * GET /api/auth/me
  * Retrieve authenticated user profile
  */
-router.get('/me', authenticate, (req, res) => {
+router.get('/me', authenticate, async (req, res) => {
   try {
-    const user = DB.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    const user = await DB.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found.' });
     }
@@ -258,7 +271,8 @@ router.get('/me', authenticate, (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
