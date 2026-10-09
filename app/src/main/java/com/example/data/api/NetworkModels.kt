@@ -197,7 +197,6 @@ data class VehicleDto(
     val currentOccupancy: Int = 0,
     val assignedRouteId: String? = null,
     val routeName: String? = null,
-    val morningDeparture: String? = null,
     val driverId: String? = null,
     val driverName: String? = null,
     val currentLat: Double? = 9.010,
