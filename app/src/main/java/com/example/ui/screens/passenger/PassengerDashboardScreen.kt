@@ -44,6 +44,7 @@ fun PassengerDashboardScreen(
     val lang by viewModel.currentLanguage.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val trackedVehicle by viewModel.trackedVehicle.collectAsState()
+    val trackingMessage by viewModel.trackingMessage.collectAsState()
     val subscription by viewModel.activeSubscription.collectAsState()
     val payments by viewModel.passengerPayments.collectAsState()
     val checkIns by viewModel.passengerCheckIns.collectAsState()
@@ -87,7 +88,7 @@ fun PassengerDashboardScreen(
 
         // 3. Server-reported driver location. No demo coordinates are shown as live.
         item {
-            MiniVehicleMap(vehicle = trackedVehicle, modifier = Modifier.testTag("passenger_live_vehicle_map"))
+            MiniVehicleMap(vehicle = trackedVehicle, modifier = Modifier.testTag("passenger_live_vehicle_map"), serverMessage = trackingMessage)
         }
 
         // 4. Passenger Financial Account & Balance
