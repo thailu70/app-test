@@ -160,6 +160,13 @@ router.get('/subscriptions', async (req, res) => {
  */
 router.post('/subscriptions/:id/recharge', async (req, res) => {
   try {
+    if (process.env.ALLOW_MANUAL_TEST_RECHARGE !== 'true') {
+      return res.status(403).json({
+        success: false,
+        code: 'MANUAL_TEST_RECHARGE_DISABLED',
+        error: 'Manual recharge is disabled. Enable ALLOW_MANUAL_TEST_RECHARGE=true only on a test instance.'
+      });
+    }
     const days = Number.parseInt(req.body.days ?? 30, 10);
     if (!Number.isInteger(days) || days < 1 || days > 90) {
       return res.status(400).json({ success: false, error: 'Test recharge days must be between 1 and 90.' });
