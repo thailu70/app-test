@@ -1,5 +1,13 @@
 package com.example.ui.screens.auth
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.util.Base64
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -21,6 +29,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -28,10 +37,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.localization.AppLanguage
+import com.example.data.api.RegistrationUploadDto
 import com.example.data.entity.RouteEntity
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.AppRole
 import com.example.ui.viewmodel.MainViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 
 @Composable
 fun AuthScreen(
@@ -42,6 +56,20 @@ fun AuthScreen(
     val authError by viewModel.authError.collectAsState()
     val registrationMessage by viewModel.registrationMessage.collectAsState()
     val availableRoutes by viewModel.allRoutes.collectAsState()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pendingUploadType by remember { mutableStateOf("") }
+    var selectedRegistrationUploads by remember { mutableStateOf<Map<String, Uri>>(emptyMap()) }
+    val profilePhotoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null && pendingUploadType.isNotBlank()) {
+            selectedRegistrationUploads = selectedRegistrationUploads + (pendingUploadType to uri)
+        }
+    }
+    val documentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null && pendingUploadType.isNotBlank()) {
+            selectedRegistrationUploads = selectedRegistrationUploads + (pendingUploadType to uri)
+        }
+    }
 
     // Dedicated Independent Portal Gateway (null = selecting portal; non-null = inside specific portal)
     var selectedPortal by remember { mutableStateOf<AppRole?>(null) }
@@ -81,6 +109,7 @@ fun AuthScreen(
         confirmPassword = ""
         registrationValidationMessage = null
         if (isRegisterMode) fullName = ""
+        selectedRegistrationUploads = emptyMap()
     }
 
     LaunchedEffect(registrationMessage) {
@@ -505,6 +534,54 @@ fun AuthScreen(
                                 modifier = Modifier.fillMaxWidth()
                             )
 
+                            if (portal == AppRole.DRIVER || portal == AppRole.PASSENGER) {
+                                val uploadOptions = if (portal == AppRole.DRIVER) {
+                                    listOf(
+                                        Triple("PROFILE_PHOTO", "Your profile photo", true),
+                                        Triple("DRIVER_LICENSE_DOCUMENT", "Driving licence (photo or PDF)", false),
+                                        Triple("NATIONAL_ID_DOCUMENT", "National ID (photo or PDF)", false),
+                                        Triple("VEHICLE_PHOTO", "Vehicle photo", true),
+                                        Triple("VEHICLE_TRADE_LICENSE", "Vehicle trade licence (photo or PDF)", false)
+                                    )
+                                } else {
+                                    listOf(Triple("PROFILE_PHOTO", "Your profile photo", true))
+                                }
+                                Column(
+                                    modifier = Modifier.fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Slate100)
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text("PHOTO & DOCUMENT UPLOADS", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.ExtraBold, color = Slate900)
+                                    Text(
+                                        if (portal == AppRole.DRIVER)
+                                            "All five items are required for registration review. Files are stored privately; only RoutePass administrators can view identity/vehicle documents."
+                                        else "Upload a clear face photo so your assigned driver can identify you.",
+                                        style = MaterialTheme.typography.bodySmall, color = Slate600
+                                    )
+                                    uploadOptions.forEach { (type, label, imageOnly) ->
+                                        OutlinedButton(
+                                            onClick = {
+                                                pendingUploadType = type
+                                                if (imageOnly) profilePhotoPicker.launch("image/*")
+                                                else documentPicker.launch(arrayOf("image/*", "application/pdf"))
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Icon(
+                                                if (selectedRegistrationUploads.containsKey(type)) Icons.Default.CheckCircle else Icons.Default.UploadFile,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(if (selectedRegistrationUploads.containsKey(type)) "$label · Selected" else "Upload $label")
+                                        }
+                                    }
+                                    Text("Images are compressed on the phone before upload. Each file must be under 1.5 MB.", style = MaterialTheme.typography.labelSmall, color = Slate600)
+                                }
+                            }
+
                             // Passenger chooses a subscription route at registration; driver route is assigned by admin.
                             if (portal == AppRole.PASSENGER) {
                                 Column(
@@ -695,21 +772,43 @@ fun AuthScreen(
                                         registrationValidationMessage = validationMessage
                                     } else {
                                         registrationValidationMessage = null
-                                        viewModel.register(
-                                            fullName = fullName,
-                                            phone = phone,
-                                            email = email,
-                                            password = password,
-                                            role = portal,
-                                            licenseNumber = licenseNumber,
-                                            companyName = companyName,
-                                            assignedVehiclePlate = vehiclePlate,
-                                            vehicleModel = vehicleModel,
-                                            vehicleType = vehicleType,
-                                            appliedRouteId = selectedRouteId,
-                                            appliedRouteName = selectedRouteName,
-                                            adminSecret = adminSecret
-                                        )
+                                        scope.launch {
+                                            try {
+                                                val requiredTypes = when (portal) {
+                                                    AppRole.PASSENGER -> listOf("PROFILE_PHOTO")
+                                                    AppRole.DRIVER -> listOf("PROFILE_PHOTO", "DRIVER_LICENSE_DOCUMENT", "NATIONAL_ID_DOCUMENT", "VEHICLE_PHOTO", "VEHICLE_TRADE_LICENSE")
+                                                    AppRole.ADMIN -> emptyList()
+                                                }
+                                                val missing = requiredTypes.filterNot { selectedRegistrationUploads.containsKey(it) }
+                                                if (missing.isNotEmpty()) {
+                                                    registrationValidationMessage = "Please upload: " + missing.joinToString { it.replace("_", " ").lowercase() }
+                                                    return@launch
+                                                }
+                                                val uploads = withContext(Dispatchers.IO) {
+                                                    selectedRegistrationUploads.entries.map { (type, uri) ->
+                                                        createRegistrationUpload(context, type, uri)
+                                                    }
+                                                }
+                                                viewModel.register(
+                                                    fullName = fullName,
+                                                    phone = phone,
+                                                    email = email,
+                                                    password = password,
+                                                    role = portal,
+                                                    licenseNumber = licenseNumber,
+                                                    companyName = companyName,
+                                                    assignedVehiclePlate = vehiclePlate,
+                                                    vehicleModel = vehicleModel,
+                                                    vehicleType = vehicleType,
+                                                    appliedRouteId = selectedRouteId,
+                                                    appliedRouteName = selectedRouteName,
+                                                    adminSecret = adminSecret,
+                                                    uploads = uploads
+                                                )
+                                            } catch (error: Exception) {
+                                                registrationValidationMessage = error.message ?: "Could not prepare the selected files."
+                                            }
+                                        }
                                     }
                                 } else {
                                     viewModel.clearRegistrationMessage()
@@ -830,4 +929,65 @@ fun PortalOptionCard(
             }
         }
     }
+}
+
+
+private fun createRegistrationUpload(context: Context, documentType: String, uri: Uri): RegistrationUploadDto {
+    val originalName = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+        ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+        .orEmpty()
+    val declaredMime = context.contentResolver.getType(uri)?.lowercase().orEmpty()
+    val raw = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+        ?: throw IllegalStateException("Could not read the selected file.")
+    val mimeType: String
+    val bytes: ByteArray
+    val fileName: String
+
+    if (declaredMime.startsWith("image/") || raw.size >= 3 && raw[0] == 0xff.toByte() && raw[1] == 0xd8.toByte()) {
+        var bitmap = BitmapFactory.decodeByteArray(raw, 0, raw.size)
+            ?: throw IllegalStateException("The selected image could not be decoded. Choose a JPG, PNG or WebP image.")
+        val maxDimension = maxOf(bitmap.width, bitmap.height)
+        if (maxDimension > 1280) {
+            val ratio = 1280f / maxDimension.toFloat()
+            val resized = Bitmap.createScaledBitmap(bitmap, (bitmap.width * ratio).toInt().coerceAtLeast(1), (bitmap.height * ratio).toInt().coerceAtLeast(1), true)
+            if (resized !== bitmap) bitmap.recycle()
+            bitmap = resized
+        }
+        var output = ByteArrayOutputStream()
+        var quality = 82
+        bitmap.compress(Bitmap.CompressFormat.JPEG, quality, output)
+        while (output.size() > 1400000 && quality > 38) {
+            quality -= 8
+            output = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, output)
+        }
+        while (output.size() > 1400000 && maxOf(bitmap.width, bitmap.height) > 450) {
+            val resized = Bitmap.createScaledBitmap(bitmap, (bitmap.width * 0.8f).toInt().coerceAtLeast(1), (bitmap.height * 0.8f).toInt().coerceAtLeast(1), true)
+            if (resized !== bitmap) bitmap.recycle()
+            bitmap = resized
+            output = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 68, output)
+        }
+        bitmap.recycle()
+        if (output.size() > 1400000) throw IllegalStateException("Image is too large even after compression. Choose another image.")
+        bytes = output.toByteArray()
+        mimeType = "image/jpeg"
+        fileName = documentType.lowercase() + ".jpg"
+    } else if (declaredMime == "application/pdf" || originalName.endsWith(".pdf", ignoreCase = true)) {
+        if (raw.size > 1400000) throw IllegalStateException("PDFs must be under 1.4 MB. Use a smaller scan.")
+        if (raw.size < 5 || !String(raw, 0, minOf(raw.size, 5), Charsets.US_ASCII).startsWith("%PDF-")) {
+            throw IllegalStateException("The selected document is not a valid PDF.")
+        }
+        bytes = raw
+        mimeType = "application/pdf"
+        fileName = documentType.lowercase() + ".pdf"
+    } else {
+        throw IllegalStateException("Choose an image or PDF document.")
+    }
+    return RegistrationUploadDto(
+        documentType = documentType,
+        fileName = fileName,
+        mimeType = mimeType,
+        dataBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+    )
 }
