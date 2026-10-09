@@ -82,7 +82,7 @@ router.get('/:id', async (req, res) => {
  * PATCH /api/vehicles/:id/type
  * Driver or Admin: Update vehicle type and enforce passenger limit
  */
-router.patch('/:id/type', authenticate, requireRole('DRIVER', 'ADMIN'), async (req, res) => {
+router.patch('/:id/type', authenticate, requireRole('ADMIN'), async (req, res) => {
   try {
     const { vehicleType, capacityLimit } = req.body;
     const vehicle = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
@@ -93,8 +93,7 @@ router.patch('/:id/type', authenticate, requireRole('DRIVER', 'ADMIN'), async (r
 
     if (req.user.role === 'DRIVER') {
       const driver = await DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(req.user.id);
-      const assigned = vehicle.driverId === req.user.id ||
-        (!vehicle.driverId && driver?.assignedVehiclePlate === vehicle.plateNumber);
+      const assigned = vehicle.driverId === req.user.id;
       if (!assigned) return res.status(403).json({ success: false, error: 'Vehicle is not assigned to this driver.' });
     }
 
@@ -136,7 +135,7 @@ router.post('/:id/location', authenticate, requireRole('DRIVER'), async (req, re
     const vehicle = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
     if (!vehicle) return res.status(404).json({ success: false, error: 'Vehicle not found.' });
     const driver = await DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(req.user.id);
-    if (!(vehicle.driverId === req.user.id || (!vehicle.driverId && driver?.assignedVehiclePlate && vehicle.plateNumber === driver.assignedVehiclePlate))) {
+    if (vehicle.driverId !== req.user.id) {
       return res.status(403).json({ success: false, error: 'Vehicle is not assigned to this driver.' });
     }
 
