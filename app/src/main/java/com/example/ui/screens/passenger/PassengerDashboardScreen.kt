@@ -32,6 +32,7 @@ import com.example.core.localization.AppLanguage
 import com.example.core.localization.AppStrings
 import com.example.data.entity.PaymentTransactionEntity
 import com.example.ui.components.QrCodeCanvas
+import com.example.ui.components.MiniVehicleMap
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.MainViewModel
 
@@ -42,6 +43,7 @@ fun PassengerDashboardScreen(
 ) {
     val lang by viewModel.currentLanguage.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
+    val trackedVehicle by viewModel.trackedVehicle.collectAsState()
     val subscription by viewModel.activeSubscription.collectAsState()
     val payments by viewModel.passengerPayments.collectAsState()
     val checkIns by viewModel.passengerCheckIns.collectAsState()
@@ -83,9 +85,9 @@ fun PassengerDashboardScreen(
             )
         }
 
-        // 3. Live GPS Vehicle Tracking
+        // 3. Server-reported driver location. No demo coordinates are shown as live.
         item {
-            LiveBusTrackingCard(lang = lang)
+            MiniVehicleMap(vehicle = trackedVehicle, modifier = Modifier.testTag("passenger_live_vehicle_map"))
         }
 
         // 4. Passenger Financial Account & Balance
