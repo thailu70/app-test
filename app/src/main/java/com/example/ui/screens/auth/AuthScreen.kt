@@ -54,6 +54,9 @@ fun AuthScreen(
     var licenseNumber by remember { mutableStateOf("") }
     var companyName by remember { mutableStateOf("") }
     var vehiclePlate by remember { mutableStateOf("") }
+    var vehicleModel by remember { mutableStateOf("") }
+    var vehicleType by remember { mutableStateOf("MINIBUS_14") }
+    var vehicleTypeMenuExpanded by remember { mutableStateOf(false) }
     var adminSecret by remember { mutableStateOf("") }
 
     // Applied Route Selection for Passenger and Driver
@@ -211,25 +214,7 @@ fun AuthScreen(
                 )
             }
 
-            // Portal Card 3: Operator / Admin Center
-            item {
-                PortalOptionCard(
-                    title = if (lang == AppLanguage.AMHARIC) "የትራንስፖርት ኦፕሬተር እና አስተዳዳሪ" else "Transit Operator & Admin Center",
-                    subtitle = if (lang == AppLanguage.AMHARIC)
-                        "የጉዞ መስመሮች እና ታሪፍ፣ የተሽከርካሪዎች ቁጥጥር፣ የቴሌብር ገቢ እና ማሳወቂያዎች"
-                    else
-                        "Route creation, fleet operations, Telebirr reconciliation, and system audits",
-                    badge = "OPERATOR ADMIN",
-                    icon = Icons.Default.AdminPanelSettings,
-                    accentColor = TelebirrBlue,
-                    buttonText = if (lang == AppLanguage.AMHARIC) "የኦፕሬተር ፖርታል ክፈት →" else "Open Operator Center →",
-                    testTag = "open_admin_portal_button",
-                    onClick = {
-                        selectedPortal = AppRole.ADMIN
-                        isRegisterMode = false
-                    }
-                )
-            }
+
         }
 
         // =========================================================================
@@ -373,7 +358,7 @@ fun AuthScreen(
 
                         if (isRegisterMode && portal == AppRole.DRIVER) {
                             Text(
-                                text = "Driver accounts are created by the RoutePass administrator. Visit https://routepass.duckdns.org/admin/ or ask your transport operator to create your login and assign a vehicle and route. Driver self-registration is disabled.",
+                                text = "Register yourself and your own vehicle below. Your RoutePass administrator will assign the operating route after registration.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color(0xFF92400E),
                                 modifier = Modifier
@@ -383,7 +368,7 @@ fun AuthScreen(
                             )
                         }
 
-                        if (isRegisterMode && portal != AppRole.DRIVER) {
+                        if (isRegisterMode) {
                             OutlinedTextField(
                                 value = fullName,
                                 onValueChange = { fullName = it },
@@ -434,14 +419,62 @@ fun AuthScreen(
 
                                 OutlinedTextField(
                                     value = vehiclePlate,
-                                    onValueChange = { vehiclePlate = it },
-                                    label = { Text("Assigned Vehicle Plate Number") },
-                                    placeholder = { Text("E.g. AA-12345 (Toyota Coaster)") },
+                                    onValueChange = { vehiclePlate = it.uppercase() },
+                                    label = { Text("Your vehicle plate number *") },
+                                    placeholder = { Text("E.g. 3-AA-12345") },
                                     singleLine = true,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .testTag("auth_vehicle_plate_input")
                                 )
+                                OutlinedTextField(
+                                    value = vehicleModel,
+                                    onValueChange = { vehicleModel = it },
+                                    label = { Text("Vehicle make / model *") },
+                                    placeholder = { Text("E.g. Toyota HiAce") },
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("auth_vehicle_model_input")
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("Your vehicle type *", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                    Box {
+                                        OutlinedButton(
+                                            onClick = { vehicleTypeMenuExpanded = true },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(when (vehicleType) {
+                                                "MINIVAN_8" -> "Minivan · 8 seats"
+                                                "MINIBUS_14" -> "Minibus · 14 seats"
+                                                "HIGER_24" -> "Higer · 24 seats"
+                                                "ANBESSA_BUS_30" -> "Bus · 30 seats"
+                                                else -> vehicleType
+                                            })
+                                            Spacer(Modifier.weight(1f))
+                                            Icon(Icons.Default.ArrowDropDown, contentDescription = "Choose vehicle type")
+                                        }
+                                        DropdownMenu(
+                                            expanded = vehicleTypeMenuExpanded,
+                                            onDismissRequest = { vehicleTypeMenuExpanded = false }
+                                        ) {
+                                            listOf(
+                                                "MINIVAN_8" to "Minivan · 8 seats",
+                                                "MINIBUS_14" to "Minibus · 14 seats",
+                                                "HIGER_24" to "Higer · 24 seats",
+                                                "ANBESSA_BUS_30" to "Bus · 30 seats"
+                                            ).forEach { (type, label) ->
+                                                DropdownMenuItem(
+                                                    text = { Text(label) },
+                                                    onClick = {
+                                                        vehicleType = type
+                                                        vehicleTypeMenuExpanded = false
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
 
                             OutlinedTextField(
@@ -453,8 +486,8 @@ fun AuthScreen(
                                 modifier = Modifier.fillMaxWidth()
                             )
 
-                            // ROUTE SELECTION REQUIREMENT FOR BOTH PASSENGER AND DRIVER
-                            if (portal == AppRole.PASSENGER || portal == AppRole.DRIVER) {
+                            // Passenger chooses a subscription route at registration; driver route is assigned by admin.
+                            if (portal == AppRole.PASSENGER) {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -485,10 +518,7 @@ fun AuthScreen(
                                     }
 
                                     Text(
-                                        text = if (portal == AppRole.PASSENGER)
-                                            "Select the daily commuter shuttle route you wish to subscribe to:"
-                                        else
-                                            "Select the assigned transport route you will be operating:",
+                                        text = "Select the daily commuter shuttle route you wish to subscribe to:",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Slate600
                                     )
@@ -615,7 +645,6 @@ fun AuthScreen(
                                     viewModel.login(phone, password, portal)
                                 }
                             },
-                            enabled = !(isRegisterMode && portal == AppRole.DRIVER),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = when (portal) {
@@ -630,7 +659,7 @@ fun AuthScreen(
                                 .testTag("auth_submit_button")
                         ) {
                             Text(
-                                text = if (isRegisterMode && portal == AppRole.DRIVER) "ADMINISTRATOR SETUP REQUIRED" else if (isRegisterMode) "COMPLETE REGISTRATION & ENTER" else "SIGN IN TO PORTAL",
+                                text = if (isRegisterMode) "COMPLETE REGISTRATION & ENTER" else "SIGN IN TO PORTAL",
                                 fontWeight = FontWeight.Bold
                             )
                         }
