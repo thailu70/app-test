@@ -238,6 +238,15 @@ wss.on('connection', (ws, req) => {
             reason: 'AUTHENTICATION_REQUIRED'
           }));
         }
+        if (ws.user.role !== 'PASSENGER') {
+          return ws.send(JSON.stringify({ type: 'SUBSCRIPTION_REJECTED', reason: 'PASSENGER_ROLE_REQUIRED' }));
+        }
+        const activeSubscription = await DB.prepare(
+          "SELECT id FROM subscriptions WHERE passengerId = ? AND routeId = ? AND subscriptionStatus = 'ACTIVE' AND paymentStatus = 'PAID' AND daysRemaining > 0"
+        ).get(ws.user.id, data.routeId);
+        if (!activeSubscription) {
+          return ws.send(JSON.stringify({ type: 'SUBSCRIPTION_REJECTED', reason: 'ACTIVE_ROUTE_SUBSCRIPTION_REQUIRED' }));
+        }
         ws.monitoredRouteId = data.routeId;
         return ws.send(JSON.stringify({
           type: 'ROUTE_SUBSCRIBED',
@@ -252,7 +261,7 @@ wss.on('connection', (ws, req) => {
         const driverId = ws.user?.id;
         const userRole = ws.user?.role;
 
-        if (!ws.authenticated || !driverId || !['DRIVER', 'ADMIN'].includes(userRole)) {
+        if (!ws.authenticated || !driverId || userRole !== 'DRIVER') {
           return ws.send(JSON.stringify({
             type: 'GPS_REJECTED',
             reason: 'UNAUTHORIZED_DRIVER',
@@ -269,17 +278,19 @@ wss.on('connection', (ws, req) => {
         if (!vehicle) {
           return ws.send(JSON.stringify({ type: 'GPS_REJECTED', reason: 'UNKNOWN_VEHICLE' }));
         }
-        if (userRole === 'DRIVER') {
-          const driver = await DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(driverId);
-          const isAssigned = vehicle.driverId === driverId;
-          if (!isAssigned) {
-            return ws.send(JSON.stringify({ type: 'GPS_REJECTED', reason: 'VEHICLE_NOT_ASSIGNED' }));
-          }
+        if (vehicle.driverId !== driverId) {
+          return ws.send(JSON.stringify({ type: 'GPS_REJECTED', reason: 'VEHICLE_NOT_ASSIGNED' }));
         }
-        const routeId = vehicle.assignedRouteId;
-        if (!routeId) {
-          return ws.send(JSON.stringify({ type: 'GPS_REJECTED', reason: 'VEHICLE_ROUTE_NOT_ASSIGNED' }));
+        if (typeof data.tripId !== 'string' || !data.tripId) {
+          return ws.send(JSON.stringify({ type: 'GPS_REJECTED', reason: 'MISSING_TRIP_ID' }));
         }
+        const activeTrip = await DB.prepare(
+          "SELECT id, routeId FROM trips WHERE id = ? AND vehicleId = ? AND driverId = ? AND status = 'IN_PROGRESS'"
+        ).get(data.tripId, vehicle.id, driverId);
+        if (!activeTrip) {
+          return ws.send(JSON.stringify({ type: 'GPS_REJECTED', reason: 'ACTIVE_TRIP_NOT_ASSIGNED' }));
+        }
+        const routeId = activeTrip.routeId;
 
         // Validate Coordinates
         const lat = parseFloat(data.latitude);
