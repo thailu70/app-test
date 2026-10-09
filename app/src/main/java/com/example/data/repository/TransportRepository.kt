@@ -147,7 +147,7 @@ class TransportRepository(
                 fullName = userDto.fullName,
                 phone = userDto.phone,
                 email = userDto.email ?: "$cleanPhone@transport.et",
-                status = "ACTIVE",
+                status = userDto.status ?: "ACTIVE",
                 licenseNumber = userDto.licenseNumber ?: "",
                 avatarInitials = initials.ifBlank { "ET" },
                 password = password,
@@ -327,10 +327,10 @@ class TransportRepository(
     }
 
     // Server-authoritative driver-owned vehicle and live location
-    suspend fun fetchTrackedVehicle(): TrackedVehicleDto? {
+    suspend fun fetchTrackedVehicleStatus(): TrackingVehicleResponse {
         val response = apiService.getTrackingVehicle()
         if (response.isSuccessful && response.body()?.success == true) {
-            return response.body()?.vehicle
+            return response.body()!!
         }
         val errorBody = response.errorBody()?.string()
         val message = try {
@@ -338,6 +338,8 @@ class TransportRepository(
         } catch (_: Exception) { null }
         throw IllegalStateException(message ?: response.body()?.message ?: "Could not load assigned vehicle tracking.")
     }
+
+    suspend fun fetchTrackedVehicle(): TrackedVehicleDto? = fetchTrackedVehicleStatus().vehicle
 
     suspend fun submitDriverLocation(latitude: Double, longitude: Double, speed: Double = 0.0, currentStop: String = "") {
         val response = apiService.updateMyLocation(LocationUpdateRequest(latitude, longitude, speed, currentStop))
