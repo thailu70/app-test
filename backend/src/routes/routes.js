@@ -74,7 +74,7 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
 
     await DB.prepare(`
       INSERT INTO routes (id, name, nameAm, description, morningDeparture, eveningDeparture, distanceKm, basePriceEtb, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)
     `).run(
       routeId,
       name.trim(),
@@ -93,7 +93,7 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
     `);
 
     if (Array.isArray(stops)) {
-      stops.forEach((s, idx) => {
+      for (const [idx, s] of stops.entries()) {
         const stopId = `stop_${crypto.randomUUID().slice(0, 8)}`;
         await insertStop.run(
           stopId,
@@ -107,7 +107,7 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
           s.scheduledEveningTime || eveningDeparture,
           s.maxCapacity || 20
         );
-      });
+      }
     }
 
     // Audit log
