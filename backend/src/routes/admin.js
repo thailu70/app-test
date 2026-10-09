@@ -5,6 +5,7 @@ const bcrypt = require('bcryptjs');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { generateSignedQrToken } = require('./subscriptions');
+const { latestDataUrl, documentMetadata } = require('../documents/store');
 
 /**
  * All endpoints here require ADMIN role
@@ -22,7 +23,7 @@ router.get('/stats', async (req, res) => {
     const activeRoutes = (await DB.prepare('SELECT COUNT(*) as c FROM routes WHERE active = TRUE').get()).c;
     const activeVehicles = (await DB.prepare("SELECT COUNT(*) as c FROM vehicles WHERE status != 'MAINTENANCE'").get()).c;
     const activeSubscriptions = (await DB.prepare("SELECT COUNT(*) as c FROM subscriptions WHERE subscriptionStatus = 'ACTIVE'").get()).c;
-    const totalRevenue = (await DB.prepare("SELECT COALESCE(SUM(amountEtb), 0) as s FROM payment_transactions WHERE status = 'COMPLETED' AND provider <> 'ADMIN_TEST'").get()).s;
+    const totalRevenue = (await DB.prepare("SELECT COALESCE(SUM(amountEtb), 0) as s FROM payment_transactions WHERE status = 'COMPLETED' AND provider NOT IN ('ADMIN_TEST', 'ADMIN_MANUAL')").get()).s;
     const todayCheckins = (await DB.prepare("SELECT COUNT(*) as c FROM checkin_records WHERE status = 'BOARDED'").get()).c;
     const openComplaints = (await DB.prepare("SELECT COUNT(*) as c FROM complaints WHERE status = 'OPEN'").get()).c;
 
@@ -143,17 +144,43 @@ router.get('/routes', async (req, res) => {
  */
 router.get('/drivers', async (req, res) => {
   try {
-    const drivers = await DB.prepare(`
+    const rows = await DB.prepare(`
       SELECT id, fullName, phone, email, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName, createdAt
       FROM users
       WHERE role = 'DRIVER'
       ORDER BY createdAt DESC
     `).all();
+    const drivers = await Promise.all(rows.map(async driver => ({
+      ...driver,
+      profilePhotoDataUrl: await latestDataUrl(DB, driver.id, 'PROFILE_PHOTO')
+    })));
 
+    res.setHeader('Cache-Control', 'private, no-store');
     res.json({ success: true, drivers });
   } catch (err) {
     console.error('[RoutePass] request failed:', err);
     res.status(500).json({ success: false, error: 'Internal server error.' });
+  }
+});
+
+/**
+ * GET /api/admin/documents
+ * List document metadata for administrator review. File bytes remain protected by /api/documents/:id/content.
+ */
+router.get('/documents', async (req, res) => {
+  try {
+    const rows = await DB.prepare(`
+      SELECT d.*, u.fullName AS owner_name, u.role AS owner_role, v.plateNumber AS vehicle_plate, v.driverId AS vehicle_driver_id
+      FROM routepass_documents d
+      LEFT JOIN users u ON u.id = d.owner_user_id
+      LEFT JOIN vehicles v ON v.id = d.vehicle_id
+      ORDER BY d.created_at DESC LIMIT 1000
+    `).all();
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ success: true, documents: rows.map(documentMetadata) });
+  } catch (err) {
+    console.error('[Admin] document list failed:', err);
+    res.status(500).json({ success: false, error: 'Could not load uploaded documents.' });
   }
 });
 
@@ -163,7 +190,7 @@ router.get('/drivers', async (req, res) => {
  */
 router.get('/subscriptions', async (req, res) => {
   try {
-    const list = await DB.prepare(`
+    const rows = await DB.prepare(`
       SELECT s.*, u.fullName as passengerName, u.phone as passengerPhone,
              r.name as routeName, v.plateNumber as vehiclePlate, v.driverName as driverName,
              v.driverId as driverId
@@ -173,7 +200,14 @@ router.get('/subscriptions', async (req, res) => {
       LEFT JOIN vehicles v ON s.vehicleId = v.id
       ORDER BY s.updatedAt DESC
     `).all();
+    const list = await Promise.all(rows.map(async item => ({
+      ...item,
+      passengerPhotoDataUrl: await latestDataUrl(DB, item.passengerId, 'PROFILE_PHOTO'),
+      driverPhotoDataUrl: item.driverId ? await latestDataUrl(DB, item.driverId, 'PROFILE_PHOTO') : null,
+      vehiclePhotoDataUrl: item.driverId && item.vehicleId ? await latestDataUrl(DB, item.driverId, 'VEHICLE_PHOTO', item.vehicleId) : null
+    })));
 
+    res.setHeader('Cache-Control', 'private, no-store');
     res.json({ success: true, subscriptions: list });
   } catch (err) {
     console.error('[RoutePass] request failed:', err);
@@ -187,13 +221,6 @@ router.get('/subscriptions', async (req, res) => {
  */
 router.post('/subscriptions/:id/recharge', async (req, res) => {
   try {
-    if (process.env.ALLOW_MANUAL_TEST_RECHARGE !== 'true') {
-      return res.status(403).json({
-        success: false,
-        code: 'MANUAL_TEST_RECHARGE_DISABLED',
-        error: 'Manual recharge is disabled. Enable ALLOW_MANUAL_TEST_RECHARGE=true only on a test instance.'
-      });
-    }
     const days = Number.parseInt(req.body.days ?? 30, 10);
     if (!Number.isInteger(days) || days < 1 || days > 90) {
       return res.status(400).json({ success: false, error: 'Test recharge days must be between 1 and 90.' });
@@ -220,8 +247,8 @@ router.post('/subscriptions/:id/recharge', async (req, res) => {
       end.getTime()
     );
     const amount = Number(sub.priceEtb || 0);
-    const reference = `RP-ADMIN-TEST-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
-    const note = `MANUAL TEST RECHARGE by admin ${req.user.id}; NOT A TELEBIRR PAYMENT; ${days} days`;
+    const reference = `RP-ADMIN-MANUAL-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+    const note = `MANUAL ADMIN RECHARGE by admin ${req.user.id}; TELEBIRR GATEWAY PENDING; NOT A TELEBIRR TRANSACTION; ${days} days`;
 
     await DB.transaction(async (tx) => {
       await tx.prepare(`
@@ -233,19 +260,20 @@ router.post('/subscriptions/:id/recharge', async (req, res) => {
 
       await tx.prepare(`
         INSERT INTO payment_transactions (id, passengerId, referenceNumber, idempotencyKey, amountEtb, provider, phoneNumber, status, notes)
-        VALUES (?, ?, ?, ?, ?, 'ADMIN_TEST', ?, 'COMPLETED', ?)
+        VALUES (?, ?, ?, ?, ?, 'ADMIN_MANUAL', ?, 'COMPLETED', ?)
       `).run(`pay_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`, sub.passengerId, reference, reference, amount, passenger.phone, note);
 
       await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
-        .run('SUBSCRIPTION_MANUAL_TEST_RECHARGE', req.user.id, 'ADMIN', `Test-recharged subscription ${sub.id} for ${days} days, ETB ${amount}. Not a real payment.`);
+        .run('SUBSCRIPTION_MANUAL_RECHARGE', req.user.id, 'ADMIN', `Manually activated subscription ${sub.id} for ${days} days, ETB ${amount}. Telebirr gateway pending; not a real payment confirmation.`);
     });
 
     res.json({
       success: true,
-      testOnly: true,
-      message: 'Subscription activated by manual admin test recharge. This is not a real payment.',
+      testOnly: false,
+      manualOverride: true,
+      message: 'Subscription activated by a recorded manual administrator override while Telebirr is pending. This is not a Telebirr payment confirmation.',
       subscription: { id: sub.id, passengerId: sub.passengerId, routeId: sub.routeId, paymentStatus: 'PAID', subscriptionStatus: 'ACTIVE', startDate, endDate, daysRemaining, qrToken },
-      transaction: { referenceNumber: reference, provider: 'ADMIN_TEST', status: 'COMPLETED', amountEtb: amount, realPayment: false }
+      transaction: { referenceNumber: reference, provider: 'ADMIN_MANUAL', status: 'COMPLETED', amountEtb: amount, realPayment: false }
     });
   } catch (err) {
     console.error('[Admin] manual test recharge failed:', err);
