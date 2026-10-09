@@ -50,7 +50,7 @@ fun AuthScreen(
     var fullName by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("123456") }
+    var password by remember { mutableStateOf("") }
     var licenseNumber by remember { mutableStateOf("") }
     var companyName by remember { mutableStateOf("") }
     var vehiclePlate by remember { mutableStateOf("") }
@@ -68,19 +68,11 @@ fun AuthScreen(
         }
     }
 
-    // Pre-fill default phone when entering portal for convenience
+    // Never pre-fill the login form with shared/demo credentials.
     LaunchedEffect(selectedPortal, isRegisterMode) {
-        if (!isRegisterMode && selectedPortal != null) {
-            when (selectedPortal) {
-                AppRole.PASSENGER -> phone = "+251911223344"
-                AppRole.DRIVER -> phone = "+251911998877"
-                AppRole.ADMIN -> phone = "+251910001122"
-                null -> {}
-            }
-        } else {
-            phone = ""
-            fullName = ""
-        }
+        phone = ""
+        password = ""
+        if (isRegisterMode) fullName = ""
     }
 
     // Handle back button when inside a portal to safely return to Portal Gateway
@@ -379,7 +371,19 @@ fun AuthScreen(
                             color = MaterialTheme.colorScheme.onSurface
                         )
 
-                        if (isRegisterMode) {
+                        if (isRegisterMode && portal == AppRole.DRIVER) {
+                            Text(
+                                text = "Driver accounts are created by the RoutePass administrator. Visit https://routepass.duckdns.org/admin/ or ask your transport operator to create your login and assign a vehicle and route. Driver self-registration is disabled.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF92400E),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFFFF7ED), RoundedCornerShape(10.dp))
+                                    .padding(12.dp)
+                            )
+                        }
+
+                        if (isRegisterMode && portal != AppRole.DRIVER) {
                             OutlinedTextField(
                                 value = fullName,
                                 onValueChange = { fullName = it },
@@ -556,6 +560,7 @@ fun AuthScreen(
                             }
                         }
 
+                        if (!isRegisterMode || portal != AppRole.DRIVER) {
                         OutlinedTextField(
                             value = phone,
                             onValueChange = { phone = it },
@@ -579,6 +584,7 @@ fun AuthScreen(
                                 .fillMaxWidth()
                                 .testTag("auth_password_input")
                         )
+                        }
 
                         authError?.let { err ->
                             Text(
@@ -609,6 +615,7 @@ fun AuthScreen(
                                     viewModel.login(phone, password, portal)
                                 }
                             },
+                            enabled = !(isRegisterMode && portal == AppRole.DRIVER),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = when (portal) {
@@ -623,7 +630,7 @@ fun AuthScreen(
                                 .testTag("auth_submit_button")
                         ) {
                             Text(
-                                text = if (isRegisterMode) "COMPLETE REGISTRATION & ENTER" else "SIGN IN TO PORTAL",
+                                text = if (isRegisterMode && portal == AppRole.DRIVER) "ADMINISTRATOR SETUP REQUIRED" else if (isRegisterMode) "COMPLETE REGISTRATION & ENTER" else "SIGN IN TO PORTAL",
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -631,71 +638,6 @@ fun AuthScreen(
                 }
             }
 
-            // Quick 1-Tap Demo Login (Isolated to THIS portal only)
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Slate100)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            text = "⚡ Quick Demo Access (${portal.name.lowercase().replaceFirstChar { it.uppercase() }}):",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Slate700
-                        )
-
-                        when (portal) {
-                            AppRole.PASSENGER -> {
-                                OutlinedButton(
-                                    onClick = { viewModel.quickLoginAs(AppRole.PASSENGER) },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("quick_login_passenger"),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TransportGreenPrimary)
-                                ) {
-                                    Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Log In as Passenger (Alemayehu Haile)")
-                                }
-                            }
-                            AppRole.DRIVER -> {
-                                OutlinedButton(
-                                    onClick = { viewModel.quickLoginAs(AppRole.DRIVER) },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("quick_login_driver"),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFB45309))
-                                ) {
-                                    Icon(Icons.Default.DirectionsBus, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Log In as Transporter / Driver (Kassahun Tadesse)")
-                                }
-                            }
-                            AppRole.ADMIN -> {
-                                OutlinedButton(
-                                    onClick = { viewModel.quickLoginAs(AppRole.ADMIN) },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("quick_login_admin"),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TelebirrBlue)
-                                ) {
-                                    Icon(Icons.Default.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Log In as Transport Operator / Admin (Addis Transit)")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 }
