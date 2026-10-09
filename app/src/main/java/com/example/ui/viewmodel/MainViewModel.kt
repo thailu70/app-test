@@ -291,7 +291,17 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     }
                 }
             } catch (e: Exception) {
-                _authError.value = e.message ?: "Registration rejected by server."
+                val rejection = e.message.orEmpty()
+                _authError.value = if (
+                    role == AppRole.DRIVER &&
+                    (rejection.contains("administrator", ignoreCase = true) ||
+                        rejection.contains("forbidden", ignoreCase = true) ||
+                        rejection.contains("403"))
+                ) {
+                    "Driver self-registration is disabled for security. Ask your RoutePass administrator to create your account and assign your vehicle and route at https://routepass.duckdns.org/admin."
+                } else {
+                    rejection.ifBlank { "Registration rejected by server." }
+                }
             }
         }
     }
