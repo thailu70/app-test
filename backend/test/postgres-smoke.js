@@ -93,7 +93,7 @@ async function run() {
     }, adminToken);
     assert.equal(result.status, 201, 'Admin-only driver provisioning transaction must commit');
     const driver = result.data.driver;
-    assert.equal(driver.assignedRouteId, 'route_bole_merkato');
+    assert.equal(driver.appliedRouteId, 'route_bole_merkato');
 
     result = await requestJson(baseUrl, '/api/auth/login', 'POST', {
       phone: '+251900000103',
