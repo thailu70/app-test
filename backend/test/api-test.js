@@ -77,7 +77,7 @@ async function runTests() {
     // 2. Authentication with seeded accounts
     const pasLogin = await makeRequest('POST', '/api/auth/login', {
       phone: '+251911223344',
-      password: 'RoutePassTest#2026',
+      password: '123456',
       role: 'PASSENGER'
     });
     if (!pasLogin.data.success) throw new Error('Passenger login failed: ' + JSON.stringify(pasLogin.data));
@@ -106,7 +106,7 @@ async function runTests() {
     const rogueAdminReg = await makeRequest('POST', '/api/auth/register', {
       fullName: 'Intruder',
       phone: '+251999888777',
-      password: 'secret',
+      password: 'LongEnough_Test_Password#2026',
       role: 'ADMIN'
     });
     if (rogueAdminReg.status === 403) {
@@ -226,7 +226,7 @@ async function runTests() {
     const pas2Reg = await makeRequest('POST', '/api/auth/register', {
       fullName: 'Dawit Mengistu',
       phone: testPassenger2Phone,
-      password: '123456',
+      password: 'RoutePassTest#2026',
       role: 'PASSENGER',
       appliedRouteId: 'route_bole_merkato'
     });
