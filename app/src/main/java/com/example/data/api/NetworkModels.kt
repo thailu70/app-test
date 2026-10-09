@@ -88,6 +88,14 @@ data class RouteStopDto(
 )
 
 @JsonClass(generateAdapter = true)
+data class RouteDetailsResponse(
+    val success: Boolean,
+    val route: RouteDto? = null,
+    val stops: List<RouteStopDto> = emptyList(),
+    val error: String? = null
+)
+
+@JsonClass(generateAdapter = true)
 data class RoutesResponse(
     val success: Boolean,
     val count: Int? = 0,
