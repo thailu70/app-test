@@ -340,7 +340,7 @@ fun DriverCockpitHeaderCard(
                 }
             }
 
-            // Vehicle Type & Passenger Limit Switcher (Transporter limit based on vehicle type)
+            // Vehicle class and seating limit are read from the vehicle that the driver registered.
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -349,65 +349,35 @@ fun DriverCockpitHeaderCard(
                     .padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                Text(
+                    text = "Registered vehicle class",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Slate400,
+                    fontWeight = FontWeight.SemiBold
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (lang == AppLanguage.AMHARIC) "የተሽከርካሪ ዓይነት እና የመንገደኞች ገደብ:" else "Vehicle Type & Passenger Limit:",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Slate400,
-                        fontWeight = FontWeight.SemiBold
+                        text = tripState.vehicleType.replace('_', ' '),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Max ${tripState.vehicleCapacity} Seats",
-                        style = MaterialTheme.typography.labelSmall,
+                        text = "Maximum ${tripState.vehicleCapacity} seats",
+                        style = MaterialTheme.typography.labelMedium,
                         color = TransportGold,
                         fontWeight = FontWeight.Bold
                     )
                 }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    val vehicles = listOf(
-                        Pair("Toyota Coaster", 24),
-                        Pair("Minibus HiAce", 14),
-                        Pair("Minivan", 8)
-                    )
-
-                    vehicles.forEach { (type, cap) ->
-                        val isSelected = tripState.vehicleType == type
-                        Surface(
-                            color = if (isSelected) TransportGreenPrimary else Slate700,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { onSetVehicleType(type, cap) }
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(vertical = 6.dp, horizontal = 4.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = type.substringBefore(" "),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    fontSize = 10.sp
-                                )
-                                Text(
-                                    text = "$cap seats",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (isSelected) TransportGold else Slate300,
-                                    fontSize = 9.sp
-                                )
-                            }
-                        }
-                    }
-                }
+                Text(
+                    text = "Vehicle ownership and capacity cannot be changed from the trip screen.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Slate400
+                )
             }
 
             HorizontalDivider(color = Slate800)
