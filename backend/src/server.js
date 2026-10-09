@@ -110,7 +110,7 @@ app.get('/api/ready', async (req, res) => {
     console.error('[Readiness] database query failed:', err);
     res.status(503).json({ status: 'NOT_READY' });
   }
-});;
+});
 
 // Mount Route Modules
 app.use('/api/auth', require('./routes/auth'));
@@ -379,7 +379,7 @@ function broadcastAuthorized(payload, targetRouteId = null) {
       client.send(json);
     } else if (role === 'PASSENGER') {
       // Commuters receive GPS telemetry strictly for their authorized/monitored transit corridor
-      const commuterCorridor = client.monitoredRouteId || client.user.appliedRouteId;
+      const commuterCorridor = client.monitoredRouteId;
       if (targetRouteId && commuterCorridor && commuterCorridor !== targetRouteId) {
         // Drop broadcast: recipient is not authorized/subscribed to this vehicle's corridor
         continue;
@@ -397,9 +397,9 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`================================================================`);
     console.log(`  TRANSPORT NAVIGATOR - VPS PRODUCTION TRANSIT SERVER`);
     console.log(`================================================================`);
-    console.log(`  REST API URL   : http://${HOST}:${PORT}`);
-    console.log(`  WebSocket URL  : ws://${HOST}:${PORT}/ws`);
-    console.log(`  Health Check   : http://${HOST}:${PORT}/api/health`);
+    console.log('  REST API       : served on the configured internal listener');
+    console.log('  WebSocket      : /ws (use wss:// through the HTTPS reverse proxy)');
+    console.log('  Health Check   : /api/health (liveness) and /api/ready (database readiness)');
     console.log(`  Environment    : ${process.env.NODE_ENV || 'production'}`);
     console.log(`  Local Database : ./data/transport.db`);
     console.log(`================================================================`);
