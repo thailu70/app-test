@@ -93,6 +93,7 @@ fun AuthScreen(
 
     // Handle back button when inside a portal to safely return to Portal Gateway
     BackHandler(enabled = selectedPortal != null) {
+        viewModel.clearRegistrationMessage()
         selectedPortal = null
         isRegisterMode = false
     }
@@ -201,6 +202,7 @@ fun AuthScreen(
                     buttonText = if (lang == AppLanguage.AMHARIC) "የተሳፋሪ ፖርታል ክፈት →" else "Open Passenger Portal →",
                     testTag = "open_passenger_portal_button",
                     onClick = {
+                        viewModel.clearRegistrationMessage()
                         selectedPortal = AppRole.PASSENGER
                         isRegisterMode = false
                     }
@@ -221,6 +223,7 @@ fun AuthScreen(
                     buttonText = if (lang == AppLanguage.AMHARIC) "የአጓጓዥ ኮንሶል ክፈት →" else "Open Transporter Console →",
                     testTag = "open_transporter_portal_button",
                     onClick = {
+                        viewModel.clearRegistrationMessage()
                         selectedPortal = AppRole.DRIVER
                         isRegisterMode = false
                     }
