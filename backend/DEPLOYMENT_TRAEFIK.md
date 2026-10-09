@@ -61,6 +61,46 @@ The installer verifies that the named Traefik container is running in host mode 
 
 It intentionally does **not** change UFW or your existing Traefik/9router containers. Traefik discovers the API by its explicit Docker labels and routes the hostname to port 3000 on the private Docker bridge. PostgreSQL has no published host port.
 
+## Admin portal and first administrator
+
+The browser-based admin portal is served from the same HTTPS hostname:
+
+```text
+https://routepass.duckdns.org/admin/
+```
+
+For this existing VPS, first update the deployed code using the safe in-place commands below, then create the first administrator:
+
+```bash
+cd /opt/routepass-source
+git fetch origin
+git checkout audit/production-readiness-2026-10-09
+git pull --ff-only origin audit/production-readiness-2026-10-09
+
+install -m 0644 backend/Dockerfile /var/www/routepass/Dockerfile
+cp -R backend/src/. /var/www/routepass/src/
+mkdir -p /var/www/routepass/public/admin /var/www/routepass/scripts
+cp -R backend/public/. /var/www/routepass/public/
+install -m 0755 backend/scripts/bootstrap-admin.py /var/www/routepass/scripts/bootstrap-admin.py
+
+cd /var/www/routepass
+docker compose -p routepass -f docker-compose.yml -f docker-compose.traefik.yml up -d --build api
+```
+
+This rebuilds only the API container; it does not remove the database volume or restart Traefik/9Router. Check that `https://routepass.duckdns.org/api/ready` succeeds, then run the first-admin helper:
+
+```bash
+python3 /var/www/routepass/scripts/bootstrap-admin.py
+```
+
+The helper reads the one-time admin registration secret from the root-only `/var/www/routepass/.env`, prompts you for a password without echoing it, and creates the first administrator. **The login username is the administrator's phone number.** Use the phone number and password you enter to sign in at the portal. Do not paste the environment file or secret into chat. If it reports that an administrator already exists, use that existing account; it will not reset or reveal existing credentials.
+
+Drivers cannot self-register from the public app: the API blocks driver-role public registration to prevent unapproved accounts from operating vehicles. After signing in to the portal, use **Create driver** to set the driver's login password and assign an available vehicle and active route.
+
+## Updating an existing install in place
+
+Do not run the first-install script again after the RoutePass containers already exist. To update code from the audit branch, use the in-place commands above, then recreate only the `api` service with `docker compose ... up -d --build api`. Keep `/var/www/routepass/.env` and the PostgreSQL volume intact.
+
 ## 4. Verify services
 
 ```bash
