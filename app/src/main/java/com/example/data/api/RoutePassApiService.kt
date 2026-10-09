@@ -53,6 +53,12 @@ interface RoutePassApiService {
     @GET("api/vehicles")
     suspend fun getVehicles(): Response<VehiclesResponse>
 
+    @GET("api/vehicles/tracking")
+    suspend fun getTrackingVehicle(): Response<TrackingVehicleResponse>
+
+    @POST("api/vehicles/my-location")
+    suspend fun updateMyLocation(@Body request: LocationUpdateRequest): Response<GenericResponse>
+
     @GET("api/vehicles/{id}")
     suspend fun getVehicleById(@Path("id") vehicleId: String): Response<Map<String, Any>>
 
