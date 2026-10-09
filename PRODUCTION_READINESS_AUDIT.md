@@ -91,3 +91,33 @@
 7. Run the tests and review the diff before merging this branch.
 
 **Release recommendation: NO-GO** until P0 findings are resolved and tested. This branch is a security-hardening start, not a declaration that RoutePass is production-ready.
+
+
+## Follow-up implementation and validation update (2026-10-09)
+
+The implementation on branch `audit/production-readiness-2026-10-09` goes beyond the initial audit. This section supersedes the earlier “changes made” list where the entries conflict.
+
+### Implemented on the branch
+
+- PostgreSQL queries are awaited across the API routes and transaction callbacks receive a connection-scoped `tx.prepare(...)` interface. Production refuses to start if `DATABASE_URL` is absent rather than quietly creating a SQLite database. The SQL compatibility adapter now maps additional route, stop, trip, vehicle, check-in and payment fields to PostgreSQL snake_case identifiers.
+- Route creation awaits nested stop inserts. Boarding holds the vehicle row lock in PostgreSQL and checks duplicate check-in/capacity inside the transaction. Trip start now locks the vehicle and atomically checks active-trip state, resets occupancy and inserts the new trip.
+- Public registration cannot create drivers. First administrator bootstrap requires the configured secret and is refused after an administrator exists. The dedicated admin driver-provisioning route creates the driver and vehicle/route assignment within a transaction. Password hashing uses bcrypt cost 12 and login/registration are rate-limited.
+- GPS senders are derived from the authenticated WebSocket user, not the payload. Driver telemetry is tied to the current vehicle assignment and a matching active trip, GPS fields are validated/rate-limited, and passenger route subscriptions require an active paid subscription. Bearer tokens are no longer sent in WebSocket URLs. Passenger check-in history endpoints have role/resource checks.
+- Production PostgreSQL initialization no longer creates default administrator/driver/passenger accounts. SQLite's developer fallback still contains fixtures and is never allowed as the production storage engine.
+- API error responses and public liveness output are generic/minimal; database readiness is separate. CORS, reverse-proxy IP handling, request-size limiting and per-IP/API rate limits are configured.
+- Docker Compose requires strong secrets, keeps PostgreSQL private and the API unexposed on the host, and applies several container hardening settings. The new VPS deployment script prepares the host, creates unique secrets, brings up PostgreSQL/API/Nginx, issues a Let's Encrypt certificate, enables HTTPS/WSS, and configures certificate renewal. Android base URL is configurable for each deployment.
+- GitHub Actions now attempts JavaScript syntax and backend integration tests, a PostgreSQL API smoke test, and an Android debug build.
+
+### Explicit feature gates / no-go conditions
+
+- **Real-money Telebirr is disabled in production on purpose.** The checkout and callback endpoints return HTTP 503 (`LIVE_TELEBIRR_NOT_CONFIGURED`) until the actual merchant checkout/order lifecycle, official signature contract, amount/order binding, idempotency and reconciliation are implemented and tested with the provider's official sandbox. A real VPS can be deployed without payments, but this is not ready to operate a paid subscription service.
+- **Offline boarding sync is disabled.** `POST /api/sync/push` returns HTTP 409 until the app and server have a verifiable offline event protocol that cannot bypass subscription, trip, QR or capacity checks.
+- A clean VPS, DNS/certificate issuance, Android device behavior, production load, backup restore and real Telebirr sandbox have not been validated from this session.
+
+### Validation evidence available now
+
+The branch includes the workflow file `.github/workflows/routepass-ci.yml`. Early GitHub Actions attempts on intermediate commits exposed and led to fixes for a missing `requireRole` import, PostgreSQL seed column naming, and a removed Android SDK-tools package. Those are *historical failed runs on earlier SHAs*, not evidence for or against the final SHA. As of the latest check in this session, runs for the current branch commit were still queued/pending without an assigned runner. **No green result for the final commit is claimed.** Review the live checks on the pull request before merging.
+
+### Release recommendation
+
+**NO-GO for a paid public launch today.** The branch is prepared for a hardened staging/deployment trial with payments unavailable. Merge/release only after the current CI jobs turn green, the deployed API passes smoke/security checks on a clean VPS, data backups/restore are tested, and the Telebirr feature gate is replaced only by an official verified integration. Do not enable payment by changing `PAYMENT_MODE` or by deleting the guard.
