@@ -8,7 +8,7 @@ const { authenticate, requireRole } = require('../middleware/auth');
  * POST /api/trips/start
  * Driver starts a scheduled transit trip on a route.
  */
-router.post('/start', authenticate, requireRole('DRIVER'), (req, res) => {
+router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
   try {
     const driverId = req.user.id;
     const { routeId, direction = 'OUTBOUND', vehicleId } = req.body;
@@ -18,34 +18,41 @@ router.post('/start', authenticate, requireRole('DRIVER'), (req, res) => {
     }
 
     // Identify vehicle
-    const driverUser = DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(driverId);
+    const driverUser = await DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(driverId);
     let vehicle;
     if (vehicleId) {
-      vehicle = DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicleId);
+      vehicle = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicleId);
     } else {
-      vehicle = DB.prepare('SELECT * FROM vehicles WHERE plateNumber = ? OR driverId = ? LIMIT 1')
-        .get(driverUser?.assignedVehiclePlate || '3-AA-34921', driverId);
+      vehicle = await DB.prepare('SELECT * FROM vehicles WHERE plateNumber = ? OR driverId = ? LIMIT 1')
+        .get(driverUser?.assignedVehiclePlate || '', driverId);
     }
 
     if (!vehicle) {
       return res.status(404).json({ success: false, error: 'Vehicle not found for driver.' });
     }
+    if (!(vehicle.driverId === driverId ||
+      (driverUser?.assignedVehiclePlate && vehicle.plateNumber === driverUser.assignedVehiclePlate))) {
+      return res.status(403).json({ success: false, error: 'This vehicle is not assigned to your driver account.' });
+    }
+    if (vehicle.assignedRouteId && vehicle.assignedRouteId !== routeId && req.user.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, error: 'The requested route is not assigned to this vehicle.' });
+    }
 
     // Get initial route stop
-    const firstStop = DB.prepare('SELECT stopName FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC LIMIT 1').get(routeId);
+    const firstStop = await DB.prepare('SELECT stopName FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC LIMIT 1').get(routeId);
     const initialStop = firstStop?.stopName || 'Terminal Hub';
 
     const tripId = `trip_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 4)}`;
 
     // Reset vehicle occupancy and mark in service
-    DB.prepare(`
+    await DB.prepare(`
       UPDATE vehicles
       SET currentOccupancy = 0, status = 'IN_SERVICE', assignedRouteId = ?, updatedAt = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(routeId, vehicle.id);
 
     // Insert new active trip
-    DB.prepare(`
+    await DB.prepare(`
       INSERT INTO trips (id, driverId, vehicleId, routeId, direction, currentStop, currentOccupancy, status)
       VALUES (?, ?, ?, ?, ?, ?, 0, 'IN_PROGRESS')
     `).run(tripId, driverId, vehicle.id, routeId, direction, initialStop);
@@ -82,7 +89,8 @@ router.post('/start', authenticate, requireRole('DRIVER'), (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -90,10 +98,10 @@ router.post('/start', authenticate, requireRole('DRIVER'), (req, res) => {
  * GET /api/trips/active
  * Get active trip for the logged-in driver.
  */
-router.get('/active', authenticate, requireRole('DRIVER'), (req, res) => {
+router.get('/active', authenticate, requireRole('DRIVER'), async (req, res) => {
   try {
     const driverId = req.user.id;
-    const trip = DB.prepare(`
+    const trip = await DB.prepare(`
       SELECT t.*, v.plateNumber, v.vehicleType, v.capacityLimit, r.name as routeName, r.nameAm as routeNameAm
       FROM trips t
       JOIN vehicles v ON t.vehicleId = v.id
@@ -127,7 +135,8 @@ router.get('/active', authenticate, requireRole('DRIVER'), (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -135,7 +144,7 @@ router.get('/active', authenticate, requireRole('DRIVER'), (req, res) => {
  * POST /api/trips/:id/stop-arrival
  * Driver records arrival at a scheduled route stop.
  */
-router.post('/:id/stop-arrival', authenticate, requireRole('DRIVER'), (req, res) => {
+router.post('/:id/stop-arrival', authenticate, requireRole('DRIVER'), async (req, res) => {
   try {
     const { id } = req.params;
     const { stopName } = req.body;
@@ -144,12 +153,15 @@ router.post('/:id/stop-arrival', authenticate, requireRole('DRIVER'), (req, res)
       return res.status(400).json({ success: false, error: 'Stop name is required.' });
     }
 
-    const trip = DB.prepare('SELECT * FROM trips WHERE id = ?').get(id);
+    const trip = await DB.prepare('SELECT * FROM trips WHERE id = ?').get(id);
     if (!trip) {
       return res.status(404).json({ success: false, error: 'Trip not found.' });
     }
+    if (trip.driverId !== req.user.id && req.user.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, error: 'Access denied for this trip.' });
+    }
 
-    DB.prepare(`
+    await DB.prepare(`
       UPDATE trips SET currentStop = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?
     `).run(stopName, id);
 
@@ -172,7 +184,8 @@ router.post('/:id/stop-arrival', authenticate, requireRole('DRIVER'), (req, res)
       currentStop: stopName
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -180,21 +193,21 @@ router.post('/:id/stop-arrival', authenticate, requireRole('DRIVER'), (req, res)
  * POST /api/trips/:id/end
  * End trip and finalize stats
  */
-router.post('/:id/end', authenticate, requireRole('DRIVER'), (req, res) => {
+router.post('/:id/end', authenticate, requireRole('DRIVER'), async (req, res) => {
   try {
     const { id } = req.params;
-    const trip = DB.prepare('SELECT * FROM trips WHERE id = ?').get(id);
+    const trip = await DB.prepare('SELECT * FROM trips WHERE id = ?').get(id);
 
     if (!trip) {
       return res.status(404).json({ success: false, error: 'Trip not found.' });
     }
 
-    DB.prepare(`
+    await DB.prepare(`
       UPDATE trips SET status = 'COMPLETED', endTime = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP WHERE id = ?
     `).run(id);
 
     // Reset vehicle occupancy
-    DB.prepare(`
+    await DB.prepare(`
       UPDATE vehicles SET currentOccupancy = 0, status = 'IN_SERVICE', updatedAt = CURRENT_TIMESTAMP WHERE id = ?
     `).run(trip.vehicleId);
 
@@ -213,7 +226,8 @@ router.post('/:id/end', authenticate, requireRole('DRIVER'), (req, res) => {
       tripId: id
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
