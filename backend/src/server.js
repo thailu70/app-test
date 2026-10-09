@@ -30,6 +30,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
+// The API is private behind one Nginx reverse proxy. Preserve the real client IP for
+// rate limiting and access logs, without trusting an arbitrary chain of forwarded headers.
+app.set('trust proxy', 1);
+
 // Security & Middlewares
 app.use(helmet({
   contentSecurityPolicy: false // Allow WebSocket handshakes & dev proxies
