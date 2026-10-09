@@ -1,0 +1,98 @@
+name: RoutePass CI
+
+on:
+  push:
+    branches: [main, "audit/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-sqlite:
+    name: Backend syntax and SQLite integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+      - name: Check JavaScript syntax
+        run: find src test -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+        working-directory: backend
+      - name: Run API integration suite
+        env:
+          NODE_ENV: test
+          DATA_DIR: /tmp/routepass-sqlite-ci
+          JWT_SECRET: ci_jwt_secret_only_for_automated_tests_2026
+          ADMIN_REGISTRATION_SECRET: ci_admin_secret_only_for_tests_2026
+          QR_SIGNING_KEY: ci_qr_secret_only_for_tests_2026
+          PAYMENT_MODE: TEST
+        run: npm test
+        working-directory: backend
+
+  backend-postgres:
+    name: PostgreSQL-backed API smoke test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: routepass_db
+          POSTGRES_USER: routepass
+          POSTGRES_PASSWORD: routepass_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U routepass -d routepass_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+      - name: Initialize fresh PostgreSQL schema
+        env:
+          PGPASSWORD: routepass_ci_password
+        run: psql -h 127.0.0.1 -U routepass -d routepass_db -v ON_ERROR_STOP=1 -f backend/init-db.sql
+      - name: Test API against PostgreSQL
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgres://routepass:routepass_ci_password@127.0.0.1:5432/routepass_db
+          DATABASE_SSL: "false"
+          JWT_SECRET: ci_jwt_secret_only_for_automated_tests_2026
+          ADMIN_REGISTRATION_SECRET: ci_admin_secret_only_for_tests_2026
+          QR_SIGNING_KEY: ci_qr_secret_only_for_tests_2026
+          PAYMENT_MODE: PRODUCTION
+        run: node test/postgres-smoke.js
+        working-directory: backend
+
+  android-build:
+    name: Android debug build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+      - name: Assemble debug APK against placeholder HTTPS host
+        run: gradle :app:assembleDebug -PROUTEPASS_API_BASE_URL=https://api.example.com/
