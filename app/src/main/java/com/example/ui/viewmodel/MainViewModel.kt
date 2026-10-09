@@ -9,8 +9,10 @@ import com.example.core.payment.TelebirrPaymentResult
 import com.example.core.qr.QrSecurityEngine
 import com.example.core.qr.QrValidationResult
 import com.example.data.api.LiveTrackingWebSocket
+import com.example.data.api.TrackedVehicleDto
 import com.example.data.entity.*
 import com.example.data.repository.TransportRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -36,21 +38,22 @@ enum class NavigationStepState {
 }
 
 data class DriverTripState(
-    val tripId: String = "trip_morn_20261005",
-    val routeId: String = "route_bole_merkato",
-    val routeName: String = "Bole → Merkato",
-    val vehiclePlate: String = "AA-12345",
-    val vehicleType: String = "Toyota Coaster",
-    val vehicleCapacity: Int = 24,
+    val tripId: String = "",
+    val vehicleId: String = "",
+    val routeId: String = "",
+    val routeName: String = "",
+    val vehiclePlate: String = "",
+    val vehicleType: String = "MINIBUS_14",
+    val vehicleCapacity: Int = 14,
     val departureTime: String = "06:30",
     val currentStopIndex: Int = 0,
     val isNavigating: Boolean = false,
     val isArrivedAtStop: Boolean = false,
     val stopStates: Map<Int, NavigationStepState> = emptyMap(),
-    val currentDistanceKm: Double = 1.2,
-    val currentEtaMins: Int = 4,
-    val checkedInCount: Int = 4,
-    val totalPassengers: Int = 24
+    val currentDistanceKm: Double = 0.0,
+    val currentEtaMins: Int = 0,
+    val checkedInCount: Int = 0,
+    val totalPassengers: Int = 14
 )
 
 class MainViewModel(private val repository: TransportRepository) : ViewModel() {
@@ -152,8 +155,34 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     val recentAuditLogs: StateFlow<List<AuditLogEntity>> = repository.recentAuditLogs
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val routeStops: StateFlow<List<RouteStopEntity>> = repository.getStopsForRoute("route_bole_merkato")
+    val routeStops: StateFlow<List<RouteStopEntity>> = _driverTrip
+        .map { it.routeId }
+        .distinctUntilChanged()
+        .flatMapLatest { routeId -> if (routeId.isBlank()) flowOf(emptyList()) else repository.getStopsForRoute(routeId) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _driverActionMessage = MutableStateFlow<String?>(null)
+    val driverActionMessage: StateFlow<String?> = _driverActionMessage.asStateFlow()
+
+    val trackedVehicle: StateFlow<TrackedVehicleDto?> = _currentUser.flatMapLatest { user ->
+        if (user == null || (user.role != "DRIVER" && user.role != "PASSENGER")) {
+            flowOf(null)
+        } else {
+            flow {
+                while (true) {
+                    val vehicle = try {
+                        repository.fetchTrackedVehicle()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        null
+                    }
+                    emit(vehicle)
+                    delay(5000)
+                }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // Notifications Feeds
     val allNotifications: StateFlow<List<NotificationEntity>> = repository.allNotifications
@@ -222,12 +251,29 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 _currentRole.value = role
                 _isAuthenticated.value = true
                 if (role == AppRole.DRIVER) {
-                    _driverTrip.update {
-                        it.copy(
-                            routeName = user.appliedRouteName.ifBlank { "Bole → Merkato" },
-                            vehiclePlate = user.assignedVehiclePlate.ifBlank { "AA-12345" }
-                        )
+                    _driverTrip.value = DriverTripState(
+                        routeId = user.appliedRouteId,
+                        routeName = user.appliedRouteName,
+                        vehiclePlate = user.assignedVehiclePlate
+                    )
+                    try {
+                        val vehicle = repository.fetchTrackedVehicle()
+                        if (vehicle != null) _driverTrip.update {
+                            it.copy(
+                                vehicleId = vehicle.id,
+                                vehiclePlate = vehicle.plateNumber,
+                                vehicleType = vehicle.vehicleType,
+                                vehicleCapacity = vehicle.capacityLimit,
+                                totalPassengers = vehicle.capacityLimit,
+                                routeId = vehicle.assignedRouteId.orEmpty(),
+                                routeName = vehicle.routeName.orEmpty()
+                            )
+                        }
+                    } catch (_: Exception) {
+                        // UI will show registration or route assignment status instead of fabricated trip data.
                     }
+                } else if (role == AppRole.PASSENGER) {
+                    try { repository.refreshSubscriptionFromBackend(user.id) } catch (_: Exception) {}
                 }
                 repository.logAction("LOGIN_SUCCESS", user.id, roleStr, "User logged in as $roleStr")
             } else {
@@ -247,6 +293,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         licenseNumber: String = "",
         companyName: String = "",
         assignedVehiclePlate: String = "",
+        vehicleModel: String = "",
+        vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
         appliedRouteName: String = ""
     ) {
@@ -256,8 +304,14 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 _authError.value = "Full Name and Phone Number are required."
                 return@launch
             }
-            if ((role == AppRole.PASSENGER || role == AppRole.DRIVER) && appliedRouteId.isBlank()) {
-                _authError.value = "Please select the route you are applying for."
+            if (role == AppRole.PASSENGER && appliedRouteId.isBlank()) {
+                _authError.value = "Please select the route you want to subscribe to."
+                return@launch
+            }
+            if (role == AppRole.DRIVER &&
+                (licenseNumber.isBlank() || assignedVehiclePlate.isBlank() || vehicleModel.isBlank())
+            ) {
+                _authError.value = "Enter your commercial licence, your own vehicle plate and vehicle model."
                 return@launch
             }
             val roleStr = when (role) {
@@ -276,6 +330,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     licenseNumber = licenseNumber,
                     companyName = companyName,
                     assignedVehiclePlate = assignedVehiclePlate,
+                    vehicleModel = vehicleModel,
+                    vehicleType = vehicleType,
                     appliedRouteId = appliedRouteId,
                     appliedRouteName = appliedRouteName
                 )
@@ -283,25 +339,28 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 _currentRole.value = role
                 _isAuthenticated.value = true
                 if (role == AppRole.DRIVER) {
-                    _driverTrip.update {
-                        it.copy(
-                            routeName = user.appliedRouteName.ifBlank { "Bole → Merkato" },
-                            vehiclePlate = user.assignedVehiclePlate.ifBlank { "AA-12345" }
-                        )
-                    }
+                    _driverTrip.value = DriverTripState(
+                        routeId = "",
+                        routeName = "",
+                        vehiclePlate = user.assignedVehiclePlate
+                    )
+                    try {
+                        val vehicle = repository.fetchTrackedVehicle()
+                        if (vehicle != null) _driverTrip.update {
+                            it.copy(
+                                vehicleId = vehicle.id,
+                                vehiclePlate = vehicle.plateNumber,
+                                vehicleType = vehicle.vehicleType,
+                                vehicleCapacity = vehicle.capacityLimit,
+                                totalPassengers = vehicle.capacityLimit
+                            )
+                        }
+                    } catch (_: Exception) {}
+                } else if (role == AppRole.PASSENGER) {
+                    try { repository.refreshSubscriptionFromBackend(user.id) } catch (_: Exception) {}
                 }
             } catch (e: Exception) {
-                val rejection = e.message.orEmpty()
-                _authError.value = if (
-                    role == AppRole.DRIVER &&
-                    (rejection.contains("administrator", ignoreCase = true) ||
-                        rejection.contains("forbidden", ignoreCase = true) ||
-                        rejection.contains("403"))
-                ) {
-                    "Driver self-registration is disabled for security. Ask your RoutePass administrator to create your account and assign your vehicle and route at https://routepass.duckdns.org/admin."
-                } else {
-                    rejection.ifBlank { "Registration rejected by server." }
-                }
+                _authError.value = e.message ?: "Registration failed. Check the information and try again."
             }
         }
     }
@@ -397,16 +456,49 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         }
     }
 
-    // Driver Navigation Actions
+    // Start a server-authoritative trip using the driver's own registered vehicle and admin-assigned route.
     fun startNavigation() {
-        _driverTrip.update {
-            it.copy(
-                isNavigating = true,
-                isArrivedAtStop = false
-            )
-        }
         viewModelScope.launch {
-            repository.logAction("DRIVER_NAVIGATION_START", currentDriverId, "DRIVER", "Started trip navigation on route ${_driverTrip.value.routeName}")
+            _driverActionMessage.value = null
+            try {
+                val user = _currentUser.value ?: throw IllegalStateException("Sign in as a driver first.")
+                val vehicle = repository.fetchTrackedVehicle()
+                    ?: throw IllegalStateException("Your owned vehicle is not registered. Sign out and register it again.")
+                val routeId = vehicle.assignedRouteId?.takeIf { it.isNotBlank() }
+                    ?: throw IllegalStateException("Your vehicle has not been assigned a route yet. Contact the RoutePass administrator.")
+                val trip = repository.startDriverTrip(routeId, vehicle.id)
+                val stops = repository.getStopsForRouteSync(routeId)
+                _driverTrip.value = DriverTripState(
+                    tripId = trip.id,
+                    vehicleId = vehicle.id,
+                    routeId = routeId,
+                    routeName = trip.routeName ?: vehicle.routeName.orEmpty(),
+                    vehiclePlate = trip.plateNumber ?: vehicle.plateNumber,
+                    vehicleType = trip.vehicleType ?: vehicle.vehicleType,
+                    vehicleCapacity = trip.capacityLimit ?: vehicle.capacityLimit,
+                    departureTime = user.appliedRouteName.ifBlank { "06:30" },
+                    currentStopIndex = 0,
+                    isNavigating = true,
+                    isArrivedAtStop = false,
+                    checkedInCount = trip.currentOccupancy,
+                    totalPassengers = trip.capacityLimit ?: vehicle.capacityLimit
+                )
+                _driverActionMessage.value = if (stops.isEmpty()) "Trip started, but this route has no stop list configured yet." else "Live trip started. GPS sharing is available while this screen is open."
+                repository.logAction("DRIVER_NAVIGATION_START", user.id, "DRIVER", "Started live trip ${trip.id} on route ${trip.routeId}")
+            } catch (e: Exception) {
+                _driverActionMessage.value = e.message ?: "Could not start the trip."
+            }
+        }
+    }
+
+    fun submitDriverLocation(latitude: Double, longitude: Double, speed: Double = 0.0, currentStop: String = "") {
+        viewModelScope.launch {
+            try {
+                repository.submitDriverLocation(latitude, longitude, speed, currentStop)
+                _driverActionMessage.value = "Live GPS location updated."
+            } catch (e: Exception) {
+                _driverActionMessage.value = e.message ?: "GPS update failed."
+            }
         }
     }
 
@@ -485,16 +577,24 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         viewModelScope.launch {
             val stops = routeStops.value
             val currentStop = stops.getOrNull(_driverTrip.value.currentStopIndex)?.stopName ?: "Bole Atlas"
+            val tripState = _driverTrip.value
+            if (!tripState.isNavigating || tripState.tripId.isBlank() || tripState.vehicleId.isBlank()) {
+                _scanResult.value = QrValidationResult.Invalid(
+                    "reason_qr_corrupted",
+                    "Start a live trip on your own assigned vehicle before scanning passenger passes."
+                )
+                return@launch
+            }
             val result = QrSecurityEngine.validateToken(
                 qrToken = rawToken,
-                currentTripId = _driverTrip.value.tripId,
-                currentRouteId = _driverTrip.value.routeId,
-                currentVehicleId = "veh_aa_12345",
+                currentTripId = tripState.tripId,
+                currentRouteId = tripState.routeId,
+                currentVehicleId = tripState.vehicleId,
                 currentStopName = currentStop,
                 driverId = currentDriverId,
                 repository = repository,
-                vehicleCapacity = _driverTrip.value.vehicleCapacity,
-                currentPassengerCount = _driverTrip.value.checkedInCount
+                vehicleCapacity = tripState.vehicleCapacity,
+                currentPassengerCount = tripState.checkedInCount
             )
             _scanResult.value = result
 
