@@ -52,6 +52,6 @@ router.post('/push', authenticate, requireRole('DRIVER'), (req, res) => {
     code: 'OFFLINE_CHECKIN_SYNC_DISABLED',
     error: 'Offline boarding records are not accepted until a signed offline validation protocol is deployed.'
   });
-});;
+});
 
 module.exports = router;
