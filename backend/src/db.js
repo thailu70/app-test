@@ -108,6 +108,7 @@ function normalizeRow(row) {
     if (lowerKey === 'sendername' || lowerKey === 'sender_name') normalized.senderName = val;
     if (lowerKey === 'createdat' || lowerKey === 'created_at') normalized.createdAt = val;
     if (lowerKey === 'updatedat' || lowerKey === 'updated_at') normalized.updatedAt = val;
+    if (lowerKey === 'lastgpsat' || lowerKey === 'last_gps_at') normalized.lastGpsAt = val;
   }
   return normalized;
 }
@@ -354,6 +355,16 @@ function initSqliteSchema() {
       currentLng REAL DEFAULT 38.760,
       status TEXT DEFAULT 'IN_SERVICE',
       updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS vehicle_live_locations (
+      vehicle_id TEXT PRIMARY KEY,
+      latitude REAL NOT NULL,
+      longitude REAL NOT NULL,
+      speed REAL DEFAULT 0,
+      current_stop TEXT DEFAULT '',
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (vehicle_id) REFERENCES vehicles (id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS subscriptions (
