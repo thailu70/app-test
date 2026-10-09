@@ -170,7 +170,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
     val trackedVehicle: StateFlow<TrackedVehicleDto?> = _currentUser.flatMapLatest { user ->
         if (user == null || (user.role != "DRIVER" && user.role != "PASSENGER")) {
-            flowOf(null)
+            flowOf<TrackedVehicleDto?>(null)
         } else {
             flow {
                 while (true) {
