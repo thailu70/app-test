@@ -24,7 +24,7 @@ interface RoutePassApiService {
     suspend fun getRoutes(): Response<RoutesResponse>
 
     @GET("api/routes/{id}")
-    suspend fun getRouteById(@Path("id") routeId: String): Response<RouteDto>
+    suspend fun getRouteById(@Path("id") routeId: String): Response<RouteDetailsResponse>
 
     @POST("api/routes")
     suspend fun createRoute(@Body route: Map<String, Any>): Response<GenericResponse>
