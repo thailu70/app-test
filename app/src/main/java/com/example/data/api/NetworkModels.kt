@@ -24,6 +24,8 @@ data class RegisterRequest(
     val licenseNumber: String? = null,
     val companyName: String? = null,
     val assignedVehiclePlate: String? = null,
+    val vehicleModel: String? = null,
+    val vehicleType: String? = null,
     val appliedRouteId: String? = null,
     val appliedRouteName: String? = null
 )
@@ -202,6 +204,35 @@ data class VehiclesResponse(
     val count: Int? = 0,
     val vehicles: List<VehicleDto> = emptyList()
 )
+
+@JsonClass(generateAdapter = true)
+data class TrackedVehicleDto(
+    val id: String,
+    val plateNumber: String,
+    val model: String,
+    val vehicleType: String,
+    val capacityLimit: Int,
+    val currentOccupancy: Int = 0,
+    val assignedRouteId: String? = null,
+    val routeName: String? = null,
+    val driverId: String? = null,
+    val driverName: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val speed: Double? = null,
+    val currentStop: String? = null,
+    val lastGpsAt: String? = null,
+    val hasGpsLocation: Boolean = false
+)
+
+@JsonClass(generateAdapter = true)
+data class TrackingVehicleResponse(
+    val success: Boolean,
+    val vehicle: TrackedVehicleDto? = null,
+    val message: String? = null,
+    val error: String? = null
+)
+
 
 @JsonClass(generateAdapter = true)
 data class UpdateVehicleTypeRequest(
