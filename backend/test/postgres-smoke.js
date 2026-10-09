@@ -91,7 +91,7 @@ async function run() {
     assert.equal(result.data.transaction.provider, 'ADMIN_TEST', 'Manual recharge must not masquerade as Telebirr');
     assert.match(result.data.subscription.qrToken, /^RP1:/, 'Manual recharge must issue a signed QR pass');
 
-    // A driver registers their own identity and owned vehicle; the admin assigns only the operating route.
+    // A driver self-registers, awaits admin approval, then receives a route assignment.
     result = await requestJson(baseUrl, '/api/auth/register', 'POST', {
       fullName: 'CI Driver Owner',
       phone: '+251900000103',
@@ -103,9 +103,11 @@ async function run() {
       vehicleModel: 'CI Minibus',
       vehicleType: 'MINIBUS_14'
     });
-    assert.equal(result.status, 201, 'Driver owner self-registration must create the driver and owned vehicle');
+    assert.equal(result.status, 201, 'Driver owner self-registration must create the pending driver and owned vehicle');
     const driver = result.data.user;
     assert.equal(driver.role, 'DRIVER');
+    assert.equal(driver.status, 'PENDING_APPROVAL');
+    assert.equal(result.data.token, null, 'Pending driver registration must not create a login session');
     assert.equal(driver.assignedVehiclePlate, '3-CI-0001');
     assert.equal(driver.appliedRouteId, '', 'A newly registered driver must not choose their own route');
 
@@ -114,21 +116,52 @@ async function run() {
       password: 'CI_Driver_Password#2026',
       role: 'DRIVER'
     });
-    assert.equal(result.status, 200, 'Created driver must be able to login');
-    const driverToken = result.data.token;
+    assert.equal(result.status, 403, 'Pending driver must not log in before admin approval');
+    assert.equal(result.data.code, 'PENDING_APPROVAL');
+
+    result = await requestJson(baseUrl, `/api/admin/drivers/${encodeURIComponent(driver.id)}/approval`, 'PATCH', {
+      status: 'ACTIVE'
+    }, adminToken);
+    assert.equal(result.status, 200, 'Admin should explicitly approve a driver before route assignment');
 
     result = await requestJson(baseUrl, `/api/admin/drivers/${encodeURIComponent(driver.id)}/route`, 'PATCH', {
       routeId: 'route_bole_merkato'
     }, adminToken);
-    assert.equal(result.status, 200, 'Admin should assign an active route to the driver-owned vehicle');
+    assert.equal(result.status, 200, 'Admin should assign an active route to the approved driver-owned vehicle');
     assert.equal(result.data.vehicle.plateNumber, '3-CI-0001');
+    const driverVehicleId = result.data.vehicle.id;
 
+    result = await requestJson(baseUrl, '/api/auth/login', 'POST', {
+      phone: '+251900000103',
+      password: 'CI_Driver_Password#2026',
+      role: 'DRIVER'
+    });
+    assert.equal(result.status, 200, 'Approved driver must be able to log in');
+    const driverToken = result.data.token;
 
     result = await requestJson(baseUrl, '/api/trips/start', 'POST', {
-      routeId: 'route_bole_merkato'
+      routeId: 'route_bole_merkato',
+      vehicleId: driverVehicleId
     }, driverToken);
-    assert.equal(result.status, 200, 'Assigned driver must be able to start trip');
+    assert.equal(result.status, 200, 'Approved driver with an assigned route must be able to start trip');
     assert.equal(result.data.trip.status, 'IN_PROGRESS');
+
+    result = await requestJson(baseUrl, '/api/vehicles/my-location', 'POST', {
+      latitude: 9.01, longitude: 38.76, speed: 1.2, currentStop: 'CI Stop'
+    }, driverToken);
+    assert.equal(result.status, 200, 'Driver GPS update must be accepted by backend');
+    assert.equal(result.data.latitude, 9.01);
+
+    result = await requestJson(baseUrl, '/api/admin/subscriptions/' + encodeURIComponent(passengerSubscriptionId) + '/assignment', 'PATCH', {
+      vehicleId: driverVehicleId
+    }, adminToken);
+    assert.equal(result.status, 200, 'Admin must assign the approved driver-owned vehicle to the passenger subscription');
+
+    result = await requestJson(baseUrl, '/api/vehicles/tracking', 'GET', null, passengerToken);
+    assert.equal(result.status, 200, 'Passenger tracking endpoint must work for active assigned subscription');
+    assert.equal(result.data.vehicle.id, driverVehicleId);
+    assert.equal(result.data.vehicle.hasGpsLocation, true, 'Passenger tracking must return server-confirmed GPS coordinates');
+    assert.equal(result.data.vehicle.latitude, 9.01);
 
     // No test should produce a server-confirmed live payment in production mode.
     console.log('PostgreSQL API smoke test passed: readiness, read, write, transaction, auth, and payment fail-closed.');
