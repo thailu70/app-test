@@ -1,5 +1,8 @@
 package com.example.ui.screens.driver
 
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
+
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -57,6 +60,7 @@ import com.example.core.localization.AppStrings
 import com.example.core.qr.QrValidationResult
 import com.example.data.entity.RouteStopEntity
 import com.example.ui.components.MiniVehicleMap
+import com.example.ui.components.AssignedRosterCard
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DriverTripState
 import com.example.ui.viewmodel.MainViewModel
@@ -70,6 +74,8 @@ fun DriverTripScreen(
 ) {
     val lang by viewModel.currentLanguage.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
+    val assignedRoster by viewModel.assignedRoster.collectAsState()
+    val rosterMessage by viewModel.rosterMessage.collectAsState()
     val tripState by viewModel.driverTrip.collectAsState()
     val stops by viewModel.routeStops.collectAsState()
     val trackedVehicle by viewModel.trackedVehicle.collectAsState()
@@ -81,6 +87,13 @@ fun DriverTripScreen(
     val scanResult by viewModel.scanResult.collectAsState()
 
     fun t(key: String) = AppStrings.get(key, lang)
+
+    LaunchedEffect(currentUser?.id) {
+        if (currentUser?.id != null) {
+            viewModel.refreshAssignedRoster()
+            while (true) { delay(30000); viewModel.refreshAssignedRoster() }
+        }
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         DriverLocationReporter(
@@ -120,7 +133,17 @@ fun DriverTripScreen(
                 }
             }
 
-            // 3. High-Visibility Big Navigation HUD
+            // 3. People assigned to this driver's vehicle for their active monthly subscriptions.
+            item {
+                AssignedRosterCard(
+                    title = "Your monthly passengers",
+                    people = assignedRoster.filter { it.role == "PASSENGER" },
+                    message = rosterMessage,
+                    modifier = Modifier.testTag("driver_assigned_passengers")
+                )
+            }
+
+            // 4. High-Visibility Big Navigation HUD
             item {
                 DriverNavigationHudCard(
                     tripState = tripState,
@@ -134,7 +157,7 @@ fun DriverTripScreen(
                 )
             }
 
-            // 4. Stop Sequence & Passenger Attendance
+            // 5. Stop Sequence & Passenger Attendance
             item {
                 Text(
                     text = t("pickup_sequence"),
