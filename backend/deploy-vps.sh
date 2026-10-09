@@ -67,7 +67,12 @@ JWT_SECRET=${RANDOM_JWT_SECRET}
 JWT_EXPIRES_IN=30d
 ADMIN_REGISTRATION_SECRET=${RANDOM_ADMIN_SECRET}
 QR_SIGNING_KEY=${RANDOM_QR_SECRET}
-PAYMENT_MODE=TEST
+PAYMENT_MODE=PRODUCTION
+# Configure these from your approved Telebirr merchant integration before enabling payments:
+# TELEBIRR_APP_ID=
+# TELEBIRR_APP_KEY=
+# TELEBIRR_QUERY_URL=
+# TELEBIRR_WEBHOOK_SECRET=
 EOF
   echo "[+] Generated secure production .env with unique cryptographic keys."
 fi
@@ -104,6 +109,7 @@ echo "  Public IP        : ${PUBLIC_IP}"
 echo "  API Endpoint     : http://${PUBLIC_IP}/api"
 echo "  WebSocket Feed   : ws://${PUBLIC_IP}/ws"
 echo "  Health Status    : ${HEALTH_STATUS}"
+echo "  PAYMENT SAFETY   : PRODUCTION mode selected; payments require configured Telebirr merchant verification."
 echo ""
 echo "  To obtain a free SSL Certificate with Let's Encrypt:"
 echo "    apt-get install -y certbot"
