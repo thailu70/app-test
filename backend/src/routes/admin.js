@@ -14,16 +14,16 @@ router.use(authenticate, requireRole('ADMIN'));
  * GET /api/admin/stats
  * Overview dashboard metrics
  */
-router.get('/stats', (req, res) => {
+router.get('/stats', async (req, res) => {
   try {
-    const totalPassengers = DB.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'PASSENGER'").get().c;
-    const totalDrivers = DB.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'DRIVER'").get().c;
-    const activeRoutes = DB.prepare('SELECT COUNT(*) as c FROM routes WHERE active = 1').get().c;
-    const activeVehicles = DB.prepare("SELECT COUNT(*) as c FROM vehicles WHERE status != 'MAINTENANCE'").get().c;
-    const activeSubscriptions = DB.prepare("SELECT COUNT(*) as c FROM subscriptions WHERE subscriptionStatus = 'ACTIVE'").get().c;
-    const totalRevenue = DB.prepare("SELECT COALESCE(SUM(amountEtb), 0) as s FROM payment_transactions WHERE status = 'COMPLETED'").get().s;
-    const todayCheckins = DB.prepare("SELECT COUNT(*) as c FROM checkin_records WHERE status = 'BOARDED'").get().c;
-    const openComplaints = DB.prepare("SELECT COUNT(*) as c FROM complaints WHERE status = 'OPEN'").get().c;
+    const totalPassengers = (await DB.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'PASSENGER'").get()).c;
+    const totalDrivers = (await DB.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'DRIVER'").get()).c;
+    const activeRoutes = (await DB.prepare('SELECT COUNT(*) as c FROM routes WHERE active = 1').get()).c;
+    const activeVehicles = (await DB.prepare("SELECT COUNT(*) as c FROM vehicles WHERE status != 'MAINTENANCE'").get()).c;
+    const activeSubscriptions = (await DB.prepare("SELECT COUNT(*) as c FROM subscriptions WHERE subscriptionStatus = 'ACTIVE'").get()).c;
+    const totalRevenue = (await DB.prepare("SELECT COALESCE(SUM(amountEtb), 0) as s FROM payment_transactions WHERE status = 'COMPLETED'").get()).s;
+    const todayCheckins = (await DB.prepare("SELECT COUNT(*) as c FROM checkin_records WHERE status = 'BOARDED'").get()).c;
+    const openComplaints = (await DB.prepare("SELECT COUNT(*) as c FROM complaints WHERE status = 'OPEN'").get()).c;
 
     res.json({
       success: true,
@@ -39,7 +39,8 @@ router.get('/stats', (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -47,9 +48,9 @@ router.get('/stats', (req, res) => {
  * GET /api/admin/drivers
  * List all commercial transporters / drivers
  */
-router.get('/drivers', (req, res) => {
+router.get('/drivers', async (req, res) => {
   try {
-    const drivers = DB.prepare(`
+    const drivers = await DB.prepare(`
       SELECT id, fullName, phone, email, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName, createdAt
       FROM users
       WHERE role = 'DRIVER'
@@ -58,7 +59,8 @@ router.get('/drivers', (req, res) => {
 
     res.json({ success: true, drivers });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -66,9 +68,9 @@ router.get('/drivers', (req, res) => {
  * GET /api/admin/subscriptions
  * List all subscriptions
  */
-router.get('/subscriptions', (req, res) => {
+router.get('/subscriptions', async (req, res) => {
   try {
-    const list = DB.prepare(`
+    const list = await DB.prepare(`
       SELECT s.*, u.fullName as passengerName, u.phone as passengerPhone, r.name as routeName
       FROM subscriptions s
       LEFT JOIN users u ON s.passengerId = u.id
@@ -78,7 +80,8 @@ router.get('/subscriptions', (req, res) => {
 
     res.json({ success: true, subscriptions: list });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -86,9 +89,9 @@ router.get('/subscriptions', (req, res) => {
  * GET /api/admin/payments
  * List payment transaction history
  */
-router.get('/payments', (req, res) => {
+router.get('/payments', async (req, res) => {
   try {
-    const payments = DB.prepare(`
+    const payments = await DB.prepare(`
       SELECT p.*, u.fullName as passengerName, u.phone as passengerPhone
       FROM payment_transactions p
       LEFT JOIN users u ON p.passengerId = u.id
@@ -97,7 +100,8 @@ router.get('/payments', (req, res) => {
 
     res.json({ success: true, payments });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -105,9 +109,9 @@ router.get('/payments', (req, res) => {
  * GET /api/admin/checkins
  * Full checkin audit log
  */
-router.get('/checkins', (req, res) => {
+router.get('/checkins', async (req, res) => {
   try {
-    const list = DB.prepare(`
+    const list = await DB.prepare(`
       SELECT c.*, v.plateNumber as vehiclePlate, r.name as routeName
       FROM checkin_records c
       LEFT JOIN vehicles v ON c.vehicleId = v.id
@@ -117,7 +121,8 @@ router.get('/checkins', (req, res) => {
 
     res.json({ success: true, checkins: list });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -125,9 +130,9 @@ router.get('/checkins', (req, res) => {
  * GET /api/admin/complaints
  * Passenger incident reports
  */
-router.get('/complaints', (req, res) => {
+router.get('/complaints', async (req, res) => {
   try {
-    const complaints = DB.prepare(`
+    const complaints = await DB.prepare(`
       SELECT c.*, u.phone as passengerPhone
       FROM complaints c
       LEFT JOIN users u ON c.passengerId = u.id
@@ -136,7 +141,8 @@ router.get('/complaints', (req, res) => {
 
     res.json({ success: true, complaints });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -144,15 +150,16 @@ router.get('/complaints', (req, res) => {
  * PATCH /api/admin/complaints/:id
  * Resolve or update complaint status
  */
-router.patch('/complaints/:id', (req, res) => {
+router.patch('/complaints/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
 
-    DB.prepare('UPDATE complaints SET status = ? WHERE id = ?').run(status, id);
+    await DB.prepare('UPDATE complaints SET status = ? WHERE id = ?').run(status, id);
     res.json({ success: true, message: 'Complaint status updated.', id, status });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -160,15 +167,16 @@ router.patch('/complaints/:id', (req, res) => {
  * GET /api/admin/audit-logs
  * System audit events
  */
-router.get('/audit-logs', (req, res) => {
+router.get('/audit-logs', async (req, res) => {
   try {
-    const logs = DB.prepare(`
+    const logs = await DB.prepare(`
       SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT 100
     `).all();
 
     res.json({ success: true, logs });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
