@@ -10,6 +10,12 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "Public HTTPS RoutePass API base URL (include trailing slash)"
+        required: true
+        default: "https://api.example.com/"
+        type: string
 
 permissions:
   contents: read
@@ -100,5 +106,12 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.3.1"
-      - name: Assemble debug APK against placeholder HTTPS host
-        run: gradle :app:assembleDebug -PROUTEPASS_API_BASE_URL=https://api.example.com/
+      - name: Assemble debug APK against configured HTTPS host
+        run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://api.example.com/' }}"
+      - name: Upload installable debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: routepass-android-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
