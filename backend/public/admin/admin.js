@@ -131,7 +131,7 @@
     await loadLookups();
     const data = asArray(await api("/api/admin/drivers"), "drivers");
     const routes = (state.cache.routes || []).filter(r => r.active !== false && r.active !== 0);
-    return pageHeader("Driver-owned vehicles", "Drivers register themselves and their own vehicles. Admins only assign active routes.",
+    return pageHeader("Driver approval & routes", "Review new driver registrations, approve verified drivers, then assign their operating route. Drivers retain ownership of their vehicles.",
       '<button class="btn btn-secondary" data-go="routes">Manage routes</button>') +
       section("Registered drivers", data.length + " account(s)",
         table([
@@ -140,16 +140,23 @@
           { label: "Company", keys: ["companyName", "company_name"] },
           { label: "Licence", keys: ["licenseNumber", "license_number"] },
           { label: "Owner vehicle", keys: ["assignedVehiclePlate", "assigned_vehicle_plate"] },
+          { label: "Approval", render: r => {
+            const id = esc(value(r, "id"));
+            const status = String(r.status || "").toUpperCase();
+            if (status === "PENDING_APPROVAL") return '<div class="inline-actions"><button class="btn btn-primary" data-driver-id="' + id + '" data-driver-approval="ACTIVE">Approve</button><button class="btn btn-secondary" data-driver-id="' + id + '" data-driver-approval="REJECTED">Reject</button></div>';
+            if (status === "REJECTED") return '<div class="inline-actions">' + pill(status) + '<button class="btn btn-secondary" data-driver-id="' + id + '" data-driver-approval="ACTIVE">Approve</button></div>';
+            return pill(status);
+          }},
           { label: "Assigned route", keys: ["appliedRouteName", "applied_route_name"] },
           { label: "Route action", render: r => {
             const id = esc(value(r, "id"));
+            if (String(r.status || "").toUpperCase() !== "ACTIVE") return '<span class="muted">Approve driver first</span>';
             const selected = value(r, "appliedRouteId", "applied_route_id");
             const options = '<option value="">Choose route…</option>' + routes.map(route =>
               '<option value="' + esc(route.id) + '" ' + (route.id === selected ? "selected" : "") + '>' + esc(value(route, "name")) + '</option>'
             ).join("");
             return '<div class="inline-actions"><select data-route-for="' + id + '" aria-label="Route for ' + esc(value(r, "fullName")) + '" style="min-width:170px;padding:7px;border:1px solid #d5deea;border-radius:8px">' + options + '</select><button class="btn btn-primary" data-assign-route="' + id + '">Assign</button></div>';
-          }},
-          { label: "Status", render: r => pill(value(r, "status")) }
+          }}
         ], data));
   }
 
@@ -363,6 +370,20 @@
     } finally { button.disabled = false; }
   }
 
+  async function updateDriverApproval(button) {
+    const driverId = button.dataset.driverId;
+    const status = button.dataset.driverApproval;
+    if (status === "REJECTED" && !window.confirm("Reject this driver registration? The driver will not be able to sign in.")) return;
+    button.disabled = true;
+    try {
+      const result = await api("/api/admin/drivers/" + encodeURIComponent(driverId) + "/approval", {
+        method: "PATCH", body: JSON.stringify({ status })
+      });
+      toast(result.message || "Driver approval updated.");
+      await renderView();
+    } catch (error) { toast(error.message, true); button.disabled = false; }
+  }
+
   async function assignDriverRoute(button) {
     const driverId = button.dataset.assignRoute;
     const select = $$("[data-route-for]").find(item => item.dataset.routeFor === driverId);
@@ -501,6 +522,8 @@
     if (navButton) { state.view = navButton.dataset.view; renderView(); return; }
     const goButton = event.target.closest("[data-go]");
     if (goButton) { state.view = goButton.dataset.go; renderView(); return; }
+    const approvalButton = event.target.closest("[data-driver-approval]");
+    if (approvalButton) { updateDriverApproval(approvalButton); return; }
     const assignRouteButton = event.target.closest("[data-assign-route]");
     if (assignRouteButton) { assignDriverRoute(assignRouteButton); return; }
     const assignVehicleButton = event.target.closest("[data-assign-vehicle]");
