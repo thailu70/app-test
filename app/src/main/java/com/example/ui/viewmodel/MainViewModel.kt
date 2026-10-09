@@ -155,6 +155,10 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     val recentAuditLogs: StateFlow<List<AuditLogEntity>> = repository.recentAuditLogs
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Driver Trip State
+    private val _driverTrip = MutableStateFlow(DriverTripState())
+    val driverTrip: StateFlow<DriverTripState> = _driverTrip.asStateFlow()
+
     val routeStops: StateFlow<List<RouteStopEntity>> = _driverTrip
         .map { it.routeId }
         .distinctUntilChanged()
@@ -193,10 +197,6 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
     val transporterNotifications: StateFlow<List<NotificationEntity>> = repository.transporterNotifications
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    // Driver Trip State
-    private val _driverTrip = MutableStateFlow(DriverTripState())
-    val driverTrip: StateFlow<DriverTripState> = _driverTrip.asStateFlow()
 
     // Scanner UI State
     private val _isScannerOpen = MutableStateFlow(false)
