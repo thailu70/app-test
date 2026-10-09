@@ -113,6 +113,144 @@ router.patch('/:id/type', authenticate, requireRole('ADMIN'), async (req, res) =
 });
 
 /**
+ * GET /api/vehicles/tracking
+ * Return only the caller's owned vehicle (driver) or the vehicle for the caller's active
+ * paid subscription (passenger). Only genuine GPS reports are returned as a live location.
+ */
+router.get('/tracking', authenticate, async (req, res) => {
+  try {
+    let row = null;
+    if (req.user.role === 'DRIVER') {
+      row = await DB.prepare(`
+        SELECT v.*, r.name AS routeName, l.latitude, l.longitude, l.speed,
+               l.current_stop AS currentStop, l.updated_at AS lastGpsAt
+        FROM vehicles v
+        LEFT JOIN routes r ON r.id = v.assignedRouteId
+        LEFT JOIN vehicle_live_locations l ON l.vehicle_id = v.id
+        WHERE v.driverId = ?
+        ORDER BY v.updatedAt DESC LIMIT 1
+      `).get(req.user.id);
+    } else if (req.user.role === 'PASSENGER') {
+      const sub = await DB.prepare(`
+        SELECT * FROM subscriptions
+        WHERE passengerId = ? AND subscriptionStatus = 'ACTIVE'
+          AND paymentStatus = 'PAID' AND daysRemaining > 0
+        ORDER BY updatedAt DESC LIMIT 1
+      `).get(req.user.id);
+      if (!sub) {
+        return res.json({ success: true, vehicle: null, message: 'An active paid subscription is required to track a vehicle.' });
+      }
+
+      if (sub.vehicleId) {
+        row = await DB.prepare(`
+          SELECT v.*, r.name AS routeName, l.latitude, l.longitude, l.speed,
+                 l.current_stop AS currentStop, l.updated_at AS lastGpsAt
+          FROM vehicles v
+          LEFT JOIN routes r ON r.id = v.assignedRouteId
+          LEFT JOIN vehicle_live_locations l ON l.vehicle_id = v.id
+          WHERE v.id = ? AND v.assignedRouteId = ? AND v.driverId IS NOT NULL
+          LIMIT 1
+        `).get(sub.vehicleId, sub.routeId);
+      }
+      if (!row) {
+        row = await DB.prepare(`
+          SELECT v.*, r.name AS routeName, l.latitude, l.longitude, l.speed,
+                 l.current_stop AS currentStop, l.updated_at AS lastGpsAt
+          FROM vehicles v
+          LEFT JOIN routes r ON r.id = v.assignedRouteId
+          LEFT JOIN vehicle_live_locations l ON l.vehicle_id = v.id
+          WHERE v.assignedRouteId = ? AND v.driverId IS NOT NULL
+            AND v.status IN ('IN_SERVICE', 'FULL')
+          ORDER BY CASE WHEN l.updated_at IS NULL THEN 1 ELSE 0 END, l.updated_at DESC
+          LIMIT 1
+        `).get(sub.routeId);
+      }
+    } else {
+      return res.status(403).json({ success: false, error: 'Only drivers and passengers can access vehicle tracking.' });
+    }
+
+    if (!row) return res.json({ success: true, vehicle: null, message: 'No driver vehicle is assigned yet.' });
+    res.json({
+      success: true,
+      vehicle: {
+        id: row.id,
+        plateNumber: row.plateNumber,
+        model: row.model,
+        vehicleType: row.vehicleType,
+        capacityLimit: row.capacityLimit,
+        currentOccupancy: row.currentOccupancy,
+        assignedRouteId: row.assignedRouteId,
+        routeName: row.routeName || '',
+        driverId: row.driverId,
+        driverName: row.driverName || '',
+        latitude: row.latitude == null ? null : Number(row.latitude),
+        longitude: row.longitude == null ? null : Number(row.longitude),
+        speed: row.speed == null ? null : Number(row.speed),
+        currentStop: row.currentStop || '',
+        lastGpsAt: row.lastGpsAt || null,
+        hasGpsLocation: row.latitude != null && row.longitude != null && Boolean(row.lastGpsAt)
+      }
+    });
+  } catch (err) {
+    console.error('[RoutePass] vehicle tracking query failed:', err);
+    res.status(500).json({ success: false, error: 'Could not load vehicle tracking.' });
+  }
+});
+
+/**
+ * POST /api/vehicles/my-location
+ * The signed-in driver reports the GPS location of their own registered vehicle.
+ */
+router.post('/my-location', authenticate, requireRole('DRIVER'), async (req, res) => {
+  try {
+    const { latitude, longitude, speed = 0, currentStop = '' } = req.body;
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    const velocity = Number(speed || 0);
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90 ||
+        !Number.isFinite(lng) || lng < -180 || lng > 180 ||
+        !Number.isFinite(velocity) || velocity < 0 || velocity > 300) {
+      return res.status(400).json({ success: false, error: 'Valid latitude, longitude and speed are required.' });
+    }
+
+    const vehicle = await DB.prepare('SELECT * FROM vehicles WHERE driverId = ? LIMIT 1').get(req.user.id);
+    if (!vehicle) return res.status(409).json({ success: false, error: 'Register your own vehicle before sharing GPS.' });
+
+    await DB.prepare(`
+      INSERT INTO vehicle_live_locations (vehicle_id, latitude, longitude, speed, current_stop, updated_at)
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT (vehicle_id) DO UPDATE SET
+        latitude = excluded.latitude,
+        longitude = excluded.longitude,
+        speed = excluded.speed,
+        current_stop = excluded.current_stop,
+        updated_at = CURRENT_TIMESTAMP
+    `).run(vehicle.id, lat, lng, velocity, String(currentStop || '').slice(0, 100));
+
+    await DB.prepare('UPDATE vehicles SET currentLat = ?, currentLng = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(lat, lng, vehicle.id);
+
+    if (req.app.locals.broadcastWs) {
+      req.app.locals.broadcastWs({
+        type: 'VEHICLE_LOCATION_UPDATE',
+        vehicleId: vehicle.id,
+        routeId: vehicle.assignedRouteId || '',
+        latitude: lat,
+        longitude: lng,
+        speed: velocity,
+        currentStop: String(currentStop || '').slice(0, 100),
+        timestamp: new Date().toISOString()
+      }, vehicle.assignedRouteId || null);
+    }
+
+    res.json({ success: true, vehicleId: vehicle.id, latitude: lat, longitude: lng, timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('[RoutePass] driver GPS update failed:', err);
+    res.status(500).json({ success: false, error: 'Could not update GPS location.' });
+  }
+});
+
+/**
  * POST /api/vehicles/:id/location
  * Driver: Send GPS location telemetry (broadcasts to WebSocket clients)
  */
