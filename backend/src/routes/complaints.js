@@ -8,7 +8,7 @@ const { authenticate, requireRole } = require('../middleware/auth');
  * POST /api/complaints
  * Commuters file service feedback or complaint
  */
-router.post('/', authenticate, requireRole('PASSENGER'), (req, res) => {
+router.post('/', authenticate, requireRole('PASSENGER'), async (req, res) => {
   try {
     const passengerId = req.user.id;
     const { category, description } = req.body;
@@ -17,10 +17,10 @@ router.post('/', authenticate, requireRole('PASSENGER'), (req, res) => {
       return res.status(400).json({ success: false, error: 'Category and description are required.' });
     }
 
-    const user = DB.prepare('SELECT fullName FROM users WHERE id = ?').get(passengerId);
+    const user = await DB.prepare('SELECT fullName FROM users WHERE id = ?').get(passengerId);
     const complaintId = `cmp_${crypto.randomUUID().slice(0, 8)}`;
 
-    DB.prepare(`
+    await DB.prepare(`
       INSERT INTO complaints (id, passengerId, passengerName, category, description, status)
       VALUES (?, ?, ?, ?, ?, 'OPEN')
     `).run(complaintId, passengerId, user?.fullName || 'Passenger', category, description);
@@ -31,7 +31,8 @@ router.post('/', authenticate, requireRole('PASSENGER'), (req, res) => {
       complaintId
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
