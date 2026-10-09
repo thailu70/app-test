@@ -1,0 +1,43 @@
+name: RoutePass Android Test APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "Public HTTPS RoutePass API base URL (include trailing slash)"
+        required: true
+        default: "https://api.example.com/"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  android-build:
+    name: Build installable Android test APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out selected branch
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+      - name: Assemble debug APK against configured HTTPS host
+        run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=${{ inputs.api_base_url }}"
+      - name: Upload installable debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: routepass-android-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
