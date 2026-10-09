@@ -30,12 +30,16 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
     if (!vehicle) {
       return res.status(404).json({ success: false, error: 'Vehicle not found for driver.' });
     }
-    if (!(vehicle.driverId === driverId ||
-      (!vehicle.driverId && driverUser?.assignedVehiclePlate && vehicle.plateNumber === driverUser.assignedVehiclePlate))) {
+    if (vehicle.driverId !== driverId) {
       return res.status(403).json({ success: false, error: 'This vehicle is not assigned to your driver account.' });
     }
-    if (vehicle.assignedRouteId && vehicle.assignedRouteId !== routeId && req.user.role !== 'ADMIN') {
+    if (vehicle.assignedRouteId && vehicle.assignedRouteId !== routeId) {
       return res.status(403).json({ success: false, error: 'The requested route is not assigned to this vehicle.' });
+    }
+
+    const existingTrip = await DB.prepare("SELECT id FROM trips WHERE vehicleId = ? AND status = 'IN_PROGRESS' LIMIT 1").get(vehicle.id);
+    if (existingTrip) {
+      return res.status(409).json({ success: false, error: 'This vehicle already has an active trip.' });
     }
 
     // Get initial route stop
@@ -200,6 +204,12 @@ router.post('/:id/end', authenticate, requireRole('DRIVER'), async (req, res) =>
 
     if (!trip) {
       return res.status(404).json({ success: false, error: 'Trip not found.' });
+    }
+    if (trip.driverId !== req.user.id) {
+      return res.status(403).json({ success: false, error: 'Access denied for this trip.' });
+    }
+    if (trip.status !== 'IN_PROGRESS') {
+      return res.status(409).json({ success: false, error: 'This trip is not active.' });
     }
 
     await DB.prepare(`
