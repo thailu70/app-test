@@ -108,6 +108,69 @@ router.post('/drivers', async (req, res) => {
 });
 
 /**
+ * POST /api/admin/drivers
+ * Provision a driver only through an authenticated administrator. The server controls
+ * role, status, vehicle assignment and route assignment; public signup cannot do this.
+ */
+router.post('/drivers', async (req, res) => {
+  try {
+    const { fullName, phone, email = '', password, licenseNumber, companyName, vehicleId, routeId } = req.body;
+    if (!fullName || !phone || !password || !licenseNumber || !companyName || !vehicleId || !routeId) {
+      return res.status(400).json({ success: false, error: 'Name, phone, password, license, company, vehicle and route are required.' });
+    }
+    if (typeof password !== 'string' || password.length < 12) {
+      return res.status(400).json({ success: false, error: 'Driver passwords must contain at least 12 characters.' });
+    }
+    const cleanPhone = String(phone).trim();
+    const existingUser = await DB.prepare('SELECT id FROM users WHERE phone = ?').get(cleanPhone);
+    if (existingUser) return res.status(409).json({ success: false, error: 'Phone number is already registered.' });
+
+    const vehicle = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicleId);
+    if (!vehicle) return res.status(404).json({ success: false, error: 'Vehicle not found.' });
+    const route = await DB.prepare('SELECT * FROM routes WHERE id = ? AND active = TRUE').get(routeId);
+    if (!route) return res.status(404).json({ success: false, error: 'Active route not found.' });
+
+    const driverId = `usr_drv_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+    const passwordHash = await bcrypt.hash(password, 12);
+    const cleanName = String(fullName).trim();
+    const finalEmail = String(email || '').trim() || `${cleanPhone}@transport.et`;
+
+    await DB.transaction(async (tx) => {
+      if (vehicle.driverId) {
+        await tx.prepare("UPDATE users SET assignedVehiclePlate = '', appliedRouteId = '', appliedRouteName = '' WHERE id = ? AND role = 'DRIVER'").run(vehicle.driverId);
+      }
+      await tx.prepare(`
+        INSERT INTO users (id, role, fullName, phone, email, passwordHash, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName)
+        VALUES (?, 'DRIVER', ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
+      `).run(driverId, cleanName, cleanPhone, finalEmail, passwordHash, String(licenseNumber).trim(), String(companyName).trim(), vehicle.plateNumber, route.id, route.name);
+      await tx.prepare(`
+        UPDATE vehicles
+        SET driverId = ?, driverName = ?, assignedRouteId = ?, status = 'IN_SERVICE', updatedAt = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(driverId, cleanName, route.id, vehicle.id);
+      await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
+        .run('DRIVER_CREATED_AND_ASSIGNED', req.user.id, 'ADMIN', `Created driver ${driverId}; vehicle ${vehicle.plateNumber}; route ${route.name}`);
+    });
+
+    res.status(201).json({
+      success: true,
+      driver: {
+        id: driverId, role: 'DRIVER', fullName: cleanName, phone: cleanPhone,
+        email: finalEmail, status: 'ACTIVE', licenseNumber: String(licenseNumber).trim(),
+        companyName: String(companyName).trim(), assignedVehiclePlate: vehicle.plateNumber,
+        appliedRouteId: route.id, appliedRouteName: route.name
+      }
+    });
+  } catch (err) {
+    console.error('[Admin] driver provisioning failed:', err);
+    if (err.code === '23505' || String(err.code || '').startsWith('SQLITE_CONSTRAINT')) {
+      return res.status(409).json({ success: false, error: 'A conflicting driver or assignment already exists.' });
+    }
+    res.status(500).json({ success: false, error: 'Driver provisioning failed.' });
+  }
+});
+
+/**
  * GET /api/admin/drivers
  * List all commercial transporters / drivers
  */
