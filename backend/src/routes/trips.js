@@ -31,7 +31,7 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
       return res.status(404).json({ success: false, error: 'Vehicle not found for driver.' });
     }
     if (!(vehicle.driverId === driverId ||
-      (driverUser?.assignedVehiclePlate && vehicle.plateNumber === driverUser.assignedVehiclePlate))) {
+      (!vehicle.driverId && driverUser?.assignedVehiclePlate && vehicle.plateNumber === driverUser.assignedVehiclePlate))) {
       return res.status(403).json({ success: false, error: 'This vehicle is not assigned to your driver account.' });
     }
     if (vehicle.assignedRouteId && vehicle.assignedRouteId !== routeId && req.user.role !== 'ADMIN') {
