@@ -14,6 +14,15 @@ const { WebSocketServer, WebSocket } = require('ws');
 const { DB } = require('./db');
 const { verifyToken } = require('./middleware/auth');
 
+if (process.env.NODE_ENV === 'production') {
+  if (process.env.PAYMENT_MODE !== 'PRODUCTION') {
+    throw new Error('[FATAL CONFIGURATION ERROR] PAYMENT_MODE must be explicitly set to PRODUCTION.');
+  }
+  if (!process.env.QR_SIGNING_KEY || process.env.QR_SIGNING_KEY.length < 32) {
+    throw new Error('[FATAL CONFIGURATION ERROR] QR_SIGNING_KEY must be at least 32 characters in production.');
+  }
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -23,13 +32,24 @@ app.use(helmet({
   contentSecurityPolicy: false // Allow WebSocket handshakes & dev proxies
 }));
 
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: '*',
+  origin(origin, callback) {
+    // Native clients commonly omit Origin. Browser clients must be explicitly allowed in production.
+    if (!origin || process.env.NODE_ENV !== 'production' || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Origin not allowed.'));
+  },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 if (process.env.NODE_ENV !== 'test') {
@@ -75,33 +95,19 @@ app.get('/', (req, res) => {
 
 // VPS System Health Check
 app.get('/api/health', (req, res) => {
-  try {
-    const usersCount = DB.prepare('SELECT COUNT(*) as c FROM users').get().c;
-    const routesCount = DB.prepare('SELECT COUNT(*) as c FROM routes').get().c;
-    const vehiclesCount = DB.prepare('SELECT COUNT(*) as c FROM vehicles').get().c;
-    const checkinsCount = DB.prepare('SELECT COUNT(*) as c FROM checkin_records').get().c;
-
-    res.json({
-      status: 'HEALTHY',
-      service: 'Transport Navigator Transit Server',
-      uptimeSeconds: Math.floor(process.uptime()),
-      timestamp: new Date().toISOString(),
-      memory: {
-        rssMb: Math.round(process.memoryUsage().rss / (1024 * 1024)),
-        heapUsedMb: Math.round(process.memoryUsage().heapUsed / (1024 * 1024))
-      },
-      database: {
-        status: 'CONNECTED',
-        usersCount,
-        routesCount,
-        vehiclesCount,
-        checkinsCount
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ status: 'DEGRADED', error: err.message });
-  }
+  // Public liveness only. Never disclose passenger/operational counts or database errors.
+  res.json({ status: 'HEALTHY', service: 'RoutePass API', timestamp: new Date().toISOString() });
 });
+
+app.get('/api/ready', async (req, res) => {
+  try {
+    DB.prepare('SELECT 1 AS ok').get();
+    res.json({ status: 'READY' });
+  } catch (err) {
+    console.error('[Readiness] database query failed:', err);
+    res.status(503).json({ status: 'NOT_READY' });
+  }
+});;
 
 // Mount Route Modules
 app.use('/api/auth', require('./routes/auth'));
@@ -119,7 +125,7 @@ app.use('/api/sync', require('./routes/sync'));
 app.use((req, res) => {
   res.status(404).json({
     success: false,
-    error: `Endpoint not found: ${req.method} ${req.originalUrl}`
+    error: 'Endpoint not found.'
   });
 });
 
@@ -128,7 +134,7 @@ app.use((err, req, res, next) => {
   console.error('[Server Error]:', err);
   res.status(err.status || 500).json({
     success: false,
-    error: err.message || 'Internal Server Error'
+    error: 'Internal server error.'
   });
 });
 
@@ -148,7 +154,7 @@ const locationFlushTimer = setInterval(() => {
   if (inMemoryVehicleLocations.size === 0) return;
   for (const [vehicleId, loc] of inMemoryVehicleLocations.entries()) {
     try {
-      DB.prepare(`
+      await DB.prepare(`
         UPDATE vehicles
         SET currentLat = ?, currentLng = ?, updatedAt = CURRENT_TIMESTAMP
         WHERE id = ?
@@ -243,11 +249,11 @@ wss.on('connection', (ws, req) => {
 
       // Handle Driver GPS Location Update
       if (data.type === 'DRIVER_LOCATION_UPDATE') {
-        // Enforce Authentication: must be authenticated DRIVER or ADMIN
-        const driverId = (ws.user && ws.user.id) || data.driverId;
-        const userRole = (ws.user && ws.user.role) || (data.token ? verifyToken(data.token)?.role : null);
+        // Derive identity only from the already verified token. Never trust data.driverId or data.token.
+        const driverId = ws.user?.id;
+        const userRole = ws.user?.role;
 
-        if (!userRole || (userRole !== 'DRIVER' && userRole !== 'ADMIN')) {
+        if (!ws.authenticated || !driverId || !['DRIVER', 'ADMIN'].includes(userRole)) {
           return ws.send(JSON.stringify({
             type: 'GPS_REJECTED',
             reason: 'UNAUTHORIZED_DRIVER',
@@ -255,13 +261,26 @@ wss.on('connection', (ws, req) => {
           }));
         }
 
-        // Validate Vehicle ID
+        // Vehicle and route ownership are server-side facts, not client-controlled fields.
         const vehicleId = data.vehicleId;
         if (!vehicleId || typeof vehicleId !== 'string') {
-          return ws.send(JSON.stringify({
-            type: 'GPS_REJECTED',
-            reason: 'MISSING_VEHICLE_ID'
-          }));
+          return ws.send(JSON.stringify({ type: 'GPS_REJECTED', reason: 'MISSING_VEHICLE_ID' }));
+        }
+        const vehicle = DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicleId);
+        if (!vehicle) {
+          return ws.send(JSON.stringify({ type: 'GPS_REJECTED', reason: 'UNKNOWN_VEHICLE' }));
+        }
+        if (userRole === 'DRIVER') {
+          const driver = DB.prepare('SELECT assignedVehiclePlate FROM users WHERE id = ?').get(driverId);
+          const isAssigned = vehicle.driverId === driverId ||
+            (driver?.assignedVehiclePlate && driver.assignedVehiclePlate === vehicle.plateNumber);
+          if (!isAssigned) {
+            return ws.send(JSON.stringify({ type: 'GPS_REJECTED', reason: 'VEHICLE_NOT_ASSIGNED' }));
+          }
+        }
+        const routeId = vehicle.assignedRouteId;
+        if (!routeId) {
+          return ws.send(JSON.stringify({ type: 'GPS_REJECTED', reason: 'VEHICLE_ROUTE_NOT_ASSIGNED' }));
         }
 
         // Validate Coordinates
@@ -299,14 +318,7 @@ wss.on('connection', (ws, req) => {
           timestamp: now
         });
 
-        // Cache vehicle route for recipient authorization
-        let routeId = data.routeId;
-        if (!routeId) {
-          try {
-            const veh = DB.prepare('SELECT assignedRouteId FROM vehicles WHERE id = ?').get(vehicleId);
-            routeId = veh?.assignedRouteId;
-          } catch (e) {}
-        }
+        // Route is derived from the authoritative vehicle record loaded above.
 
         // Broadcast real GPS location strictly to authorized recipients
         broadcastAuthorized({
