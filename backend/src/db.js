@@ -57,6 +57,13 @@ function normalizeRow(row) {
     if (lowerKey === 'capacitylimit' || lowerKey === 'capacity_limit') normalized.capacityLimit = val;
     if (lowerKey === 'currentoccupancy' || lowerKey === 'current_occupancy') normalized.currentOccupancy = val;
     if (lowerKey === 'assignedrouteid' || lowerKey === 'assigned_route_id') normalized.assignedRouteId = val;
+    if (lowerKey === 'vehicleid' || lowerKey === 'vehicle_id') normalized.vehicleId = val;
+    if (lowerKey === 'tripid' || lowerKey === 'trip_id') normalized.tripId = val;
+    if (lowerKey === 'currentstop' || lowerKey === 'current_stop') normalized.currentStop = val;
+    if (lowerKey === 'distancekm' || lowerKey === 'distance_km') normalized.distanceKm = val;
+    if (lowerKey === 'scheduledmorningtime' || lowerKey === 'scheduled_morning_time') normalized.scheduledMorningTime = val;
+    if (lowerKey === 'scheduledeveningtime' || lowerKey === 'scheduled_evening_time') normalized.scheduledEveningTime = val;
+    if (lowerKey === 'maxcapacity' || lowerKey === 'max_capacity') normalized.maxCapacity = val;
     if (lowerKey === 'driverid' || lowerKey === 'driver_id') normalized.driverId = val;
     if (lowerKey === 'drivername' || lowerKey === 'driver_name') normalized.driverName = val;
     if (lowerKey === 'currentlat' || lowerKey === 'current_lat') normalized.currentLat = val;
@@ -139,6 +146,13 @@ function translateSqlForPostgres(sql) {
     .replace(/\bendDate\b/g, 'end_date')
     .replace(/\bpriceEtb\b/g, 'price_etb')
     .replace(/\bbasePriceEtb\b/g, 'base_price_etb')
+    .replace(/\bdistanceKm\b/g, 'distance_km')
+    .replace(/\bscheduledMorningTime\b/g, 'scheduled_morning_time')
+    .replace(/\bscheduledEveningTime\b/g, 'scheduled_evening_time')
+    .replace(/\bmaxCapacity\b/g, 'max_capacity')
+    .replace(/\bcurrentStop\b/g, 'current_stop')
+    .replace(/\bvehicleId\b/g, 'vehicle_id')
+    .replace(/\btripId\b/g, 'trip_id')
     .replace(/\bamountEtb\b/g, 'amount_etb')
     .replace(/\bpaymentStatus\b/g, 'payment_status')
     .replace(/\bsubscriptionStatus\b/g, 'subscription_status')
