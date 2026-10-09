@@ -27,7 +27,7 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
     const driverId = req.user.id;
     const {
       qrToken,
-      tripId = `trip_${Date.now().toString(36)}`,
+      tripId,
       currentStop = 'Bole Medhanialem',
       vehicleId
     } = req.body;
@@ -66,6 +66,14 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
       });
     }
 
+    if (!tripId || typeof tripId !== 'string') {
+      return res.status(400).json({ success: false, status: 'TRIP_REQUIRED', error: 'An active trip ID is required to board a passenger.' });
+    }
+    const trip = await DB.prepare("SELECT * FROM trips WHERE id = ? AND status = 'IN_PROGRESS'").get(tripId);
+    if (!trip || trip.driverId !== driverId || trip.vehicleId !== vehicle.id) {
+      return res.status(403).json({ success: false, status: 'TRIP_NOT_ASSIGNED', error: 'This active trip is not assigned to your driver and vehicle.' });
+    }
+
     // 2. Validate QR authenticity & Subscription
     let sub = await DB.prepare('SELECT * FROM subscriptions WHERE qrToken = ?').get(qrToken);
 
@@ -86,6 +94,9 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
     }
 
     // Subscription status and payment verification
+    if (sub.routeId !== trip.routeId) {
+      return res.status(403).json({ success: false, status: 'ROUTE_MISMATCH', error: 'Passenger subscription route does not match the active trip.' });
+    }
     if (sub.subscriptionStatus !== 'ACTIVE' || sub.paymentStatus !== 'PAID' || sub.daysRemaining <= 0) {
       return res.status(403).json({
         success: false,
