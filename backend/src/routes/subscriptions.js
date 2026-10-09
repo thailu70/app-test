@@ -236,28 +236,60 @@ async function verifyTelebirrServerSide(txnRef, expectedAmount) {
 router.post('/telebirr/webhook', async (req, res) => {
   try {
     const signature = req.headers['x-telebirr-signature'] || req.body.signature;
-    const { outTradeNo, transactionNo, totalAmount, tradeStatus, passengerId = 'system' } = req.body;
+    const { outTradeNo, transactionNo, totalAmount, tradeStatus } = req.body;
 
-    const webhookSecret = process.env.TELEBIRR_WEBHOOK_SECRET || process.env.TELEBIRR_APP_KEY;
-    if (webhookSecret && signature) {
-      const payload = `${outTradeNo}:${transactionNo}:${totalAmount}:${tradeStatus}`;
-      const expectedHmac = crypto.createHmac('sha256', webhookSecret).update(payload).digest('hex');
-      if (signature !== expectedHmac) {
-        return res.status(401).json({ success: false, error: 'Invalid Telebirr webhook signature.' });
-      }
+    // Fail closed: never treat a callback as verified when signature verification
+    // is not configured or when the signature is absent/invalid.
+    const webhookSecret = process.env.TELEBIRR_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      return res.status(503).json({
+        success: false,
+        error: 'Telebirr webhook verification is not configured.'
+      });
+    }
+    if (typeof signature !== 'string' || !signature.trim()) {
+      return res.status(401).json({ success: false, error: 'Missing Telebirr webhook signature.' });
+    }
+    if (typeof outTradeNo !== 'string' || !outTradeNo.trim() ||
+        typeof transactionNo !== 'string' || !transactionNo.trim()) {
+      return res.status(400).json({ success: false, error: 'Missing payment reference fields.' });
+    }
+
+    const amount = Number(totalAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid payment amount.' });
+    }
+
+    // This canonical payload must match the signature scheme configured with
+    // Telebirr. Do not deploy until it has been verified against provider docs.
+    const payload = `${outTradeNo}:${transactionNo}:${totalAmount}:${tradeStatus}`;
+    const expectedHmac = crypto.createHmac('sha256', webhookSecret).update(payload).digest();
+    let providedSignature;
+    try {
+      providedSignature = Buffer.from(signature.trim(), 'hex');
+    } catch (_) {
+      return res.status(401).json({ success: false, error: 'Invalid Telebirr webhook signature.' });
+    }
+    if (providedSignature.length !== expectedHmac.length ||
+        !crypto.timingSafeEqual(providedSignature, expectedHmac)) {
+      return res.status(401).json({ success: false, error: 'Invalid Telebirr webhook signature.' });
     }
 
     if (tradeStatus === 'COMPLETED' || tradeStatus === 'SUCCESS') {
-      const txnRef = transactionNo || outTradeNo;
-      const existing = DB.prepare('SELECT id FROM payment_transactions WHERE referenceNumber = ?').get(txnRef);
-      if (existing) {
-        DB.prepare("UPDATE payment_transactions SET status = 'VERIFIED' WHERE id = ?").run(existing.id);
-      } else {
-        DB.prepare(`
-          INSERT INTO payment_transactions (id, passengerId, referenceNumber, amountEtb, provider, status, notes)
-          VALUES (?, ?, ?, ?, 'Telebirr', 'VERIFIED', 'Verified via Telebirr Webhook')
-        `).run(`tx_${crypto.randomUUID().slice(0, 8)}`, passengerId, txnRef, parseFloat(totalAmount) || 0);
+      // Only verify a payment order that the server already knows about.
+      // Never create a VERIFIED transaction from an unsolicited callback.
+      const existing = DB.prepare(
+        'SELECT id, amountEtb, status FROM payment_transactions WHERE referenceNumber = ? OR idempotencyKey = ?'
+      ).get(outTradeNo, outTradeNo);
+
+      if (!existing) {
+        return res.status(404).json({ success: false, error: 'Unknown payment order.' });
       }
+      if (Math.abs(Number(existing.amountEtb) - amount) > 0.01) {
+        return res.status(409).json({ success: false, error: 'Payment amount does not match the order.' });
+      }
+      DB.prepare("UPDATE payment_transactions SET status = 'VERIFIED', notes = ? WHERE id = ?")
+        .run(`Telebirr callback verified; provider transaction ${transactionNo}`, existing.id);
       return res.json({ code: 0, message: 'SUCCESS' });
     }
 
