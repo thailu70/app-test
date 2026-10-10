@@ -403,6 +403,15 @@ class TransportRepository(
         throw IllegalStateException(message ?: response.body()?.error ?: "Could not start trip. Check your route assignment.")
     }
 
+    suspend fun completeDriverTrip(tripId: String) {
+        val response = apiService.endTrip(tripId)
+        if (!(response.isSuccessful && response.body()?.success == true)) {
+            val raw = response.errorBody()?.string()
+            val message = try { if (!raw.isNullOrBlank()) org.json.JSONObject(raw).optString("error") else null } catch (_: Exception) { null }
+            throw IllegalStateException(message ?: response.body()?.error ?: "Could not complete route.")
+        }
+    }
+
     // Vehicles & Fleet Management
     val allVehicles: Flow<List<VehicleEntity>> = dao.getAllVehicles()
     suspend fun getVehicleById(vehicleId: String): VehicleEntity? = dao.getVehicleById(vehicleId)
