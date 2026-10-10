@@ -123,8 +123,8 @@
         const freshness = Number.isFinite(ageMs) && ageMs <= 120000 ? "GPS fresh" : "GPS stale";
         const title = String(v.driverName || "Driver") + " · " + String(v.plateNumber || "Vehicle");
         const details = "<strong>" + esc(title) + "</strong><br>" +
-          esc(value(v, "routeName")) + "<br>Progress: " + esc(value(v, "tripCurrentStop", "currentStop")) +
-          "<br>Trip: " + esc(value(v, "tripStatus")) + " " + esc(value(v, "tripDirection")) +
+          esc(value(v, "routeName", "route_name")) + "<br>Progress: " + esc(value(v, "tripCurrentStop", "trip_current_stop", "currentStop", "current_stop")) +
+          "<br>Trip: " + esc(value(v, "tripStatus", "trip_status")) + " " + esc(value(v, "tripDirection", "trip_direction")) +
           "<br>" + esc(freshness) + " · " + esc(dateText(v.lastGpsAt));
         let marker = liveMarkers.get(key);
         if (!marker) {
