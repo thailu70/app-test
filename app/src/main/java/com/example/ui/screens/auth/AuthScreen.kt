@@ -80,6 +80,8 @@ fun AuthScreen(
 
     // Never pre-fill the login form with shared/demo credentials.
     LaunchedEffect(selectedPortal, isRegisterMode) {
+        viewModel.clearRegistrationOtp()
+        otpCode = ""
         phone = ""
         password = ""
         confirmPassword = ""
