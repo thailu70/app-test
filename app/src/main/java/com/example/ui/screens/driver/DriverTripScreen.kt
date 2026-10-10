@@ -163,6 +163,10 @@ fun DriverTripScreen(
                         Text("Passenger roster & attendance", fontWeight = FontWeight.Bold)
                         Text("Attendance changes to PRESENT after a successful QR scan for this active trip.")
                         Text("Passengers: ${rosterPassengers.size}", style = MaterialTheme.typography.bodySmall)
+                        val rosterMessage = myRoster?.get("rosterMessage")?.toString()
+                        if (!rosterMessage.isNullOrBlank()) {
+                            Text(rosterMessage, style = MaterialTheme.typography.bodySmall, color = if (rosterPassengers.isEmpty()) StatusWarningOrange else Slate600)
+                        }
                         rosterPassengers.forEach { row ->
                             val passenger = row as? Map<*, *> ?: return@forEach
                             Divider()
