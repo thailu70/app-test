@@ -258,6 +258,8 @@
       '<button class="btn btn-secondary" data-go="routes">Manage routes</button>') +
       section("Registered drivers", data.length + " account(s)",
         table([
+          { label: "Photo", render: r => '<button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="DRIVER_PROFILE_PHOTO">View photo</button>' },
+          { label: "Documents", render: r => '<div class="inline-actions"><button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="DRIVER_LICENSE">Licence</button><button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="VEHICLE_PHOTO">Vehicle</button><button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="TRADE_LICENSE">Trade licence</button></div>' },
           { label: "Driver", render: r => "<strong>" + esc(value(r, "fullName", "full_name")) + "</strong>" },
           { label: "Phone / username", keys: ["phone"] },
           { label: "Company", keys: ["companyName", "company_name"] },
