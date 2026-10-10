@@ -18,6 +18,9 @@ const http = require('http');
 const PORT = 3999;
 process.env.PORT = PORT;
 process.env.NODE_ENV = 'test';
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'routepass-test-secret-only';
+process.env.OTP_TEST_MODE = 'true';
+process.env.OTP_TEST_BYPASS = 'true';
 
 const { server } = require('../src/server');
 
@@ -67,6 +70,34 @@ async function runTests() {
   console.log(`✓ Test HTTP & WebSocket server listening on port ${PORT}`);
 
   try {
+    // OTP smoke test: sign-up is blocked until phone ownership is verified.
+    const otpPhone = '+2519' + Math.floor(10000000 + Math.random() * 90000000);
+    process.env.OTP_TEST_BYPASS = 'false';
+    const otpRequest = await makeRequest('POST', '/api/auth/otp/request', { phone: otpPhone });
+    if (otpRequest.status !== 200 || !otpRequest.data.testCode) {
+      throw new Error('OTP test request failed: ' + JSON.stringify(otpRequest.data));
+    }
+    const signupWithoutOtp = await makeRequest('POST', '/api/auth/register', {
+      fullName: 'OTP Test User', phone: otpPhone, password: 'RoutePassTest#2026',
+      role: 'PASSENGER', appliedRouteId: 'route_bole_merkato'
+    });
+    if (signupWithoutOtp.status !== 403 || signupWithoutOtp.data.code !== 'OTP_VERIFICATION_REQUIRED') {
+      throw new Error('Signup unexpectedly bypassed OTP: ' + JSON.stringify(signupWithoutOtp.data));
+    }
+    const otpVerify = await makeRequest('POST', '/api/auth/otp/verify', { phone: otpPhone, code: otpRequest.data.testCode });
+    if (otpVerify.status !== 200 || otpVerify.data.verified !== true) {
+      throw new Error('OTP verification failed: ' + JSON.stringify(otpVerify.data));
+    }
+    const verifiedSignup = await makeRequest('POST', '/api/auth/register', {
+      fullName: 'OTP Test User', phone: otpPhone, password: 'RoutePassTest#2026',
+      role: 'PASSENGER', appliedRouteId: 'route_bole_merkato'
+    });
+    if (verifiedSignup.status !== 201 || !verifiedSignup.data.success) {
+      throw new Error('Signup after OTP failed: ' + JSON.stringify(verifiedSignup.data));
+    }
+    process.env.OTP_TEST_BYPASS = 'true';
+    console.log('✓ OTP request, verification gate, and successful signup passed');
+
     // 1. Health Check
     const health = await makeRequest('GET', '/api/health');
     if (health.status !== 200 || health.data.status !== 'HEALTHY') {
