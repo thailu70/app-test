@@ -16,7 +16,7 @@ const ALLOWED_TYPES = {
   'application/pdf': '.pdf'
 };
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
-const DRIVER_TYPES = new Set(['DRIVER_LICENSE', 'VEHICLE_PHOTO', 'TRADE_LICENSE']);
+const DRIVER_TYPES = new Set(['DRIVER_PROFILE_PHOTO', 'DRIVER_LICENSE', 'VEHICLE_PHOTO', 'TRADE_LICENSE']);
 const PASSENGER_TYPES = new Set(['PROFILE_PHOTO']);
 
 const schemaReady = DB.prepare(`
@@ -79,7 +79,7 @@ router.post('/upload', authenticate, async (req, res) => {
     const allowed = req.user.role === 'PASSENGER'
       ? PASSENGER_TYPES.has(assetType) && IMAGE_TYPES.has(contentType)
       : req.user.role === 'DRIVER'
-        ? DRIVER_TYPES.has(assetType) && (assetType === 'VEHICLE_PHOTO' ? IMAGE_TYPES.has(contentType) : true)
+        ? DRIVER_TYPES.has(assetType) && (['DRIVER_PROFILE_PHOTO', 'VEHICLE_PHOTO'].includes(assetType) ? IMAGE_TYPES.has(contentType) : true)
         : false;
     if (!allowed) return res.status(403).json({ success: false, error: 'This role cannot upload that document type.' });
 
