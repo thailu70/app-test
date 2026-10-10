@@ -58,7 +58,7 @@ router.get('/my', async (req, res) => {
         success: true, role: 'PASSENGER',
         assignment: assignment ? {
           driver: { id: assignment.driverId, fullName: assignment.driverName,
-            photoUrl: '/api/profile-media/' + encodeURIComponent(assignment.driverId) + '/PROFILE_PHOTO' },
+            photoUrl: '/api/profile-media/' + encodeURIComponent(assignment.driverId) + '/DRIVER_PROFILE_PHOTO' },
           vehicle: { id: assignment.vehicleId, plateNumber: assignment.plateNumber, model: assignment.model },
           routeId: assignment.routeId, subscriptionId: assignment.subscriptionId
         } : null
