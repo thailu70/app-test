@@ -6,6 +6,8 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { DB } = require('../db');
 const { signToken, authenticate } = require('../middleware/auth');
+const otpRoutes = require('./otp');
+router.use('/otp', otpRoutes);
 
 function resolveAdminSecret() {
   if (process.env.ADMIN_REGISTRATION_SECRET && process.env.ADMIN_REGISTRATION_SECRET.trim().length > 0) {
@@ -40,7 +42,8 @@ router.post('/register', authLimiter, async (req, res) => {
       vehicleModel = '',
       vehicleType = 'MINIBUS_14',
       appliedRouteId = '',
-      appliedRouteName = ''
+      appliedRouteName = '',
+      otpChallengeId = ''
     } = req.body;
 
     if (!fullName || !phone || !password || !role) {
@@ -55,6 +58,10 @@ router.post('/register', authLimiter, async (req, res) => {
     }
 
     const normalizedRole = role.toUpperCase();
+    const normalizedPhone = normalizedRole === 'ADMIN' ? String(phone).trim() : otpRoutes.normalizePhone(phone);
+    if (normalizedRole !== 'ADMIN' && !normalizedPhone) {
+      return res.status(400).json({ success: false, error: 'Enter a valid Ethiopian mobile number before requesting SMS verification.' });
+    }
     if (!['PASSENGER', 'DRIVER', 'ADMIN'].includes(normalizedRole)) {
       return res.status(400).json({
         success: false,
@@ -108,8 +115,20 @@ router.post('/register', authLimiter, async (req, res) => {
       }
     }
 
-    // Check if phone is already registered
-    const existing = await DB.prepare('SELECT id FROM users WHERE phone = ?').get(phone.trim());
+    // Passenger and driver registration is blocked until the phone has a verified,
+    // unexpired OTP challenge. The challenge is consumed atomically with account creation.
+    if (normalizedRole !== 'ADMIN') {
+      await otpRoutes.ensureOtpSchema();
+      const challenge = await DB.prepare("SELECT id, phone, verified_at, consumed_at, expires_at FROM otp_challenges WHERE id = ? AND phone = ? AND purpose = 'SIGNUP'").get(String(otpChallengeId || '').trim(), normalizedPhone);
+      if (!challenge || !challenge.verified_at || challenge.consumed_at || Date.parse(challenge.expires_at) <= Date.now()) {
+        return res.status(403).json({ success: false, error: 'Verify your mobile number by SMS OTP before completing registration.' });
+      }
+    }
+
+    // Check canonical and legacy formats to avoid duplicate Ethiopian mobile accounts.
+    const localPhone = normalizedRole === 'ADMIN' ? normalizedPhone : '0' + normalizedPhone.slice(4);
+    const barePhone = normalizedRole === 'ADMIN' ? normalizedPhone : normalizedPhone.slice(1);
+    const existing = await DB.prepare('SELECT id FROM users WHERE phone = ? OR phone = ? OR phone = ? LIMIT 1').get(normalizedPhone, localPhone, barePhone);
     if (existing) {
       return res.status(409).json({
         success: false,
@@ -120,9 +139,18 @@ router.post('/register', authLimiter, async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 12);
 
     const userId = `usr_${normalizedRole.toLowerCase().slice(0, 3)}_${crypto.randomUUID().slice(0, 8)}`;
-    const finalEmail = email?.trim() || `${phone.trim()}@transport.et`;
+    const finalEmail = email?.trim() || `${normalizedPhone}@transport.et`;
 
     await DB.transaction(async (tx) => {
+      if (normalizedRole !== 'ADMIN') {
+        const consumed = await tx.prepare("UPDATE otp_challenges SET consumed_at = ? WHERE id = ? AND phone = ? AND purpose = 'SIGNUP' AND verified_at IS NOT NULL AND consumed_at IS NULL AND expires_at > ?")
+          .run(new Date().toISOString(), String(otpChallengeId).trim(), normalizedPhone, new Date().toISOString());
+        if (!consumed || consumed.changes !== 1) {
+          const error = new Error('OTP challenge already used or expired.');
+          error.code = 'OTP_CHALLENGE_INVALID';
+          throw error;
+        }
+      }
       await tx.prepare(`
         INSERT INTO users (id, role, fullName, phone, email, passwordHash, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -130,7 +158,7 @@ router.post('/register', authLimiter, async (req, res) => {
         userId,
         normalizedRole,
         fullName.trim(),
-        phone.trim(),
+        normalizedPhone,
         finalEmail,
         passwordHash,
         normalizedRole === 'DRIVER' ? 'PENDING' : 'ACTIVE',
@@ -191,7 +219,7 @@ router.post('/register', authLimiter, async (req, res) => {
       id: userId,
       role: normalizedRole,
       fullName: fullName.trim(),
-      phone: phone.trim()
+      phone: normalizedPhone
     });
 
     res.status(201).json({
@@ -201,7 +229,7 @@ router.post('/register', authLimiter, async (req, res) => {
         id: userId,
         role: normalizedRole,
         fullName: fullName.trim(),
-        phone: phone.trim(),
+        phone: normalizedPhone,
         email: finalEmail,
         status: normalizedRole === 'DRIVER' ? 'PENDING' : 'ACTIVE',
         assignedVehiclePlate: driverVehiclePlate,
@@ -216,7 +244,8 @@ router.post('/register', authLimiter, async (req, res) => {
           : 'Registration successful.')
     });
   } catch (err) {
-    console.error('[RoutePass] request failed:', err);
+    if (err.code === 'OTP_CHALLENGE_INVALID') return res.status(409).json({ success: false, error: 'Your verification expired or was already used. Request and verify a new OTP.' });
+    console.error('[RoutePass] registration failed:', err.code || 'REGISTRATION_ERROR');
     res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
