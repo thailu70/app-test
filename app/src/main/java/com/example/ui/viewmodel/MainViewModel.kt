@@ -59,6 +59,15 @@ data class DriverTripState(
 
 class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
+    private val _testPassengerRegistrationBypass = MutableStateFlow(false)
+    val testPassengerRegistrationBypass: StateFlow<Boolean> = _testPassengerRegistrationBypass.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _testPassengerRegistrationBypass.value = repository.isPassengerRegistrationTestBypassEnabled()
+        }
+    }
+
     // Language
     private val _currentLanguage = MutableStateFlow(AppLanguage.ENGLISH)
     val currentLanguage: StateFlow<AppLanguage> = _currentLanguage.asStateFlow()
