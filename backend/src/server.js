@@ -378,12 +378,16 @@ wss.on('connection', (ws, req) => {
 
 // Broadcast Helper: Distributes live telemetry strictly to authorized recipients
 function broadcastAuthorized(payload, targetRouteId = null) {
+  const effectiveRouteId = targetRouteId || payload.targetRouteId || payload.routeId || null;
   const json = JSON.stringify(payload);
   for (const client of clients) {
     if (client.readyState !== WebSocket.OPEN) continue;
 
     // 1. Mandatory Authentication: Unauthenticated guests never receive live telemetry
     if (!client.authenticated || !client.user) continue;
+
+    // Private passenger events must only reach the named authenticated user.
+    if (payload.targetUserId && client.user.id !== payload.targetUserId) continue;
 
     // 2. Per-Recipient Authorization:
     const role = (client.user.role || '').toUpperCase();
@@ -393,7 +397,7 @@ function broadcastAuthorized(payload, targetRouteId = null) {
     } else if (role === 'PASSENGER') {
       // Commuters receive GPS telemetry strictly for their authorized/monitored transit corridor
       const commuterCorridor = client.monitoredRouteId;
-      if (!commuterCorridor || (targetRouteId && commuterCorridor !== targetRouteId)) {
+      if (!commuterCorridor || (effectiveRouteId && commuterCorridor !== effectiveRouteId)) {
         // Drop broadcast: recipient is not authorized/subscribed to this vehicle's corridor
         continue;
       }
