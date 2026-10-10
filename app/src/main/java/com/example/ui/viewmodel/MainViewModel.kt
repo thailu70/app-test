@@ -103,6 +103,53 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     private val _registrationMessage = MutableStateFlow<String?>(null)
     val registrationMessage: StateFlow<String?> = _registrationMessage.asStateFlow()
 
+    private val _otpChallengeId = MutableStateFlow<String?>(null)
+    val otpChallengeId: StateFlow<String?> = _otpChallengeId.asStateFlow()
+    private val _otpVerified = MutableStateFlow(false)
+    val otpVerified: StateFlow<Boolean> = _otpVerified.asStateFlow()
+    private val _otpMessage = MutableStateFlow<String?>(null)
+    val otpMessage: StateFlow<String?> = _otpMessage.asStateFlow()
+
+    fun resetSignupOtp() {
+        _otpChallengeId.value = null
+        _otpVerified.value = false
+        _otpMessage.value = null
+    }
+
+    fun requestSignupOtp(phone: String) {
+        viewModelScope.launch {
+            resetSignupOtp()
+            _authError.value = null
+            try {
+                val result = repository.requestSignupOtp(phone)
+                _otpChallengeId.value = result.challengeId
+                _otpMessage.value = result.message ?: "Verification code sent by SMS. Check your phone."
+            } catch (e: Exception) {
+                _otpMessage.value = null
+                _authError.value = e.message ?: "Could not send verification code."
+            }
+        }
+    }
+
+    fun verifySignupOtp(phone: String, code: String) {
+        viewModelScope.launch {
+            _authError.value = null
+            val challengeId = _otpChallengeId.value
+            if (challengeId.isNullOrBlank()) {
+                _authError.value = "Request an SMS verification code first."
+                return@launch
+            }
+            try {
+                val result = repository.verifySignupOtp(phone, challengeId, code)
+                _otpVerified.value = true
+                _otpMessage.value = result.message ?: "Phone number verified."
+            } catch (e: Exception) {
+                _otpVerified.value = false
+                _authError.value = e.message ?: "Verification failed."
+            }
+        }
+    }
+
     fun clearRegistrationMessage() { _registrationMessage.value = null }
 
     private val _networkStatus = MutableStateFlow(NetworkStatus.ONLINE)
@@ -329,6 +376,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
             }
             val user = repository.authenticate(identifier, roleStr, password)
             if (user != null) {
+                resetSignupOtp()
                 _currentUser.value = user
                 _currentRole.value = role
                 _isAuthenticated.value = true
@@ -381,11 +429,16 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         vehicleModel: String = "",
         vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
-        appliedRouteName: String = ""
+        appliedRouteName: String = "",
+        otpChallengeId: String = ""
     ) {
         viewModelScope.launch {
             _authError.value = null
             _registrationMessage.value = null
+            if (role != AppRole.ADMIN && !_otpVerified.value) {
+                _authError.value = "Verify your mobile number by SMS OTP before completing registration."
+                return@launch
+            }
             if (fullName.isBlank() || phone.isBlank()) {
                 _authError.value = "Full Name and Phone Number are required."
                 return@launch
@@ -419,7 +472,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     vehicleModel = vehicleModel,
                     vehicleType = vehicleType,
                     appliedRouteId = appliedRouteId,
-                    appliedRouteName = appliedRouteName
+                    appliedRouteName = appliedRouteName,
+                    otpChallengeId = otpChallengeId.ifBlank { _otpChallengeId.value.orEmpty() }
                 )
                 if (role == AppRole.DRIVER) {
                     _registrationMessage.value = "Thank you for registering. We will review your licence and vehicle, authorize your account, assign your route, and connect appropriate passenger subscriptions to your vehicle. We will contact you when it is ready. You can sign in after approval."
