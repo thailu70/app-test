@@ -33,8 +33,10 @@ CREATE TABLE IF NOT EXISTS routes (
     distance_km NUMERIC(5,2) DEFAULT 12.0,
     base_price_etb NUMERIC(10,2) DEFAULT 2500.0,
     active BOOLEAN DEFAULT TRUE,
+    service_type VARCHAR(20) NOT NULL DEFAULT 'TWO_WAY' CHECK (service_type IN ('ONE_WAY', 'TWO_WAY')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS service_type VARCHAR(20) NOT NULL DEFAULT 'TWO_WAY' CHECK (service_type IN ('ONE_WAY', 'TWO_WAY'));
 
 -- 3. Route Stops
 CREATE TABLE IF NOT EXISTS route_stops (
