@@ -342,7 +342,7 @@ router.post('/payments/manual', async (req, res) => {
         .run(startDate, endDate, daysRemaining, qrToken, sub.id);
       await tx.prepare("INSERT INTO payment_transactions (id, passengerId, referenceNumber, idempotencyKey, amountEtb, provider, phoneNumber, status, notes) VALUES (?, ?, ?, ?, ?, 'MANUAL_ADMIN', ?, 'COMPLETED', ?)")
         .run('pay_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12), sub.passengerId,
-          referenceNumber, 'manual:' + referenceNumber, amountEtb, passenger.phone,
+          referenceNumber, 'manual:' + crypto.createHash('sha256').update(referenceNumber).digest('hex'), amountEtb, passenger.phone,
           ('Manual payment entered by admin ' + req.user.id + '. ' + notes).trim());
       await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
         .run('MANUAL_PAYMENT_RECORDED', req.user.id, 'ADMIN',
