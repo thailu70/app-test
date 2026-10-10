@@ -254,6 +254,55 @@ router.post('/subscriptions/:id/recharge', async (req, res) => {
 });
 
 /**
+ * POST /api/admin/payments/manual
+ * Record an administrator-entered payment after the administrator has independently
+ * received cash/bank transfer. This is not a payment gateway verification.
+ */
+router.post('/payments/manual', async (req, res) => {
+  try {
+    const subscriptionId = String(req.body.subscriptionId || '').trim();
+    const amountEtb = Number(req.body.amountEtb);
+    const method = String(req.body.method || '').trim().toUpperCase();
+    const reference = String(req.body.reference || '').trim();
+    const days = Number.parseInt(req.body.days ?? 30, 10);
+    const allowedMethods = ['CASH', 'BANK_TRANSFER', 'MOBILE_MONEY', 'OTHER'];
+    if (!subscriptionId || !Number.isFinite(amountEtb) || amountEtb <= 0 || amountEtb > 10000000 ||
+        !allowedMethods.includes(method) || !reference || reference.length > 120 ||
+        !Number.isInteger(days) || days < 1 || days > 365) {
+      return res.status(400).json({ success: false, error: 'Provide subscriptionId, positive amountEtb, valid method, reference, and 1–365 subscription days.' });
+    }
+    const sub = await DB.prepare('SELECT * FROM subscriptions WHERE id = ?').get(subscriptionId);
+    if (!sub) return res.status(404).json({ success: false, error: 'Subscription not found.' });
+    const passenger = await DB.prepare("SELECT id, phone FROM users WHERE id = ? AND role = 'PASSENGER'").get(sub.passengerId);
+    if (!passenger) return res.status(404).json({ success: false, error: 'Passenger account not found.' });
+    const duplicate = await DB.prepare('SELECT id FROM payment_transactions WHERE referenceNumber = ?').get(reference);
+    if (duplicate) return res.status(409).json({ success: false, error: 'This payment reference has already been recorded.' });
+    const now = new Date();
+    const previousEnd = sub.endDate ? new Date(sub.endDate) : null;
+    const base = sub.subscriptionStatus === 'ACTIVE' && sub.paymentStatus === 'PAID' && previousEnd && previousEnd > now ? previousEnd : now;
+    const end = new Date(base.getTime() + days * 86400000);
+    const startDate = now.toISOString().slice(0, 10);
+    const endDate = end.toISOString().slice(0, 10);
+    const daysRemaining = Math.max(1, Math.ceil((end.getTime() - now.getTime()) / 86400000));
+    const qrToken = generateSignedQrToken(sub.id, sub.passengerId, sub.routeId, end.getTime());
+    const paymentId = `pay_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+    await DB.transaction(async (tx) => {
+      await tx.prepare(`UPDATE subscriptions SET paymentStatus = 'PAID', subscriptionStatus = 'ACTIVE', startDate = ?, endDate = ?, daysRemaining = ?, qrToken = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`)
+        .run(startDate, endDate, daysRemaining, qrToken, sub.id);
+      await tx.prepare(`INSERT INTO payment_transactions (id, passengerId, referenceNumber, idempotencyKey, amountEtb, provider, phoneNumber, status, notes)
+        VALUES (?, ?, ?, ?, ?, 'ADMIN_MANUAL', ?, 'COMPLETED', ?)`)
+        .run(paymentId, sub.passengerId, reference, `MANUAL-${reference}`, amountEtb, passenger.phone, `Admin-entered ${method} payment; recorded by ${req.user.id}; days=${days}`);
+      await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
+        .run('ADMIN_MANUAL_PAYMENT_RECORDED', req.user.id, 'ADMIN', `Recorded ${method} payment reference ${reference}, ETB ${amountEtb}, subscription ${sub.id}, ${days} days. Requires external receipt verification.`);
+    });
+    res.status(201).json({ success: true, verifiedByGateway: false, message: 'Manual payment recorded. Confirm the external receipt; this entry is not independently verified by a payment provider.', subscription: { id: sub.id, paymentStatus: 'PAID', subscriptionStatus: 'ACTIVE', startDate, endDate, daysRemaining, qrToken }, transaction: { id: paymentId, referenceNumber: reference, amountEtb, method, provider: 'ADMIN_MANUAL', status: 'COMPLETED' } });
+  } catch (err) {
+    console.error('[Admin] manual payment record failed:', err.message);
+    res.status(500).json({ success: false, error: 'Could not record manual payment.' });
+  }
+});
+
+/**
  * PATCH /api/admin/subscriptions/:id/assignment
  * Assign a passenger subscription to a driver-owned vehicle on the same route.
  */
