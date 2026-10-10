@@ -634,6 +634,30 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         }
     }
 
+    fun completeNavigation() {
+        viewModelScope.launch {
+            val tripId = _driverTrip.value.tripId
+            if (tripId.isBlank() || !_driverTrip.value.isNavigating) {
+                _driverActionMessage.value = "There is no active route to complete."
+                return@launch
+            }
+            try {
+                repository.completeDriverTrip(tripId)
+                _driverTrip.update {
+                    it.copy(
+                        isNavigating = false,
+                        isArrivedAtStop = false,
+                        stopStates = it.stopStates + (it.currentStopIndex to NavigationStepState.COMPLETED)
+                    )
+                }
+                _driverActionMessage.value = "Route completed. Passengers subscribed to this route have been notified."
+                repository.logAction("DRIVER_ROUTE_COMPLETED", currentDriverId, "DRIVER", "Completed live route $tripId")
+            } catch (e: Exception) {
+                _driverActionMessage.value = e.message ?: "Could not complete route. Try again."
+            }
+        }
+    }
+
     fun submitDriverLocation(
         latitude: Double,
         longitude: Double,
