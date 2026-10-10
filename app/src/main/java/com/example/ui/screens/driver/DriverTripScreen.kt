@@ -121,6 +121,7 @@ fun DriverTripScreen(
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Driver and vehicle documents", fontWeight = FontWeight.Bold)
                         Text("Upload clear, current documents. Each file must be 5 MB or smaller.")
+                        PrivateMediaUploadButton(viewModel, "DRIVER_PROFILE_PHOTO", "Upload driver profile photo", imagesOnly = true)
                         PrivateMediaUploadButton(viewModel, "DRIVER_LICENSE", "Upload driver's licence")
                         PrivateMediaUploadButton(viewModel, "VEHICLE_PHOTO", "Upload vehicle photo", imagesOnly = true)
                         PrivateMediaUploadButton(viewModel, "TRADE_LICENSE", "Upload trade licence")
