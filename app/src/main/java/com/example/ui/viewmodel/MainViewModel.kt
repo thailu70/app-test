@@ -227,6 +227,9 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Driver Trip State
+    private var latestGpsLatitude: Double? = null
+    private var latestGpsLongitude: Double? = null
+
     private val _driverTrip = MutableStateFlow(DriverTripState())
     val driverTrip: StateFlow<DriverTripState> = _driverTrip.asStateFlow()
 
@@ -388,7 +391,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                                 vehicleType = vehicle.vehicleType,
                                 vehicleCapacity = vehicle.capacityLimit,
                                 totalPassengers = vehicle.capacityLimit,
-                                departureTime = vehicle.morningDeparture ?: "06:30",
+                                departureTime = if (direction == "INBOUND") vehicle.eveningDeparture ?: "17:30" else vehicle.morningDeparture ?: "06:30",
                                 routeId = vehicle.assignedRouteId.orEmpty(),
                                 routeName = vehicle.routeName.orEmpty()
                             )
@@ -594,7 +597,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     }
 
     // Start a server-authoritative trip using the driver's own registered vehicle and admin-assigned route.
-    fun startNavigation() {
+    fun startNavigation(direction: String = "OUTBOUND") {
         viewModelScope.launch {
             _driverActionMessage.value = null
             try {
@@ -603,7 +606,9 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     ?: throw IllegalStateException("Your owned vehicle is not registered. Sign out and register it again.")
                 val routeId = vehicle.assignedRouteId?.takeIf { it.isNotBlank() }
                     ?: throw IllegalStateException("Your vehicle has not been assigned a route yet. Contact the RoutePass administrator.")
-                val trip = repository.startDriverTrip(routeId, vehicle.id)
+                val latitude = latestGpsLatitude ?: throw IllegalStateException("Waiting for a fresh GPS fix. Enable location and wait before confirming departure.")
+                val longitude = latestGpsLongitude ?: throw IllegalStateException("Waiting for a fresh GPS fix. Enable location and wait before confirming departure.")
+                val trip = repository.startDriverTrip(routeId, vehicle.id, latitude, longitude, direction)
                 val stops = repository.getStopsForRouteSync(routeId)
                 _driverTrip.value = DriverTripState(
                     tripId = trip.id,
@@ -635,6 +640,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         currentStop: String = "",
         onResult: ((Boolean, String) -> Unit)? = null
     ) {
+        latestGpsLatitude = latitude
+        latestGpsLongitude = longitude
         viewModelScope.launch {
             try {
                 repository.submitDriverLocation(latitude, longitude, speed, currentStop)
