@@ -172,7 +172,9 @@
         '<div class="field"><label for="route-description">Description</label><input id="route-description" name="description" maxlength="400"></div>' +
         '<div class="field"><label for="route-distance">Distance (km)</label><input id="route-distance" name="distanceKm" type="number" min="0.1" step="0.1" value="10"></div>' +
         '<div class="field"><label for="route-morning">Morning departure</label><input id="route-morning" name="morningDeparture" type="time" value="06:30" required></div>' +
-        '<div class="field"><label for="route-evening">Evening departure</label><input id="route-evening" name="eveningDeparture" type="time" value="17:30" required></div>' +
+        '<div class="field"><label for="route-evening">Evening / return departure</label><input id="route-evening" name="eveningDeparture" type="time" value="17:30" required></div>' +
+        '<div class="field"><label for="route-direction-mode">Journey type</label><select id="route-direction-mode" name="directionMode"><option value="TWO_WAY" selected>Two-way (outbound and return)</option><option value="ONE_WAY">One-way (single direction)</option></select></div>' +
+        '<div class="field"><label for="route-one-way-direction">Direction for one-way service</label><select id="route-one-way-direction" name="oneWayDirection"><option value="OUTBOUND" selected>Home → work / school</option><option value="INBOUND">Work / school → home</option></select></div>' +
         '<div class="field"><label for="route-price">Monthly tariff (ETB)</label><input id="route-price" name="basePriceEtb" type="number" min="0" step="1" value="2500" required></div>' +
         '</div><div class="field" style="margin-top:14px"><label for="route-stops">Ordered route stops *</label><textarea id="route-stops" name="stopsText" rows="5" required placeholder="Bole Medhanialem | ቦሌ መድኃኔዓለም | 8.995000 | 38.788000&#10;Bole Atlas | ቦሌ አትላስ | 9.006000 | 38.780000&#10;Merkato Bus Terminal | መርካቶ ተርሚናል | 9.031000 | 38.736000"></textarea><span class="hint">One stop per line: English name | Amharic name | latitude | longitude. Keep stops in travel order and use real coordinates from a map.</span></div>' +
         '<div class="form-actions"><button class="btn btn-primary" type="submit">Create route</button></div><p id="route-form-message" class="form-message" hidden role="status"></p></form>') +
@@ -180,6 +182,11 @@
         table([
           { label: "Route", render: r => "<strong>" + esc(value(r, "name")) + "</strong><br><span class=\"muted\">" + esc(value(r, "nameAm", "name_am")) + "</span>" },
           { label: "Morning", keys: ["morningDeparture", "morning_departure"] },
+          { label: "Journey", render: r => {
+            const mode = value(r, "directionMode", "direction_mode") || "TWO_WAY";
+            const oneWay = value(r, "oneWayDirection", "one_way_direction") || "OUTBOUND";
+            return esc(mode === "ONE_WAY" ? ("One-way · " + (oneWay === "INBOUND" ? "Work/school → home" : "Home → work/school")) : "Two-way · outbound + return");
+          } },
           { label: "Evening", keys: ["eveningDeparture", "evening_departure"] },
           { label: "Distance", render: r => esc(value(r, "distanceKm", "distance_km")) + " km" },
           { label: "Monthly tariff", render: r => esc(money(value(r, "basePriceEtb", "base_price_etb"))) },
@@ -235,8 +242,30 @@
         ], data));
   }
   async function renderPayments() {
-    const data = asArray(await api("/api/admin/payments"), "payments");
-    return pageHeader("Payments", "Read-only transaction history. Live Telebirr checkout is not enabled.") +
+    const [paymentResponse, subscriptionResponse] = await Promise.all([
+      api("/api/admin/payments"),
+      api("/api/admin/subscriptions")
+    ]);
+    const data = asArray(paymentResponse, "payments");
+    const subscriptions = asArray(subscriptionResponse, "subscriptions");
+    const options = subscriptions.map(sub => {
+      const id = esc(value(sub, "id"));
+      const passenger = esc(value(sub, "passengerName", "passenger_name"));
+      const route = esc(value(sub, "routeName", "route_name"));
+      const tariff = Number(value(sub, "priceEtb", "price_etb"));
+      const label = passenger + " · " + route + " · " + money(tariff) + " · " + esc(value(sub, "subscriptionStatus", "subscription_status"));
+      return '<option value="' + id + '" data-tariff="' + (Number.isFinite(tariff) ? tariff : "") + '">' + label + '</option>';
+    }).join("");
+    const manualForm = '<form id="manual-payment-form" class="form-card">' +
+      '<div class="driver-form-grid">' +
+      '<div class="field"><label for="manual-payment-subscription">Passenger subscription *</label><select id="manual-payment-subscription" name="subscriptionId" required><option value="">Choose subscription…</option>' + options + '</select></div>' +
+      '<div class="field"><label for="manual-payment-amount">Amount received (ETB) *</label><input id="manual-payment-amount" name="amountEtb" type="number" min="0.01" step="0.01" required placeholder="Exact subscription tariff"></div>' +
+      '<div class="field"><label for="manual-payment-reference">Cash / bank / receipt reference *</label><input id="manual-payment-reference" name="referenceNumber" required minlength="4" maxlength="100" placeholder="e.g. CASH-2026-0001"></div>' +
+      '<div class="field"><label for="manual-payment-notes">Notes</label><input id="manual-payment-notes" name="notes" maxlength="500" placeholder="Receipt number, collection details"></div>' +
+      '</div><p class="hint">Use only after the payment has actually been received. The amount must match the subscription tariff. Each reference can be recorded once; every entry is audited. This is a manual offline/cash ledger entry, not a Telebirr verification.</p>' +
+      '<div class="form-actions"><button class="btn btn-primary" type="submit">Record payment and activate 30 days</button></div><p id="manual-payment-message" class="form-message" hidden role="status"></p></form>';
+    return pageHeader("Payments", "Enter verified cash/offline receipts manually and review the payment ledger. Manual entries must reflect money actually received.") +
+      section("Manual payment entry", subscriptions.length + " subscription(s) available", manualForm) +
       section("Transaction ledger", data.length + " record(s)",
         table([
           { label: "Date", render: r => esc(dateText(value(r, "date", "createdAt", "created_at"))) },
@@ -247,6 +276,34 @@
           { label: "Provider", keys: ["provider"] },
           { label: "Status", render: r => pill(value(r, "status")) }
         ], data));
+  }
+
+  async function submitManualPayment(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
+    const message = $("#manual-payment-message");
+    const data = Object.fromEntries(new FormData(form).entries());
+    data.amountEtb = Number(data.amountEtb);
+    if (!data.subscriptionId || !data.referenceNumber || !Number.isFinite(data.amountEtb) || data.amountEtb <= 0) {
+      message.textContent = "Choose a subscription, enter its exact received amount, and provide a receipt/reference.";
+      message.className = "form-message error";
+      message.hidden = false;
+      return;
+    }
+    if (!window.confirm("Confirm that ETB " + data.amountEtb.toFixed(2) + " was actually received for this subscription and record it in the audited manual payment ledger?")) return;
+    button.disabled = true;
+    message.hidden = true;
+    try {
+      const result = await api("/api/admin/payments/manual", { method: "POST", body: JSON.stringify(data) });
+      toast(result.message || "Manual payment recorded.");
+      await renderView();
+    } catch (error) {
+      message.textContent = error.message;
+      message.className = "form-message error";
+      message.hidden = false;
+      button.disabled = false;
+    }
   }
   async function renderCheckins() {
     const data = asArray(await api("/api/admin/checkins"), "checkins");
@@ -315,6 +372,16 @@
       $("#page-content").innerHTML = html;
       const routeForm = $("#create-route-form");
       if (routeForm) routeForm.addEventListener("submit", submitRoute);
+      const manualPaymentForm = $("#manual-payment-form");
+      if (manualPaymentForm) {
+        manualPaymentForm.addEventListener("submit", submitManualPayment);
+        const subscriptionSelect = $("#manual-payment-subscription");
+        subscriptionSelect?.addEventListener("change", () => {
+          const option = subscriptionSelect.selectedOptions[0];
+          const tariff = Number(option?.dataset.tariff);
+          if (Number.isFinite(tariff) && tariff > 0) $("#manual-payment-amount").value = tariff.toFixed(2);
+        });
+      }
     } catch (error) {
       $("#page-content").innerHTML = '<div class="card empty-note"><strong>Could not load this page.</strong><br>' + esc(error.message) +
         '<div style="margin-top:12px"><button class="btn btn-secondary" id="retry-button">Try again</button></div></div>';
@@ -446,8 +513,16 @@
       if (description === null) return;
       const morningDeparture = window.prompt("Morning departure (HH:MM):", value(route, "morningDeparture", "morning_departure"));
       if (morningDeparture === null) return;
-      const eveningDeparture = window.prompt("Evening departure (HH:MM):", value(route, "eveningDeparture", "evening_departure"));
+      const eveningDeparture = window.prompt("Evening / return departure (HH:MM):", value(route, "eveningDeparture", "evening_departure"));
       if (eveningDeparture === null) return;
+      const directionMode = window.prompt("Journey type: TWO_WAY or ONE_WAY:", value(route, "directionMode", "direction_mode") || "TWO_WAY");
+      if (directionMode === null) return;
+      const cleanMode = directionMode.trim().toUpperCase();
+      if (!["ONE_WAY", "TWO_WAY"].includes(cleanMode)) return toast("Journey type must be TWO_WAY or ONE_WAY.", true);
+      const oneWayDirection = window.prompt("Direction for one-way route: OUTBOUND (home to work/school) or INBOUND (work/school to home):", value(route, "oneWayDirection", "one_way_direction") || "OUTBOUND");
+      if (oneWayDirection === null) return;
+      const cleanOneWayDirection = oneWayDirection.trim().toUpperCase();
+      if (!["OUTBOUND", "INBOUND"].includes(cleanOneWayDirection)) return toast("Direction must be OUTBOUND or INBOUND.", true);
       const basePriceEtb = Number(window.prompt("Monthly tariff in ETB:", value(route, "basePriceEtb", "base_price_etb")));
       if (!Number.isFinite(basePriceEtb) || basePriceEtb < 0) return toast("Tariff must be a valid non-negative number.", true);
       const editedStopsText = window.prompt(
@@ -458,7 +533,7 @@
       const stops = parseStopsText(editedStopsText);
       await api("/api/routes/" + encodeURIComponent(id), {
         method: "PUT",
-        body: JSON.stringify({ ...route, name, nameAm, description, morningDeparture, eveningDeparture, basePriceEtb, stops })
+        body: JSON.stringify({ ...route, name, nameAm, description, morningDeparture, eveningDeparture, directionMode: cleanMode, oneWayDirection: cleanOneWayDirection, basePriceEtb, stops })
       });
       toast("Route and stops updated.");
       await renderView();
