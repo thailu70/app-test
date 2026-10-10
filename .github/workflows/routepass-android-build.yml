@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - audit/production-readiness-2026-10-09
+      - feature/routepass-otp-geofence-payments
     paths:
       - ".github/workflows/routepass-android-build.yml"
       - "app/**"
@@ -27,10 +28,10 @@ jobs:
     name: Build installable Android test APK
     runs-on: ubuntu-latest
     steps:
-      - name: Check out production-readiness test branch
+      - name: Check out the triggering branch
         uses: actions/checkout@v4
         with:
-          ref: audit/production-readiness-2026-10-09
+          ref: ${{ github.ref }}
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
