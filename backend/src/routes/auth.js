@@ -115,7 +115,7 @@ router.post('/register', authLimiter, async (req, res) => {
       if (typeof otpProof !== 'string' || otpProof.length < 32) {
         return res.status(403).json({ success: false, error: 'Verify your mobile number by SMS before registering.' });
       }
-      const challenge = await DB.prepare('SELECT * FROM otp_challenges WHERE phone = ? AND proof_hash = ? AND verified = 1').get(phone.trim().replace(/[\\s()-]/g, ''), sha256(otpProof));
+      const challenge = await DB.prepare('SELECT * FROM otp_challenges WHERE phone = ? AND proof_hash = ? AND verified = 1').get(phone.trim().replace(/[\s()-]/g, ''), sha256(otpProof));
       const expiresAt = challenge && (challenge.expiresAt || challenge.expires_at);
       if (!challenge || !expiresAt || new Date(expiresAt).getTime() <= Date.now()) {
         return res.status(403).json({ success: false, error: 'Mobile verification is missing or expired. Request a new OTP.' });
@@ -173,7 +173,7 @@ router.post('/register', authLimiter, async (req, res) => {
     });
 
     if (normalizedRole !== 'ADMIN' && process.env.NODE_ENV === 'production') {
-      await DB.prepare('DELETE FROM otp_challenges WHERE phone = ? AND proof_hash = ?').run(phone.trim().replace(/[\\s()-]/g, ''), sha256(otpProof));
+      await DB.prepare('DELETE FROM otp_challenges WHERE phone = ? AND proof_hash = ?').run(phone.trim().replace(/[\s()-]/g, ''), sha256(otpProof));
     }
 
     // CRITICAL: Registration does NOT activate a subscription!
