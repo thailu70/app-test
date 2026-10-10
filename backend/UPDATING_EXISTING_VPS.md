@@ -37,7 +37,11 @@ chmod 600 /var/www/routepass/.env
 
 Do not replace or publish `/var/www/routepass/.env`. It contains production database and signing secrets.
 
-## 3. Enable manual subscription recharge only while testing
+## 3. Enable passenger registration without OTP and manual test recharge only while testing
+
+For the requested controlled test, the Android app reads `GET /api/config/public`. When `ROUTEPASS_TEST_MODE=true`, only passenger registration skips OTP; driver registration still requires OTP. The admin's **Recharge 30 days (test)** action is separately gated by `ALLOW_MANUAL_TEST_RECHARGE=true`. Both settings must be disabled before public launch.
+
+On the VPS, set both flags without printing the rest of the secrets:
 
 The admin portal includes **Recharge 30 days (test)**. This is a test-only activation, not a Telebirr transaction. It writes provider `ADMIN_TEST`, emits an audit log, signs a QR pass and is excluded from the real-revenue total. The backend requires an explicit environment flag; manual recharge is disabled by default.
 
@@ -45,15 +49,17 @@ Because you are testing, run the following on the VPS to enable it temporarily:
 
 ```bash
 cd /var/www/routepass
-if grep -q '^ALLOW_MANUAL_TEST_RECHARGE=' .env; then
-  sed -i 's/^ALLOW_MANUAL_TEST_RECHARGE=.*/ALLOW_MANUAL_TEST_RECHARGE=true/' .env
-else
-  printf '\nALLOW_MANUAL_TEST_RECHARGE=true\n' >> .env
-fi
+for key in ALLOW_MANUAL_TEST_RECHARGE ROUTEPASS_TEST_MODE; do
+  if grep -q "^\$key=" .env; then
+    sed -i "s/^\$key=.*/\$key=true/" .env
+  else
+    printf '\n%s=true\n' "$key" >> .env
+  fi
+done
 chmod 600 .env
 ```
 
-**Before allowing real public subscriptions or treating any payment report as financial data, turn it back off** by using the same command with `false` instead of `true`, then rebuild only the API as shown below. Never expose or paste the `.env` contents into chat.
+**Before public launch, turn both flags off** (`ALLOW_MANUAL_TEST_RECHARGE=false` and `ROUTEPASS_TEST_MODE=false`), then rebuild only the API. Never expose or paste the `.env` contents into chat.
 
 ## 4. Rebuild only the RoutePass API
 
