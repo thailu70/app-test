@@ -176,7 +176,10 @@ async function runTests() {
     // 7. Driver starts trip and updates stop arrival
     const startTripRes = await makeRequest('POST', '/api/trips/start', {
       routeId: 'route_bole_merkato',
-      direction: 'OUTBOUND'
+      direction: 'OUTBOUND',
+      latitude: 8.995,
+      longitude: 38.788,
+      arrivalConfirmed: true
     }, driverToken);
     if (!startTripRes.data.success) throw new Error('Start trip failed: ' + JSON.stringify(startTripRes.data));
     const activeTrip = startTripRes.data.trip;
