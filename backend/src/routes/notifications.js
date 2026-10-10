@@ -10,28 +10,22 @@ const { authenticate, requireRole } = require('../middleware/auth');
  */
 router.get('/', authenticate, async (req, res) => {
   try {
-    const role = req.user.role;
-    let audienceCondition = "targetAudience = 'ALL'";
-
-    if (role === 'PASSENGER') {
-      audienceCondition = "(targetAudience = 'ALL' OR targetAudience = 'PASSENGERS')";
+    const role = String(req.user.role || '').toUpperCase();
+    let notifications;
+    if (role === 'ADMIN') {
+      notifications = await DB.prepare('SELECT * FROM notifications ORDER BY timestamp DESC LIMIT 50').all();
+    } else if (role === 'PASSENGER') {
+      notifications = await DB.prepare("SELECT * FROM notifications WHERE target_user_id = ? OR (target_user_id IS NULL AND targetAudience IN ('ALL', 'PASSENGERS')) ORDER BY timestamp DESC LIMIT 50")
+        .all(req.user.id);
     } else if (role === 'DRIVER') {
-      audienceCondition = "(targetAudience = 'ALL' OR targetAudience = 'TRANSPORTERS')";
-    } else if (role === 'ADMIN') {
-      audienceCondition = '1=1'; // Admins see all
+      notifications = await DB.prepare("SELECT * FROM notifications WHERE target_user_id = ? OR (target_user_id IS NULL AND targetAudience IN ('ALL', 'TRANSPORTERS')) ORDER BY timestamp DESC LIMIT 50")
+        .all(req.user.id);
+    } else {
+      return res.status(403).json({ success: false, error: 'Notifications are not available for this role.' });
     }
-
-    const notifications = await DB.prepare(`
-      SELECT * FROM notifications WHERE ${audienceCondition} ORDER BY timestamp DESC LIMIT 50
-    `).all();
-
-    res.json({
-      success: true,
-      count: notifications.length,
-      notifications
-    });
+    res.json({ success: true, count: notifications.length, notifications });
   } catch (err) {
-    console.error('[RoutePass] request failed:', err);
+    console.error('[RoutePass] notification list failed:', err.code || 'NOTIFICATION_LIST_ERROR');
     res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
