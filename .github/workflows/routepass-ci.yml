@@ -6,7 +6,7 @@ concurrency:
 
 on:
   push:
-    branches: [main, "audit/**"]
+    branches: [main, "audit/**", "feature/**"]
   pull_request:
     branches: [main]
   workflow_dispatch:
