@@ -118,6 +118,7 @@ app.get('/api/ready', async (req, res) => {
 });
 
 // Mount Route Modules
+app.use('/api/auth/otp', require('./routes/otp'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/routes', require('./routes/routes'));
 app.use('/api/subscriptions/telebirr', require('./routes/telebirr'));
@@ -407,6 +408,17 @@ app.locals.broadcastWs = broadcastAuthorized;
 // Start only after applying the additive runtime GPS-table migration. This supports existing
 // PostgreSQL installations where init-db.sql was executed before vehicle_live_locations existed.
 async function startServer() {
+  await DB.prepare(`
+    CREATE TABLE IF NOT EXISTS phone_otp_challenges (
+      phone VARCHAR(32) PRIMARY KEY,
+      otp_hash VARCHAR(64) NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      verified_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+
   await DB.prepare(`
     CREATE TABLE IF NOT EXISTS vehicle_live_locations (
       vehicle_id VARCHAR(64) PRIMARY KEY REFERENCES vehicles(id) ON DELETE CASCADE,
