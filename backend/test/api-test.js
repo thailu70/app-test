@@ -123,6 +123,21 @@ async function runTests() {
       throw new Error('Role isolation failed! Expected 403, got: ' + illegalAdminCall.status);
     }
 
+    // Admin-only passenger directory and fleet tracking return structured records.
+    const passengerDirectory = await makeRequest('GET', '/api/admin/passengers', null, adminToken);
+    if (passengerDirectory.status !== 200 || !Array.isArray(passengerDirectory.data.passengers)) {
+      throw new Error('Admin passenger directory failed: ' + JSON.stringify(passengerDirectory.data));
+    }
+    const adminTracking = await makeRequest('GET', '/api/admin/tracking', null, adminToken);
+    if (adminTracking.status !== 200 || !Array.isArray(adminTracking.data.vehicles)) {
+      throw new Error('Admin live tracking endpoint failed: ' + JSON.stringify(adminTracking.data));
+    }
+    const publicConfig = await makeRequest('GET', '/api/config/public');
+    if (publicConfig.status !== 200 || publicConfig.data.success !== true || publicConfig.data.testMode !== false) {
+      throw new Error('Public test configuration should be disabled by default: ' + JSON.stringify(publicConfig.data));
+    }
+    console.log('✓ Admin passenger directory, fleet tracking and safe default test configuration verified');
+
     // 5. Registration does NOT activate subscription
     const testPassengerPhone = '+2519' + Math.floor(10000000 + Math.random() * 90000000);
     const newPasReg = await makeRequest('POST', '/api/auth/register', {
