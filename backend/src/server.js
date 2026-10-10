@@ -419,6 +419,37 @@ async function startServer() {
   `).run();
 
   await DB.prepare("CREATE TABLE IF NOT EXISTS telebirr_payment_orders (merchant_order_id VARCHAR(100) PRIMARY KEY, idempotency_key VARCHAR(100) UNIQUE, prepay_id VARCHAR(200), checkout_url TEXT, passenger_id VARCHAR(64) NOT NULL REFERENCES users(id), subscription_id VARCHAR(64) NOT NULL REFERENCES subscriptions(id), route_id VARCHAR(64) NOT NULL REFERENCES routes(id), amount_etb NUMERIC(10,2) NOT NULL, status VARCHAR(20) NOT NULL DEFAULT 'PENDING', payment_order_id VARCHAR(200), transaction_id VARCHAR(200), last_query_at TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)").run();
+  await DB.prepare(`
+    CREATE TABLE IF NOT EXISTS signup_otps (
+      phone VARCHAR(30) NOT NULL,
+      purpose VARCHAR(20) NOT NULL,
+      otp_hash VARCHAR(64) NOT NULL,
+      expires_at VARCHAR(40) NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      verified_at VARCHAR(40),
+      consumed_at VARCHAR(40),
+      last_sent_at VARCHAR(40) NOT NULL,
+      created_at VARCHAR(40) NOT NULL,
+      PRIMARY KEY (phone, purpose)
+    )
+  `).run();
+
+  // Additive migrations for existing PostgreSQL or SQLite installations.
+  for (const statement of [
+    'ALTER TABLE routes ADD COLUMN directionMode VARCHAR(20) DEFAULT \'TWO_WAY\'',
+    'ALTER TABLE routes ADD COLUMN oneWayDirection VARCHAR(20) DEFAULT \'OUTBOUND\'',
+    'ALTER TABLE trips ADD COLUMN arrivalConfirmedAt VARCHAR(40)',
+    'ALTER TABLE trips ADD COLUMN scheduledDepartureAt VARCHAR(40)',
+    'ALTER TABLE trips ADD COLUMN arrivalDistanceMeters REAL',
+    'ALTER TABLE notifications ADD COLUMN target_user_id VARCHAR(64)'
+  ]) {
+    try { await DB.prepare(statement).run(); }
+    catch (err) {
+      if (!/already exists|duplicate column|duplicate key name/i.test(String(err.message || err))) throw err;
+    }
+  }
+  await DB.prepare('CREATE INDEX IF NOT EXISTS idx_notifications_target_user ON notifications(target_user_id, timestamp)').run();
+
   await DB.prepare('CREATE INDEX IF NOT EXISTS idx_telebirr_payment_orders_passenger ON telebirr_payment_orders(passenger_id, created_at)').run();
 
   server.listen(PORT, HOST, () => {
