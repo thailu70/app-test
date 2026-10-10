@@ -727,7 +727,8 @@ fun AuthScreen(
                                     val validationMessage = when {
                                         password.length < 10 -> "Use a password with at least 10 characters."
                                         password != confirmPassword -> "The two passwords do not match. Please re-enter them."
-                                        else -> null
+                                        portal != AppRole.ADMIN && otpProof.isNullOrBlank() -> "Verify your mobile number by SMS before registering."
+                                         else -> null
                                     }
                                     if (validationMessage != null) {
                                         registrationValidationMessage = validationMessage
@@ -746,7 +747,8 @@ fun AuthScreen(
                                             vehicleType = vehicleType,
                                             appliedRouteId = selectedRouteId,
                                             appliedRouteName = selectedRouteName,
-                                            adminSecret = adminSecret
+                                            adminSecret = adminSecret,
+                                             otpProof = otpProof.orEmpty()
                                         )
                                     }
                                 } else {
