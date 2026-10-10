@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { DB } = require('../db');
 const { signToken, authenticate } = require('../middleware/auth');
+const { sha256 } = require('../services/ethio-telecom-sms');
 
 function resolveAdminSecret() {
   if (process.env.ADMIN_REGISTRATION_SECRET && process.env.ADMIN_REGISTRATION_SECRET.trim().length > 0) {
@@ -40,7 +41,8 @@ router.post('/register', authLimiter, async (req, res) => {
       vehicleModel = '',
       vehicleType = 'MINIBUS_14',
       appliedRouteId = '',
-      appliedRouteName = ''
+      appliedRouteName = '',
+      otpProof = ''
     } = req.body;
 
     if (!fullName || !phone || !password || !role) {
@@ -108,6 +110,18 @@ router.post('/register', authLimiter, async (req, res) => {
       }
     }
 
+    // All self-service registrations require a recent server-issued OTP proof for this exact phone.
+    if (normalizedRole !== 'ADMIN') {
+      if (typeof otpProof !== 'string' || otpProof.length < 32) {
+        return res.status(403).json({ success: false, error: 'Verify your mobile number by SMS before registering.' });
+      }
+      const challenge = await DB.prepare('SELECT * FROM otp_challenges WHERE phone = ? AND proof_hash = ? AND verified = 1').get(phone.trim().replace(/[\\s()-]/g, ''), sha256(otpProof));
+      const expiresAt = challenge && (challenge.expiresAt || challenge.expires_at);
+      if (!challenge || !expiresAt || new Date(expiresAt).getTime() <= Date.now()) {
+        return res.status(403).json({ success: false, error: 'Mobile verification is missing or expired. Request a new OTP.' });
+      }
+    }
+
     // Check if phone is already registered
     const existing = await DB.prepare('SELECT id FROM users WHERE phone = ?').get(phone.trim());
     if (existing) {
@@ -157,6 +171,10 @@ router.post('/register', authLimiter, async (req, res) => {
         );
       }
     });
+
+    if (normalizedRole !== 'ADMIN') {
+      await DB.prepare('DELETE FROM otp_challenges WHERE phone = ? AND proof_hash = ?').run(phone.trim().replace(/[\\s()-]/g, ''), sha256(otpProof));
+    }
 
     // CRITICAL: Registration does NOT activate a subscription!
     // If passenger selected a route during signup, create a PENDING unpaid subscription.
