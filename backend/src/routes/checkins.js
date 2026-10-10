@@ -226,10 +226,20 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
       });
     }
 
-    // Broadcast check-in event to WebSockets
+    // Persist a private notification for the passenger who just boarded.
+    await DB.prepare("INSERT INTO notifications (id, title, message, targetAudience, type, senderName, target_user_id) VALUES (?, ?, ?, 'PASSENGERS', 'SERVICE', 'RoutePass', ?)")
+      .run(`notif_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`,
+        'Boarding confirmed',
+        `Your RoutePass boarding was confirmed for ${currentStop}. Have a safe trip.`,
+        sub.passengerId);
+
+    // Broadcast a targeted event so only that passenger receives the boarding confirmation.
     if (req.app.locals.broadcastWs) {
       req.app.locals.broadcastWs({
         type: 'PASSENGER_BOARDED',
+        targetUserId: sub.passengerId,
+        passengerId: sub.passengerId,
+        routeId: sub.routeId,
         checkinId: result.checkinId,
         passengerName: result.passengerName,
         stopName: currentStop,
