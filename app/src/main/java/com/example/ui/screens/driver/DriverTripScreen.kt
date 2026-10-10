@@ -359,7 +359,7 @@ private fun DriverLocationReporter(
             } else {
                 providers.forEach { provider ->
                     try {
-                        locationManager.requestLocationUpdates(provider, 5000L, 5f, listener, Looper.getMainLooper())
+                        locationManager.requestLocationUpdates(provider, 2500L, 3f, listener, Looper.getMainLooper())
                         locationManager.getLastKnownLocation(provider)?.let(listener::onLocationChanged)
                     } catch (_: SecurityException) {
                         onStatusChanged("Location access was denied. Re-enable permission in Android settings.")
