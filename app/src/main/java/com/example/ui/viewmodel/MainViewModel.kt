@@ -157,6 +157,19 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 // Offline fallback
             }
         }
+        // Arrival, boarding and route-completion notices are server-originated. Refresh
+        // while logged in so the notification tray shows those passenger-specific events.
+        viewModelScope.launch {
+            var lastUserId: String? = null
+            while (true) {
+                val userId = _currentUser.value?.id
+                if (!userId.isNullOrBlank() && userId != lastUserId) lastUserId = userId
+                if (!userId.isNullOrBlank()) {
+                    try { repository.refreshNotificationsFromBackend() } catch (_: Exception) { }
+                }
+                delay(15000)
+            }
+        }
     }
 
     // Passenger Flows
@@ -215,9 +228,12 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     val driverTrip: StateFlow<DriverTripState> = _driverTrip.asStateFlow()
 
     val routeStops: StateFlow<List<RouteStopEntity>> = _driverTrip
-        .map { it.routeId }
+        .map { it.routeId to it.direction }
         .distinctUntilChanged()
-        .flatMapLatest { routeId -> if (routeId.isBlank()) flowOf(emptyList()) else repository.getStopsForRoute(routeId) }
+        .flatMapLatest { (routeId, direction) ->
+            if (routeId.isBlank()) flowOf(emptyList())
+            else repository.getStopsForRoute(routeId).map { stops -> if (direction == "INBOUND") stops.reversed() else stops }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _driverActionMessage = MutableStateFlow<String?>(null)
