@@ -668,7 +668,16 @@ fun AuthScreen(
                                 Text("Step 2: Verify mobile number to complete registration", fontWeight = FontWeight.Bold, color = Slate900)
                                 Button(
                                     onClick = {
-                                        if (phone.isBlank()) registrationValidationMessage = "Enter your mobile number first."
+                                        val requiredDataError = when {
+                                            fullName.isBlank() -> "Enter your full name before requesting OTP."
+                                            phone.isBlank() -> "Enter your mobile number first."
+                                            password.length < 10 -> "Use a password with at least 10 characters before requesting OTP."
+                                            password != confirmPassword -> "The two passwords do not match."
+                                            portal == AppRole.PASSENGER && selectedRouteId.isBlank() -> "Select your subscription route first."
+                                            portal == AppRole.DRIVER && (licenseNumber.isBlank() || vehiclePlate.isBlank() || vehicleModel.isBlank()) -> "Complete your driver licence and vehicle details first."
+                                            else -> null
+                                        }
+                                        if (requiredDataError != null) registrationValidationMessage = requiredDataError
                                         else {
                                             registrationValidationMessage = null
                                             otpCode = ""
