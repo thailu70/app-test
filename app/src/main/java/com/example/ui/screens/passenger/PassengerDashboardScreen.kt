@@ -37,6 +37,7 @@ import androidx.compose.ui.window.Dialog
 import com.example.core.localization.AppLanguage
 import com.example.core.localization.AppStrings
 import com.example.data.entity.PaymentTransactionEntity
+import com.example.ui.components.RoutePassHeroHeader
 import com.example.ui.components.PrivateMediaUploadButton
 import com.example.ui.components.QrCodeCanvas
 import com.example.ui.components.MiniVehicleMap
@@ -103,14 +104,27 @@ fun PassengerDashboardScreen(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFFF3F7FB), Color(0xFFEAF2F8))))
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
     ) {
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Passenger profile", fontWeight = FontWeight.Bold)
+            RoutePassHeroHeader(
+                title = "Your everyday, upgraded.",
+                subtitle = "Your pass, your driver and your journey — beautifully connected.",
+                icon = Icons.Default.QrCode
+            )
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(22.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+            ) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Passenger profile", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     PrivateMediaUploadButton(viewModel, "PROFILE_PHOTO", "Upload / update profile photo", imagesOnly = true)
                     mediaUploadMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     Divider()
