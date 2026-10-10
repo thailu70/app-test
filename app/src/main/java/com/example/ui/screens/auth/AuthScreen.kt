@@ -41,6 +41,9 @@ fun AuthScreen(
     val lang by viewModel.currentLanguage.collectAsState()
     val authError by viewModel.authError.collectAsState()
     val registrationMessage by viewModel.registrationMessage.collectAsState()
+    val otpChallengeId by viewModel.otpChallengeId.collectAsState()
+    val otpProof by viewModel.otpProof.collectAsState()
+    val otpMessage by viewModel.otpMessage.collectAsState()
     val availableRoutes by viewModel.allRoutes.collectAsState()
 
     // Dedicated Independent Portal Gateway (null = selecting portal; non-null = inside specific portal)
@@ -53,6 +56,7 @@ fun AuthScreen(
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
+    var otpCode by remember { mutableStateOf("") }
     var registrationValidationMessage by remember { mutableStateOf<String?>(null) }
     var licenseNumber by remember { mutableStateOf("") }
     var companyName by remember { mutableStateOf("") }
@@ -620,6 +624,40 @@ fun AuthScreen(
                                 .fillMaxWidth()
                                 .testTag("auth_phone_input")
                         )
+
+                        if (isRegisterMode && portal != AppRole.ADMIN) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                Button(
+                                    onClick = {
+                                        if (phone.isBlank()) registrationValidationMessage = "Enter your mobile number first."
+                                        else {
+                                            registrationValidationMessage = null
+                                            otpCode = ""
+                                            viewModel.requestRegistrationOtp(phone)
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(if (otpChallengeId.isNullOrBlank()) "SEND SMS VERIFICATION CODE" else "RESEND SMS CODE")
+                                }
+                                if (!otpChallengeId.isNullOrBlank()) {
+                                    OutlinedTextField(
+                                        value = otpCode,
+                                        onValueChange = { otpCode = it.filter(Char::isDigit).take(6) },
+                                        label = { Text("6-digit SMS verification code") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    Button(
+                                        onClick = { viewModel.verifyRegistrationOtp(otpCode) },
+                                        enabled = otpCode.length == 6 && otpProof.isNullOrBlank(),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) { Text(if (otpProof.isNullOrBlank()) "VERIFY MOBILE NUMBER" else "MOBILE NUMBER VERIFIED") }
+                                }
+                                otpMessage?.let { Text(it, color = if (otpProof.isNullOrBlank()) Slate700 else TransportGreenPrimary, style = MaterialTheme.typography.bodySmall) }
+                            }
+                        }
 
                         OutlinedTextField(
                             value = password,
