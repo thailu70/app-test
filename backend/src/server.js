@@ -140,6 +140,7 @@ app.use('/api/vehicles', require('./routes/vehicles'));
 app.use('/api/trips', require('./routes/trips'));
 app.use('/api/checkins', require('./routes/checkins'));
 app.use('/api/profile-media', require('./routes/profile-media'));
+app.use('/api/rosters', require('./routes/rosters'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/complaints', require('./routes/complaints'));
 app.use('/api/notifications', require('./routes/notifications'));
