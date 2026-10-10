@@ -1,5 +1,6 @@
 package com.example.data.api
 
+import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.*
 
@@ -123,6 +124,9 @@ interface RoutePassApiService {
 
     @GET("api/rosters/my")
     suspend fun getMyRoster(): Response<Map<String, Any>>
+
+    @GET("api/profile-media/{ownerId}/{assetType}")
+    suspend fun getProfileMedia(@Path("ownerId") ownerId: String, @Path("assetType") assetType: String): Response<ResponseBody>
 
     // -------------------------------------------------------------
     // Operational Notifications
