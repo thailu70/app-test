@@ -119,6 +119,12 @@ class TransportRepository(
         return body
     }
 
+    suspend fun getProfileMedia(ownerId: String, assetType: String): ByteArray? {
+        val response = apiService.getProfileMedia(ownerId, assetType)
+        if (!response.isSuccessful) return null
+        return response.body()?.bytes()
+    }
+
     suspend fun getMyRoster(): Map<String, Any> {
         val response = apiService.getMyRoster()
         val body = response.body()
