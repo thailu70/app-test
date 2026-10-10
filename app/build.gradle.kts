@@ -8,9 +8,9 @@ plugins {
   // alias(libs.plugins.google.services)
 }
 
-// Configure for each deployment with -PROUTEPASS_API_BASE_URL=https://api.yourdomain.com/
+// Defaults to the live RoutePass VPS; override with -PROUTEPASS_API_BASE_URL only for other environments.
 val routePassApiBaseUrl = providers.gradleProperty("ROUTEPASS_API_BASE_URL")
-  .orElse("https://api.example.com/")
+  .orElse("https://routepass.duckdns.org/")
   .get()
   .let { if (it.endsWith("/")) it else "$it/" }
 
@@ -124,6 +124,7 @@ dependencies {
   implementation("androidx.camera:camera-lifecycle:1.6.2")
   implementation("androidx.camera:camera-view:1.6.2")
   implementation("com.google.mlkit:barcode-scanning:17.3.0")
+  implementation("com.google.zxing:core:3.5.3")
   // Compact OpenStreetMap view for actual vehicle coordinates (no Google Maps API key).
   implementation("org.osmdroid:osmdroid-android:6.1.20")
   testImplementation(libs.androidx.compose.ui.test.junit4)

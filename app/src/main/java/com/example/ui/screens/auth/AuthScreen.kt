@@ -41,6 +41,10 @@ fun AuthScreen(
     val lang by viewModel.currentLanguage.collectAsState()
     val authError by viewModel.authError.collectAsState()
     val registrationMessage by viewModel.registrationMessage.collectAsState()
+    val otpChallengeId by viewModel.otpChallengeId.collectAsState()
+    val otpProof by viewModel.otpProof.collectAsState()
+    val otpMessage by viewModel.otpMessage.collectAsState()
+    val testPassengerRegistrationBypass by viewModel.testPassengerRegistrationBypass.collectAsState()
     val availableRoutes by viewModel.allRoutes.collectAsState()
 
     // Dedicated Independent Portal Gateway (null = selecting portal; non-null = inside specific portal)
@@ -53,6 +57,7 @@ fun AuthScreen(
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
+    var otpCode by remember { mutableStateOf("") }
     var registrationValidationMessage by remember { mutableStateOf<String?>(null) }
     var licenseNumber by remember { mutableStateOf("") }
     var companyName by remember { mutableStateOf("") }
@@ -76,6 +81,8 @@ fun AuthScreen(
 
     // Never pre-fill the login form with shared/demo credentials.
     LaunchedEffect(selectedPortal, isRegisterMode) {
+        viewModel.clearRegistrationOtp()
+        otpCode = ""
         phone = ""
         password = ""
         confirmPassword = ""
@@ -621,6 +628,8 @@ fun AuthScreen(
                                 .testTag("auth_phone_input")
                         )
 
+
+
                         OutlinedTextField(
                             value = password,
                             onValueChange = {
@@ -651,6 +660,59 @@ fun AuthScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("auth_confirm_password_input")
+                            )
+                        }
+
+                        if (isRegisterMode && portal != AppRole.ADMIN && !(portal == AppRole.PASSENGER && testPassengerRegistrationBypass)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                Text("Step 2: Verify mobile number to complete registration", fontWeight = FontWeight.Bold, color = Slate900)
+                                Button(
+                                    onClick = {
+                                        val requiredDataError = when {
+                                            fullName.isBlank() -> "Enter your full name before requesting OTP."
+                                            phone.isBlank() -> "Enter your mobile number first."
+                                            password.length < 10 -> "Use a password with at least 10 characters before requesting OTP."
+                                            password != confirmPassword -> "The two passwords do not match."
+                                            portal == AppRole.PASSENGER && selectedRouteId.isBlank() -> "Select your subscription route first."
+                                            portal == AppRole.DRIVER && (licenseNumber.isBlank() || vehiclePlate.isBlank() || vehicleModel.isBlank()) -> "Complete your driver licence and vehicle details first."
+                                            else -> null
+                                        }
+                                        if (requiredDataError != null) registrationValidationMessage = requiredDataError
+                                        else {
+                                            registrationValidationMessage = null
+                                            otpCode = ""
+                                            viewModel.requestRegistrationOtp(phone)
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(if (otpChallengeId.isNullOrBlank()) "SEND SMS VERIFICATION CODE" else "RESEND SMS CODE")
+                                }
+                                if (!otpChallengeId.isNullOrBlank()) {
+                                    OutlinedTextField(
+                                        value = otpCode,
+                                        onValueChange = { otpCode = it.filter(Char::isDigit).take(6) },
+                                        label = { Text("6-digit SMS verification code") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    Button(
+                                        onClick = { viewModel.verifyRegistrationOtp(otpCode) },
+                                        enabled = otpCode.length == 6 && otpProof.isNullOrBlank(),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) { Text(if (otpProof.isNullOrBlank()) "VERIFY MOBILE NUMBER" else "MOBILE NUMBER VERIFIED") }
+                                }
+                                otpMessage?.let { Text(it, color = if (otpProof.isNullOrBlank()) Slate700 else TransportGreenPrimary, style = MaterialTheme.typography.bodySmall) }
+                            }
+                        }
+
+                        if (isRegisterMode && portal == AppRole.PASSENGER && testPassengerRegistrationBypass) {
+                            Text(
+                                text = "TEST MODE: Passenger registration skips SMS OTP. Disable server test mode before public launch.",
+                                color = Color(0xFFB45309),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
 
@@ -689,7 +751,8 @@ fun AuthScreen(
                                     val validationMessage = when {
                                         password.length < 10 -> "Use a password with at least 10 characters."
                                         password != confirmPassword -> "The two passwords do not match. Please re-enter them."
-                                        else -> null
+                                        portal != AppRole.ADMIN && !(portal == AppRole.PASSENGER && testPassengerRegistrationBypass) && otpProof.isNullOrBlank() -> "Verify your mobile number by SMS before registering."
+                                         else -> null
                                     }
                                     if (validationMessage != null) {
                                         registrationValidationMessage = validationMessage
@@ -708,7 +771,8 @@ fun AuthScreen(
                                             vehicleType = vehicleType,
                                             appliedRouteId = selectedRouteId,
                                             appliedRouteName = selectedRouteName,
-                                            adminSecret = adminSecret
+                                            adminSecret = adminSecret,
+                                             otpProof = otpProof.orEmpty()
                                         )
                                     }
                                 } else {

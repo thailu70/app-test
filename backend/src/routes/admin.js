@@ -158,6 +158,69 @@ router.get('/drivers', async (req, res) => {
 });
 
 /**
+ * GET /api/admin/passengers
+ * Admin-only passenger directory with latest subscription and assigned driver.
+ * Password hashes and authentication material are deliberately excluded.
+ */
+router.get('/passengers', async (req, res) => {
+  try {
+    const passengers = await DB.prepare(`
+      SELECT u.id, u.fullName, u.phone, u.email, u.status, u.createdAt,
+             r.name AS routeName, s.subscriptionStatus, s.paymentStatus, s.endDate,
+             v.plateNumber AS vehiclePlate, d.fullName AS driverName, d.id AS driverId
+      FROM users u
+      LEFT JOIN subscriptions s ON s.id = (
+        SELECT s2.id FROM subscriptions s2
+        WHERE s2.passengerId = u.id
+        ORDER BY s2.updatedAt DESC LIMIT 1
+      )
+      LEFT JOIN routes r ON r.id = s.routeId
+      LEFT JOIN vehicles v ON v.id = s.vehicleId
+      LEFT JOIN users d ON d.id = v.driverId AND d.role = 'DRIVER'
+      WHERE u.role = 'PASSENGER'
+      ORDER BY u.createdAt DESC
+    `).all();
+    res.json({ success: true, passengers });
+  } catch (err) {
+    console.error('[Admin] passenger directory failed:', err);
+    res.status(500).json({ success: false, error: 'Could not load passenger directory.' });
+  }
+});
+
+/**
+ * GET /api/admin/tracking
+ * Admin-only live vehicle locations and active trip progress.
+ */
+router.get('/tracking', async (req, res) => {
+  try {
+    const vehicles = await DB.prepare(`
+      SELECT v.id, v.plateNumber, v.model, v.status AS vehicleStatus,
+             v.driverId, u.fullName AS driverName, u.phone AS driverPhone,
+             r.id AS routeId, r.name AS routeName,
+             l.latitude, l.longitude, l.speed, l.current_stop AS currentStop,
+             l.updated_at AS lastGpsAt,
+             t.currentStop AS tripCurrentStop, t.direction AS tripDirection, t.status AS tripStatus
+      FROM vehicles v
+      LEFT JOIN users u ON u.id = v.driverId AND u.role = 'DRIVER'
+      LEFT JOIN routes r ON r.id = v.assignedRouteId
+      LEFT JOIN vehicle_live_locations l ON l.vehicle_id = v.id
+      LEFT JOIN trips t ON t.vehicleId = v.id AND t.status = 'IN_PROGRESS'
+      ORDER BY v.plateNumber ASC
+    `).all();
+    res.json({ success: true, vehicles: vehicles.map(v => ({
+      ...v,
+      latitude: v.latitude == null ? null : Number(v.latitude),
+      longitude: v.longitude == null ? null : Number(v.longitude),
+      speed: v.speed == null ? null : Number(v.speed),
+      hasLocation: v.latitude != null && v.longitude != null && Boolean(v.lastGpsAt)
+    })) });
+  } catch (err) {
+    console.error('[Admin] live tracking query failed:', err);
+    res.status(500).json({ success: false, error: 'Could not load live driver tracking.' });
+  }
+});
+
+/**
  * GET /api/admin/subscriptions
  * List all subscriptions
  */
@@ -178,6 +241,68 @@ router.get('/subscriptions', async (req, res) => {
   } catch (err) {
     console.error('[RoutePass] request failed:', err);
     res.status(500).json({ success: false, error: 'Internal server error.' });
+  }
+});
+
+/**
+ * POST /api/admin/subscriptions/:id/manual-payment
+ * Record a real payment collected outside the app (cash/bank/other).
+ */
+router.post('/subscriptions/:id/manual-payment', async (req, res) => {
+  try {
+    const amount = Number(req.body.amountEtb);
+    const reference = String(req.body.referenceNumber || '').trim();
+    const method = String(req.body.method || '').trim().toUpperCase();
+    const noteText = String(req.body.notes || '').trim().slice(0, 500);
+    if (!Number.isFinite(amount) || amount <= 0 || !reference || reference.length > 90 ||
+        !['CASH', 'BANK_TRANSFER', 'OTHER'].includes(method)) {
+      return res.status(400).json({ success: false, error: 'Provide a positive amount, receipt/reference number, and method CASH, BANK_TRANSFER, or OTHER.' });
+    }
+    const sub = await DB.prepare('SELECT * FROM subscriptions WHERE id = ?').get(req.params.id);
+    if (!sub) return res.status(404).json({ success: false, error: 'Subscription not found.' });
+    const expected = Number(sub.priceEtb || 0);
+    if (Math.abs(amount - expected) > 0.01) {
+      return res.status(400).json({ success: false, code: 'AMOUNT_MISMATCH', expectedAmountEtb: expected, error: 'Payment amount must match the subscription price.' });
+    }
+    const passenger = await DB.prepare("SELECT id, phone FROM users WHERE id = ? AND role = 'PASSENGER'").get(sub.passengerId);
+    if (!passenger) return res.status(404).json({ success: false, error: 'Passenger account not found.' });
+    const now = new Date();
+    const oldEnd = sub.endDate ? new Date(sub.endDate) : null;
+    const base = sub.subscriptionStatus === 'ACTIVE' && sub.paymentStatus === 'PAID' &&
+      oldEnd && Number.isFinite(oldEnd.getTime()) && oldEnd.getTime() > now.getTime() ? oldEnd : now;
+    const end = new Date(base.getTime() + 30 * 86400000);
+    const startDate = now.toISOString().slice(0, 10);
+    const endDate = end.toISOString().slice(0, 10);
+    const daysRemaining = Math.max(1, Math.ceil((end.getTime() - now.getTime()) / 86400000));
+    const qrToken = generateSignedQrToken(sub.id, sub.passengerId, sub.routeId, end.getTime());
+    const transactionId = `pay_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+    const note = `MANUAL PAYMENT ${method}; reference=${reference}; admin=${req.user.id}; ${noteText}`;
+    try {
+      await DB.transaction(async (tx) => {
+        await tx.prepare(`
+          INSERT INTO payment_transactions (id, passengerId, referenceNumber, idempotencyKey, amountEtb, provider, phoneNumber, status, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?)
+        `).run(transactionId, sub.passengerId, reference, `MANUAL-${reference}`, amount, `ADMIN_${method}`, passenger.phone, note);
+        await tx.prepare(`
+          UPDATE subscriptions SET paymentStatus = 'PAID', subscriptionStatus = 'ACTIVE',
+            startDate = ?, endDate = ?, daysRemaining = ?, qrToken = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?
+        `).run(startDate, endDate, daysRemaining, qrToken, sub.id);
+        await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
+          .run('SUBSCRIPTION_MANUAL_PAYMENT_RECORDED', req.user.id, 'ADMIN', `Recorded ${method} payment for subscription ${sub.id}; reference ${reference}; ETB ${amount}`);
+      });
+    } catch (err) {
+      if (/unique|duplicate/i.test(String(err.message))) return res.status(409).json({ success: false, error: 'This payment reference has already been recorded.' });
+      throw err;
+    }
+    res.status(201).json({
+      success: true,
+      message: 'Manual payment recorded and subscription activated. Passenger QR pass is ready for check-in.',
+      subscription: { id: sub.id, passengerId: sub.passengerId, routeId: sub.routeId, paymentStatus: 'PAID', subscriptionStatus: 'ACTIVE', startDate, endDate, daysRemaining, qrToken },
+      transaction: { id: transactionId, referenceNumber: reference, amountEtb: amount, provider: `ADMIN_${method}`, status: 'COMPLETED' }
+    });
+  } catch (err) {
+    console.error('[Admin] manual payment recording failed:', err.message);
+    res.status(500).json({ success: false, error: 'Could not record manual payment.' });
   }
 });
 
@@ -385,6 +510,34 @@ router.get('/audit-logs', async (req, res) => {
   } catch (err) {
     console.error('[RoutePass] request failed:', err);
     res.status(500).json({ success: false, error: 'Internal server error.' });
+  }
+});
+
+
+/**
+ * PATCH /api/admin/subscriptions/:id/vehicle
+ * Assign a paid passenger subscription to one approved vehicle on the same route.
+ */
+router.patch('/subscriptions/:id/vehicle', async (req, res) => {
+  try {
+    const vehicleId = String(req.body.vehicleId || '').trim();
+    if (!vehicleId) return res.status(400).json({ success: false, error: 'vehicleId is required.' });
+    const subscription = await DB.prepare('SELECT * FROM subscriptions WHERE id = ?').get(req.params.id);
+    if (!subscription) return res.status(404).json({ success: false, error: 'Subscription not found.' });
+    if (subscription.subscriptionStatus !== 'ACTIVE' || subscription.paymentStatus !== 'PAID' || Number(subscription.daysRemaining) <= 0) {
+      return res.status(409).json({ success: false, error: 'Only active, paid, unexpired subscriptions can be assigned.' });
+    }
+    const vehicle = await DB.prepare("SELECT * FROM vehicles WHERE id = ? AND assignedRouteId = ? AND status = 'IN_SERVICE'").get(vehicleId, subscription.routeId);
+    if (!vehicle) return res.status(409).json({ success: false, error: 'Choose an in-service vehicle assigned to the passenger route.' });
+    await DB.transaction(async (tx) => {
+      await tx.prepare('UPDATE subscriptions SET vehicleId = ? WHERE id = ?').run(vehicle.id, subscription.id);
+      await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
+        .run('PASSENGER_VEHICLE_ASSIGNED', req.user.id, 'ADMIN', 'Assigned subscription ' + subscription.id + ' to vehicle ' + vehicle.id);
+    });
+    return res.json({ success: true, subscriptionId: subscription.id, vehicleId: vehicle.id, message: 'Passenger assigned to vehicle roster.' });
+  } catch (err) {
+    console.error('[Admin] passenger vehicle assignment failed:', err);
+    return res.status(500).json({ success: false, error: 'Could not assign passenger to vehicle.' });
   }
 });
 

@@ -60,8 +60,13 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
       eveningDeparture = '17:30',
       distanceKm = 10.0,
       basePriceEtb = 2500.0,
+      serviceType = 'TWO_WAY',
       stops = []
     } = req.body;
+
+    if (!['ONE_WAY', 'TWO_WAY'].includes(String(serviceType).toUpperCase())) {
+      return res.status(400).json({ success: false, error: 'serviceType must be ONE_WAY or TWO_WAY.' });
+    }
 
     if (!name || !nameAm) {
       return res.status(400).json({
@@ -70,11 +75,20 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
       });
     }
 
+    if (!Array.isArray(stops) || stops.length !== 2 ||
+        !String(stops[0]?.stopName || '').trim() || !String(stops[1]?.stopName || '').trim() ||
+        String(stops[0].stopName).trim().toLowerCase() === String(stops[1].stopName).trim().toLowerCase()) {
+      return res.status(400).json({
+        success: false,
+        error: 'A route must have exactly two different endpoints: one departure point and one destination point.'
+      });
+    }
+
     const routeId = `route_${crypto.randomUUID().slice(0, 8)}`;
 
     await DB.prepare(`
-      INSERT INTO routes (id, name, nameAm, description, morningDeparture, eveningDeparture, distanceKm, basePriceEtb, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+      INSERT INTO routes (id, name, nameAm, description, morningDeparture, eveningDeparture, distanceKm, basePriceEtb, serviceType, active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
     `).run(
       routeId,
       name.trim(),
@@ -83,7 +97,8 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
       morningDeparture,
       eveningDeparture,
       parseFloat(distanceKm) || 10.0,
-      parseFloat(basePriceEtb) || 2500.0
+      parseFloat(basePriceEtb) || 2500.0,
+      String(serviceType).toUpperCase()
     );
 
     // Insert stops if provided
@@ -143,11 +158,21 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
     const name = String(req.body.name ?? current.name).trim();
     const nameAm = String(req.body.nameAm ?? current.nameAm).trim();
     if (!name || !nameAm) return res.status(400).json({ success: false, error: 'Route names in English and Amharic are required.' });
+    if (req.body.stops !== undefined && (
+      !Array.isArray(req.body.stops) || req.body.stops.length !== 2 ||
+      !String(req.body.stops[0]?.stopName || '').trim() ||
+      !String(req.body.stops[1]?.stopName || '').trim() ||
+      String(req.body.stops[0].stopName).trim().toLowerCase() === String(req.body.stops[1].stopName).trim().toLowerCase()
+    )) {
+      return res.status(400).json({ success: false, error: 'A route must have exactly two different endpoints: one departure point and one destination point.' });
+    }
+    const serviceType = String(req.body.serviceType ?? current.serviceType ?? 'TWO_WAY').toUpperCase();
+    if (!['ONE_WAY', 'TWO_WAY'].includes(serviceType)) return res.status(400).json({ success: false, error: 'serviceType must be ONE_WAY or TWO_WAY.' });
 
     await DB.transaction(async (tx) => {
       await tx.prepare(`
         UPDATE routes SET name = ?, nameAm = ?, description = ?,
-          morningDeparture = ?, eveningDeparture = ?, distanceKm = ?, basePriceEtb = ?, active = ?
+          morningDeparture = ?, eveningDeparture = ?, distanceKm = ?, basePriceEtb = ?, serviceType = ?, active = ?
         WHERE id = ?
       `).run(
         name,
@@ -157,6 +182,7 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
         String(req.body.eveningDeparture ?? current.eveningDeparture ?? '17:30'),
         Number(req.body.distanceKm ?? current.distanceKm ?? 10),
         Number(req.body.basePriceEtb ?? current.basePriceEtb ?? 2500),
+        serviceType,
         req.body.active === undefined ? current.active : (req.body.active ? true : false),
         req.params.id
       );

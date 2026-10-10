@@ -82,6 +82,7 @@ function normalizeRow(row) {
     if (lowerKey === 'routename' || lowerKey === 'route_name') normalized.routeName = val;
     if (lowerKey === 'routenameam' || lowerKey === 'route_name_am') normalized.routeNameAm = val;
     if (lowerKey === 'nameam' || lowerKey === 'name_am') normalized.nameAm = val;
+    if (lowerKey === 'servicetype' || lowerKey === 'service_type') normalized.serviceType = val;
     if (lowerKey === 'stopname' || lowerKey === 'stop_name') normalized.stopName = val;
     if (lowerKey === 'stopnameam' || lowerKey === 'stop_name_am') normalized.stopNameAm = val;
     if (lowerKey === 'stoporder' || lowerKey === 'stop_order') normalized.stopOrder = val;
@@ -124,6 +125,7 @@ function translateSqlForPostgres(sql) {
     .replace(/\bassignedVehiclePlate\b/g, 'assigned_vehicle_plate')
     .replace(/\bappliedRouteId\b/g, 'applied_route_id')
     .replace(/\bappliedRouteName\b/g, 'applied_route_name')
+    .replace(/\bserviceType\b/g, 'service_type')
     .replace(/\bplateNumber\b/g, 'plate_number')
     .replace(/\bvehicleType\b/g, 'vehicle_type')
     .replace(/\bcapacityLimit\b/g, 'capacity_limit')
@@ -324,6 +326,7 @@ function initSqliteSchema() {
       distanceKm REAL DEFAULT 12.0,
       basePriceEtb REAL DEFAULT 2500.0,
       active INTEGER DEFAULT 1,
+      serviceType TEXT NOT NULL DEFAULT 'TWO_WAY' CHECK (serviceType IN ('ONE_WAY', 'TWO_WAY')),
       createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -531,6 +534,10 @@ function seedSqliteData() {
 }
 
 initSqliteSchema();
+if (sqliteDb) {
+  try { sqliteDb.exec("ALTER TABLE routes ADD COLUMN serviceType TEXT NOT NULL DEFAULT 'TWO_WAY' CHECK (serviceType IN ('ONE_WAY', 'TWO_WAY'))"); }
+  catch (err) { if (!/duplicate column name/i.test(String(err.message))) throw err; }
+}
 seedSqliteData();
 
 module.exports = { DB };

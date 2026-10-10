@@ -4,6 +4,20 @@ const crypto = require('crypto');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 
+function distanceMeters(lat1, lon1, lat2, lon2) {
+  const rad = value => value * Math.PI / 180;
+  const dLat = rad(lat2 - lat1), dLon = rad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function notifyPassengers(req, title, message, event) {
+  const id = `notif_${crypto.randomUUID()}`;
+  await DB.prepare('INSERT INTO notifications (id, title, message, targetAudience, type, senderName) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, title, message, 'PASSENGERS', 'SERVICE', 'RoutePass Dispatch');
+  if (req.app.locals.broadcastWs) req.app.locals.broadcastWs(event);
+}
+
 /**
  * POST /api/trips/start
  * Driver starts a scheduled transit trip on a route.
@@ -11,7 +25,13 @@ const { authenticate, requireRole } = require('../middleware/auth');
 router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
   try {
     const driverId = req.user.id;
-    const { routeId, direction = 'OUTBOUND', vehicleId } = req.body;
+    const { routeId, direction = 'OUTBOUND', vehicleId, latitude, longitude, arrivalConfirmed } = req.body;
+    if (!['OUTBOUND', 'INBOUND'].includes(String(direction).toUpperCase())) {
+      return res.status(400).json({ success: false, error: 'Direction must be OUTBOUND (home to work/school) or INBOUND (work/school to home).' });
+    }
+    if (arrivalConfirmed !== true || !Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude)) || Math.abs(Number(latitude)) > 90 || Math.abs(Number(longitude)) > 180) {
+      return res.status(400).json({ success: false, code: 'ARRIVAL_CONFIRMATION_REQUIRED', error: 'Enable GPS, arrive at the assigned departure location, and confirm arrival before starting this route.' });
+    }
 
     if (!routeId) {
       return res.status(400).json({ success: false, error: 'Route ID is required to start a trip.' });
@@ -40,14 +60,49 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
       return res.status(403).json({ success: false, error: 'The requested route is not assigned to this vehicle.' });
     }
 
-    const route = await DB.prepare("SELECT id FROM routes WHERE id = ? AND active = TRUE").get(routeId);
+    const route = await DB.prepare("SELECT * FROM routes WHERE id = ? AND active = TRUE").get(routeId);
     if (!route) {
       return res.status(404).json({ success: false, error: 'Active route not found.' });
     }
 
-    // Get initial route stop
-    const firstStop = await DB.prepare('SELECT stopName FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC LIMIT 1').get(routeId);
-    const initialStop = firstStop?.stopName || 'Terminal Hub';
+    // Enforce the administrator-configured commute timetable in production. The allowed
+    // grace windows are explicit server settings so operations can tune them intentionally.
+    if (process.env.NODE_ENV === 'production' && process.env.ENFORCE_DEPARTURE_SCHEDULE !== 'false') {
+      const scheduledTime = String(String(direction).toUpperCase() === 'INBOUND' ? route.eveningDeparture : route.morningDeparture || '').slice(0, 5);
+      const match = /^(\d{2}):(\d{2})$/.exec(scheduledTime);
+      if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) {
+        return res.status(409).json({ success: false, code: 'DEPARTURE_SCHEDULE_MISSING', error: 'The assigned route has no valid departure time. Contact the administrator.' });
+      }
+      const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Addis_Ababa', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
+      const hour = Number(parts.find(part => part.type === 'hour')?.value);
+      const minute = Number(parts.find(part => part.type === 'minute')?.value);
+      const nowMinutes = hour * 60 + minute;
+      const scheduleMinutes = Number(match[1]) * 60 + Number(match[2]);
+      let difference = nowMinutes - scheduleMinutes;
+      if (difference > 720) difference -= 1440;
+      if (difference < -720) difference += 1440;
+      const earlyWindow = Math.max(0, Number.parseInt(process.env.ROUTEPASS_DEPARTURE_EARLY_WINDOW_MINUTES || '30', 10));
+      const lateWindow = Math.max(0, Number.parseInt(process.env.ROUTEPASS_DEPARTURE_LATE_WINDOW_MINUTES || '60', 10));
+      if (difference < -earlyWindow || difference > lateWindow) {
+        return res.status(403).json({
+          success: false, code: 'OUTSIDE_DEPARTURE_TIME_WINDOW', scheduledDeparture: scheduledTime,
+          direction: String(direction).toUpperCase(),
+          error: `This route is scheduled to depart at ${scheduledTime} Ethiopia time. Arrive at the assigned departure location within the permitted departure window.`
+        });
+      }
+    }
+
+    // The first stop for OUTBOUND, or final stop for INBOUND, is the admin-configured departure geofence. A driver must explicitly
+    // confirm arrival while their submitted GPS fix is within 50 metres of that stop.
+    const firstStop = await DB.prepare(`SELECT stopName, latitude, longitude FROM route_stops WHERE routeId = ? ORDER BY stopOrder ${String(direction).toUpperCase() === 'INBOUND' ? 'DESC' : 'ASC'} LIMIT 1`).get(routeId);
+    if (!firstStop || firstStop.latitude == null || firstStop.longitude == null) {
+      return res.status(409).json({ success: false, error: 'The assigned route has no configured departure stop coordinates. Ask an administrator to configure it.' });
+    }
+    const distanceToDepartureMeters = distanceMeters(Number(latitude), Number(longitude), Number(firstStop.latitude), Number(firstStop.longitude));
+    if (distanceToDepartureMeters > 50) {
+      return res.status(403).json({ success: false, code: 'OUTSIDE_DEPARTURE_GEOFENCE', distanceMeters: Math.round(distanceToDepartureMeters), radiusMeters: 50, departureLocation: firstStop.stopName, error: 'You are outside the 50-metre departure area. Move to the assigned pickup location before confirming arrival.' });
+    }
+    const initialStop = firstStop.stopName || 'Terminal Hub';
     const tripId = `trip_${Date.now().toString(36)}_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
 
     // Lock the assigned vehicle before checking active trips. This serializes simultaneous
@@ -81,23 +136,23 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
       return res.status(409).json({ success: false, error: 'This vehicle already has an active trip.' });
     }
 
-    // Broadcast trip start
-    if (req.app.locals.broadcastWs) {
-      req.app.locals.broadcastWs({
-        type: 'TRIP_STARTED',
+    // Persist arrival notification for passengers and broadcast the real-time event.
+    await notifyPassengers(req, 'Vehicle has arrived', `Vehicle ${vehicle.plateNumber} has arrived at ${initialStop}. Please board now.`, {
+        type: 'VEHICLE_ARRIVED',
         tripId,
         routeId,
         vehicleId: vehicle.id,
         plateNumber: vehicle.plateNumber,
         direction,
         currentStop: initialStop,
+        departureLocation: initialStop,
+        distanceToDepartureMeters: Math.round(distanceToDepartureMeters),
         timestamp: new Date().toISOString()
       });
-    }
 
     res.json({
       success: true,
-      message: 'Trip successfully started.',
+      message: 'Arrival confirmed within 50 metres. Passengers have been notified that the vehicle is ready for boarding.',
       trip: {
         id: tripId,
         driverId,
@@ -109,7 +164,9 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
         currentOccupancy: 0,
         capacityLimit: vehicle.capacityLimit,
         status: 'IN_PROGRESS',
-        startTime: new Date().toISOString()
+        startTime: new Date().toISOString(),
+        departureLocation: initialStop,
+        distanceToDepartureMeters: Math.round(distanceToDepartureMeters)
       }
     });
   } catch (err) {
@@ -241,14 +298,11 @@ router.post('/:id/end', authenticate, requireRole('DRIVER'), async (req, res) =>
       UPDATE vehicles SET currentOccupancy = 0, status = 'IN_SERVICE', updatedAt = CURRENT_TIMESTAMP WHERE id = ?
     `).run(trip.vehicleId);
 
-    if (req.app.locals.broadcastWs) {
-      req.app.locals.broadcastWs({
-        type: 'TRIP_COMPLETED',
-        tripId: id,
-        vehicleId: trip.vehicleId,
-        timestamp: new Date().toISOString()
-      });
-    }
+    const vehicle = await DB.prepare('SELECT plateNumber FROM vehicles WHERE id = ?').get(trip.vehicleId);
+    await notifyPassengers(req, 'Route completed', `Route ${trip.routeId} has been completed by vehicle ${vehicle?.plateNumber || trip.vehicleId}.`, {
+      type: 'TRIP_COMPLETED', tripId: id, vehicleId: trip.vehicleId, routeId: trip.routeId,
+      direction: trip.direction, timestamp: new Date().toISOString()
+    });
 
     res.json({
       success: true,

@@ -1,9 +1,11 @@
 package com.example.ui.screens.passenger
 
 import android.net.Uri
+import android.graphics.BitmapFactory
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
@@ -34,6 +37,8 @@ import androidx.compose.ui.window.Dialog
 import com.example.core.localization.AppLanguage
 import com.example.core.localization.AppStrings
 import com.example.data.entity.PaymentTransactionEntity
+import com.example.ui.components.RoutePassHeroHeader
+import com.example.ui.components.PrivateMediaUploadButton
 import com.example.ui.components.QrCodeCanvas
 import com.example.ui.components.MiniVehicleMap
 import com.example.ui.theme.*
@@ -60,6 +65,16 @@ fun PassengerDashboardScreen(
     val paymentMessage by viewModel.paymentMessage.collectAsState()
     val selectedReceipt by viewModel.selectedReceipt.collectAsState()
     val isComplaintOpen by viewModel.isComplaintDialogOpen.collectAsState()
+    val myRoster by viewModel.myRoster.collectAsState()
+    val mediaUploadMessage by viewModel.mediaUploadMessage.collectAsState()
+    val driverPhotoBytes by viewModel.assignedDriverPhotoBytes.collectAsState()
+    val driverPhotoBitmap = remember(driverPhotoBytes) { driverPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
+    val passengerPhotoBytes by viewModel.passengerProfilePhotoBytes.collectAsState()
+    val passengerPhotoBitmap = remember(passengerPhotoBytes) { passengerPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
+
+    LaunchedEffect(currentUser?.id) { if (currentUser != null) viewModel.refreshMyRoster() }
+    val assignment = myRoster?.get("assignment") as? Map<*, *>
+    val assignedDriver = assignment?.get("driver") as? Map<*, *>
 
     fun t(key: String): String = AppStrings.get(key, lang)
 
@@ -91,10 +106,84 @@ fun PassengerDashboardScreen(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFFF3F7FB), Color(0xFFEAF2F8))))
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
     ) {
+        item {
+            RoutePassHeroHeader(
+                title = "Your everyday, upgraded.",
+                subtitle = "Your pass, your driver and your journey — beautifully connected.",
+                icon = Icons.Default.QrCode
+            )
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(22.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+            ) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Your passenger profile", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        if (passengerPhotoBitmap != null) {
+                            Image(
+                                bitmap = passengerPhotoBitmap!!.asImageBitmap(),
+                                contentDescription = "Your profile photo",
+                                modifier = Modifier.size(88.dp).clip(CircleShape).border(2.dp, Color(0xFF19B7A5), CircleShape)
+                            )
+                        } else {
+                            androidx.compose.material3.Surface(
+                                modifier = Modifier.size(88.dp),
+                                shape = CircleShape,
+                                color = Color(0xFFE0F2F1),
+                                border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF19B7A5))
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        currentUser?.fullName?.split(" ")?.mapNotNull { it.firstOrNull() }?.take(2)?.joinToString("") ?: "RP",
+                                        color = Color(0xFF087F8C), fontWeight = FontWeight.Bold, fontSize = 24.sp
+                                    )
+                                }
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(currentUser?.fullName ?: "Passenger", fontWeight = FontWeight.SemiBold)
+                            Text(if (passengerPhotoBitmap != null) "Profile photo added" else "Add a photo so your profile is recognizable", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            PrivateMediaUploadButton(
+                                viewModel, "PROFILE_PHOTO",
+                                if (passengerPhotoBitmap != null) "Change photo" else "Add profile photo",
+                                imagesOnly = true
+                            )
+                        }
+                    }
+                    mediaUploadMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    Divider()
+                    Text("Your driver", fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (driverPhotoBitmap != null) {
+                            Image(
+                                bitmap = driverPhotoBitmap!!.asImageBitmap(),
+                                contentDescription = "Assigned driver photo",
+                                modifier = Modifier.size(64.dp).clip(CircleShape)
+                            )
+                        } else {
+                            androidx.compose.material3.Surface(
+                                modifier = Modifier.size(64.dp), shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surfaceVariant
+                            ) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Person, contentDescription = null) } }
+                        }
+                        Column {
+                            Text(assignedDriver?.get("fullName")?.toString() ?: "Driver not assigned yet", fontWeight = FontWeight.Medium)
+                            Text(if (driverPhotoBitmap != null) "Verified driver profile" else "Driver photo not available yet", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+
         // 1. Subscription Overview Card
         item {
             SubscriptionStatusCard(
@@ -126,6 +215,7 @@ fun PassengerDashboardScreen(
         item {
             FinancialBalanceCard(
                 lang = lang,
+                amountEtb = checkoutAmount,
                 onPayClick = { viewModel.openTelebirrDialog() }
             )
         }
@@ -737,6 +827,7 @@ private fun StopPoint(name: String, isActive: Boolean, isCurrent: Boolean) {
 @Composable
 fun FinancialBalanceCard(
     lang: AppLanguage,
+    amountEtb: Double,
     onPayClick: () -> Unit
 ) {
     fun t(key: String) = AppStrings.get(key, lang)

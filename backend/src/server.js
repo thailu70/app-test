@@ -13,6 +13,17 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const { WebSocketServer, WebSocket } = require('ws');
 const { DB } = require('./db');
+
+// OTP challenges are short-lived, hashed, rate-limited and stored server-side.
+// This idempotent schema bootstrap supports both PostgreSQL and local SQLite.
+const routeTypeSchemaReady = process.env.DATABASE_URL
+  ? DB.prepare("ALTER TABLE routes ADD COLUMN IF NOT EXISTS service_type VARCHAR(20) NOT NULL DEFAULT 'TWO_WAY'").run()
+  : Promise.resolve();
+const otpSchemaReady = DB.prepare(`CREATE TABLE IF NOT EXISTS otp_challenges (
+  id TEXT PRIMARY KEY, phone TEXT NOT NULL, otp_hash TEXT NOT NULL,
+  expires_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+  verified INTEGER NOT NULL DEFAULT 0, proof_hash TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+)`).run();
 const { verifyToken } = require('./middleware/auth');
 
 if (process.env.NODE_ENV === 'production') {
@@ -57,7 +68,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '8mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 if (process.env.NODE_ENV !== 'test') {
@@ -117,14 +128,33 @@ app.get('/api/ready', async (req, res) => {
   }
 });
 
+// Public capability flags let the Android client present the correct registration flow.
+// Test bypass is passenger-only and is disabled unless explicitly enabled in server env.
+app.get('/api/config/public', (req, res) => {
+  const testPassengerRegistration = process.env.NODE_ENV === 'production' &&
+    process.env.ROUTEPASS_TEST_MODE === 'true';
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    success: true,
+    testMode: testPassengerRegistration,
+    passengerOtpRequired: !testPassengerRegistration,
+    driverOtpRequired: process.env.NODE_ENV === 'production'
+  });
+});
+
 // Mount Route Modules
+app.use('/api/auth', (req, res, next) => Promise.resolve(otpSchemaReady).then(() => next()).catch(next));
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/auth/otp', require('./routes/otp'));
+app.use('/api/routes', (req, res, next) => Promise.resolve(routeTypeSchemaReady).then(() => next()).catch(next));
 app.use('/api/routes', require('./routes/routes'));
 app.use('/api/subscriptions/telebirr', require('./routes/telebirr'));
 app.use('/api/subscriptions', require('./routes/subscriptions'));
 app.use('/api/vehicles', require('./routes/vehicles'));
 app.use('/api/trips', require('./routes/trips'));
 app.use('/api/checkins', require('./routes/checkins'));
+app.use('/api/profile-media', require('./routes/profile-media'));
+app.use('/api/rosters', require('./routes/rosters'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/complaints', require('./routes/complaints'));
 app.use('/api/notifications', require('./routes/notifications'));
@@ -132,7 +162,7 @@ app.use('/api/sync', require('./routes/sync'));
 
 // Browser-based admin portal. Keep it same-origin with the API and use a strict, portal-specific CSP.
 app.use('/admin', (req, res, next) => {
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' wss:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' https://unpkg.com 'unsafe-inline'; img-src 'self' data: blob: https://unpkg.com https://*.tile.openstreetmap.org; font-src 'self' https://unpkg.com; connect-src 'self' wss: https://*.tile.openstreetmap.org; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
   res.setHeader('Cache-Control', 'no-store');
   next();
 }, express.static(path.join(__dirname, '..', 'public', 'admin'), { index: 'index.html', maxAge: 0, etag: false }));
