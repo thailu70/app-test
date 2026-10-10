@@ -58,11 +58,18 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
       description = '',
       morningDeparture = '06:30',
       eveningDeparture = '17:30',
+      directionMode = 'TWO_WAY',
+      oneWayDirection = 'OUTBOUND',
       distanceKm = 10.0,
       basePriceEtb = 2500.0,
       stops = []
     } = req.body;
 
+    const normalizedMode = String(directionMode).toUpperCase();
+    const normalizedOneWayDirection = String(oneWayDirection).toUpperCase();
+    if (!['ONE_WAY', 'TWO_WAY'].includes(normalizedMode) || !['OUTBOUND', 'INBOUND'].includes(normalizedOneWayDirection)) {
+      return res.status(400).json({ success: false, error: 'Route mode must be ONE_WAY or TWO_WAY and direction must be OUTBOUND or INBOUND.' });
+    }
     if (!name || !nameAm) {
       return res.status(400).json({
         success: false,
@@ -73,8 +80,8 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
     const routeId = `route_${crypto.randomUUID().slice(0, 8)}`;
 
     await DB.prepare(`
-      INSERT INTO routes (id, name, nameAm, description, morningDeparture, eveningDeparture, distanceKm, basePriceEtb, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+      INSERT INTO routes (id, name, nameAm, description, morningDeparture, eveningDeparture, directionMode, oneWayDirection, distanceKm, basePriceEtb, active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
     `).run(
       routeId,
       name.trim(),
@@ -82,6 +89,8 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
       description.trim(),
       morningDeparture,
       eveningDeparture,
+      normalizedMode,
+      normalizedOneWayDirection,
       parseFloat(distanceKm) || 10.0,
       parseFloat(basePriceEtb) || 2500.0
     );
@@ -142,12 +151,17 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
 
     const name = String(req.body.name ?? current.name).trim();
     const nameAm = String(req.body.nameAm ?? current.nameAm).trim();
+    const directionMode = String(req.body.directionMode ?? current.directionMode ?? 'TWO_WAY').toUpperCase();
+    const oneWayDirection = String(req.body.oneWayDirection ?? current.oneWayDirection ?? 'OUTBOUND').toUpperCase();
+    if (!['ONE_WAY', 'TWO_WAY'].includes(directionMode) || !['OUTBOUND', 'INBOUND'].includes(oneWayDirection)) {
+      return res.status(400).json({ success: false, error: 'Route mode must be ONE_WAY or TWO_WAY and direction must be OUTBOUND or INBOUND.' });
+    }
     if (!name || !nameAm) return res.status(400).json({ success: false, error: 'Route names in English and Amharic are required.' });
 
     await DB.transaction(async (tx) => {
       await tx.prepare(`
         UPDATE routes SET name = ?, nameAm = ?, description = ?,
-          morningDeparture = ?, eveningDeparture = ?, distanceKm = ?, basePriceEtb = ?, active = ?
+          morningDeparture = ?, eveningDeparture = ?, directionMode = ?, oneWayDirection = ?, distanceKm = ?, basePriceEtb = ?, active = ?
         WHERE id = ?
       `).run(
         name,
@@ -155,6 +169,8 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
         String(req.body.description ?? current.description ?? '').trim(),
         String(req.body.morningDeparture ?? current.morningDeparture ?? '06:30'),
         String(req.body.eveningDeparture ?? current.eveningDeparture ?? '17:30'),
+        directionMode,
+        oneWayDirection,
         Number(req.body.distanceKm ?? current.distanceKm ?? 10),
         Number(req.body.basePriceEtb ?? current.basePriceEtb ?? 2500),
         req.body.active === undefined ? current.active : (req.body.active ? true : false),
