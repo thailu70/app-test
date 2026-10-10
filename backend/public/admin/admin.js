@@ -171,6 +171,7 @@
         '<div class="field"><label for="route-name-am">Route name (Amharic) *</label><input id="route-name-am" name="nameAm" required maxlength="120" placeholder="ቦሌ - መርካቶ"></div>' +
         '<div class="field"><label for="route-description">Description</label><input id="route-description" name="description" maxlength="400"></div>' +
         '<div class="field"><label for="route-distance">Distance (km)</label><input id="route-distance" name="distanceKm" type="number" min="0.1" step="0.1" value="10"></div>' +
+        '<div class="field"><label for="route-service-type">Route service type</label><select id="route-service-type" name="serviceType"><option value="TWO_WAY">Two-way (home ↔ work/school)</option><option value="ONE_WAY">One-way service</option></select></div>' +
         '<div class="field"><label for="route-morning">Morning departure</label><input id="route-morning" name="morningDeparture" type="time" value="06:30" required></div>' +
         '<div class="field"><label for="route-evening">Evening departure</label><input id="route-evening" name="eveningDeparture" type="time" value="17:30" required></div>' +
         '<div class="field"><label for="route-price">Monthly tariff (ETB)</label><input id="route-price" name="basePriceEtb" type="number" min="0" step="1" value="2500" required></div>' +
@@ -179,6 +180,7 @@
       section("Existing routes", routes.length + " route(s)",
         table([
           { label: "Route", render: r => "<strong>" + esc(value(r, "name")) + "</strong><br><span class=\"muted\">" + esc(value(r, "nameAm", "name_am")) + "</span>" },
+          { label: "Service type", keys: ["serviceType", "service_type"] },
           { label: "Morning", keys: ["morningDeparture", "morning_departure"] },
           { label: "Evening", keys: ["eveningDeparture", "evening_departure"] },
           { label: "Distance", render: r => esc(value(r, "distanceKm", "distance_km")) + " km" },
@@ -468,6 +470,8 @@
       if (morningDeparture === null) return;
       const eveningDeparture = window.prompt("Evening departure (HH:MM):", value(route, "eveningDeparture", "evening_departure"));
       if (eveningDeparture === null) return;
+      const serviceType = window.prompt("Route service type: ONE_WAY or TWO_WAY", value(route, "serviceType", "service_type") === "—" ? "TWO_WAY" : value(route, "serviceType", "service_type"));
+      if (serviceType === null || !["ONE_WAY", "TWO_WAY"].includes(serviceType.trim().toUpperCase())) return toast("Choose ONE_WAY or TWO_WAY.", true);
       const basePriceEtb = Number(window.prompt("Monthly tariff in ETB:", value(route, "basePriceEtb", "base_price_etb")));
       if (!Number.isFinite(basePriceEtb) || basePriceEtb < 0) return toast("Tariff must be a valid non-negative number.", true);
       const editedStopsText = window.prompt(
@@ -478,7 +482,7 @@
       const stops = parseStopsText(editedStopsText);
       await api("/api/routes/" + encodeURIComponent(id), {
         method: "PUT",
-        body: JSON.stringify({ ...route, name, nameAm, description, morningDeparture, eveningDeparture, basePriceEtb, stops })
+        body: JSON.stringify({ ...route, name, nameAm, description, morningDeparture, eveningDeparture, serviceType: serviceType.trim().toUpperCase(), basePriceEtb, stops })
       });
       toast("Route and stops updated.");
       await renderView();
