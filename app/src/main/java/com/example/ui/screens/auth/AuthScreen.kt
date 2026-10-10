@@ -41,6 +41,9 @@ fun AuthScreen(
     val lang by viewModel.currentLanguage.collectAsState()
     val authError by viewModel.authError.collectAsState()
     val registrationMessage by viewModel.registrationMessage.collectAsState()
+    val otpChallengeId by viewModel.otpChallengeId.collectAsState()
+    val otpVerified by viewModel.otpVerified.collectAsState()
+    val otpMessage by viewModel.otpMessage.collectAsState()
     val availableRoutes by viewModel.allRoutes.collectAsState()
 
     // Dedicated Independent Portal Gateway (null = selecting portal; non-null = inside specific portal)
@@ -52,6 +55,7 @@ fun AuthScreen(
     var phone by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var otpCode by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var registrationValidationMessage by remember { mutableStateOf<String?>(null) }
     var licenseNumber by remember { mutableStateOf("") }
@@ -80,6 +84,8 @@ fun AuthScreen(
         password = ""
         confirmPassword = ""
         registrationValidationMessage = null
+        otpCode = ""
+        viewModel.resetSignupOtp()
         if (isRegisterMode) fullName = ""
     }
 
@@ -621,6 +627,43 @@ fun AuthScreen(
                                 .testTag("auth_phone_input")
                         )
 
+                        if (isRegisterMode && portal != AppRole.ADMIN) {
+                            Button(
+                                onClick = {
+                                    otpCode = ""
+                                    viewModel.requestSignupOtp(phone)
+                                },
+                                enabled = phone.isNotBlank() && !otpVerified,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(if (otpChallengeId.isNullOrBlank()) "SEND SMS VERIFICATION CODE" else "RESEND SMS CODE")
+                            }
+                            if (!otpChallengeId.isNullOrBlank()) {
+                                OutlinedTextField(
+                                    value = otpCode,
+                                    onValueChange = { otpCode = it.filter(Char::isDigit).take(6) },
+                                    label = { Text("Six-digit SMS verification code") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth().testTag("auth_otp_input")
+                                )
+                                Button(
+                                    onClick = { viewModel.verifySignupOtp(phone, otpCode) },
+                                    enabled = otpCode.length == 6 && !otpVerified,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(if (otpVerified) "PHONE VERIFIED" else "VERIFY SMS CODE")
+                                }
+                            }
+                            otpMessage?.let { message ->
+                                Text(
+                                    text = if (otpVerified) "✓ $message" else message,
+                                    color = if (otpVerified) TransportGreenPrimary else Slate700,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+
                         OutlinedTextField(
                             value = password,
                             onValueChange = {
@@ -708,7 +751,8 @@ fun AuthScreen(
                                             vehicleType = vehicleType,
                                             appliedRouteId = selectedRouteId,
                                             appliedRouteName = selectedRouteName,
-                                            adminSecret = adminSecret
+                                            adminSecret = adminSecret,
+                                            otpChallengeId = otpChallengeId.orEmpty()
                                         )
                                     }
                                 } else {
@@ -724,13 +768,14 @@ fun AuthScreen(
                                     AppRole.ADMIN -> TelebirrBlue
                                 }
                             ),
+                            enabled = !isRegisterMode || portal == AppRole.ADMIN || otpVerified,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(50.dp)
                                 .testTag("auth_submit_button")
                         ) {
                             Text(
-                                text = if (isRegisterMode && portal == AppRole.DRIVER) "SUBMIT DRIVER REGISTRATION" else if (isRegisterMode) "COMPLETE REGISTRATION & ENTER" else "SIGN IN TO PORTAL",
+                                text = if (isRegisterMode && portal != AppRole.ADMIN && !otpVerified) "VERIFY PHONE FIRST" else if (isRegisterMode && portal == AppRole.DRIVER) "SUBMIT DRIVER REGISTRATION" else if (isRegisterMode) "COMPLETE REGISTRATION & ENTER" else "SIGN IN TO PORTAL",
                                 fontWeight = FontWeight.Bold
                             )
                         }
