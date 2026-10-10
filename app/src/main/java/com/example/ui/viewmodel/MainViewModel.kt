@@ -391,7 +391,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                                 vehicleType = vehicle.vehicleType,
                                 vehicleCapacity = vehicle.capacityLimit,
                                 totalPassengers = vehicle.capacityLimit,
-                                departureTime = if (direction == "INBOUND") vehicle.eveningDeparture ?: "17:30" else vehicle.morningDeparture ?: "06:30",
+                                departureTime = if (direction == "INBOUND") "17:30" else vehicle.morningDeparture ?: "06:30",
                                 routeId = vehicle.assignedRouteId.orEmpty(),
                                 routeName = vehicle.routeName.orEmpty()
                             )
