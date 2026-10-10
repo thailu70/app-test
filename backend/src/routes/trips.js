@@ -65,9 +65,9 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
       return res.status(404).json({ success: false, error: 'Active route not found.' });
     }
 
-    // The first stop is the admin-configured departure geofence. A driver must explicitly
+    // The first stop for OUTBOUND, or final stop for INBOUND, is the admin-configured departure geofence. A driver must explicitly
     // confirm arrival while their submitted GPS fix is within 50 metres of that stop.
-    const firstStop = await DB.prepare('SELECT stopName, latitude, longitude FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC LIMIT 1').get(routeId);
+    const firstStop = await DB.prepare(`SELECT stopName, latitude, longitude FROM route_stops WHERE routeId = ? ORDER BY stopOrder ${String(direction).toUpperCase() === 'INBOUND' ? 'DESC' : 'ASC'} LIMIT 1`).get(routeId);
     if (!firstStop || firstStop.latitude == null || firstStop.longitude == null) {
       return res.status(409).json({ success: false, error: 'The assigned route has no configured departure stop coordinates. Ask an administrator to configure it.' });
     }
