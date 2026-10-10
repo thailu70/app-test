@@ -65,6 +65,33 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
       return res.status(404).json({ success: false, error: 'Active route not found.' });
     }
 
+    // Enforce the administrator-configured commute timetable in production. The allowed
+    // grace windows are explicit server settings so operations can tune them intentionally.
+    if (process.env.NODE_ENV === 'production' && process.env.ENFORCE_DEPARTURE_SCHEDULE !== 'false') {
+      const scheduledTime = String(String(direction).toUpperCase() === 'INBOUND' ? route.eveningDeparture : route.morningDeparture || '').slice(0, 5);
+      const match = /^(\\d{2}):(\\d{2})$/.exec(scheduledTime);
+      if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) {
+        return res.status(409).json({ success: false, code: 'DEPARTURE_SCHEDULE_MISSING', error: 'The assigned route has no valid departure time. Contact the administrator.' });
+      }
+      const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Addis_Ababa', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
+      const hour = Number(parts.find(part => part.type === 'hour')?.value);
+      const minute = Number(parts.find(part => part.type === 'minute')?.value);
+      const nowMinutes = hour * 60 + minute;
+      const scheduleMinutes = Number(match[1]) * 60 + Number(match[2]);
+      let difference = nowMinutes - scheduleMinutes;
+      if (difference > 720) difference -= 1440;
+      if (difference < -720) difference += 1440;
+      const earlyWindow = Math.max(0, Number.parseInt(process.env.ROUTEPASS_DEPARTURE_EARLY_WINDOW_MINUTES || '30', 10));
+      const lateWindow = Math.max(0, Number.parseInt(process.env.ROUTEPASS_DEPARTURE_LATE_WINDOW_MINUTES || '60', 10));
+      if (difference < -earlyWindow || difference > lateWindow) {
+        return res.status(403).json({
+          success: false, code: 'OUTSIDE_DEPARTURE_TIME_WINDOW', scheduledDeparture: scheduledTime,
+          direction: String(direction).toUpperCase(),
+          error: `This route is scheduled to depart at ${scheduledTime} Ethiopia time. Arrive at the assigned departure location within the permitted departure window.`
+        });
+      }
+    }
+
     // The first stop for OUTBOUND, or final stop for INBOUND, is the admin-configured departure geofence. A driver must explicitly
     // confirm arrival while their submitted GPS fix is within 50 metres of that stop.
     const firstStop = await DB.prepare(`SELECT stopName, latitude, longitude FROM route_stops WHERE routeId = ? ORDER BY stopOrder ${String(direction).toUpperCase() === 'INBOUND' ? 'DESC' : 'ASC'} LIMIT 1`).get(routeId);
