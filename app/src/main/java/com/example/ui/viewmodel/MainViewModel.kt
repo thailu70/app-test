@@ -624,7 +624,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     vehiclePlate = trip.plateNumber ?: vehicle.plateNumber,
                     vehicleType = trip.vehicleType ?: vehicle.vehicleType,
                     vehicleCapacity = trip.capacityLimit ?: vehicle.capacityLimit,
-                    departureTime = vehicle.morningDeparture ?: "06:30",
+                    departureTime = if (direction == "INBOUND") "17:30" else vehicle.morningDeparture ?: "06:30",
                     currentStopIndex = 0,
                     isNavigating = true,
                     isArrivedAtStop = false,
