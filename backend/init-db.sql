@@ -22,6 +22,20 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- OTP digests only; codes are time-limited, attempt-limited and single use.
+CREATE TABLE IF NOT EXISTS signup_otps (
+    phone VARCHAR(30) NOT NULL,
+    purpose VARCHAR(20) NOT NULL,
+    otp_hash VARCHAR(64) NOT NULL,
+    expires_at VARCHAR(40) NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    verified_at VARCHAR(40),
+    consumed_at VARCHAR(40),
+    last_sent_at VARCHAR(40) NOT NULL,
+    created_at VARCHAR(40) NOT NULL,
+    PRIMARY KEY (phone, purpose)
+);
+
 -- 2. Transit Routes
 CREATE TABLE IF NOT EXISTS routes (
     id VARCHAR(64) PRIMARY KEY,
@@ -30,6 +44,8 @@ CREATE TABLE IF NOT EXISTS routes (
     description TEXT,
     morning_departure VARCHAR(10) DEFAULT '06:30',
     evening_departure VARCHAR(10) DEFAULT '17:30',
+    direction_mode VARCHAR(20) NOT NULL DEFAULT 'TWO_WAY' CHECK (direction_mode IN ('ONE_WAY', 'TWO_WAY')),
+    one_way_direction VARCHAR(20) NOT NULL DEFAULT 'OUTBOUND' CHECK (one_way_direction IN ('OUTBOUND', 'INBOUND')),
     distance_km NUMERIC(5,2) DEFAULT 12.0,
     base_price_etb NUMERIC(10,2) DEFAULT 2500.0,
     active BOOLEAN DEFAULT TRUE,
@@ -107,6 +123,9 @@ CREATE TABLE IF NOT EXISTS trips (
     current_stop VARCHAR(100),
     current_occupancy INTEGER DEFAULT 0,
     status VARCHAR(20) DEFAULT 'IN_PROGRESS' CHECK (status IN ('IN_PROGRESS', 'COMPLETED', 'CANCELLED')),
+    arrival_confirmed_at TIMESTAMP WITH TIME ZONE,
+    scheduled_departure_at TIMESTAMP WITH TIME ZONE,
+    arrival_distance_meters NUMERIC(9,2),
     start_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     end_time TIMESTAMP WITH TIME ZONE,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -184,6 +203,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     target_audience VARCHAR(30) NOT NULL CHECK (target_audience IN ('PASSENGERS', 'TRANSPORTERS', 'ALL')),
     type VARCHAR(30) DEFAULT 'ALERT' CHECK (type IN ('ALERT', 'SERVICE', 'WEATHER', 'PAYMENT')),
     sender_name VARCHAR(100) DEFAULT 'Transport Operations',
+    target_user_id VARCHAR(64),
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
