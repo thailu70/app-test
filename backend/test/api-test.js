@@ -139,6 +139,14 @@ async function runTests() {
 
     // 5. Registration does NOT activate subscription
     const testPassengerPhone = '+2519' + Math.floor(10000000 + Math.random() * 90000000);
+    const missingOtpReg = await makeRequest('POST', '/api/auth/register', {
+      fullName: 'Unverified Passenger',
+      phone: testPassengerPhone,
+      password: 'RoutePassTest#2026',
+      role: 'PASSENGER',
+      appliedRouteId: 'route_bole_merkato'
+    });
+    if (missingOtpReg.status !== 403) throw new Error('Signup without verified SMS OTP must be rejected.');
     const newPassengerOtpChallengeId = await seedVerifiedOtp(testPassengerPhone);
     const newPasReg = await makeRequest('POST', '/api/auth/register', {
       fullName: 'Hiwot Bekele',
