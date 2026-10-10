@@ -207,7 +207,7 @@
     await loadLookups();
     const data = asArray(await api("/api/admin/subscriptions"), "subscriptions");
     const eligibleVehicles = state.cache.vehicles || [];
-    return pageHeader("Subscriptions & passenger assignments", "Assign a driver-owned vehicle on the same route and manually activate passes for testing. Manual recharges are NOT real payments.") +
+    return pageHeader("Subscriptions & passenger assignments", "Assign vehicles, record verified offline payments, and use the separate test-only recharge only in staging.") +
       section("Passenger subscriptions", data.length + " record(s)",
         table([
           { label: "Passenger", render: r => "<strong>" + esc(value(r, "passengerName", "passenger_name")) + "</strong>" },
@@ -231,7 +231,7 @@
           { label: "Payment", render: r => pill(value(r, "paymentStatus", "payment_status")) },
           { label: "Subscription", render: r => pill(value(r, "subscriptionStatus", "subscription_status")) },
           { label: "End date", keys: ["endDate", "end_date"] },
-          { label: "Testing action", render: r => '<button class="btn btn-primary" data-recharge="' + esc(value(r, "id")) + '">Recharge 30 days (test)</button>' }
+          { label: "Payment entry", render: r => '<div class="inline-actions"><button class="btn btn-primary" data-manual-payment="' + esc(value(r, "id")) + '">Record payment</button><button class="btn btn-secondary" data-recharge="' + esc(value(r, "id")) + '">Test only</button></div>' }
         ], data));
   }
   async function renderPayments() {
@@ -412,6 +412,26 @@
     } catch (error) { toast(error.message, true); button.disabled = false; }
   }
 
+  async function recordManualPayment(button) {
+    const id = button.dataset.manualPayment;
+    const amountEtb = Number(window.prompt("Amount received in ETB (must equal the subscription price):", ""));
+    if (!Number.isFinite(amountEtb) || amountEtb <= 0) return toast("Enter a valid positive payment amount.", true);
+    const referenceNumber = window.prompt("Receipt / bank reference number:", "");
+    if (referenceNumber === null || !referenceNumber.trim()) return toast("A unique receipt/reference number is required.", true);
+    const method = window.prompt("Payment method: CASH, BANK_TRANSFER, or OTHER", "CASH");
+    if (method === null) return;
+    const notes = window.prompt("Optional notes (cash receipt, teller, etc.):", "") || "";
+    if (!window.confirm("Record ETB " + amountEtb + " as a real offline payment and activate this passenger pass? Only continue after funds are actually received and verified.")) return;
+    button.disabled = true;
+    try {
+      const result = await api("/api/admin/subscriptions/" + encodeURIComponent(id) + "/manual-payment", {
+        method: "POST", body: JSON.stringify({ amountEtb, referenceNumber: referenceNumber.trim(), method: method.trim().toUpperCase(), notes })
+      });
+      toast(result.message || "Manual payment recorded.");
+      await renderView();
+    } catch (error) { toast(error.message, true); button.disabled = false; }
+  }
+
   async function rechargeSubscription(button) {
     const id = button.dataset.recharge;
     if (!window.confirm("Activate this passenger subscription for 30 test days? This is an ADMIN_TEST entry, not a real Telebirr payment.")) return;
@@ -528,6 +548,8 @@
     if (assignRouteButton) { assignDriverRoute(assignRouteButton); return; }
     const assignVehicleButton = event.target.closest("[data-assign-vehicle]");
     if (assignVehicleButton) { assignSubscriptionVehicle(assignVehicleButton); return; }
+    const manualPaymentButton = event.target.closest("[data-manual-payment]");
+    if (manualPaymentButton) { recordManualPayment(manualPaymentButton); return; }
     const rechargeButton = event.target.closest("[data-recharge]");
     if (rechargeButton) { rechargeSubscription(rechargeButton); return; }
     const editRouteButton = event.target.closest("[data-edit-route]");
