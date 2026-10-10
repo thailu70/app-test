@@ -12,6 +12,8 @@ on:
       - "settings.gradle.kts"
       - "gradle.properties"
       - "gradle/**"
+      - "backend/**"
+      - "ROUTEPASS_OTP_AND_ROUTE_OPERATIONS.md"
   workflow_dispatch:
     inputs:
       api_base_url:
