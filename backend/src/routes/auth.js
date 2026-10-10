@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false });
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { DB } = require('../db');
@@ -23,7 +25,7 @@ const ADMIN_REGISTRATION_SECRET = resolveAdminSecret();
  * Note: Admin cannot freely register - requires adminSecret.
  * Registration does NOT activate a subscription. Subscriptions start as PENDING.
  */
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
   try {
     const {
       fullName,
@@ -35,6 +37,8 @@ router.post('/register', async (req, res) => {
       licenseNumber = '',
       companyName = '',
       assignedVehiclePlate = '',
+      vehicleModel = '',
+      vehicleType = 'MINIBUS_14',
       appliedRouteId = '',
       appliedRouteName = ''
     } = req.body;
@@ -46,12 +50,51 @@ router.post('/register', async (req, res) => {
       });
     }
 
+    if (typeof password !== 'string' || password.length < 10) {
+      return res.status(400).json({ success: false, error: 'Password must contain at least 10 characters.' });
+    }
+
     const normalizedRole = role.toUpperCase();
     if (!['PASSENGER', 'DRIVER', 'ADMIN'].includes(normalizedRole)) {
       return res.status(400).json({
         success: false,
         error: "Invalid role. Must be 'PASSENGER', 'DRIVER', or 'ADMIN'."
       });
+    }
+
+    // Drivers register their own account and the vehicle they own. The server creates
+    // the vehicle with no route; only an administrator may assign an approved route.
+    const vehicleCapacities = {
+      MINIVAN_8: 8,
+      MINIBUS_14: 14,
+      HIGER_24: 24,
+      ANBESSA_BUS_30: 30
+    };
+    let driverVehiclePlate = '';
+    let driverVehicleModel = '';
+    let driverVehicleType = '';
+    if (normalizedRole === 'DRIVER') {
+      driverVehiclePlate = String(assignedVehiclePlate || '').trim().toUpperCase();
+      driverVehicleModel = String(vehicleModel || '').trim();
+      driverVehicleType = String(vehicleType || '').trim().toUpperCase();
+      if (!licenseNumber || !String(licenseNumber).trim() || !driverVehiclePlate || !driverVehicleModel || !vehicleCapacities[driverVehicleType]) {
+        return res.status(400).json({
+          success: false,
+          error: 'Driver registration requires a commercial licence number, vehicle plate, vehicle model and valid vehicle type.'
+        });
+      }
+      const existingPlate = await DB.prepare('SELECT id FROM vehicles WHERE plateNumber = ?').get(driverVehiclePlate);
+      if (existingPlate) {
+        return res.status(409).json({ success: false, error: 'That vehicle plate is already registered. Contact support if you are the legal owner.' });
+      }
+    }
+
+    // Allow secret-gated bootstrap only while no administrator exists.
+    if (normalizedRole === 'ADMIN') {
+      const existingAdmin = await DB.prepare("SELECT id FROM users WHERE role = 'ADMIN' LIMIT 1").get();
+      if (existingAdmin) {
+        return res.status(403).json({ success: false, error: 'An administrator already exists. Additional admin access must be provisioned offline.' });
+      }
     }
 
     // Security: Admin accounts cannot freely register!
@@ -66,7 +109,7 @@ router.post('/register', async (req, res) => {
     }
 
     // Check if phone is already registered
-    const existing = DB.prepare('SELECT id FROM users WHERE phone = ?').get(phone.trim());
+    const existing = await DB.prepare('SELECT id FROM users WHERE phone = ?').get(phone.trim());
     if (existing) {
       return res.status(409).json({
         success: false,
@@ -74,37 +117,55 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    const salt = bcrypt.genSaltSync(10);
-    const passwordHash = bcrypt.hashSync(password, salt);
+    const passwordHash = await bcrypt.hash(password, 12);
 
     const userId = `usr_${normalizedRole.toLowerCase().slice(0, 3)}_${crypto.randomUUID().slice(0, 8)}`;
     const finalEmail = email?.trim() || `${phone.trim()}@transport.et`;
 
-    DB.prepare(`
-      INSERT INTO users (id, role, fullName, phone, email, passwordHash, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName)
-      VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
-    `).run(
-      userId,
-      normalizedRole,
-      fullName.trim(),
-      phone.trim(),
-      finalEmail,
-      passwordHash,
-      licenseNumber.trim(),
-      companyName.trim(),
-      assignedVehiclePlate.trim(),
-      appliedRouteId.trim(),
-      appliedRouteName.trim()
-    );
+    await DB.transaction(async (tx) => {
+      await tx.prepare(`
+        INSERT INTO users (id, role, fullName, phone, email, passwordHash, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        userId,
+        normalizedRole,
+        fullName.trim(),
+        phone.trim(),
+        finalEmail,
+        passwordHash,
+        normalizedRole === 'DRIVER' ? 'PENDING' : 'ACTIVE',
+        normalizedRole === 'DRIVER' ? String(licenseNumber).trim() : (normalizedRole === 'ADMIN' ? String(licenseNumber).trim() : ''),
+        normalizedRole === 'DRIVER' ? String(companyName || '').trim() : (normalizedRole === 'ADMIN' ? String(companyName || '').trim() : ''),
+        driverVehiclePlate,
+        normalizedRole === 'PASSENGER' ? String(appliedRouteId || '').trim() : '',
+        normalizedRole === 'PASSENGER' ? String(appliedRouteName || '').trim() : ''
+      );
+
+      if (normalizedRole === 'DRIVER') {
+        const vehicleId = `veh_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+        await tx.prepare(`
+          INSERT INTO vehicles (id, plateNumber, model, vehicleType, capacityLimit, currentOccupancy, assignedRouteId, driverId, driverName, status)
+          VALUES (?, ?, ?, ?, ?, 0, NULL, ?, ?, 'OFF_DUTY')
+        `).run(
+          vehicleId,
+          driverVehiclePlate,
+          driverVehicleModel,
+          driverVehicleType,
+          vehicleCapacities[driverVehicleType],
+          userId,
+          fullName.trim()
+        );
+      }
+    });
 
     // CRITICAL: Registration does NOT activate a subscription!
     // If passenger selected a route during signup, create a PENDING unpaid subscription.
     let initialSub = null;
     if (normalizedRole === 'PASSENGER' && appliedRouteId) {
-      const route = DB.prepare('SELECT * FROM routes WHERE id = ?').get(appliedRouteId);
+      const route = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(appliedRouteId);
       const subId = `sub_${userId}_${Date.now().toString(36)}`;
 
-      DB.prepare(`
+      await DB.prepare(`
         INSERT INTO subscriptions (id, passengerId, routeId, pickupStopId, destinationStopId, morningSchedule, eveningSchedule, startDate, endDate, priceEtb, paymentStatus, subscriptionStatus, vehicleId, qrToken, daysRemaining)
         VALUES (?, ?, ?, 'stop_atlas', 'stop_merkato', ?, ?, '', '', ?, 'UNPAID', 'PENDING', '', NULL, 0)
       `).run(
@@ -135,25 +196,28 @@ router.post('/register', async (req, res) => {
 
     res.status(201).json({
       success: true,
-      token,
+      token: normalizedRole === 'DRIVER' ? null : token,
       user: {
         id: userId,
         role: normalizedRole,
         fullName: fullName.trim(),
         phone: phone.trim(),
         email: finalEmail,
-        status: 'ACTIVE',
-        assignedVehiclePlate: assignedVehiclePlate.trim(),
-        appliedRouteId: appliedRouteId.trim(),
-        appliedRouteName: appliedRouteName.trim()
+        status: normalizedRole === 'DRIVER' ? 'PENDING' : 'ACTIVE',
+        assignedVehiclePlate: driverVehiclePlate,
+        appliedRouteId: normalizedRole === 'PASSENGER' ? String(appliedRouteId || '').trim() : '',
+        appliedRouteName: normalizedRole === 'PASSENGER' ? String(appliedRouteName || '').trim() : ''
       },
       subscription: initialSub,
-      message: normalizedRole === 'PASSENGER' && appliedRouteId
-        ? 'Account created. Subscription is PENDING payment via Telebirr.'
-        : 'Registration successful.'
+      message: normalizedRole === 'DRIVER'
+        ? 'Thank you for registering. An administrator will review your licence and vehicle, approve your account, assign your route, and contact you when your account is ready.'
+        : (normalizedRole === 'PASSENGER' && appliedRouteId
+          ? 'Account created. Subscription is PENDING payment; ask an administrator for a manual test recharge during testing.'
+          : 'Registration successful.')
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -161,7 +225,7 @@ router.post('/register', async (req, res) => {
  * POST /api/auth/login
  * Role-isolated login using phone and password
  */
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   try {
     const { phone, password, role } = req.body;
 
@@ -177,13 +241,22 @@ router.post('/login', async (req, res) => {
       ? '0' + cleanPhone.slice(4)
       : (cleanPhone.startsWith('0') ? '+251' + cleanPhone.slice(1) : cleanPhone);
 
-    const user = DB.prepare('SELECT * FROM users WHERE phone = ? OR phone = ?').get(cleanPhone, altPhone);
+    const user = await DB.prepare('SELECT * FROM users WHERE phone = ? OR phone = ?').get(cleanPhone, altPhone);
 
     if (!user) {
       return res.status(401).json({
         success: false,
         error: 'Invalid mobile number or credentials.'
       });
+    }
+
+    if (user.status && user.status !== 'ACTIVE') {
+      const error = user.status === 'PENDING'
+        ? 'Thank you for registering. Your account is awaiting administrator approval and route assignment. Please try signing in after the administrator contacts you.'
+        : (user.status === 'REJECTED'
+          ? 'Your driver registration was not approved. Please contact RoutePass administration.'
+          : 'This account is inactive. Contact your transport administrator.');
+      return res.status(403).json({ success: false, error, code: user.status });
     }
 
     if (role && user.role !== role.toUpperCase()) {
@@ -226,7 +299,8 @@ router.post('/login', async (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -234,9 +308,9 @@ router.post('/login', async (req, res) => {
  * GET /api/auth/me
  * Retrieve authenticated user profile
  */
-router.get('/me', authenticate, (req, res) => {
+router.get('/me', authenticate, async (req, res) => {
   try {
-    const user = DB.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    const user = await DB.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found.' });
     }
@@ -258,7 +332,8 @@ router.get('/me', authenticate, (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 

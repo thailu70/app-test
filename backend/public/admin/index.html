@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>RoutePass Admin Portal</title>
+  <link rel="stylesheet" href="/admin/admin.css?v=20261010-2">
+  <script src="/admin/admin.js?v=20261010-2" defer></script>
+</head>
+<body>
+  <section id="login-view" class="login-wrap">
+    <div class="login-card">
+      <div class="brand brand-login"><span class="brand-mark">R</span><div><strong>RoutePass</strong><small>OPERATIONS PORTAL</small></div></div>
+      <p class="eyebrow">SECURE ADMIN ACCESS</p>
+      <h1>Welcome back</h1>
+      <p class="muted">Sign in to manage drivers, vehicles, routes and passenger operations.</p>
+      <form id="login-form" class="form-stack">
+        <label for="login-phone">Administrator phone number <span>(username)</span></label>
+        <input id="login-phone" name="phone" type="tel" autocomplete="username" placeholder="+2519XXXXXXXX" required>
+        <label for="login-password">Password</label>
+        <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+        <button class="btn btn-primary btn-full" type="submit">Sign in to admin portal</button>
+        <p id="login-error" class="form-error" role="alert" hidden></p>
+      </form>
+      <div class="login-foot"><span class="status-dot"></span> Connected to RoutePass API over HTTPS</div>
+    </div>
+  </section>
+
+  <div id="app-view" class="app-shell" hidden>
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">R</span><div><strong>RoutePass</strong><small>ADMIN CONSOLE</small></div></div>
+      <div class="side-section-label">WORKSPACE</div>
+      <nav id="main-nav" class="nav-list" aria-label="Admin pages">
+        <button class="nav-item active" data-view="overview"><span>▦</span> Overview</button>
+        <button class="nav-item" data-view="drivers"><span>♙</span> Drivers & routes</button>
+        <button class="nav-item" data-view="routes"><span>↗</span> Manage routes</button>
+        <button class="nav-item" data-view="vehicles"><span>▰</span> Vehicles</button>
+        <button class="nav-item" data-view="subscriptions"><span>▤</span> Subscriptions</button>
+        <button class="nav-item" data-view="payments"><span>◈</span> Payments</button>
+        <button class="nav-item" data-view="checkins"><span>✓</span> Check-ins</button>
+        <button class="nav-item" data-view="complaints"><span>☷</span> Complaints</button>
+        <button class="nav-item" data-view="audit-logs"><span>≡</span> Audit log</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="secure-note"><span class="status-dot"></span><div><strong>Secure session</strong><small>Admin access only</small></div></div>
+        <button id="logout-button" class="btn btn-ghost btn-full">Sign out</button>
+      </div>
+    </aside>
+    <main class="main-area">
+      <header class="topbar">
+        <div><p class="eyebrow">ROUTEPASS OPERATIONS</p><h1 id="page-title">Overview</h1></div>
+        <div class="user-chip"><span id="avatar" class="avatar">A</span><div><strong id="admin-name">Administrator</strong><small>ADMIN</small></div></div>
+      </header>
+      <div class="notice"><strong>Staging notice</strong><span>Live Telebirr payments and offline boarding sync are not enabled in this build.</span></div>
+      <section id="page-content" class="page-content" aria-live="polite"></section>
+      <footer class="page-footer">RoutePass · Transport operations · Protect administrator credentials</footer>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

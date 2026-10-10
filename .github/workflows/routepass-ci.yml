@@ -1,0 +1,144 @@
+name: RoutePass CI
+
+concurrency:
+  group: routepass-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [main, "audit/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "Public HTTPS RoutePass API base URL (include trailing slash)"
+        required: true
+        default: "https://api.example.com/"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  compose-traefik:
+    name: Traefik Compose and installer syntax checks
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci_compose_password_only
+      JWT_SECRET: ci_jwt_secret_only_for_compose_validation
+      ADMIN_REGISTRATION_SECRET: ci_admin_secret_only_for_compose_validation
+      QR_SIGNING_KEY: ci_qr_secret_only_for_compose_validation
+      PAYMENT_MODE: PRODUCTION
+      ROUTEPASS_DOMAIN: routepass.example.com
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check deployment script syntax
+        run: bash -n backend/deploy-traefik-vps.sh
+      - name: Validate Compose configuration without starting containers
+        run: docker compose -f backend/docker-compose.yml -f backend/docker-compose.traefik.yml config --quiet
+
+  backend-sqlite:
+    name: Backend syntax and SQLite integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+      - name: Check JavaScript syntax
+        run: find src test -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+        working-directory: backend
+      - name: Test Telebirr H5 signing format
+        run: node test/telebirr-service-test.js
+        working-directory: backend
+      - name: Check admin portal JavaScript syntax
+        run: node --check public/admin/admin.js
+        working-directory: backend
+      - name: Check first-admin bootstrap helper syntax
+        run: python3 -m py_compile scripts/bootstrap-admin.py
+        working-directory: backend
+      - name: Run API integration suite
+        env:
+          NODE_ENV: test
+          DATA_DIR: /tmp/routepass-sqlite-ci
+          JWT_SECRET: ci_jwt_secret_only_for_automated_tests_2026
+          ADMIN_REGISTRATION_SECRET: ci_admin_secret_only_for_tests_2026
+          QR_SIGNING_KEY: ci_qr_secret_only_for_tests_2026
+          PAYMENT_MODE: TEST
+        run: npm test
+        working-directory: backend
+
+  backend-postgres:
+    name: PostgreSQL-backed API smoke test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres:16
+        env:
+          POSTGRES_DB: routepass_db
+          POSTGRES_USER: routepass
+          POSTGRES_PASSWORD: routepass_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U routepass -d routepass_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+      - name: Initialize fresh PostgreSQL schema
+        env:
+          PGPASSWORD: routepass_ci_password
+        run: psql -h 127.0.0.1 -U routepass -d routepass_db -v ON_ERROR_STOP=1 -f backend/init-db.sql
+      - name: Test API against PostgreSQL
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgres://routepass:routepass_ci_password@127.0.0.1:5432/routepass_db
+          DATABASE_SSL: "false"
+          JWT_SECRET: ci_jwt_secret_only_for_automated_tests_2026
+          ADMIN_REGISTRATION_SECRET: ci_admin_secret_only_for_tests_2026
+          QR_SIGNING_KEY: ci_qr_secret_only_for_tests_2026
+          PAYMENT_MODE: PRODUCTION
+          ALLOW_MANUAL_TEST_RECHARGE: "true"
+        run: node test/postgres-smoke.js
+        working-directory: backend
+
+  android-build:
+    name: Android debug build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+      - name: Assemble debug APK against configured HTTPS host
+        run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://api.example.com/' }}"
+      - name: Upload installable debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: routepass-android-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7

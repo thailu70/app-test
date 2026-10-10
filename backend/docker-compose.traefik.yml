@@ -1,0 +1,15 @@
+services:
+  api:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=routepass_internal_net"
+      - "traefik.http.routers.routepass-api.rule=Host(`${ROUTEPASS_DOMAIN}`)"
+      - "traefik.http.routers.routepass-api.entrypoints=websecure"
+      - "traefik.http.routers.routepass-api.tls=true"
+      - "traefik.http.routers.routepass-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.routepass-api.loadbalancer.server.port=3000"
+  # Existing Traefik already owns host ports 80/443. Keep the bundled Nginx
+  # service available only for deployments that explicitly opt into this profile.
+  nginx:
+    profiles:
+      - nginx-proxy

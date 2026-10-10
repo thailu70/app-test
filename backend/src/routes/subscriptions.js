@@ -63,10 +63,10 @@ function verifySignedQrToken(token) {
  * Fetches passenger subscription.
  * QR is available ONLY when ACTIVE and PAID!
  */
-router.get('/my-status', authenticate, requireRole('PASSENGER'), (req, res) => {
+router.get('/my-status', authenticate, requireRole('PASSENGER'), async (req, res) => {
   try {
     const passengerId = req.user.id;
-    const sub = DB.prepare(`
+    const sub = await DB.prepare(`
       SELECT s.*, r.name as routeName, r.nameAm as routeNameAm, r.basePriceEtb, r.morningDeparture, r.eveningDeparture
       FROM subscriptions s
       LEFT JOIN routes r ON s.routeId = r.id
@@ -121,7 +121,8 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -130,7 +131,7 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), (req, res) => {
  * Register or update route subscription selection.
  * Subscription starts as PENDING and UNPAID.
  */
-router.post('/subscribe', authenticate, requireRole('PASSENGER'), (req, res) => {
+router.post('/subscribe', authenticate, requireRole('PASSENGER'), async (req, res) => {
   try {
     const passengerId = req.user.id;
     const { routeId, pickupStopId = '', destinationStopId = '' } = req.body;
@@ -139,16 +140,16 @@ router.post('/subscribe', authenticate, requireRole('PASSENGER'), (req, res) => 
       return res.status(400).json({ success: false, error: 'Route ID is required.' });
     }
 
-    const route = DB.prepare('SELECT * FROM routes WHERE id = ?').get(routeId);
+    const route = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(routeId);
     if (!route) {
       return res.status(404).json({ success: false, error: 'Route not found.' });
     }
 
     const subId = `sub_${passengerId}_${Date.now().toString(36)}`;
-    const existing = DB.prepare('SELECT id FROM subscriptions WHERE passengerId = ?').get(passengerId);
+    const existing = await DB.prepare('SELECT id FROM subscriptions WHERE passengerId = ?').get(passengerId);
 
     if (existing) {
-      DB.prepare(`
+      await DB.prepare(`
         UPDATE subscriptions
         SET routeId = ?, pickupStopId = ?, destinationStopId = ?, priceEtb = ?,
             subscriptionStatus = 'PENDING', paymentStatus = 'UNPAID', daysRemaining = 0,
@@ -156,7 +157,7 @@ router.post('/subscribe', authenticate, requireRole('PASSENGER'), (req, res) => 
         WHERE id = ?
       `).run(routeId, pickupStopId, destinationStopId, route.basePriceEtb, existing.id);
     } else {
-      DB.prepare(`
+      await DB.prepare(`
         INSERT INTO subscriptions (id, passengerId, routeId, pickupStopId, destinationStopId, morningSchedule, eveningSchedule, priceEtb, paymentStatus, subscriptionStatus, daysRemaining, qrToken)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'UNPAID', 'PENDING', 0, NULL)
       `).run(subId, passengerId, routeId, pickupStopId, destinationStopId, route.morningDeparture, route.eveningDeparture, route.basePriceEtb);
@@ -177,7 +178,8 @@ router.post('/subscribe', authenticate, requireRole('PASSENGER'), (req, res) => 
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -194,7 +196,7 @@ async function verifyTelebirrServerSide(txnRef, expectedAmount) {
 
   // In production, check for pre-recorded server-to-server webhook verified record
   if (txnRef) {
-    const verifiedTxn = DB.prepare(`
+    const verifiedTxn = await DB.prepare(`
       SELECT * FROM payment_transactions
       WHERE (referenceNumber = ? OR idempotencyKey = ?)
         AND status = 'VERIFIED'
@@ -234,36 +236,78 @@ async function verifyTelebirrServerSide(txnRef, expectedAmount) {
  * Verifies HMAC/RSA signature and records transaction as VERIFIED.
  */
 router.post('/telebirr/webhook', async (req, res) => {
+  // Fail closed until the canonical signing format and callback contract are validated
+  // against the merchant's official integration specification and sandbox.
+  if (PAYMENT_MODE === 'PRODUCTION') {
+    return res.status(503).json({
+      success: false,
+      code: 'LIVE_TELEBIRR_NOT_CONFIGURED',
+      error: 'Live Telebirr callbacks are disabled until merchant verification is validated.'
+    });
+  }
   try {
     const signature = req.headers['x-telebirr-signature'] || req.body.signature;
-    const { outTradeNo, transactionNo, totalAmount, tradeStatus, passengerId = 'system' } = req.body;
+    const { outTradeNo, transactionNo, totalAmount, tradeStatus } = req.body;
 
-    const webhookSecret = process.env.TELEBIRR_WEBHOOK_SECRET || process.env.TELEBIRR_APP_KEY;
-    if (webhookSecret && signature) {
-      const payload = `${outTradeNo}:${transactionNo}:${totalAmount}:${tradeStatus}`;
-      const expectedHmac = crypto.createHmac('sha256', webhookSecret).update(payload).digest('hex');
-      if (signature !== expectedHmac) {
-        return res.status(401).json({ success: false, error: 'Invalid Telebirr webhook signature.' });
-      }
+    // Fail closed: never treat a callback as verified when signature verification
+    // is not configured or when the signature is absent/invalid.
+    const webhookSecret = process.env.TELEBIRR_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      return res.status(503).json({
+        success: false,
+        error: 'Telebirr webhook verification is not configured.'
+      });
+    }
+    if (typeof signature !== 'string' || !signature.trim()) {
+      return res.status(401).json({ success: false, error: 'Missing Telebirr webhook signature.' });
+    }
+    if (typeof outTradeNo !== 'string' || !outTradeNo.trim() ||
+        typeof transactionNo !== 'string' || !transactionNo.trim()) {
+      return res.status(400).json({ success: false, error: 'Missing payment reference fields.' });
+    }
+
+    const amount = Number(totalAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid payment amount.' });
+    }
+
+    // This canonical payload must match the signature scheme configured with
+    // Telebirr. Do not deploy until it has been verified against provider docs.
+    const payload = `${outTradeNo}:${transactionNo}:${totalAmount}:${tradeStatus}`;
+    const expectedHmac = crypto.createHmac('sha256', webhookSecret).update(payload).digest();
+    let providedSignature;
+    try {
+      providedSignature = Buffer.from(signature.trim(), 'hex');
+    } catch (_) {
+      return res.status(401).json({ success: false, error: 'Invalid Telebirr webhook signature.' });
+    }
+    if (providedSignature.length !== expectedHmac.length ||
+        !crypto.timingSafeEqual(providedSignature, expectedHmac)) {
+      return res.status(401).json({ success: false, error: 'Invalid Telebirr webhook signature.' });
     }
 
     if (tradeStatus === 'COMPLETED' || tradeStatus === 'SUCCESS') {
-      const txnRef = transactionNo || outTradeNo;
-      const existing = DB.prepare('SELECT id FROM payment_transactions WHERE referenceNumber = ?').get(txnRef);
-      if (existing) {
-        DB.prepare("UPDATE payment_transactions SET status = 'VERIFIED' WHERE id = ?").run(existing.id);
-      } else {
-        DB.prepare(`
-          INSERT INTO payment_transactions (id, passengerId, referenceNumber, amountEtb, provider, status, notes)
-          VALUES (?, ?, ?, ?, 'Telebirr', 'VERIFIED', 'Verified via Telebirr Webhook')
-        `).run(`tx_${crypto.randomUUID().slice(0, 8)}`, passengerId, txnRef, parseFloat(totalAmount) || 0);
+      // Only verify a payment order that the server already knows about.
+      // Never create a VERIFIED transaction from an unsolicited callback.
+      const existing = await DB.prepare(
+        'SELECT id, amountEtb, status FROM payment_transactions WHERE referenceNumber = ? OR idempotencyKey = ?'
+      ).get(outTradeNo, outTradeNo);
+
+      if (!existing) {
+        return res.status(404).json({ success: false, error: 'Unknown payment order.' });
       }
+      if (Math.abs(Number(existing.amountEtb) - amount) > 0.01) {
+        return res.status(409).json({ success: false, error: 'Payment amount does not match the order.' });
+      }
+      await DB.prepare("UPDATE payment_transactions SET status = 'VERIFIED', notes = ? WHERE id = ?")
+        .run(`Telebirr callback verified; provider transaction ${transactionNo}`, existing.id);
       return res.json({ code: 0, message: 'SUCCESS' });
     }
 
     res.json({ code: -1, message: 'TRADE_NOT_COMPLETED' });
   } catch (err) {
-    res.status(500).json({ code: -1, error: err.message });
+    console.error('[Telebirr webhook] request failed:', err);
+    res.status(500).json({ code: -1, error: 'Internal server error.' });
   }
 });
 
@@ -274,6 +318,15 @@ router.post('/telebirr/webhook', async (req, res) => {
  * Upon successful payment, activates subscription and generates server-signed QR token.
  */
 router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req, res) => {
+  // This repository does not yet contain a validated Telebirr checkout/order lifecycle.
+  // Production must not accept client transaction references as proof of payment.
+  if (PAYMENT_MODE === 'PRODUCTION') {
+    return res.status(503).json({
+      success: false,
+      code: 'LIVE_TELEBIRR_NOT_CONFIGURED',
+      error: 'Live Telebirr payments are disabled until merchant checkout, signature verification, and reconciliation pass sandbox tests. No payment or subscription was created.'
+    });
+  }
   try {
     const passengerId = req.user.id;
 
@@ -291,9 +344,9 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
       idempotencyKey = req.headers['x-idempotency-key'] || ''
     } = req.body;
 
-    const user = DB.prepare('SELECT * FROM users WHERE id = ?').get(passengerId);
+    const user = await DB.prepare('SELECT * FROM users WHERE id = ?').get(passengerId);
     const targetRouteId = routeId || user?.appliedRouteId || 'route_bole_merkato';
-    const route = DB.prepare('SELECT * FROM routes WHERE id = ?').get(targetRouteId);
+    const route = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(targetRouteId);
 
     if (!route) {
       return res.status(404).json({ success: false, error: 'Route not found.' });
@@ -360,17 +413,17 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
     );
 
     // Activate Subscription & Assign Signed QR
-    const existingSub = DB.prepare('SELECT id FROM subscriptions WHERE passengerId = ?').get(passengerId);
+    const existingSub = await DB.prepare('SELECT id FROM subscriptions WHERE passengerId = ?').get(passengerId);
 
     if (existingSub) {
-      DB.prepare(`
+      await DB.prepare(`
         UPDATE subscriptions
         SET routeId = ?, priceEtb = ?, paymentStatus = 'PAID', subscriptionStatus = 'ACTIVE',
             startDate = ?, endDate = ?, daysRemaining = 30, qrToken = ?, updatedAt = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(targetRouteId, price, startDate, endDate, signedQrToken, existingSub.id);
     } else {
-      DB.prepare(`
+      await DB.prepare(`
         INSERT INTO subscriptions (id, passengerId, routeId, pickupStopId, destinationStopId, morningSchedule, eveningSchedule, startDate, endDate, priceEtb, paymentStatus, subscriptionStatus, daysRemaining, qrToken)
         VALUES (?, ?, ?, 'stop_atlas', 'stop_merkato', ?, ?, ?, ?, ?, 'PAID', 'ACTIVE', 30, ?)
       `).run(subId, passengerId, targetRouteId, route.morningDeparture, route.eveningDeparture, startDate, endDate, price, signedQrToken);
@@ -378,7 +431,7 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
 
     // Insert notification
     const notifId = `notif_${crypto.randomUUID().slice(0, 8)}`;
-    DB.prepare(`
+    await DB.prepare(`
       INSERT INTO notifications (id, title, message, targetAudience, type, senderName)
       VALUES (?, ?, ?, 'PASSENGERS', 'PAYMENT', 'Telebirr Gateway')
     `).run(
@@ -414,7 +467,8 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -422,9 +476,9 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
  * GET /api/subscriptions/all
  * Admin route to list all commuter subscriptions
  */
-router.get('/all', authenticate, requireRole('ADMIN'), (req, res) => {
+router.get('/all', authenticate, requireRole('ADMIN'), async (req, res) => {
   try {
-    const list = DB.prepare(`
+    const list = await DB.prepare(`
       SELECT s.*, u.fullName as passengerName, u.phone as passengerPhone, r.name as routeName
       FROM subscriptions s
       LEFT JOIN users u ON s.passengerId = u.id
@@ -434,7 +488,8 @@ router.get('/all', authenticate, requireRole('ADMIN'), (req, res) => {
 
     res.json({ success: true, subscriptions: list });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 

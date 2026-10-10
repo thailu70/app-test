@@ -1,5 +1,30 @@
 package com.example.ui.screens.driver
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.os.Looper
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.common.InputImage
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -19,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -30,6 +56,7 @@ import com.example.core.localization.AppLanguage
 import com.example.core.localization.AppStrings
 import com.example.core.qr.QrValidationResult
 import com.example.data.entity.RouteStopEntity
+import com.example.ui.components.MiniVehicleMap
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DriverTripState
 import com.example.ui.viewmodel.MainViewModel
@@ -45,6 +72,10 @@ fun DriverTripScreen(
     val currentUser by viewModel.currentUser.collectAsState()
     val tripState by viewModel.driverTrip.collectAsState()
     val stops by viewModel.routeStops.collectAsState()
+    val trackedVehicle by viewModel.trackedVehicle.collectAsState()
+    val trackingMessage by viewModel.trackingMessage.collectAsState()
+    val driverActionMessage by viewModel.driverActionMessage.collectAsState()
+    var gpsStatus by remember { mutableStateOf("Waiting for GPS permission.") }
     val networkStatus by viewModel.networkStatus.collectAsState()
     val isScannerOpen by viewModel.isScannerOpen.collectAsState()
     val scanResult by viewModel.scanResult.collectAsState()
@@ -52,6 +83,11 @@ fun DriverTripScreen(
     fun t(key: String) = AppStrings.get(key, lang)
 
     Box(modifier = modifier.fillMaxSize()) {
+        DriverLocationReporter(
+            viewModel = viewModel,
+            currentStop = stops.getOrNull(tripState.currentStopIndex)?.stopName.orEmpty(),
+            onStatusChanged = { gpsStatus = it }
+        )
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -73,7 +109,18 @@ fun DriverTripScreen(
                 )
             }
 
-            // 2. High-Visibility Big Navigation HUD
+            // 2. Actual vehicle position, reported by this driver's phone.
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MiniVehicleMap(vehicle = trackedVehicle, modifier = Modifier.testTag("driver_live_vehicle_map"), mapHeight = 190, serverMessage = trackingMessage)
+                    Text(gpsStatus, style = MaterialTheme.typography.bodySmall, color = Slate600)
+                    driverActionMessage?.let { message ->
+                        Text(message, style = MaterialTheme.typography.bodySmall, color = if (message.contains("not") || message.contains("failed", true) || message.contains("could not", true)) StatusErrorRed else TransportGreenPrimary)
+                    }
+                }
+            }
+
+            // 3. High-Visibility Big Navigation HUD
             item {
                 DriverNavigationHudCard(
                     tripState = tripState,
@@ -87,7 +134,7 @@ fun DriverTripScreen(
                 )
             }
 
-            // 3. Stop Sequence & Passenger Attendance
+            // 4. Stop Sequence & Passenger Attendance
             item {
                 Text(
                     text = t("pickup_sequence"),
@@ -110,7 +157,7 @@ fun DriverTripScreen(
             }
         }
 
-        // Scanner Dialog with Live Camera Viewfinder Simulation
+        // Camera-backed scanner dialog; each decoded QR is checked by the VPS.
         if (isScannerOpen) {
             DriverQrScannerDialog(
                 scanResult = scanResult,
@@ -120,6 +167,86 @@ fun DriverTripScreen(
                 onDismissResult = { viewModel.dismissScanResult() },
                 onCloseScanner = { viewModel.closeScanner() }
             )
+        }
+    }
+}
+
+/**
+ * Requests foreground location permission and reports fresh phone GPS fixes to the VPS.
+ * Reporting runs only while the driver screen is open; background tracking is not claimed.
+ */
+@Composable
+private fun DriverLocationReporter(
+    viewModel: MainViewModel,
+    currentStop: String,
+    onStatusChanged: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val locationManager = remember(context) {
+        context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    }
+    val latestStop = rememberUpdatedState(currentStop)
+    var hasPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        hasPermission = grants.values.any { it }
+        onStatusChanged(if (hasPermission) "Location permission granted. Waiting for GPS fix…" else "Location permission was denied. Allow location to share live vehicle position.")
+    }
+
+    LaunchedEffect(Unit) {
+        if (!hasPermission) {
+            permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
+    }
+
+    DisposableEffect(hasPermission, context) {
+        if (!hasPermission) {
+            onStatusChanged("Allow location permission to share live vehicle position.")
+            onDispose { }
+        } else {
+            val listener = object : LocationListener {
+                override fun onLocationChanged(location: Location) {
+                    val coordinates = String.format(java.util.Locale.US, "%.5f, %.5f", location.latitude, location.longitude)
+                    onStatusChanged("Phone GPS fix received; uploading to RoutePass server… · $coordinates")
+                    viewModel.submitDriverLocation(
+                        latitude = location.latitude,
+                        longitude = location.longitude,
+                        speed = location.speed.toDouble().coerceAtLeast(0.0),
+                        currentStop = latestStop.value,
+                        onResult = { accepted, message ->
+                            onStatusChanged(
+                                if (accepted) "GPS uploaded successfully to RoutePass server · $coordinates"
+                                else "Phone GPS works, but server upload failed: $message · $coordinates"
+                            )
+                        }
+                    )
+                }
+            }
+            val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+                .filter { provider -> runCatching { locationManager.isProviderEnabled(provider) }.getOrDefault(false) }
+            if (providers.isEmpty()) {
+                onStatusChanged("Turn on Location on your phone to share the vehicle position.")
+            } else {
+                providers.forEach { provider ->
+                    try {
+                        locationManager.requestLocationUpdates(provider, 5000L, 5f, listener, Looper.getMainLooper())
+                        locationManager.getLastKnownLocation(provider)?.let(listener::onLocationChanged)
+                    } catch (_: SecurityException) {
+                        onStatusChanged("Location access was denied. Re-enable permission in Android settings.")
+                    } catch (_: IllegalArgumentException) {
+                        // This provider is not available on the device.
+                    }
+                }
+            }
+            onDispose {
+                runCatching { locationManager.removeUpdates(listener) }
+            }
         }
     }
 }
@@ -221,7 +348,7 @@ fun DriverCockpitHeaderCard(
                 }
             }
 
-            // Vehicle Type & Passenger Limit Switcher (Transporter limit based on vehicle type)
+            // Vehicle class and seating limit are read from the vehicle that the driver registered.
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -230,65 +357,35 @@ fun DriverCockpitHeaderCard(
                     .padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                Text(
+                    text = "Registered vehicle class",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Slate400,
+                    fontWeight = FontWeight.SemiBold
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (lang == AppLanguage.AMHARIC) "የተሽከርካሪ ዓይነት እና የመንገደኞች ገደብ:" else "Vehicle Type & Passenger Limit:",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Slate400,
-                        fontWeight = FontWeight.SemiBold
+                        text = tripState.vehicleType.replace('_', ' '),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Max ${tripState.vehicleCapacity} Seats",
-                        style = MaterialTheme.typography.labelSmall,
+                        text = "Maximum ${tripState.vehicleCapacity} seats",
+                        style = MaterialTheme.typography.labelMedium,
                         color = TransportGold,
                         fontWeight = FontWeight.Bold
                     )
                 }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    val vehicles = listOf(
-                        Pair("Toyota Coaster", 24),
-                        Pair("Minibus HiAce", 14),
-                        Pair("Minivan", 8)
-                    )
-
-                    vehicles.forEach { (type, cap) ->
-                        val isSelected = tripState.vehicleType == type
-                        Surface(
-                            color = if (isSelected) TransportGreenPrimary else Slate700,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { onSetVehicleType(type, cap) }
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(vertical = 6.dp, horizontal = 4.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = type.substringBefore(" "),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    fontSize = 10.sp
-                                )
-                                Text(
-                                    text = "$cap seats",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (isSelected) TransportGold else Slate300,
-                                    fontSize = 9.sp
-                                )
-                            }
-                        }
-                    }
-                }
+                Text(
+                    text = "Vehicle ownership and capacity cannot be changed from the trip screen.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Slate400
+                )
             }
 
             HorizontalDivider(color = Slate800)
@@ -300,7 +397,7 @@ fun DriverCockpitHeaderCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(text = t("todays_trips"), style = MaterialTheme.typography.labelSmall, color = Slate400)
-                    Text(text = "Morning Trip (06:30)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = TransportGold)
+                    Text(text = "Scheduled trip (${tripState.departureTime})", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = TransportGold)
                     Text(text = routeName, style = MaterialTheme.typography.bodySmall, color = Color.White)
                 }
                 Column(horizontalAlignment = Alignment.End) {
@@ -640,7 +737,7 @@ fun StopSequenceRow(
     }
 }
 
-// Driver QR Scanner & Full-screen Verification Result Screen
+// Real camera QR scanner with server-side verification results.
 @Composable
 fun DriverQrScannerDialog(
     scanResult: QrValidationResult?,
@@ -650,363 +747,287 @@ fun DriverQrScannerDialog(
     onDismissResult: () -> Unit,
     onCloseScanner: () -> Unit
 ) {
-    val isCapacityFull = tripState.checkedInCount >= tripState.vehicleCapacity
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val previewRef = remember { mutableStateOf<PreviewView?>(null) }
+    val scanSubmitted = remember { AtomicBoolean(false) }
+    val scanner = remember {
+        BarcodeScanning.getClient(
+            BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                .build()
+        )
+    }
+    val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
+    DisposableEffect(scanner, cameraExecutor) {
+        onDispose {
+            runCatching { scanner.close() }
+            cameraExecutor.shutdown()
+        }
+    }
+    var hasCameraPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                PackageManager.PERMISSION_GRANTED
+        )
+    }
+    var hasScanned by remember { mutableStateOf(false) }
+    var cameraError by remember { mutableStateOf<String?>(null) }
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasCameraPermission = granted
+        if (!granted) cameraError = "Camera permission is required to scan passenger QR passes."
+    }
+
+    LaunchedEffect(Unit) {
+        if (!hasCameraPermission) cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+    }
+
+    DisposableEffect(previewRef.value, hasCameraPermission, hasScanned, lifecycleOwner) {
+        val previewView = previewRef.value
+        if (!hasCameraPermission || hasScanned || previewView == null || scanResult != null) {
+            onDispose { }
+        } else {
+            var disposed = false
+            var boundProvider: ProcessCameraProvider? = null
+            var boundPreview: Preview? = null
+            var boundAnalysis: ImageAnalysis? = null
+            val providerFuture = ProcessCameraProvider.getInstance(context)
+
+            providerFuture.addListener({
+                if (!disposed) {
+                    try {
+                        val provider = providerFuture.get()
+                        val preview = Preview.Builder().build().also {
+                            it.setSurfaceProvider(previewView.surfaceProvider)
+                        }
+                        val analysis = ImageAnalysis.Builder()
+                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                            .build()
+                        analysis.setAnalyzer(cameraExecutor) { imageProxy: ImageProxy ->
+                            val mediaImage = imageProxy.image
+                            if (mediaImage == null || scanSubmitted.get()) {
+                                imageProxy.close()
+                            } else {
+                                val inputImage = InputImage.fromMediaImage(
+                                    mediaImage,
+                                    imageProxy.imageInfo.rotationDegrees
+                                )
+                                scanner.process(inputImage)
+                                    .addOnSuccessListener { barcodes ->
+                                        val decoded = barcodes.firstOrNull { !it.rawValue.isNullOrBlank() }?.rawValue
+                                        if (!decoded.isNullOrBlank() && scanSubmitted.compareAndSet(false, true)) {
+                                            hasScanned = true
+                                            cameraError = null
+                                            onScanToken(decoded)
+                                        }
+                                    }
+                                    .addOnFailureListener { error ->
+                                        cameraError = "Could not read QR image: " + (error.localizedMessage ?: "try again")
+                                    }
+                                    .addOnCompleteListener {
+                                        imageProxy.close()
+                                    }
+                            }
+                        }
+                        provider.unbindAll()
+                        provider.bindToLifecycle(
+                            lifecycleOwner,
+                            CameraSelector.DEFAULT_BACK_CAMERA,
+                            preview,
+                            analysis
+                        )
+                        boundProvider = provider
+                        boundPreview = preview
+                        boundAnalysis = analysis
+                        cameraError = null
+                    } catch (error: Exception) {
+                        cameraError = "Could not start camera: " + (error.localizedMessage ?: "camera unavailable")
+                    }
+                }
+            }, ContextCompat.getMainExecutor(context))
+
+            onDispose {
+                disposed = true
+                try {
+                    if (boundProvider != null) {
+                        boundPreview?.let { boundProvider?.unbind(it) }
+                        boundAnalysis?.let { boundProvider?.unbind(it) }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
 
     Dialog(
         onDismissRequest = onCloseScanner,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                .testTag("driver_qr_scanner_dialog")
+        Surface(
+            modifier = Modifier.fillMaxSize().testTag("driver_qr_scanner_dialog"),
+            color = Color(0xFF101820)
         ) {
-            // Viewfinder Camera Simulation
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween
+                modifier = Modifier.fillMaxSize().padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "QR PASSENGER VERIFICATION",
+                            "SCAN PASSENGER QR",
                             color = Color.White,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold
                         )
                         Text(
-                            text = "Current Stop: $currentStop • Vehicle: ${tripState.vehicleType}",
+                            "Stop: $currentStop · Vehicle: " + tripState.vehiclePlate.ifBlank { "Not registered" },
                             color = TransportGold,
                             style = MaterialTheme.typography.bodySmall
                         )
+                        Text(
+                            "Trip: " + if (tripState.tripId.isBlank()) "Not started" else tripState.tripId,
+                            color = Color.LightGray,
+                            style = MaterialTheme.typography.labelSmall
+                        )
                     }
                     IconButton(onClick = onCloseScanner, modifier = Modifier.testTag("close_scanner_button")) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                        Icon(Icons.Default.Close, contentDescription = "Close scanner", tint = Color.White)
                     }
                 }
 
-                // Vehicle Capacity Alert Banner if Full
-                if (isCapacityFull) {
-                    Surface(
-                        color = StatusErrorRed.copy(alpha = 0.25f),
-                        shape = RoundedCornerShape(10.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, StatusErrorRed),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Default.Block, contentDescription = null, tint = StatusErrorRed)
-                            Text(
-                                text = "⛔ VEHICLE AT FULL CAPACITY (${tripState.checkedInCount}/${tripState.vehicleCapacity} Seats). Further boarding will be rejected for this vehicle type.",
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                } else {
-                    Surface(
-                        color = StatusActiveGreen.copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
+                if (tripState.checkedInCount >= tripState.vehicleCapacity) {
+                    Surface(color = StatusErrorRed.copy(alpha = 0.2f), shape = RoundedCornerShape(10.dp)) {
                         Text(
-                            text = "SEATS AVAILABLE: ${tripState.vehicleCapacity - tripState.checkedInCount} of ${tripState.vehicleCapacity} left",
-                            color = StatusActiveGreen,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                            "Vehicle capacity reached (${tripState.checkedInCount}/${tripState.vehicleCapacity}). The server will reject further boarding.",
+                            color = Color.White,
+                            modifier = Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall
                         )
                     }
                 }
 
-                // Center Reticle
-                Box(
-                    modifier = Modifier
-                        .size(240.dp)
-                        .border(3.dp, if (isCapacityFull) StatusErrorRed else StatusActiveGreen, RoundedCornerShape(16.dp))
-                        .padding(12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Default.QrCodeScanner,
-                            contentDescription = null,
-                            tint = Color.White.copy(alpha = 0.8f),
-                            modifier = Modifier.size(56.dp)
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = if (isCapacityFull) "Vehicle at capacity limit" else "Align passenger QR inside frame",
-                            color = Color.White.copy(alpha = 0.8f),
-                            style = MaterialTheme.typography.bodySmall,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-
-                // Quick Scan Test Triggers for testing in emulator
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "Instant Scanner Triggers (for Testing & Demonstration):",
-                        color = Slate400,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-
-                    Button(
-                        onClick = { onScanToken("ET-NAV-2026-BOLE-AK7899") },
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = TransportGreenPrimary),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("scan_valid_passenger_button")
-                    ) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("SCAN PASSENGER ABEBE (VALID PASS)")
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = { onScanToken("ET-EXPIRED-SUB-2025") },
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("scan_expired_button"),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                        ) {
-                            Text("Test Expired", fontSize = 11.sp)
-                        }
-
-                        OutlinedButton(
-                            onClick = { onScanToken("ET-WRONG-ROUTE-CMC") },
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("scan_wrong_route_button"),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                        ) {
-                            Text("Wrong Route", fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
-
-            // FULLSCREEN VERIFICATION RESULT OVERLAY (Green Screen / Red Screen)
-            scanResult?.let { result ->
-                when (result) {
+                when (val result = scanResult) {
                     is QrValidationResult.Valid -> {
-                        // Section 7 GREEN SCREEN: PASSENGER VERIFIED
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(StatusActiveGreen)
-                                .clickable { onDismissResult() }
-                                .padding(24.dp)
-                                .testTag("green_verified_screen"),
-                            contentAlignment = Alignment.Center
+                        Surface(
+                            color = StatusActiveGreen.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth().weight(1f)
                         ) {
                             Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                                modifier = Modifier.fillMaxWidth().padding(20.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Surface(
-                                    color = Color.White,
-                                    shape = CircleShape,
-                                    modifier = Modifier.size(80.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = StatusActiveGreen,
-                                            modifier = Modifier.size(54.dp)
-                                        )
-                                    }
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = StatusActiveGreen, modifier = Modifier.size(54.dp))
+                                Text("PASSENGER VERIFIED", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                                Text(result.passenger.fullName, color = Color.White, style = MaterialTheme.typography.titleMedium)
+                                Text("Subscription: " + result.subscription.subscriptionStatus, color = Color.White)
+                                Text("Occupancy: ${result.currentOccupancy}/${result.capacityLimit}", color = Color.White)
+                                Text("Verified by RoutePass server.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        Button(
+                            onClick = {
+                                onDismissResult()
+                                scanSubmitted.set(false)
+                                hasScanned = false
+                            },
+                            modifier = Modifier.fillMaxWidth().height(50.dp)
+                        ) { Text("SCAN NEXT PASSENGER") }
+                    }
+                    is QrValidationResult.Invalid -> {
+                        Surface(
+                            color = StatusExpiredRed.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth().weight(1f)
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(20.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = StatusExpiredRed, modifier = Modifier.size(54.dp))
+                                Text("PASS NOT ACCEPTED", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                                Text(AppStrings.get(result.reason, AppLanguage.ENGLISH), color = StatusExpiredRed, style = MaterialTheme.typography.titleMedium)
+                                if (result.details.isNotBlank()) {
+                                    Text(result.details, color = Color.White, style = MaterialTheme.typography.bodySmall)
                                 }
-
-                                Text(
-                                    text = "✓ PASSENGER VERIFIED",
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.headlineMedium,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    textAlign = TextAlign.Center
+                            }
+                        }
+                        Button(
+                            onClick = {
+                                onDismissResult()
+                                scanSubmitted.set(false)
+                                hasScanned = false
+                            },
+                            modifier = Modifier.fillMaxWidth().height(50.dp)
+                        ) { Text("SCAN AGAIN") }
+                    }
+                    null -> {
+                        if (!hasCameraPermission) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color.White, modifier = Modifier.size(46.dp))
+                                Text("Allow camera access to scan a passenger's live QR pass.", color = Color.White, textAlign = TextAlign.Center)
+                                Button(onClick = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) }) {
+                                    Text("Allow camera")
+                                }
+                            }
+                        } else if (hasScanned) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                CircularProgressIndicator(color = TransportGold)
+                                Spacer(Modifier.height(12.dp))
+                                Text("Verifying QR with the RoutePass server…", color = Color.White, textAlign = TextAlign.Center)
+                                Text("If verification fails, boarding is not accepted.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+                            }
+                        } else {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                AndroidView(
+                                    factory = { ctx ->
+                                        PreviewView(ctx).apply {
+                                            scaleType = PreviewView.ScaleType.FILL_CENTER
+                                            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                                            previewRef.value = this
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(16.dp))
                                 )
-
-                                Card(
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(18.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Text(text = "Passenger:", color = Slate600, style = MaterialTheme.typography.bodyMedium)
-                                            Text(text = result.passenger.fullName, fontWeight = FontWeight.Bold, color = Slate900)
-                                        }
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Text(text = "Subscription:", color = Slate600, style = MaterialTheme.typography.bodyMedium)
-                                            Text(text = result.subscription.subscriptionStatus, fontWeight = FontWeight.Bold, color = StatusActiveGreen)
-                                        }
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Text(text = "Expiry:", color = Slate600, style = MaterialTheme.typography.bodyMedium)
-                                            Text(text = result.subscription.endDate, fontWeight = FontWeight.Bold, color = Slate900)
-                                        }
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Text(text = "Pickup Stop:", color = Slate600, style = MaterialTheme.typography.bodyMedium)
-                                            Text(text = result.stopName, fontWeight = FontWeight.Bold, color = Slate900)
-                                        }
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Text(text = "Destination:", color = Slate600, style = MaterialTheme.typography.bodyMedium)
-                                            Text(text = result.destinationName, fontWeight = FontWeight.Bold, color = Slate900)
-                                        }
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Text(text = "Vehicle Plate:", color = Slate600, style = MaterialTheme.typography.bodyMedium)
-                                            Text(text = result.vehiclePlate, fontWeight = FontWeight.Bold, color = Slate900)
-                                        }
-                                    }
-                                }
-
                                 Text(
-                                    text = "Attendance recorded with GPS & timestamp.",
-                                    color = Color.White.copy(alpha = 0.9f),
+                                    "Hold the passenger's RoutePass QR steady inside the camera view. Demo/example codes are not accepted.",
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center,
                                     style = MaterialTheme.typography.bodySmall
                                 )
-
-                                Button(
-                                    onClick = onDismissResult,
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(48.dp)
-                                        .testTag("dismiss_verified_button")
-                                ) {
-                                    Text("TAP TO CONTINUE", color = StatusActiveGreen, fontWeight = FontWeight.ExtraBold)
-                                }
                             }
                         }
-                    }
-
-                    is QrValidationResult.Invalid -> {
-                        // Section 7 RED SCREEN: NOT VALID
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(StatusExpiredRed)
-                                .clickable { onDismissResult() }
-                                .padding(24.dp)
-                                .testTag("red_invalid_screen"),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                Surface(
-                                    color = Color.White,
-                                    shape = CircleShape,
-                                    modifier = Modifier.size(80.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            Icons.Default.Clear,
-                                            contentDescription = null,
-                                            tint = StatusExpiredRed,
-                                            modifier = Modifier.size(54.dp)
-                                        )
-                                    }
-                                }
-
-                                Text(
-                                    text = "✕ NOT VALID",
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.headlineMedium,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    textAlign = TextAlign.Center
-                                )
-
-                                Card(
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(18.dp),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Text(
-                                            text = "Reason for Rejection:",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Slate600
-                                        )
-                                        Text(
-                                            text = AppStrings.get(result.reason, AppLanguage.ENGLISH),
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = StatusExpiredRed
-                                        )
-                                        if (result.details.isNotBlank()) {
-                                            Text(
-                                                text = result.details,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = Slate700
-                                            )
-                                        }
-                                    }
-                                }
-
-                                Button(
-                                    onClick = onDismissResult,
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(48.dp)
-                                        .testTag("dismiss_invalid_button")
-                                ) {
-                                    Text("DISMISS ALERT", color = StatusExpiredRed, fontWeight = FontWeight.ExtraBold)
-                                }
-                            }
+                        cameraError?.let {
+                            Text(it, color = StatusExpiredRed, style = MaterialTheme.typography.bodySmall)
                         }
                     }
+                }
+
+                OutlinedButton(
+                    onClick = onCloseScanner,
+                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                ) {
+                    Text("Close scanner")
                 }
             }
         }

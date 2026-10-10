@@ -67,6 +67,16 @@ CREATE TABLE IF NOT EXISTS vehicles (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Actual GPS reports are kept separately from seeded/default display coordinates.
+CREATE TABLE IF NOT EXISTS vehicle_live_locations (
+    vehicle_id VARCHAR(64) PRIMARY KEY REFERENCES vehicles(id) ON DELETE CASCADE,
+    latitude NUMERIC(10,6) NOT NULL,
+    longitude NUMERIC(10,6) NOT NULL,
+    speed NUMERIC(7,2) DEFAULT 0,
+    current_stop VARCHAR(100) DEFAULT '',
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 5. Subscriptions Table
 CREATE TABLE IF NOT EXISTS subscriptions (
     id VARCHAR(64) PRIMARY KEY,
@@ -126,9 +136,34 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
     provider VARCHAR(30) DEFAULT 'Telebirr',
     phone_number VARCHAR(30),
     date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    status VARCHAR(20) DEFAULT 'COMPLETED' CHECK (status IN ('COMPLETED', 'PENDING', 'FAILED')),
+    status VARCHAR(20) DEFAULT 'COMPLETED' CHECK (status IN ('COMPLETED', 'PENDING', 'FAILED', 'VERIFIED')),
     notes TEXT
 );
+
+-- Keep existing installations compatible with the VERIFIED webhook/payment state.
+ALTER TABLE payment_transactions DROP CONSTRAINT IF EXISTS payment_transactions_status_check;
+ALTER TABLE payment_transactions
+    ADD CONSTRAINT payment_transactions_status_check
+    CHECK (status IN ('COMPLETED', 'PENDING', 'FAILED', 'VERIFIED'));
+
+-- Telebirr H5 hosted checkout orders; activation requires provider status verification.
+CREATE TABLE IF NOT EXISTS telebirr_payment_orders (
+    merchant_order_id VARCHAR(100) PRIMARY KEY,
+    idempotency_key VARCHAR(100) UNIQUE,
+    prepay_id VARCHAR(200),
+    checkout_url TEXT,
+    passenger_id VARCHAR(64) NOT NULL REFERENCES users(id),
+    subscription_id VARCHAR(64) NOT NULL REFERENCES subscriptions(id),
+    route_id VARCHAR(64) NOT NULL REFERENCES routes(id),
+    amount_etb NUMERIC(10,2) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PAID', 'FAILED')),
+    payment_order_id VARCHAR(200),
+    transaction_id VARCHAR(200),
+    last_query_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_telebirr_payment_orders_passenger ON telebirr_payment_orders(passenger_id, created_at DESC);
 
 -- 9. Passenger Complaints
 CREATE TABLE IF NOT EXISTS complaints (
@@ -167,7 +202,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 -- ====================================================================
 
 -- Routes
-INSERT INTO routes (id, name, nameAm, description, morning_departure, evening_departure, distance_km, base_price_etb, active)
+INSERT INTO routes (id, name, name_am, description, morning_departure, evening_departure, distance_km, base_price_etb, active)
 VALUES
 ('route_bole_merkato', 'Bole - Merkato Express', 'ቦሌ - መርካቶ ኤክስፕረስ', 'Primary transit corridor connecting Bole, Meskel Square, and Merkato.', '06:30', '17:30', 14.5, 2500.0, TRUE),
 ('route_megenagna_torhailoch', 'Megenagna - Torhailoch Line', 'መገናኛ - ጦር ኃይሎች መስመር', 'Cross-capital transit spanning Megenagna Hub, Kazanchis, Stadium, and Torhailoch.', '06:45', '17:15', 16.0, 2700.0, TRUE),
@@ -189,19 +224,13 @@ VALUES
 ('stop_torhailoch', 'route_megenagna_torhailoch', 'Torhailoch Depot', 'ጦር ኃይሎች', 4, 9.005000, 38.724000, '07:35', '18:05', 25)
 ON CONFLICT (id) DO NOTHING;
 
--- Seed Users (Bcrypt hash for password "123456" is $2a$10$vI8aWBnW3fID.ZQ4/zo1G.q1lR0e0KxO0n5c51h6yGg5r4t8v9h3S or equivalent)
--- Using precalculated bcrypt hash for '123456':
-INSERT INTO users (id, role, full_name, phone, email, password_hash, status, license_number, company_name, assigned_vehicle_plate, applied_route_id, applied_route_name)
-VALUES
-('usr_adm_root', 'ADMIN', 'Addis Transit Administrator', '+251910001122', 'admin@transport.et', '$2a$10$18O5Gk0dFkYl3Yp/n6Zc1.t7VqE4y5WqfWn2v0y8x8qW8b4C4g8k6', 'ACTIVE', '', 'Addis Ababa City Transport Bureau', '', '', ''),
-('usr_drv_kassahun', 'DRIVER', 'Kassahun Tadesse', '+251911998877', 'kassahun@transport.et', '$2a$10$18O5Gk0dFkYl3Yp/n6Zc1.t7VqE4y5WqfWn2v0y8x8qW8b4C4g8k6', 'ACTIVE', 'ET-DL-88991', 'Selam City Transport S.C.', '3-AA-34921', 'route_bole_merkato', 'Bole - Merkato Express'),
-('usr_pas_alemayehu', 'PASSENGER', 'Alemayehu Haile', '+251911223344', 'alemayehu@gmail.com', '$2a$10$18O5Gk0dFkYl3Yp/n6Zc1.t7VqE4y5WqfWn2v0y8x8qW8b4C4g8k6', 'ACTIVE', '', '', '', 'route_bole_merkato', 'Bole - Merkato Express')
-ON CONFLICT (id) DO NOTHING;
+-- Production installs deliberately do not seed user accounts or shared default passwords.
+-- Create the first administrator via the secret-gated registration endpoint after deployment.
 
 -- Seed Vehicles (Enforcing capacities: MINIVAN=8, MINIBUS=14, HIGER=24, ANBESSA=30)
 INSERT INTO vehicles (id, plate_number, model, vehicle_type, capacity_limit, current_occupancy, assigned_route_id, driver_id, driver_name, current_lat, current_lng, status)
 VALUES
-('veh_higer_aa_34921', '3-AA-34921', 'Higer Midibus KLQ6758', 'HIGER_24', 24, 0, 'route_bole_merkato', 'usr_drv_kassahun', 'Kassahun Tadesse', 9.006000, 38.780000, 'IN_SERVICE'),
+('veh_higer_aa_34921', '3-AA-34921', 'Higer Midibus KLQ6758', 'HIGER_24', 24, 0, 'route_bole_merkato', NULL, NULL, 9.006000, 38.780000, 'IN_SERVICE'),
 ('veh_minibus_aa_98210', '3-AA-98210', 'Toyota HiAce Commuter', 'MINIBUS_14', 14, 0, 'route_megenagna_torhailoch', NULL, NULL, 9.020000, 38.802000, 'IN_SERVICE'),
 ('veh_minivan_aa_11093', '3-AA-11093', 'Hyundai H1 Van', 'MINIVAN_8', 8, 0, 'route_mexico_saris', NULL, NULL, 9.011000, 38.745000, 'IN_SERVICE'),
 ('veh_anbessa_aa_55412', '3-AA-55412', 'DAF Anbessa Citybus', 'ANBESSA_BUS_30', 30, 0, 'route_bole_merkato', NULL, NULL, 9.010000, 38.763000, 'IN_SERVICE')
@@ -211,6 +240,6 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO notifications (id, title, message, target_audience, type, sender_name)
 VALUES
 ('notif_init_1', 'Morning Peak Rush Advisory', 'Heavy traffic observed along Meskel Square to Leghar. Commuters advised to board 10 minutes early.', 'ALL', 'SERVICE', 'Central Traffic Dispatch'),
-('notif_init_2', 'Telebirr Auto-Renewal Notice', 'Monthly transit subscriptions now support instant zero-fee renewal via Telebirr.', 'PASSENGERS', 'PAYMENT', 'Finance Department'),
+('notif_init_2', 'Subscription Payment Policy', 'A subscription becomes active only after verified payment confirmation from the configured provider.', 'PASSENGERS', 'PAYMENT', 'Finance Department'),
 ('notif_init_3', 'Safety & Capacity Compliance', 'All transporters must adhere strictly to vehicle capacity limits (8, 14, 24, 30 seats). Overboarding strictly prohibited.', 'TRANSPORTERS', 'ALERT', 'Transport Safety Bureau')
 ON CONFLICT (id) DO NOTHING;

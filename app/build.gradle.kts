@@ -8,6 +8,12 @@ plugins {
   // alias(libs.plugins.google.services)
 }
 
+// Configure for each deployment with -PROUTEPASS_API_BASE_URL=https://api.yourdomain.com/
+val routePassApiBaseUrl = providers.gradleProperty("ROUTEPASS_API_BASE_URL")
+  .orElse("https://api.example.com/")
+  .get()
+  .let { if (it.endsWith("/")) it else "$it/" }
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -18,6 +24,7 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
+    buildConfigField("String", "ROUTEPASS_API_BASE_URL", "\"$routePassApiBaseUrl\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -30,12 +37,6 @@ android {
       keyAlias = "upload"
       keyPassword = System.getenv("KEY_PASSWORD")
     }
-    create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
-    }
   }
 
   buildTypes {
@@ -45,7 +46,7 @@ android {
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    debug { }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
@@ -118,6 +119,13 @@ dependencies {
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
+  // Real camera QR scanning (bundled ML Kit model works without a first-run model download).
+  implementation("androidx.camera:camera-camera2:1.6.2")
+  implementation("androidx.camera:camera-lifecycle:1.6.2")
+  implementation("androidx.camera:camera-view:1.6.2")
+  implementation("com.google.mlkit:barcode-scanning:17.3.0")
+  // Compact OpenStreetMap view for actual vehicle coordinates (no Google Maps API key).
+  implementation("org.osmdroid:osmdroid-android:6.1.20")
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)

@@ -106,7 +106,7 @@ async function runTests() {
     const rogueAdminReg = await makeRequest('POST', '/api/auth/register', {
       fullName: 'Intruder',
       phone: '+251999888777',
-      password: 'secret',
+      password: 'LongEnough_Test_Password#2026',
       role: 'ADMIN'
     });
     if (rogueAdminReg.status === 403) {
@@ -128,7 +128,7 @@ async function runTests() {
     const newPasReg = await makeRequest('POST', '/api/auth/register', {
       fullName: 'Hiwot Bekele',
       phone: testPassengerPhone,
-      password: '123456',
+      password: 'RoutePassTest#2026',
       role: 'PASSENGER',
       appliedRouteId: 'route_bole_merkato',
       appliedRouteName: 'Bole - Merkato Express'
@@ -189,12 +189,12 @@ async function runTests() {
 
     // 8. Vehicle Capacity Limits & Atomic Transaction Verification
     // Configure vehicle with capacity limit = 1 to test boarding then strict denial
-    const testVehId = 'veh_minivan_aa_11093'; // 8-seat minivan
+    const testVehId = 'veh_higer_aa_34921'; // assigned Higer vehicle for the authenticated driver
     await makeRequest('PATCH', `/api/vehicles/${testVehId}/type`, {
-      vehicleType: 'MINIVAN_8',
+      vehicleType: 'HIGER_24',
       capacityLimit: 1,
       currentOccupancy: 0
-    }, driverToken);
+    }, adminToken);
 
     // First scan: Board passenger 1 -> Should succeed
     const scan1 = await makeRequest('POST', '/api/checkins/scan', {
@@ -226,7 +226,7 @@ async function runTests() {
     const pas2Reg = await makeRequest('POST', '/api/auth/register', {
       fullName: 'Dawit Mengistu',
       phone: testPassenger2Phone,
-      password: '123456',
+      password: 'RoutePassTest#2026',
       role: 'PASSENGER',
       appliedRouteId: 'route_bole_merkato'
     });
