@@ -505,7 +505,8 @@ fun CreateRouteDialog(
     var evening by remember { mutableStateOf("17:30") }
     var distance by remember { mutableStateOf("15.0") }
     var price by remember { mutableStateOf("2600") }
-    var stopsInput by remember { mutableStateOf("Bole, Mexico, Merkato") }
+    var departurePoint by remember { mutableStateOf("Bole Atlas") }
+    var destinationPoint by remember { mutableStateOf("Merkato") }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -598,11 +599,28 @@ fun CreateRouteDialog(
                 }
 
                 item {
+                    Text("Route endpoints", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text("Each route has exactly one departure point and one destination. Intermediate stops are not supported.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+
+                item {
                     OutlinedTextField(
-                        value = stopsInput,
-                        onValueChange = { stopsInput = it },
-                        label = { Text("Stops (comma separated)") },
-                        placeholder = { Text("Bole Atlas, Mexico, Piazza") },
+                        value = departurePoint,
+                        onValueChange = { departurePoint = it },
+                        label = { Text("Departure point") },
+                        placeholder = { Text("e.g. Bole Atlas") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                item {
+                    OutlinedTextField(
+                        value = destinationPoint,
+                        onValueChange = { destinationPoint = it },
+                        label = { Text("Destination point") },
+                        placeholder = { Text("e.g. Merkato") },
+                        singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -610,8 +628,8 @@ fun CreateRouteDialog(
                 item {
                     Button(
                         onClick = {
-                            if (name.isNotBlank()) {
-                                val stopsList = stopsInput.split(",").map { it.trim() }.filter { it.isNotBlank() }.map { Pair(it, it) }
+                            if (name.isNotBlank() && departurePoint.isNotBlank() && destinationPoint.isNotBlank() && !departurePoint.trim().equals(destinationPoint.trim(), ignoreCase = true)) {
+                                val stopsList = listOf(departurePoint.trim(), destinationPoint.trim()).map { Pair(it, it) }
                                 onCreate(
                                     name,
                                     nameAm.ifBlank { name },
@@ -624,7 +642,7 @@ fun CreateRouteDialog(
                                 )
                             }
                         },
-                        enabled = name.isNotBlank(),
+                        enabled = name.isNotBlank() && departurePoint.isNotBlank() && destinationPoint.isNotBlank() && !departurePoint.trim().equals(destinationPoint.trim(), ignoreCase = true),
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = TransportGreenPrimary),
                         modifier = Modifier
