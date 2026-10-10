@@ -146,6 +146,25 @@ ALTER TABLE payment_transactions
     ADD CONSTRAINT payment_transactions_status_check
     CHECK (status IN ('COMPLETED', 'PENDING', 'FAILED', 'VERIFIED'));
 
+-- Telebirr H5 hosted checkout orders; activation requires provider status verification.
+CREATE TABLE IF NOT EXISTS telebirr_payment_orders (
+    merchant_order_id VARCHAR(100) PRIMARY KEY,
+    idempotency_key VARCHAR(100) UNIQUE,
+    prepay_id VARCHAR(200),
+    checkout_url TEXT,
+    passenger_id VARCHAR(64) NOT NULL REFERENCES users(id),
+    subscription_id VARCHAR(64) NOT NULL REFERENCES subscriptions(id),
+    route_id VARCHAR(64) NOT NULL REFERENCES routes(id),
+    amount_etb NUMERIC(10,2) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PAID', 'FAILED')),
+    payment_order_id VARCHAR(200),
+    transaction_id VARCHAR(200),
+    last_query_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_telebirr_payment_orders_passenger ON telebirr_payment_orders(passenger_id, created_at DESC);
+
 -- 9. Passenger Complaints
 CREATE TABLE IF NOT EXISTS complaints (
     id VARCHAR(64) PRIMARY KEY,

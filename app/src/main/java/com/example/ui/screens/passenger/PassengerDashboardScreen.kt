@@ -1,5 +1,7 @@
 package com.example.ui.screens.passenger
 
+import android.net.Uri
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -21,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -43,6 +46,9 @@ fun PassengerDashboardScreen(
 ) {
     val lang by viewModel.currentLanguage.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
+    val routes by viewModel.allRoutes.collectAsState()
+    val telebirrCheckoutUrl by viewModel.telebirrCheckoutUrl.collectAsState()
+    val uriHandler = LocalUriHandler.current
     val trackedVehicle by viewModel.trackedVehicle.collectAsState()
     val trackingMessage by viewModel.trackingMessage.collectAsState()
     val subscription by viewModel.activeSubscription.collectAsState()
@@ -56,6 +62,31 @@ fun PassengerDashboardScreen(
     val isComplaintOpen by viewModel.isComplaintDialogOpen.collectAsState()
 
     fun t(key: String): String = AppStrings.get(key, lang)
+
+    val selectedRoute = routes.find { it.id == currentUser?.appliedRouteId }
+    val checkoutAmount = selectedRoute?.basePriceEtb ?: subscription?.priceEtb ?: 2500.0
+    val checkoutRouteName = selectedRoute?.name
+        ?: currentUser?.appliedRouteName?.takeIf { it.isNotBlank() }
+        ?: "Monthly commuter pass"
+
+    LaunchedEffect(telebirrCheckoutUrl) {
+        val url = telebirrCheckoutUrl ?: return@LaunchedEffect
+        val uri = Uri.parse(url)
+        val allowedHost = uri.host == "developerportal.ethiotelebirr.et" ||
+            uri.host == "superapp.ethiomobilemoney.et"
+        val validCheckout = uri.scheme == "https" && uri.port == 38443 &&
+            uri.path == "/payment/web/paygate" && allowedHost
+        if (validCheckout) {
+            try {
+                uriHandler.openUri(url)
+            } catch (_: Exception) {
+                viewModel.reportTelebirrCheckoutOpenError()
+            }
+        } else {
+            viewModel.reportTelebirrCheckoutOpenError()
+        }
+        viewModel.consumeTelebirrCheckoutUrl()
+    }
 
     LazyColumn(
         modifier = modifier
@@ -126,11 +157,13 @@ fun PassengerDashboardScreen(
     // Telebirr Payment Dialog
     if (isTelebirrOpen) {
         TelebirrCheckoutDialog(
+            amountEtb = checkoutAmount,
+            routeName = checkoutRouteName,
             isProcessing = isProcessingPayment,
             statusMessage = paymentMessage,
             lang = lang,
             onDismiss = { viewModel.closeTelebirrDialog() },
-            onConfirm = { phone -> viewModel.processTelebirrPayment(phone) }
+            onConfirm = { viewModel.processTelebirrPayment() }
         )
     }
 
@@ -749,7 +782,7 @@ fun FinancialBalanceCard(
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(text = t("monthly_fee"), style = MaterialTheme.typography.labelSmall, color = Slate600)
-                    Text(text = "ETB 2,500.00", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                    Text(text = "ETB ${String.format(java.util.Locale.US, "%,.2f", amountEtb)}", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 }
             }
 
@@ -1044,13 +1077,14 @@ fun ComplaintsCard(
 // Telebirr Checkout Dialog
 @Composable
 fun TelebirrCheckoutDialog(
+    amountEtb: Double,
+    routeName: String,
     isProcessing: Boolean,
     statusMessage: String?,
     lang: AppLanguage,
     onDismiss: () -> Unit,
-    onConfirm: (phone: String) -> Unit
+    onConfirm: () -> Unit
 ) {
-    var phone by remember { mutableStateOf("0911223344") }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -1123,24 +1157,12 @@ fun TelebirrCheckoutDialog(
                             color = TelebirrDark
                         )
                         Text(
-                            text = "Bole ↔ Merkato Monthly Shuttle Subscription",
+                            text = "$routeName Monthly Subscription",
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate700
                         )
                     }
                 }
-
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = { phone = it },
-                    label = { Text("Telebirr Mobile Number") },
-                    placeholder = { Text("09xxxxxxxx or +2519...") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("telebirr_phone_input")
-                )
 
                 Surface(
                     color = Slate100,
@@ -1157,7 +1179,7 @@ fun TelebirrCheckoutDialog(
                             text = if (lang == AppLanguage.AMHARIC)
                                 "የቴሌብር ደህንነት፡ ክፍያ በቴሌብር አገልጋይ በኩል ይረጋገጣል። ፒን ቁጥርዎን ለማንም አይስጡ።"
                             else
-                                "Telebirr Secure Pay: Authorization is processed server-side via Telebirr USSD. Never share your security PIN.",
+                                "You will finish authorization on the official Telebirr checkout page. RoutePass never asks for your PIN.",
                             style = MaterialTheme.typography.labelSmall,
                             color = Slate700
                         )
@@ -1167,15 +1189,15 @@ fun TelebirrCheckoutDialog(
                 statusMessage?.let { msg ->
                     Text(
                         text = msg,
-                        color = if (msg.contains("Success", ignoreCase = true)) StatusActiveGreen else StatusExpiredRed,
+                        color = if (msg.contains("success", ignoreCase = true) || msg.contains("verified", ignoreCase = true)) StatusActiveGreen else MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
 
                 Button(
-                    onClick = { onConfirm(phone) },
-                    enabled = !isProcessing && phone.isNotBlank(),
+                    onClick = onConfirm,
+                    enabled = !isProcessing,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue),
                     modifier = Modifier
@@ -1190,7 +1212,7 @@ fun TelebirrCheckoutDialog(
                     } else {
                         Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("CONFIRM PAYMENT ETB 2,500", fontWeight = FontWeight.Bold)
+                        Text("CONTINUE TO TELEBIRR · ETB ${String.format(java.util.Locale.US, "%,.2f", amountEtb)}", fontWeight = FontWeight.Bold)
                     }
                 }
             }

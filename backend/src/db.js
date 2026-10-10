@@ -414,6 +414,23 @@ function initSqliteSchema() {
       driverId TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS telebirr_payment_orders (
+      merchant_order_id TEXT PRIMARY KEY,
+      idempotency_key TEXT UNIQUE,
+      prepay_id TEXT,
+      checkout_url TEXT,
+      passenger_id TEXT NOT NULL REFERENCES users(id),
+      subscription_id TEXT NOT NULL REFERENCES subscriptions(id),
+      route_id TEXT NOT NULL REFERENCES routes(id),
+      amount_etb NUMERIC NOT NULL,
+      status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PAID', 'FAILED')),
+      payment_order_id TEXT,
+      transaction_id TEXT,
+      last_query_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS payment_transactions (
       id TEXT PRIMARY KEY,
       passengerId TEXT NOT NULL,

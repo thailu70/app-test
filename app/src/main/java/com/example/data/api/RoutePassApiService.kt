@@ -44,6 +44,11 @@ interface RoutePassApiService {
         @Header("x-idempotency-key") idempotencyKey: String? = null
     ): Response<TelebirrPayResponse>
 
+    @GET("api/subscriptions/telebirr/status/{merchantOrderId}")
+    suspend fun getTelebirrPaymentStatus(
+        @Path("merchantOrderId") merchantOrderId: String
+    ): Response<TelebirrPaymentStatusResponse>
+
     @GET("api/subscriptions/all")
     suspend fun getAllSubscriptions(): Response<Map<String, Any>>
 

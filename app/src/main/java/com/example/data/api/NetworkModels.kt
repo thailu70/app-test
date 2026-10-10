@@ -181,7 +181,19 @@ data class TelebirrPayResponse(
     val idempotentReplay: Boolean? = false,
     val transaction: PaymentTransactionDto? = null,
     val subscription: SubscriptionDto? = null,
-    val error: String? = null
+    val error: String? = null,
+    val checkoutUrl: String? = null,
+    val merchantOrderId: String? = null,
+    val status: String? = null,
+    val amountEtb: Double? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TelebirrPaymentStatusResponse(
+    val success: Boolean,
+    val status: String? = null,
+    val merchantOrderId: String? = null,
+    val message: String? = null
 )
 
 // -------------------------------------------------------------

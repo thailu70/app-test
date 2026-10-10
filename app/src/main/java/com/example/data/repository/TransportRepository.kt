@@ -440,6 +440,16 @@ class TransportRepository(
         }
     }
 
+    // Telebirr hosted checkout status is always read from the VPS, never inferred from a browser redirect.
+    suspend fun getTelebirrPaymentStatus(merchantOrderId: String): TelebirrPaymentStatusResponse? {
+        return try {
+            val response = apiService.getTelebirrPaymentStatus(merchantOrderId)
+            response.body()?.takeIf { response.isSuccessful && it.success }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     // Payments
     val allPayments: Flow<List<PaymentTransactionEntity>> = dao.getAllPayments()
     fun getPaymentsForPassenger(passengerId: String): Flow<List<PaymentTransactionEntity>> = dao.getPaymentsForPassenger(passengerId)

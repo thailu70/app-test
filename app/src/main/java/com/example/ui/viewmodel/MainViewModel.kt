@@ -259,6 +259,44 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     private val _paymentMessage = MutableStateFlow<String?>(null)
     val paymentMessage: StateFlow<String?> = _paymentMessage.asStateFlow()
 
+    private val _telebirrCheckoutUrl = MutableStateFlow<String?>(null)
+    val telebirrCheckoutUrl: StateFlow<String?> = _telebirrCheckoutUrl.asStateFlow()
+    private var telebirrStatusPollJob: Job? = null
+
+    fun consumeTelebirrCheckoutUrl() {
+        _telebirrCheckoutUrl.value = null
+    }
+
+    fun reportTelebirrCheckoutOpenError() {
+        _telebirrCheckoutUrl.value = null
+        _paymentMessage.value = "Could not open the secure Telebirr checkout. Check your internet connection and try again."
+    }
+
+    private fun startTelebirrStatusPolling(merchantOrderId: String, passengerId: String) {
+        telebirrStatusPollJob?.cancel()
+        telebirrStatusPollJob = viewModelScope.launch {
+            repeat(75) {
+                delay(12500)
+                val status = repository.getTelebirrPaymentStatus(merchantOrderId)?.status?.uppercase()
+                when (status) {
+                    "PAID" -> {
+                        repository.refreshSubscriptionFromBackend(passengerId)
+                        _paymentMessage.value = "Payment verified by Telebirr. Your subscription is active."
+                        _telebirrCheckoutUrl.value = null
+                        delay(1500)
+                        _isTelebirrDialogOpen.value = false
+                        return@launch
+                    }
+                    "FAILED" -> {
+                        _paymentMessage.value = "Telebirr reports that this payment did not complete. You may try again."
+                        return@launch
+                    }
+                }
+            }
+            _paymentMessage.value = "Payment is still pending. Please check your subscription status before starting another payment."
+        }
+    }
+
     // View Receipt Dialog
     private val _selectedReceipt = MutableStateFlow<PaymentTransactionEntity?>(null)
     val selectedReceipt: StateFlow<PaymentTransactionEntity?> = _selectedReceipt.asStateFlow()
@@ -677,16 +715,18 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     // Telebirr Checkout
     fun openTelebirrDialog() {
         _paymentMessage.value = null
+        _telebirrCheckoutUrl.value = null
         _isTelebirrDialogOpen.value = true
     }
 
     fun closeTelebirrDialog() {
         _isTelebirrDialogOpen.value = false
-        _paymentMessage.value = null
+        _telebirrCheckoutUrl.value = null
     }
 
-    fun processTelebirrPayment(phone: String) {
+    fun processTelebirrPayment() {
         viewModelScope.launch {
+            telebirrStatusPollJob?.cancel()
             _isProcessingPayment.value = true
             val user = _currentUser.value
             val appliedRouteId = user?.appliedRouteId?.ifBlank { "route_bole_merkato" } ?: "route_bole_merkato"
@@ -702,7 +742,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 morningSchedule = "06:30",
                 eveningSchedule = "17:30",
                 amountEtb = amount,
-                phoneNumber = phone,
+                phoneNumber = user?.phone.orEmpty(),
                 vehicleId = "veh_higer_aa_34921",
                 idempotencyKey = UUID.randomUUID().toString(),
                 repository = repository
@@ -710,16 +750,22 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
             _isProcessingPayment.value = false
             when (result) {
+                is TelebirrPaymentResult.CheckoutReady -> {
+                    _paymentMessage.value = result.message
+                    _telebirrCheckoutUrl.value = result.checkoutUrl
+                    startTelebirrStatusPolling(result.merchantOrderId, currentPassengerId)
+                }
                 is TelebirrPaymentResult.Success -> {
-                    _paymentMessage.value = "Payment Successful! Subscription activated."
+                    _paymentMessage.value = "Test payment completed. Subscription status refreshed."
+                    repository.refreshSubscriptionFromBackend(currentPassengerId)
                     delay(1200)
                     _isTelebirrDialogOpen.value = false
                 }
                 is TelebirrPaymentResult.Failed -> {
-                    _paymentMessage.value = "Failed: ${result.message}"
+                    _paymentMessage.value = "Payment not confirmed: ${result.message}"
                 }
                 else -> {
-                    _paymentMessage.value = "Payment cancelled or timed out."
+                    _paymentMessage.value = "Payment was cancelled or timed out. Check your subscription before retrying."
                 }
             }
         }

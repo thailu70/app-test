@@ -120,6 +120,7 @@ app.get('/api/ready', async (req, res) => {
 // Mount Route Modules
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/routes', require('./routes/routes'));
+app.use('/api/subscriptions/telebirr', require('./routes/telebirr'));
 app.use('/api/subscriptions', require('./routes/subscriptions'));
 app.use('/api/vehicles', require('./routes/vehicles'));
 app.use('/api/trips', require('./routes/trips'));
@@ -416,6 +417,9 @@ async function startServer() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `).run();
+
+  await DB.prepare("CREATE TABLE IF NOT EXISTS telebirr_payment_orders (merchant_order_id VARCHAR(100) PRIMARY KEY, idempotency_key VARCHAR(100) UNIQUE, prepay_id VARCHAR(200), checkout_url TEXT, passenger_id VARCHAR(64) NOT NULL REFERENCES users(id), subscription_id VARCHAR(64) NOT NULL REFERENCES subscriptions(id), route_id VARCHAR(64) NOT NULL REFERENCES routes(id), amount_etb NUMERIC(10,2) NOT NULL, status VARCHAR(20) NOT NULL DEFAULT 'PENDING', payment_order_id VARCHAR(200), transaction_id VARCHAR(200), last_query_at TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)").run();
+  await DB.prepare('CREATE INDEX IF NOT EXISTS idx_telebirr_payment_orders_passenger ON telebirr_payment_orders(passenger_id, created_at)').run();
 
   server.listen(PORT, HOST, () => {
     console.log('RoutePass API listening on the configured internal listener');
