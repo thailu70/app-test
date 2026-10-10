@@ -77,6 +77,7 @@ fun DriverTripScreen(
     val driverActionMessage by viewModel.driverActionMessage.collectAsState()
     var gpsStatus by remember { mutableStateOf("Waiting for GPS permission.") }
     var routeDirection by remember { mutableStateOf("OUTBOUND") }
+    var showDepartureConfirmation by remember { mutableStateOf(false) }
     val networkStatus by viewModel.networkStatus.collectAsState()
     val isScannerOpen by viewModel.isScannerOpen.collectAsState()
     val scanResult by viewModel.scanResult.collectAsState()
@@ -147,7 +148,7 @@ fun DriverTripScreen(
                     tripState = tripState,
                     currentStop = stops.getOrNull(tripState.currentStopIndex),
                     lang = lang,
-                    onStartNavigation = { viewModel.startNavigation(routeDirection) },
+                    onStartNavigation = { showDepartureConfirmation = true },
                     onArrived = { viewModel.arriveAtCurrentStop() },
                     onScanQr = { viewModel.openScanner() },
                     onSkip = { viewModel.skipCurrentStop() },
@@ -176,6 +177,25 @@ fun DriverTripScreen(
                     }
                 )
             }
+        }
+
+        if (showDepartureConfirmation) {
+            AlertDialog(
+                onDismissRequest = { showDepartureConfirmation = false },
+                title = { Text("Confirm vehicle arrival") },
+                text = {
+                    Text("Confirm that this vehicle has arrived at the administrator-assigned departure location for the selected route. RoutePass will verify that your latest GPS fix is within 50 metres before starting the trip and notifying passengers.")
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showDepartureConfirmation = false
+                        viewModel.startNavigation(routeDirection)
+                    }) { Text("CONFIRM ARRIVAL") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDepartureConfirmation = false }) { Text("NOT YET") }
+                }
+            )
         }
 
         // Camera-backed scanner dialog; each decoded QR is checked by the VPS.
