@@ -450,4 +450,32 @@ router.get('/audit-logs', async (req, res) => {
   }
 });
 
+
+/**
+ * PATCH /api/admin/subscriptions/:id/vehicle
+ * Assign a paid passenger subscription to one approved vehicle on the same route.
+ */
+router.patch('/subscriptions/:id/vehicle', async (req, res) => {
+  try {
+    const vehicleId = String(req.body.vehicleId || '').trim();
+    if (!vehicleId) return res.status(400).json({ success: false, error: 'vehicleId is required.' });
+    const subscription = await DB.prepare('SELECT * FROM subscriptions WHERE id = ?').get(req.params.id);
+    if (!subscription) return res.status(404).json({ success: false, error: 'Subscription not found.' });
+    if (subscription.subscriptionStatus !== 'ACTIVE' || subscription.paymentStatus !== 'PAID' || Number(subscription.daysRemaining) <= 0) {
+      return res.status(409).json({ success: false, error: 'Only active, paid, unexpired subscriptions can be assigned.' });
+    }
+    const vehicle = await DB.prepare("SELECT * FROM vehicles WHERE id = ? AND assignedRouteId = ? AND status = 'IN_SERVICE'").get(vehicleId, subscription.routeId);
+    if (!vehicle) return res.status(409).json({ success: false, error: 'Choose an in-service vehicle assigned to the passenger route.' });
+    await DB.transaction(async (tx) => {
+      await tx.prepare('UPDATE subscriptions SET vehicleId = ? WHERE id = ?').run(vehicle.id, subscription.id);
+      await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
+        .run('PASSENGER_VEHICLE_ASSIGNED', req.user.id, 'ADMIN', 'Assigned subscription ' + subscription.id + ' to vehicle ' + vehicle.id);
+    });
+    return res.json({ success: true, subscriptionId: subscription.id, vehicleId: vehicle.id, message: 'Passenger assigned to vehicle roster.' });
+  } catch (err) {
+    console.error('[Admin] passenger vehicle assignment failed:', err);
+    return res.status(500).json({ success: false, error: 'Could not assign passenger to vehicle.' });
+  }
+});
+
 module.exports = router;
