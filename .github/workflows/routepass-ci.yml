@@ -29,6 +29,7 @@ jobs:
       JWT_SECRET: ci_jwt_secret_only_for_compose_validation
       ADMIN_REGISTRATION_SECRET: ci_admin_secret_only_for_compose_validation
       QR_SIGNING_KEY: ci_qr_secret_only_for_compose_validation
+      OTP_HASH_SECRET: ci_otp_hash_secret_only_for_compose_validation_2026
       PAYMENT_MODE: PRODUCTION
       ROUTEPASS_DOMAIN: routepass.example.com
     steps:
@@ -70,6 +71,7 @@ jobs:
           JWT_SECRET: ci_jwt_secret_only_for_automated_tests_2026
           ADMIN_REGISTRATION_SECRET: ci_admin_secret_only_for_tests_2026
           QR_SIGNING_KEY: ci_qr_secret_only_for_tests_2026
+          OTP_HASH_SECRET: ci_otp_hash_secret_only_for_tests_2026
           PAYMENT_MODE: TEST
         run: npm test
         working-directory: backend
@@ -113,6 +115,7 @@ jobs:
           JWT_SECRET: ci_jwt_secret_only_for_automated_tests_2026
           ADMIN_REGISTRATION_SECRET: ci_admin_secret_only_for_tests_2026
           QR_SIGNING_KEY: ci_qr_secret_only_for_tests_2026
+          OTP_HASH_SECRET: ci_otp_hash_secret_only_for_tests_2026
           PAYMENT_MODE: PRODUCTION
           ALLOW_MANUAL_TEST_RECHARGE: "true"
         run: node test/postgres-smoke.js
