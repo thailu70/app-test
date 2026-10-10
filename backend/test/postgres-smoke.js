@@ -141,7 +141,11 @@ async function run() {
 
     result = await requestJson(baseUrl, '/api/trips/start', 'POST', {
       routeId: 'route_bole_merkato',
-      vehicleId: driverVehicleId
+      vehicleId: driverVehicleId,
+      direction: 'OUTBOUND',
+      latitude: 8.995,
+      longitude: 38.788,
+      arrivalConfirmed: true
     }, driverToken);
     assert.equal(result.status, 200, 'Approved driver with an assigned route must be able to start trip');
     assert.equal(result.data.trip.status, 'IN_PROGRESS');
