@@ -87,6 +87,16 @@ class TransportRepository(
         }
     }
 
+    suspend fun isPassengerRegistrationTestBypassEnabled(): Boolean {
+        return try {
+            val response = apiService.getPublicConfig()
+            response.isSuccessful && response.body()?.success == true &&
+                response.body()?.testMode == true && response.body()?.passengerOtpRequired == false
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     suspend fun requestRegistrationOtp(phone: String): String {
         val response = apiService.requestOtp(OtpRequest(phone.trim()))
         val body = response.body()
