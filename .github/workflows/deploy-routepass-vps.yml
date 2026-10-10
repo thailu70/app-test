@@ -1,0 +1,108 @@
+name: Deploy RoutePass VPS
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_deploy:
+        description: "Type DEPLOY to back up the database and deploy the API"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: routepass-vps-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ github.event.inputs.confirm_deploy == 'DEPLOY' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout deployment branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/routepass-otp-geofence-payments
+
+      - name: Configure SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+        run: |
+          set -eu
+          test -n "$VPS_HOST" || { echo "Missing GitHub secret VPS_HOST"; exit 1; }
+          test -n "$VPS_USER" || { echo "Missing GitHub secret VPS_USER"; exit 1; }
+          test -n "$VPS_SSH_KEY" || { echo "Missing GitHub secret VPS_SSH_PRIVATE_KEY"; exit 1; }
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy safely and verify
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -eu
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$VPS_USER@$VPS_HOST" 'bash -se' <<'REMOTE'
+          set -Eeuo pipefail
+
+          SOURCE=/opt/routepass-source
+          LIVE=/var/www/routepass
+          BRANCH=feature/routepass-otp-geofence-payments
+          BACKUPS=/root/routepass-backups
+
+          test -d "$SOURCE/.git" || { echo "Missing source checkout: $SOURCE"; exit 1; }
+          test -f "$LIVE/.env" || { echo "Missing live .env; refusing deployment"; exit 1; }
+          test -f "$LIVE/docker-compose.yml" || { echo "Missing live Compose file; refusing deployment"; exit 1; }
+          test -f "$LIVE/docker-compose.traefik.yml" || { echo "Missing Traefik Compose override; refusing deployment"; exit 1; }
+          docker ps --format '{{.Names}}' | grep -qx routepass_postgres || { echo "PostgreSQL container is not running; refusing deployment"; exit 1; }
+          docker ps --format '{{.Names}}' | grep -qx routepass_api || { echo "API container is not running; refusing deployment"; exit 1; }
+
+          mkdir -p "$BACKUPS"
+          chmod 700 "$BACKUPS"
+          BACKUP="$BACKUPS/routepass-pre-deploy-$(date +%Y%m%d-%H%M%S).sql"
+          docker exec routepass_postgres sh -lc 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > "$BACKUP"
+          test -s "$BACKUP" || { echo "Database backup failed or is empty; refusing deployment"; exit 1; }
+          chmod 600 "$BACKUP"
+          echo "Database backup created: $BACKUP"
+
+          git -C "$SOURCE" fetch origin "$BRANCH"
+          git -C "$SOURCE" checkout "$BRANCH"
+          git -C "$SOURCE" pull --ff-only origin "$BRANCH"
+
+          test -f "$SOURCE/backend/Dockerfile" || { echo "Backend Dockerfile missing from source"; exit 1; }
+          rsync -a --exclude='.env' --exclude='certbot/' --exclude='data/' "$SOURCE/backend/" "$LIVE/"
+          chmod 600 "$LIVE/.env"
+
+          cd "$LIVE"
+          docker compose -p routepass -f docker-compose.yml -f docker-compose.traefik.yml config --quiet
+          docker compose -p routepass -f docker-compose.yml -f docker-compose.traefik.yml build api
+          docker compose -p routepass -f docker-compose.yml -f docker-compose.traefik.yml up -d --no-deps api
+
+          for attempt in $(seq 1 12); do
+            if docker exec routepass_api curl -fsS http://127.0.0.1:3000/api/ready; then
+              echo
+              break
+            fi
+            if [ "$attempt" -eq 12 ]; then
+              echo "API readiness failed. Recent API logs:"
+              docker logs --tail 80 routepass_api
+              exit 1
+            fi
+            sleep 5
+          done
+
+          echo "Public health endpoint:"
+          curl -fsS --max-time 15 https://routepass.duckdns.org/api/health
+          echo
+          echo "Deployment and health checks completed."
+          REMOTE
+
+      - name: Remove temporary SSH key
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519
