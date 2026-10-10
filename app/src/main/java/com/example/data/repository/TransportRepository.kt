@@ -87,6 +87,24 @@ class TransportRepository(
         }
     }
 
+    suspend fun requestRegistrationOtp(phone: String): String {
+        val response = apiService.requestOtp(OtpRequest(phone.trim()))
+        val body = response.body()
+        if (!response.isSuccessful || body?.success != true || body.challengeId.isNullOrBlank()) {
+            throw IllegalStateException(body?.error ?: "Could not send SMS verification code.")
+        }
+        return body.challengeId
+    }
+
+    suspend fun verifyRegistrationOtp(challengeId: String, code: String): String {
+        val response = apiService.verifyOtp(OtpVerifyRequest(challengeId, code.trim()))
+        val body = response.body()
+        if (!response.isSuccessful || body?.success != true || body.otpProof.isNullOrBlank()) {
+            throw IllegalStateException(body?.error ?: "Invalid or expired verification code.")
+        }
+        return body.otpProof
+    }
+
     /**
      * Register a new user via VPS Backend.
      * Server is the strict SOURCE OF TRUTH.
@@ -105,7 +123,8 @@ class TransportRepository(
         vehicleModel: String = "",
         vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
-        appliedRouteName: String = ""
+        appliedRouteName: String = "",
+        otpProof: String = ""
     ): UserEntity {
         val normalizedRole = role.trim().uppercase()
         val cleanPhone = phone.trim()
@@ -123,7 +142,8 @@ class TransportRepository(
             vehicleModel = vehicleModel.ifBlank { null },
             vehicleType = vehicleType.ifBlank { null },
             appliedRouteId = appliedRouteId.ifBlank { null },
-            appliedRouteName = appliedRouteName.ifBlank { null }
+            appliedRouteName = appliedRouteName.ifBlank { null },
+            otpProof = otpProof.ifBlank { null }
         )
 
         val response = try {
