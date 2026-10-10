@@ -2,6 +2,7 @@ package com.example.ui.screens.driver
 
 import android.Manifest
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
@@ -28,6 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -44,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -84,6 +87,8 @@ fun DriverTripScreen(
     val scanResult by viewModel.scanResult.collectAsState()
     val myRoster by viewModel.myRoster.collectAsState()
     val mediaUploadMessage by viewModel.mediaUploadMessage.collectAsState()
+    val driverPhotoBytes by viewModel.assignedDriverPhotoBytes.collectAsState()
+    val driverPhotoBitmap = remember(driverPhotoBytes) { driverPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
     LaunchedEffect(currentUser?.id) { if (currentUser != null) viewModel.refreshMyRoster() }
     val rosterPassengers = myRoster?.get("passengers") as? List<*> ?: emptyList<Any>()
 
@@ -119,6 +124,28 @@ fun DriverTripScreen(
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (driverPhotoBitmap != null) {
+                                Image(
+                                    bitmap = driverPhotoBitmap.asImageBitmap(),
+                                    contentDescription = "Driver profile photo",
+                                    modifier = Modifier.size(76.dp).clip(CircleShape)
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier.size(76.dp).clip(CircleShape).background(Slate200),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(currentUser?.fullName?.split(" ")?.mapNotNull { it.firstOrNull() }?.take(2)?.joinToString("") ?: "DR",
+                                        fontWeight = FontWeight.Bold, color = Slate700)
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Driver profile", fontWeight = FontWeight.Bold)
+                                Text(if (driverPhotoBitmap != null) "Profile photo loaded" else "Upload your photo below; it will appear here after refresh.",
+                                    style = MaterialTheme.typography.bodySmall, color = Slate600)
+                            }
+                        }
                         Text("Driver and vehicle documents", fontWeight = FontWeight.Bold)
                         Text("Upload clear, current documents. Each file must be 5 MB or smaller.")
                         PrivateMediaUploadButton(viewModel, "DRIVER_PROFILE_PHOTO", "Upload driver profile photo", imagesOnly = true)
