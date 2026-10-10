@@ -27,3 +27,16 @@ Set `ETHIO_TELECOM_SMS_API_URL`, `ETHIO_TELECOM_SMS_API_TOKEN`, and `ETHIO_TELEC
 - Run backend SQLite and PostgreSQL tests and build the Android app.
 - Test geofence rejection at more than 50 metres, acceptance within 50 metres, early/late schedule rejection, QR boarding, completion notices, and manual payment duplicate-reference rejection on staging.
 - Confirm the app's notification screen refreshes/filters these notices as intended. WebSocket broadcasts are real-time events; push notifications are not claimed by this change.
+
+## Passenger photos, transporter documents and attendance roster
+
+- `POST /api/profile-media/upload` accepts JSON fields `assetType`, `fileName`, `contentType`, and base64 `dataBase64`. Maximum file size is 5 MB. Accepted formats are JPEG, PNG, WebP and PDF; the server checks file signatures and stores files outside the public web root with restrictive permissions.
+- Passengers may upload a profile photo. Drivers/transporters may upload a driver's licence, a vehicle photo, and a trade licence. Documents are served only through an authenticated endpoint; raw upload files are not exposed through static public hosting.
+- `GET /api/rosters/my` provides the signed-in driver's passenger list and QR-scan attendance status, or the passenger's assigned driver/vehicle details when an active paid assignment exists.
+- Driver portal UI includes document-upload controls and a roster showing PRESENT after a successful QR boarding scan; passenger portal includes a profile-photo upload and assigned-driver name.
+- Private media needs durable VPS storage. Configure `ROUTEPASS_PRIVATE_MEDIA_DIR` to a persistent, backed-up directory mounted into the backend container; do not mount it as a public static directory.
+- A driver roster must be populated from explicit passenger-to-vehicle assignments. Route-only membership is not sufficient where multiple vehicles operate the same route. Confirm that the admin assignment workflow sets each subscription's `vehicleId` before operational use.
+
+## Release status for this feature
+
+The feature branch has code changes for private media upload and roster APIs plus Android controls. It has not been confirmed deployed to the VPS. The Android APK must be built from this branch and installed on a physical device before calling the update complete. Test photo/document upload, access-control denial for unrelated accounts, persistence after container restart, passenger/driver roster assignment, and attendance updates after scanning a QR code.
