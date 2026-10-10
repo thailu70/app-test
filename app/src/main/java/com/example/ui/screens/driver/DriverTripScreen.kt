@@ -31,6 +31,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -59,6 +60,7 @@ import com.example.core.localization.AppLanguage
 import com.example.core.localization.AppStrings
 import com.example.core.qr.QrValidationResult
 import com.example.data.entity.RouteStopEntity
+import com.example.ui.components.RoutePassHeroHeader
 import com.example.ui.components.PrivateMediaUploadButton
 import com.example.ui.components.MiniVehicleMap
 import com.example.ui.theme.*
@@ -94,7 +96,7 @@ fun DriverTripScreen(
 
     fun t(key: String) = AppStrings.get(key, lang)
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(modifier = modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFFF3F7FB), Color(0xFFEAF2F8))))) {
         DriverLocationReporter(
             viewModel = viewModel,
             currentStop = stops.getOrNull(tripState.currentStopIndex)?.stopName.orEmpty(),
@@ -107,6 +109,14 @@ fun DriverTripScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = 48.dp)
         ) {
+            item {
+                RoutePassHeroHeader(
+                    title = "Your route. In control.",
+                    subtitle = "Live trip tools, passenger boarding and vehicle status — all in one place.",
+                    icon = Icons.Default.DirectionsBus
+                )
+            }
+
             // 1. Driver Console Cockpit Card
             item {
                 DriverCockpitHeaderCard(
@@ -385,8 +395,9 @@ fun DriverCockpitHeaderCard(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("driver_cockpit_card"),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Slate900)
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Slate900),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
     ) {
         Column(
             modifier = Modifier
