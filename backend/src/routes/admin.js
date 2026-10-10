@@ -293,6 +293,84 @@ router.patch('/subscriptions/:id/assignment', async (req, res) => {
   }
 });
 
+
+/**
+ * POST /api/admin/payments/manual
+ * Audited admin entry for offline/cash payments. Amount must exactly match the
+ * subscription tariff. This is not a provider-verified digital payment.
+ */
+router.post('/payments/manual', async (req, res) => {
+  try {
+    const subscriptionId = String(req.body.subscriptionId || '').trim();
+    const referenceNumber = String(req.body.referenceNumber || '').trim().toUpperCase();
+    const amountEtb = Number(req.body.amountEtb);
+    const notes = String(req.body.notes || '').trim().slice(0, 500);
+    if (!subscriptionId || !referenceNumber || referenceNumber.length < 4 || referenceNumber.length > 100 ||
+        !Number.isFinite(amountEtb) || amountEtb <= 0) {
+      return res.status(400).json({ success: false, error: 'Subscription, payment reference (4-100 characters), and positive ETB amount are required.' });
+    }
+    const sub = await DB.prepare('SELECT * FROM subscriptions WHERE id = ?').get(subscriptionId);
+    if (!sub) return res.status(404).json({ success: false, error: 'Subscription not found.' });
+    const expectedAmount = Number(sub.priceEtb ?? sub.price_etb);
+    if (!Number.isFinite(expectedAmount) || Math.abs(expectedAmount - amountEtb) > 0.01) {
+      return res.status(400).json({ success: false, code: 'AMOUNT_MISMATCH', expectedAmountEtb: expectedAmount, error: 'Manual payment must match the subscription tariff exactly.' });
+    }
+    const passenger = await DB.prepare("SELECT id, phone FROM users WHERE id = ? AND role = 'PASSENGER'").get(sub.passengerId);
+    if (!passenger) return res.status(404).json({ success: false, error: 'Passenger account not found.' });
+    const duplicate = await DB.prepare('SELECT id FROM payment_transactions WHERE referenceNumber = ?').get(referenceNumber);
+    if (duplicate) return res.status(409).json({ success: false, code: 'DUPLICATE_PAYMENT_REFERENCE', error: 'This payment reference has already been recorded.' });
+
+    const now = new Date();
+    const previousEnd = sub.endDate ? new Date(sub.endDate) : null;
+    const base = sub.subscriptionStatus === 'ACTIVE' && sub.paymentStatus === 'PAID' &&
+      previousEnd && Number.isFinite(previousEnd.getTime()) && previousEnd.getTime() > now.getTime()
+      ? previousEnd : now;
+    const end = new Date(base.getTime() + 30 * 86400000);
+    const startDate = now.toISOString().slice(0, 10);
+    const endDate = end.toISOString().slice(0, 10);
+    const daysRemaining = Math.max(1, Math.ceil((end.getTime() - now.getTime()) / 86400000));
+    const qrToken = generateSignedQrToken(sub.id, sub.passengerId, sub.routeId, end.getTime());
+
+    await DB.transaction(async (tx) => {
+      const duplicateInTx = await tx.prepare('SELECT id FROM payment_transactions WHERE referenceNumber = ?').get(referenceNumber);
+      if (duplicateInTx) {
+        const error = new Error('Duplicate payment reference');
+        error.code = 'DUPLICATE_PAYMENT_REFERENCE';
+        throw error;
+      }
+      await tx.prepare("UPDATE subscriptions SET paymentStatus = 'PAID', subscriptionStatus = 'ACTIVE', startDate = ?, endDate = ?, daysRemaining = ?, qrToken = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?")
+        .run(startDate, endDate, daysRemaining, qrToken, sub.id);
+      await tx.prepare("INSERT INTO payment_transactions (id, passengerId, referenceNumber, idempotencyKey, amountEtb, provider, phoneNumber, status, notes) VALUES (?, ?, ?, ?, ?, 'MANUAL_ADMIN', ?, 'COMPLETED', ?)")
+        .run('pay_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12), sub.passengerId,
+          referenceNumber, 'manual:' + referenceNumber, amountEtb, passenger.phone,
+          ('Manual payment entered by admin ' + req.user.id + '. ' + notes).trim());
+      await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
+        .run('MANUAL_PAYMENT_RECORDED', req.user.id, 'ADMIN',
+          'Recorded ETB ' + amountEtb + ' manual payment for subscription ' + sub.id + '; reference ' + referenceNumber + '.');
+      await tx.prepare("INSERT INTO notifications (id, title, message, targetAudience, type, senderName, target_user_id) VALUES (?, ?, ?, 'PASSENGERS', 'PAYMENT', 'RoutePass', ?)")
+        .run('notif_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12), 'Payment recorded',
+          'Your ETB ' + amountEtb.toFixed(2) + ' payment was recorded by the administrator. Your 30-day subscription is active.',
+          sub.passengerId);
+    });
+
+    if (req.app.locals.broadcastWs) {
+      req.app.locals.broadcastWs({ type: 'PAYMENT_RECORDED', targetUserId: sub.passengerId, passengerId: sub.passengerId, routeId: sub.routeId, targetRouteId: sub.routeId, subscriptionId: sub.id }, sub.routeId);
+    }
+    res.status(201).json({
+      success: true,
+      message: 'Manual payment recorded and subscription activated for 30 days.',
+      subscription: { id: sub.id, paymentStatus: 'PAID', subscriptionStatus: 'ACTIVE', startDate, endDate, daysRemaining, qrToken },
+      transaction: { referenceNumber, amountEtb, provider: 'MANUAL_ADMIN', status: 'COMPLETED' }
+    });
+  } catch (err) {
+    if (err.code === 'DUPLICATE_PAYMENT_REFERENCE') {
+      return res.status(409).json({ success: false, code: err.code, error: 'This payment reference has already been recorded.' });
+    }
+    console.error('[Admin] manual payment recording failed:', err.code || 'MANUAL_PAYMENT_ERROR');
+    res.status(500).json({ success: false, error: 'Could not record the manual payment.' });
+  }
+});
+
 /**
  * GET /api/admin/payments
  * List payment transaction history
