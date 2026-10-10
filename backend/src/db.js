@@ -82,6 +82,11 @@ function normalizeRow(row) {
     if (lowerKey === 'routename' || lowerKey === 'route_name') normalized.routeName = val;
     if (lowerKey === 'routenameam' || lowerKey === 'route_name_am') normalized.routeNameAm = val;
     if (lowerKey === 'nameam' || lowerKey === 'name_am') normalized.nameAm = val;
+    if (lowerKey === 'directionmode' || lowerKey === 'direction_mode') normalized.directionMode = val;
+    if (lowerKey === 'onewaydirection' || lowerKey === 'one_way_direction') normalized.oneWayDirection = val;
+    if (lowerKey === 'arrivalconfirmedat' || lowerKey === 'arrival_confirmed_at') normalized.arrivalConfirmedAt = val;
+    if (lowerKey === 'scheduleddepartureat' || lowerKey === 'scheduled_departure_at') normalized.scheduledDepartureAt = val;
+    if (lowerKey === 'arrivaldistancemeters' || lowerKey === 'arrival_distance_meters') normalized.arrivalDistanceMeters = val;
     if (lowerKey === 'stopname' || lowerKey === 'stop_name') normalized.stopName = val;
     if (lowerKey === 'stopnameam' || lowerKey === 'stop_name_am') normalized.stopNameAm = val;
     if (lowerKey === 'stoporder' || lowerKey === 'stop_order') normalized.stopOrder = val;
@@ -140,6 +145,11 @@ function translateSqlForPostgres(sql) {
     .replace(/\bvehiclePlate\b/g, 'vehicle_plate')
     .replace(/\brouteId\b/g, 'route_id')
     .replace(/\bnameAm\b/g, 'name_am')
+    .replace(/\bdirectionMode\b/g, 'direction_mode')
+    .replace(/\boneWayDirection\b/g, 'one_way_direction')
+    .replace(/\barrivalConfirmedAt\b/g, 'arrival_confirmed_at')
+    .replace(/\bscheduledDepartureAt\b/g, 'scheduled_departure_at')
+    .replace(/\barrivalDistanceMeters\b/g, 'arrival_distance_meters')
     .replace(/\bstopNameAm\b/g, 'stop_name_am')
     .replace(/\bstopName\b/g, 'stop_name')
     .replace(/\bstopOrder\b/g, 'stop_order')
@@ -314,6 +324,19 @@ function initSqliteSchema() {
       createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS signup_otps (
+      phone TEXT NOT NULL,
+      purpose TEXT NOT NULL,
+      otp_hash TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      verified_at TEXT,
+      consumed_at TEXT,
+      last_sent_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (phone, purpose)
+    );
+
     CREATE TABLE IF NOT EXISTS routes (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -321,6 +344,8 @@ function initSqliteSchema() {
       description TEXT,
       morningDeparture TEXT DEFAULT '06:30',
       eveningDeparture TEXT DEFAULT '17:30',
+      directionMode TEXT DEFAULT 'TWO_WAY',
+      oneWayDirection TEXT DEFAULT 'OUTBOUND',
       distanceKm REAL DEFAULT 12.0,
       basePriceEtb REAL DEFAULT 2500.0,
       active INTEGER DEFAULT 1,
@@ -396,6 +421,9 @@ function initSqliteSchema() {
       currentStop TEXT,
       currentOccupancy INTEGER DEFAULT 0,
       status TEXT DEFAULT 'IN_PROGRESS',
+      arrivalConfirmedAt DATETIME,
+      scheduledDepartureAt DATETIME,
+      arrivalDistanceMeters REAL,
       startTime DATETIME DEFAULT CURRENT_TIMESTAMP,
       endTime DATETIME,
       updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -461,6 +489,7 @@ function initSqliteSchema() {
       targetAudience TEXT NOT NULL,
       type TEXT DEFAULT 'ALERT',
       senderName TEXT DEFAULT 'Transport Operations',
+      target_user_id TEXT,
       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
