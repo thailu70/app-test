@@ -14,6 +14,22 @@ data class LoginRequest(
 )
 
 @JsonClass(generateAdapter = true)
+data class OtpRequest(val phone: String)
+
+@JsonClass(generateAdapter = true)
+data class OtpVerifyRequest(val phone: String, val code: String)
+
+@JsonClass(generateAdapter = true)
+data class OtpResponse(
+    val success: Boolean,
+    val verified: Boolean = false,
+    val expiresInSeconds: Int? = null,
+    val message: String? = null,
+    val error: String? = null,
+    val code: String? = null
+)
+
+@JsonClass(generateAdapter = true)
 data class RegisterRequest(
     val fullName: String,
     val phone: String,
@@ -277,7 +293,42 @@ data class LocationUpdateRequest(
 data class StartTripRequest(
     val routeId: String,
     val direction: String = "OUTBOUND",
-    val vehicleId: String? = null
+    val vehicleId: String? = null,
+    val confirmedArrival: Boolean = false
+)
+
+@JsonClass(generateAdapter = true)
+data class DepartureStopDto(
+    val id: String,
+    val name: String,
+    val nameAm: String? = null,
+    val latitude: Double,
+    val longitude: Double
+)
+
+@JsonClass(generateAdapter = true)
+data class TripReadinessResponse(
+    val success: Boolean,
+    val canConfirmArrival: Boolean = false,
+    val routeId: String? = null,
+    val routeName: String? = null,
+    val direction: String? = null,
+    val routeMode: String? = null,
+    val scheduledDepartureAt: String? = null,
+    val scheduledTime: String? = null,
+    val departureStop: DepartureStopDto? = null,
+    val radiusMeters: Int = 50,
+    val distanceMeters: Int? = null,
+    val insideGeofence: Boolean = false,
+    val gpsFresh: Boolean = false,
+    val gpsAgeSeconds: Int? = null,
+    val scheduleWindowOpen: Boolean = false,
+    val minutesUntilDeparture: Int? = null,
+    val reminderDue: Boolean = false,
+    val reminderMessage: String? = null,
+    val message: String? = null,
+    val code: String? = null,
+    val error: String? = null
 )
 
 @JsonClass(generateAdapter = true)
