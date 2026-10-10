@@ -112,6 +112,12 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     private val _otpMessage = MutableStateFlow<String?>(null)
     val otpMessage: StateFlow<String?> = _otpMessage.asStateFlow()
 
+    fun clearRegistrationOtp() {
+        _otpChallengeId.value = null
+        _otpProof.value = null
+        _otpMessage.value = null
+    }
+
     fun requestRegistrationOtp(phone: String) {
         viewModelScope.launch {
             _authError.value = null
