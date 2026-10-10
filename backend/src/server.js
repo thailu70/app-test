@@ -162,7 +162,7 @@ app.use('/api/sync', require('./routes/sync'));
 
 // Browser-based admin portal. Keep it same-origin with the API and use a strict, portal-specific CSP.
 app.use('/admin', (req, res, next) => {
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' https://unpkg.com 'unsafe-inline'; img-src 'self' data: blob: https://*.tile.openstreetmap.org; font-src 'self' https://unpkg.com; connect-src 'self' wss: https://*.tile.openstreetmap.org; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' https://unpkg.com 'unsafe-inline'; img-src 'self' data: blob: https://unpkg.com https://*.tile.openstreetmap.org; font-src 'self' https://unpkg.com; connect-src 'self' wss: https://*.tile.openstreetmap.org; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
   res.setHeader('Cache-Control', 'no-store');
   next();
 }, express.static(path.join(__dirname, '..', 'public', 'admin'), { index: 'index.html', maxAge: 0, etag: false }));
