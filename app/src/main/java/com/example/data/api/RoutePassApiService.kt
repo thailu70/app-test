@@ -9,6 +9,9 @@ interface RoutePassApiService {
     // -------------------------------------------------------------
     // Authentication
     // -------------------------------------------------------------
+    @GET("api/config/public")
+    suspend fun getPublicConfig(): Response<PublicConfigResponse>
+
     @POST("api/auth/login")
     suspend fun login(@Body request: LoginRequest): Response<AuthResponse>
 
