@@ -11,11 +11,18 @@ router.use(authenticate);
 router.get('/my', async (req, res) => {
   try {
     if (req.user.role === 'DRIVER') {
-      const vehicle = await DB.prepare('SELECT id, plateNumber, model, assignedRouteId, driverId FROM vehicles WHERE driverId = ? LIMIT 1').get(req.user.id);
-      if (!vehicle) return res.json({ success: true, role: 'DRIVER', trip: null, passengers: [] });
+      const vehicle = await DB.prepare('SELECT id, plateNumber, model, assignedRouteId, driverId FROM vehicles WHERE driverId = ? ORDER BY updatedAt DESC LIMIT 1').get(req.user.id);
+      if (!vehicle) return res.json({
+        success: true, role: 'DRIVER', trip: null, passengers: [],
+        rosterMessage: 'No vehicle is registered to this driver account yet. Ask the administrator to verify the driver-to-vehicle assignment.'
+      });
       const trip = await DB.prepare("SELECT id, routeId, status, direction, startedAt FROM trips WHERE driverId = ? AND vehicleId = ? AND status = 'IN_PROGRESS' ORDER BY startTime DESC LIMIT 1").get(req.user.id, vehicle.id);
       const routeId = trip?.routeId || vehicle.assignedRouteId;
-      if (!routeId) return res.json({ success: true, role: 'DRIVER', trip: trip || null, passengers: [] });
+      if (!routeId) return res.json({
+        success: true, role: 'DRIVER', trip: trip || null, passengers: [],
+        vehicle: { id: vehicle.id, plateNumber: vehicle.plateNumber, model: vehicle.model },
+        rosterMessage: 'Your vehicle has no administrator-assigned route yet. Ask the administrator to assign the route before passengers can appear.'
+      });
       const passengers = await DB.prepare(`
         SELECT u.id AS passengerId, u.fullName AS passengerName, s.id AS subscriptionId,
           s.subscriptionStatus, s.paymentStatus, s.daysRemaining,
@@ -32,6 +39,9 @@ router.get('/my', async (req, res) => {
         success: true, role: 'DRIVER',
         trip: trip ? { id: trip.id, routeId: trip.routeId, status: trip.status, direction: trip.direction } : null,
         vehicle: { id: vehicle.id, plateNumber: vehicle.plateNumber, model: vehicle.model },
+        rosterMessage: passengers.length
+          ? 'Assigned active passenger roster loaded.'
+          : 'No active paid passengers are assigned to this vehicle yet. The administrator must assign each active subscription to this vehicle.',
         passengers: passengers.map(p => ({
           id: p.passengerId, fullName: p.passengerName,
           subscriptionId: p.subscriptionId, subscriptionStatus: p.subscriptionStatus,
