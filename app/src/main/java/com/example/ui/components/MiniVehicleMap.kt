@@ -236,9 +236,9 @@ private fun createVehicleMarker(context: Context): BitmapDrawable {
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     val center = size / 2f
     paint.color = android.graphics.Color.argb(50, 0, 0, 0)
-    canvas.drawCircle(center, center * 0.82f, paint)
+    canvas.drawCircle(center, center, center * 0.82f, paint)
     paint.color = android.graphics.Color.rgb(8, 127, 140)
-    canvas.drawCircle(center, center * 0.72f, paint)
+    canvas.drawCircle(center, center, center * 0.72f, paint)
     paint.color = android.graphics.Color.WHITE
     val bus = RectF(center - size * 0.22f, center - size * 0.25f, center + size * 0.22f, center + size * 0.18f)
     canvas.drawRoundRect(bus, size * 0.06f, size * 0.06f, paint)
