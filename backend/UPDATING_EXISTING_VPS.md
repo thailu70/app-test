@@ -46,10 +46,10 @@ On the VPS, set both flags without printing the rest of `.env`:
 ```bash
 cd /var/www/routepass
 for key in ALLOW_MANUAL_TEST_RECHARGE ROUTEPASS_TEST_MODE; do
-  if grep -q "^\${key}=" .env; then
-    sed -i "s/^\${key}=.*/\${key}=true/" .env
+  if grep -q "^${key}=" .env; then
+    sed -i "s/^${key}=.*/${key}=true/" .env
   else
-    printf '\\n%s=true\\n' "$key" >> .env
+    printf '\n%s=true\n' "$key" >> .env
   fi
 done
 chmod 600 .env
