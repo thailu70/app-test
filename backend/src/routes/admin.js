@@ -191,7 +191,7 @@ router.post('/subscriptions/:id/manual-payment', async (req, res) => {
     const reference = String(req.body.referenceNumber || '').trim();
     const method = String(req.body.method || '').trim().toUpperCase();
     const noteText = String(req.body.notes || '').trim().slice(0, 500);
-    if (!Number.isFinite(amount) || amount <= 0 || !reference || reference.length > 100 ||
+    if (!Number.isFinite(amount) || amount <= 0 || !reference || reference.length > 90 ||
         !['CASH', 'BANK_TRANSFER', 'OTHER'].includes(method)) {
       return res.status(400).json({ success: false, error: 'Provide a positive amount, receipt/reference number, and method CASH, BANK_TRANSFER, or OTHER.' });
     }
