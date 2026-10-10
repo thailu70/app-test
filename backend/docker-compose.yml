@@ -58,6 +58,9 @@ services:
       TELEBIRR_QUERY_URL: ${TELEBIRR_QUERY_URL:-}
       TELEBIRR_NOTIFY_URL: ${TELEBIRR_NOTIFY_URL:-}
       DATA_DIR: /app/data
+      ROUTEPASS_PRIVATE_MEDIA_DIR: /app/data/private-media
+    volumes:
+      - routepass_app_data:/app/data
     expose:
       - "3000"
     read_only: true
@@ -100,6 +103,8 @@ services:
 volumes:
   postgres_data:
     name: routepass_postgres_data
+  routepass_app_data:
+    name: routepass_app_data
 
 networks:
   routepass_internal:
