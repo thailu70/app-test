@@ -182,6 +182,68 @@ router.get('/subscriptions', async (req, res) => {
 });
 
 /**
+ * POST /api/admin/subscriptions/:id/manual-payment
+ * Record a real payment collected outside the app (cash/bank/other).
+ */
+router.post('/subscriptions/:id/manual-payment', async (req, res) => {
+  try {
+    const amount = Number(req.body.amountEtb);
+    const reference = String(req.body.referenceNumber || '').trim();
+    const method = String(req.body.method || '').trim().toUpperCase();
+    const noteText = String(req.body.notes || '').trim().slice(0, 500);
+    if (!Number.isFinite(amount) || amount <= 0 || !reference || reference.length > 100 ||
+        !['CASH', 'BANK_TRANSFER', 'OTHER'].includes(method)) {
+      return res.status(400).json({ success: false, error: 'Provide a positive amount, receipt/reference number, and method CASH, BANK_TRANSFER, or OTHER.' });
+    }
+    const sub = await DB.prepare('SELECT * FROM subscriptions WHERE id = ?').get(req.params.id);
+    if (!sub) return res.status(404).json({ success: false, error: 'Subscription not found.' });
+    const expected = Number(sub.priceEtb || 0);
+    if (Math.abs(amount - expected) > 0.01) {
+      return res.status(400).json({ success: false, code: 'AMOUNT_MISMATCH', expectedAmountEtb: expected, error: 'Payment amount must match the subscription price.' });
+    }
+    const passenger = await DB.prepare("SELECT id, phone FROM users WHERE id = ? AND role = 'PASSENGER'").get(sub.passengerId);
+    if (!passenger) return res.status(404).json({ success: false, error: 'Passenger account not found.' });
+    const now = new Date();
+    const oldEnd = sub.endDate ? new Date(sub.endDate) : null;
+    const base = sub.subscriptionStatus === 'ACTIVE' && sub.paymentStatus === 'PAID' &&
+      oldEnd && Number.isFinite(oldEnd.getTime()) && oldEnd.getTime() > now.getTime() ? oldEnd : now;
+    const end = new Date(base.getTime() + 30 * 86400000);
+    const startDate = now.toISOString().slice(0, 10);
+    const endDate = end.toISOString().slice(0, 10);
+    const daysRemaining = Math.max(1, Math.ceil((end.getTime() - now.getTime()) / 86400000));
+    const qrToken = generateSignedQrToken(sub.id, sub.passengerId, sub.routeId, end.getTime());
+    const transactionId = `pay_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+    const note = `MANUAL PAYMENT ${method}; reference=${reference}; admin=${req.user.id}; ${noteText}`;
+    try {
+      await DB.transaction(async (tx) => {
+        await tx.prepare(`
+          INSERT INTO payment_transactions (id, passengerId, referenceNumber, idempotencyKey, amountEtb, provider, phoneNumber, status, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?)
+        `).run(transactionId, sub.passengerId, reference, `MANUAL-${reference}`, amount, `ADMIN_${method}`, passenger.phone, note);
+        await tx.prepare(`
+          UPDATE subscriptions SET paymentStatus = 'PAID', subscriptionStatus = 'ACTIVE',
+            startDate = ?, endDate = ?, daysRemaining = ?, qrToken = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?
+        `).run(startDate, endDate, daysRemaining, qrToken, sub.id);
+        await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
+          .run('SUBSCRIPTION_MANUAL_PAYMENT_RECORDED', req.user.id, 'ADMIN', `Recorded ${method} payment for subscription ${sub.id}; reference ${reference}; ETB ${amount}`);
+      });
+    } catch (err) {
+      if (/unique|duplicate/i.test(String(err.message))) return res.status(409).json({ success: false, error: 'This payment reference has already been recorded.' });
+      throw err;
+    }
+    res.status(201).json({
+      success: true,
+      message: 'Manual payment recorded and subscription activated. Passenger QR pass is ready for check-in.',
+      subscription: { id: sub.id, passengerId: sub.passengerId, routeId: sub.routeId, paymentStatus: 'PAID', subscriptionStatus: 'ACTIVE', startDate, endDate, daysRemaining, qrToken },
+      transaction: { id: transactionId, referenceNumber: reference, amountEtb: amount, provider: `ADMIN_${method}`, status: 'COMPLETED' }
+    });
+  } catch (err) {
+    console.error('[Admin] manual payment recording failed:', err.message);
+    res.status(500).json({ success: false, error: 'Could not record manual payment.' });
+  }
+});
+
+/**
  * POST /api/admin/subscriptions/:id/recharge
  * Manual TEST recharge only. This is an audited admin override, not a Telebirr payment.
  */
