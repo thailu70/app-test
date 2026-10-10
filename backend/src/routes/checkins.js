@@ -226,6 +226,10 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
       });
     }
 
+    // Persist an in-app boarding confirmation for the passenger.
+    await DB.prepare('INSERT INTO routepass_notifications (id, user_id, schedule_id, type, title, message, created_at) VALUES (?, ?, NULL, ?, ?, ?, CURRENT_TIMESTAMP)')
+      .run(`ntf_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`, sub.passengerId, 'PASSENGER_BOARDED', 'Boarding confirmed', 'Your QR code was scanned successfully. You are marked as boarded.');
+
     // Broadcast check-in event to WebSockets
     if (req.app.locals.broadcastWs) {
       req.app.locals.broadcastWs({
