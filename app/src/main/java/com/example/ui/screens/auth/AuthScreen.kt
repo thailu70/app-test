@@ -44,6 +44,7 @@ fun AuthScreen(
     val otpChallengeId by viewModel.otpChallengeId.collectAsState()
     val otpProof by viewModel.otpProof.collectAsState()
     val otpMessage by viewModel.otpMessage.collectAsState()
+    val testPassengerRegistrationBypass by viewModel.testPassengerRegistrationBypass.collectAsState()
     val availableRoutes by viewModel.allRoutes.collectAsState()
 
     // Dedicated Independent Portal Gateway (null = selecting portal; non-null = inside specific portal)
@@ -627,8 +628,44 @@ fun AuthScreen(
                                 .testTag("auth_phone_input")
                         )
 
-                        if (isRegisterMode && portal != AppRole.ADMIN) {
+
+
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = {
+                                password = it
+                                registrationValidationMessage = null
+                            },
+                            label = { Text("Security Password / PIN") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("auth_password_input")
+                        )
+
+                        if (isRegisterMode) {
+                            OutlinedTextField(
+                                value = confirmPassword,
+                                onValueChange = {
+                                    confirmPassword = it
+                                    registrationValidationMessage = null
+                                },
+                                label = { Text("Confirm password") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                                singleLine = true,
+                                isError = confirmPassword.isNotEmpty() && password != confirmPassword,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("auth_confirm_password_input")
+                            )
+                        }
+
+                        if (isRegisterMode && portal != AppRole.ADMIN && !(portal == AppRole.PASSENGER && testPassengerRegistrationBypass)) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                Text("Step 2: Verify mobile number to complete registration", fontWeight = FontWeight.Bold, color = Slate900)
                                 Button(
                                     onClick = {
                                         if (phone.isBlank()) registrationValidationMessage = "Enter your mobile number first."
@@ -661,36 +698,12 @@ fun AuthScreen(
                             }
                         }
 
-                        OutlinedTextField(
-                            value = password,
-                            onValueChange = {
-                                password = it
-                                registrationValidationMessage = null
-                            },
-                            label = { Text("Security Password / PIN") },
-                            visualTransformation = PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                            singleLine = true,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("auth_password_input")
-                        )
-
-                        if (isRegisterMode) {
-                            OutlinedTextField(
-                                value = confirmPassword,
-                                onValueChange = {
-                                    confirmPassword = it
-                                    registrationValidationMessage = null
-                                },
-                                label = { Text("Confirm password") },
-                                visualTransformation = PasswordVisualTransformation(),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                                singleLine = true,
-                                isError = confirmPassword.isNotEmpty() && password != confirmPassword,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("auth_confirm_password_input")
+                        if (isRegisterMode && portal == AppRole.PASSENGER && testPassengerRegistrationBypass) {
+                            Text(
+                                text = "TEST MODE: Passenger registration skips SMS OTP. Disable server test mode before public launch.",
+                                color = Color(0xFFB45309),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
 
@@ -729,7 +742,7 @@ fun AuthScreen(
                                     val validationMessage = when {
                                         password.length < 10 -> "Use a password with at least 10 characters."
                                         password != confirmPassword -> "The two passwords do not match. Please re-enter them."
-                                        portal != AppRole.ADMIN && otpProof.isNullOrBlank() -> "Verify your mobile number by SMS before registering."
+                                        portal != AppRole.ADMIN && !(portal == AppRole.PASSENGER && testPassengerRegistrationBypass) && otpProof.isNullOrBlank() -> "Verify your mobile number by SMS before registering."
                                          else -> null
                                     }
                                     if (validationMessage != null) {
