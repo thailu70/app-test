@@ -76,6 +76,7 @@ fun DriverTripScreen(
     val trackingMessage by viewModel.trackingMessage.collectAsState()
     val driverActionMessage by viewModel.driverActionMessage.collectAsState()
     var gpsStatus by remember { mutableStateOf("Waiting for GPS permission.") }
+    var routeDirection by remember { mutableStateOf("OUTBOUND") }
     val networkStatus by viewModel.networkStatus.collectAsState()
     val isScannerOpen by viewModel.isScannerOpen.collectAsState()
     val scanResult by viewModel.scanResult.collectAsState()
@@ -120,13 +121,33 @@ fun DriverTripScreen(
                 }
             }
 
+            // Admin-assigned route supports both commute directions.
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Text("Choose scheduled direction", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Button(onClick = { routeDirection = "OUTBOUND" }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = if (routeDirection == "OUTBOUND") TransportGreenPrimary else Slate600)) {
+                            Text("Home → Work / School")
+                        }
+                        Button(onClick = { routeDirection = "INBOUND" }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = if (routeDirection == "INBOUND") TransportGreenPrimary else Slate600)) {
+                            Text("Work / School → Home")
+                        }
+                    }
+                    Text(
+                        "Scheduled departure: ${if (routeDirection == "INBOUND") "evening" else "morning"} schedule. Arrive at the assigned first stop on time; trip start requires GPS within 50 metres and your confirmation.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Slate600
+                    )
+                }
+            }
+
             // 3. High-Visibility Big Navigation HUD
             item {
                 DriverNavigationHudCard(
                     tripState = tripState,
                     currentStop = stops.getOrNull(tripState.currentStopIndex),
                     lang = lang,
-                    onStartNavigation = { viewModel.startNavigation() },
+                    onStartNavigation = { viewModel.startNavigation(routeDirection) },
                     onArrived = { viewModel.arriveAtCurrentStop() },
                     onScanQr = { viewModel.openScanner() },
                     onSkip = { viewModel.skipCurrentStop() },
