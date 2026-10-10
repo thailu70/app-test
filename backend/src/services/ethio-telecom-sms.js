@@ -8,7 +8,7 @@ async function sendEthioTelecomSms(phone, message) {
   const url = process.env.ETHIO_TELECOM_SMS_API_URL;
   const token = process.env.ETHIO_TELECOM_SMS_API_TOKEN;
   const sender = process.env.ETHIO_TELECOM_SMS_SENDER_ID;
-  if (!url || !token || !sender) {
+  if (!url || !token || !sender || (() => { try { return new URL(url).protocol !== 'https:'; } catch (_) { return true; } })()) {
     const err = new Error('Ethio Telecom SMS is not configured.');
     err.code = 'SMS_NOT_CONFIGURED';
     throw err;
