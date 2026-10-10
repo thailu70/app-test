@@ -7,6 +7,7 @@
   const labels = {
     overview: ["Overview", "A live snapshot of RoutePass service operations."],
     drivers: ["Drivers & routes", "Review driver-owned vehicles and assign approved operating routes."],
+    passengers: ["Passengers", "View registered passenger profiles, subscription assignments and profile photos."],
     routes: ["Manage routes", "Create, edit, activate and deactivate RoutePass transit routes."],
     vehicles: ["Vehicles", "Fleet availability and current assignments."],
     subscriptions: ["Subscriptions", "Passenger subscription records and payment state."],
@@ -97,6 +98,125 @@
   function statCard(title, number, sub) {
     return '<div class="card stat-card"><div class="stat-label">' + esc(title) + '</div><div class="stat-value">' + esc(number) + '</div><div class="stat-foot">' + esc(sub) + "</div></div>";
   }
+
+  let liveMap = null;
+  let liveMapTimer = null;
+  const liveMarkers = new Map();
+
+  async function refreshLiveMap() {
+    const status = $("#driver-map-status");
+    if (!status || !liveMap) return;
+    try {
+      const result = await api("/api/admin/tracking");
+      const vehicles = asArray(result, "vehicles");
+      const seen = new Set();
+      let plotted = 0;
+      for (const v of vehicles) {
+        const lat = Number(v.latitude);
+        const lng = Number(v.longitude);
+        if (v.latitude == null || v.longitude == null || !Number.isFinite(lat) || !Number.isFinite(lng) ||
+            Math.abs(lat) > 90 || Math.abs(lng) > 180 || !v.lastGpsAt) continue;
+        const key = String(v.id);
+        seen.add(key);
+        plotted++;
+        const ageMs = Math.max(0, Date.now() - new Date(v.lastGpsAt).getTime());
+        const freshness = Number.isFinite(ageMs) && ageMs <= 120000 ? "GPS fresh" : "GPS stale";
+        const title = String(v.driverName || "Driver") + " · " + String(v.plateNumber || "Vehicle");
+        const details = "<strong>" + esc(title) + "</strong><br>" +
+          esc(value(v, "routeName")) + "<br>Progress: " + esc(value(v, "tripCurrentStop", "currentStop")) +
+          "<br>Trip: " + esc(value(v, "tripStatus")) + " " + esc(value(v, "tripDirection")) +
+          "<br>" + esc(freshness) + " · " + esc(dateText(v.lastGpsAt));
+        let marker = liveMarkers.get(key);
+        if (!marker) {
+          marker = window.L.marker([lat, lng]).addTo(liveMap);
+          liveMarkers.set(key, marker);
+        } else marker.setLatLng([lat, lng]);
+        marker.bindPopup(details);
+        marker.bindTooltip(title);
+      }
+      for (const [key, marker] of liveMarkers.entries()) {
+        if (!seen.has(key)) { liveMap.removeLayer(marker); liveMarkers.delete(key); }
+      }
+      status.textContent = "Showing " + plotted + " vehicle(s) with reported GPS. Refreshes every 15 seconds; stale GPS is labelled.";
+      if (plotted && !liveMap._routePassCentered) {
+        const points = Array.from(liveMarkers.values()).map(marker => marker.getLatLng());
+        if (points.length === 1) liveMap.setView(points[0], 14);
+        else if (points.length > 1) liveMap.fitBounds(window.L.latLngBounds(points).pad(0.15));
+        liveMap._routePassCentered = true;
+      }
+    } catch (error) {
+      status.textContent = "Could not refresh driver locations: " + error.message;
+    }
+  }
+
+  function initLiveMap() {
+    const mapElement = $("#driver-live-map");
+    if (!mapElement) {
+      if (liveMapTimer) window.clearInterval(liveMapTimer);
+      liveMapTimer = null;
+      return;
+    }
+    if (!window.L) {
+      $("#driver-map-status").textContent = "Map library did not load. Check network access to the map provider.";
+      return;
+    }
+    if (!liveMap) {
+      liveMap = window.L.map(mapElement).setView([9.03, 38.74], 12);
+      window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19, attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(liveMap);
+    }
+    window.setTimeout(() => liveMap && liveMap.invalidateSize(), 50);
+    refreshLiveMap();
+    if (liveMapTimer) window.clearInterval(liveMapTimer);
+    liveMapTimer = window.setInterval(refreshLiveMap, 15000);
+  }
+
+  async function viewPrivateMedia(button) {
+    const ownerId = button.dataset.privateMediaOwner;
+    const assetType = button.dataset.privateMediaType;
+    button.disabled = true;
+    try {
+      const response = await fetch("/api/profile-media/" + encodeURIComponent(ownerId) + "/" + encodeURIComponent(assetType), {
+        headers: { Authorization: "Bearer " + state.token, Accept: "*/*" },
+        credentials: "same-origin", cache: "no-store"
+      });
+      if (!response.ok) {
+        let message = "Could not load private file (HTTP " + response.status + ").";
+        try { const body = await response.json(); message = body.error || message; } catch (_) {}
+        throw new Error(message);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const overlay = document.createElement("div");
+      overlay.className = "media-modal";
+      const card = document.createElement("div");
+      card.className = "media-modal-card";
+      const heading = document.createElement("h3");
+      heading.textContent = assetType.replace(/_/g, " ");
+      const close = document.createElement("button");
+      close.className = "btn btn-secondary";
+      close.textContent = "Close";
+      const cleanup = () => { URL.revokeObjectURL(url); overlay.remove(); };
+      close.addEventListener("click", cleanup);
+      overlay.addEventListener("click", event => { if (event.target === overlay) cleanup(); });
+      card.append(heading);
+      if (blob.type.startsWith("image/")) {
+        const img = document.createElement("img");
+        img.className = "private-media-preview";
+        img.alt = assetType.replace(/_/g, " ");
+        img.src = url;
+        card.append(img);
+      } else {
+        const link = document.createElement("a");
+        link.href = url; link.target = "_blank"; link.rel = "noopener";
+        link.textContent = "Open private document in a new tab";
+        card.append(link);
+      }
+      card.append(close); overlay.append(card); document.body.append(overlay);
+    } catch (error) { toast(error.message, true); }
+    finally { button.disabled = false; }
+  }
   async function loadLookups() {
     const [routeResult, vehicleResult] = await Promise.all([api("/api/admin/routes"), api("/api/vehicles")]);
     state.cache.routes = asArray(routeResult, "routes");
@@ -117,8 +237,11 @@
       statCard("Boardings recorded", value(s, "todayCheckins"), "Check-in records marked boarded") +
       statCard("Open complaints", value(s, "openComplaints"), "Items needing attention") +
       "</div>" +
+      section("Live driver map", "Real driver GPS reports and active-trip progress. Locations update every 15 seconds; stale reports are labelled.", '<div id="driver-live-map" class="driver-live-map" role="img" aria-label="Map of reported driver locations"></div><p id="driver-map-status" class="map-status">Loading GPS reports…</p>') +
       section("Recently created driver accounts", "Latest driver records currently on the server.",
         table([
+          { label: "Photo", render: r => '<button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="DRIVER_PROFILE_PHOTO">View photo</button>' },
+          { label: "Documents", render: r => '<div class="inline-actions"><button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="DRIVER_LICENSE">Licence</button><button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="VEHICLE_PHOTO">Vehicle</button><button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="TRADE_LICENSE">Trade licence</button></div>' },
           { label: "Driver", render: r => "<strong>" + esc(value(r, "fullName", "full_name")) + "</strong>" },
           { label: "Phone / username", keys: ["phone"] },
           { label: "Vehicle", keys: ["assignedVehiclePlate", "assigned_vehicle_plate"] },
@@ -205,6 +328,25 @@
           { label: "Status", render: r => pill(value(r, "status")) }
         ], data));
   }
+  async function renderPassengers() {
+    const data = asArray(await api("/api/admin/passengers"), "passengers");
+    return pageHeader("Passenger directory", "Administrator-only view of registered passenger contact details, route/driver assignment and uploaded profile photos.") +
+      section("Registered passengers", data.length + " account(s)",
+        table([
+          { label: "Profile photo", render: r => '<button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="PROFILE_PHOTO">View photo</button>' },
+          { label: "Passenger", render: r => "<strong>" + esc(value(r, "fullName", "full_name")) + "</strong>" },
+          { label: "Phone", keys: ["phone"] },
+          { label: "Email", keys: ["email"] },
+          { label: "Account", render: r => pill(value(r, "status")) },
+          { label: "Route", keys: ["routeName", "route_name", "appliedRouteName"] },
+          { label: "Assigned vehicle", keys: ["vehiclePlate", "vehicle_plate"] },
+          { label: "Assigned driver", keys: ["driverName", "driver_name"] },
+          { label: "Subscription", render: r => pill(value(r, "subscriptionStatus", "subscription_status")) },
+          { label: "Payment", render: r => pill(value(r, "paymentStatus", "payment_status")) },
+          { label: "Registered", render: r => esc(dateText(value(r, "createdAt", "created_at"))) }
+        ], data));
+  }
+
   async function renderSubscriptions() {
     await loadLookups();
     const data = asArray(await api("/api/admin/subscriptions"), "subscriptions");
@@ -305,6 +447,7 @@
       let html;
       switch (state.view) {
         case "drivers": html = await renderDrivers(); break;
+        case "passengers": html = await renderPassengers(); break;
         case "routes": html = await renderRoutes(); break;
         case "vehicles": html = await renderVehicles(); break;
         case "subscriptions": html = await renderSubscriptions(); break;
@@ -315,6 +458,8 @@
         default: html = await renderOverview();
       }
       $("#page-content").innerHTML = html;
+      if (state.view === "overview") initLiveMap();
+      else if (liveMapTimer) { window.clearInterval(liveMapTimer); liveMapTimer = null; }
       const routeForm = $("#create-route-form");
       if (routeForm) routeForm.addEventListener("submit", submitRoute);
     } catch (error) {
@@ -546,6 +691,8 @@
     if (navButton) { state.view = navButton.dataset.view; renderView(); return; }
     const goButton = event.target.closest("[data-go]");
     if (goButton) { state.view = goButton.dataset.go; renderView(); return; }
+    const privateMediaButton = event.target.closest("[data-private-media-owner]");
+    if (privateMediaButton) { viewPrivateMedia(privateMediaButton); return; }
     const approvalButton = event.target.closest("[data-driver-approval]");
     if (approvalButton) { updateDriverApproval(approvalButton); return; }
     const assignRouteButton = event.target.closest("[data-assign-route]");
