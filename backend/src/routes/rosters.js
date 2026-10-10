@@ -13,21 +13,21 @@ router.get('/my', async (req, res) => {
     if (req.user.role === 'DRIVER') {
       const vehicle = await DB.prepare('SELECT id, plateNumber, model, assignedRouteId, driverId FROM vehicles WHERE driverId = ? LIMIT 1').get(req.user.id);
       if (!vehicle) return res.json({ success: true, role: 'DRIVER', trip: null, passengers: [] });
-      const trip = await DB.prepare("SELECT id, routeId, status, direction, startedAt FROM trips WHERE driverId = ? AND vehicleId = ? AND status = 'IN_PROGRESS' ORDER BY startedAt DESC LIMIT 1").get(req.user.id, vehicle.id);
+      const trip = await DB.prepare("SELECT id, routeId, status, direction, startedAt FROM trips WHERE driverId = ? AND vehicleId = ? AND status = 'IN_PROGRESS' ORDER BY startTime DESC LIMIT 1").get(req.user.id, vehicle.id);
       const routeId = trip?.routeId || vehicle.assignedRouteId;
       if (!routeId) return res.json({ success: true, role: 'DRIVER', trip: trip || null, passengers: [] });
       const passengers = await DB.prepare(`
         SELECT u.id AS passengerId, u.fullName AS passengerName, s.id AS subscriptionId,
           s.subscriptionStatus, s.paymentStatus, s.daysRemaining,
-          c.status AS attendanceStatus, c.createdAt AS scannedAt
+          c.status AS attendanceStatus, c.timestamp AS scannedAt
         FROM subscriptions s
         JOIN users u ON u.id = s.passengerId
         LEFT JOIN checkin_records c ON c.passengerId = s.passengerId AND c.tripId = ?
           AND c.status = 'BOARDED'
-        WHERE s.routeId = ? AND s.subscriptionStatus = 'ACTIVE' AND s.paymentStatus = 'PAID'
+        WHERE s.vehicleId = ? AND s.routeId = ? AND s.subscriptionStatus = 'ACTIVE' AND s.paymentStatus = 'PAID'
           AND s.daysRemaining > 0 AND u.role = 'PASSENGER'
         ORDER BY u.fullName ASC
-      `).all(trip?.id || '', routeId);
+      `).all(trip?.id || '', vehicle.id, routeId);
       return res.json({
         success: true, role: 'DRIVER',
         trip: trip ? { id: trip.id, routeId: trip.routeId, status: trip.status, direction: trip.direction } : null,
@@ -50,7 +50,7 @@ router.get('/my', async (req, res) => {
         FROM subscriptions s
         JOIN vehicles v ON v.assignedRouteId = s.routeId
         JOIN users u ON u.id = v.driverId AND u.role = 'DRIVER' AND u.status = 'ACTIVE'
-        WHERE s.passengerId = ? AND s.subscriptionStatus = 'ACTIVE' AND s.paymentStatus = 'PAID'
+        WHERE s.passengerId = ? AND s.vehicleId = v.id AND s.subscriptionStatus = 'ACTIVE' AND s.paymentStatus = 'PAID'
           AND s.daysRemaining > 0
         ORDER BY v.updatedAt DESC LIMIT 1
       `).get(req.user.id);
