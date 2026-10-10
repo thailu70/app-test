@@ -27,7 +27,8 @@ data class RegisterRequest(
     val vehicleModel: String? = null,
     val vehicleType: String? = null,
     val appliedRouteId: String? = null,
-    val appliedRouteName: String? = null
+    val appliedRouteName: String? = null,
+    val otpProof: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -54,6 +55,30 @@ data class AuthResponse(
     val error: String? = null,
     val errorAm: String? = null,
     val message: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class OtpRequest(val phone: String)
+
+@JsonClass(generateAdapter = true)
+data class OtpRequestResponse(
+    val success: Boolean,
+    val challengeId: String? = null,
+    val expiresInSeconds: Int? = null,
+    val message: String? = null,
+    val error: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class OtpVerifyRequest(val challengeId: String, val code: String)
+
+@JsonClass(generateAdapter = true)
+data class OtpVerifyResponse(
+    val success: Boolean,
+    val otpProof: String? = null,
+    val phone: String? = null,
+    val message: String? = null,
+    val error: String? = null
 )
 
 // -------------------------------------------------------------
