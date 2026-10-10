@@ -87,6 +87,35 @@ class TransportRepository(
         }
     }
 
+
+    suspend fun requestSignupOtp(phone: String): Pair<Boolean, String> {
+        val response = try {
+            apiService.requestSignupOtp(OtpRequest(phone.trim()))
+        } catch (_: Exception) {
+            return false to "Cannot reach RoutePass to send SMS. Check your connection and try again."
+        }
+        val body = response.body()
+        return if (response.isSuccessful && body?.success == true) {
+            true to (body.message ?: "Verification SMS requested.")
+        } else {
+            false to (body?.error ?: "Could not send verification code.")
+        }
+    }
+
+    suspend fun verifySignupOtp(phone: String, code: String): Pair<Boolean, String> {
+        val response = try {
+            apiService.verifySignupOtp(OtpVerifyRequest(phone.trim(), code.trim()))
+        } catch (_: Exception) {
+            return false to "Cannot reach RoutePass to verify the code. Check your connection and try again."
+        }
+        val body = response.body()
+        return if (response.isSuccessful && body?.success == true && body.verified) {
+            true to (body.message ?: "Phone number verified.")
+        } else {
+            false to (body?.error ?: "The verification code could not be verified.")
+        }
+    }
+
     /**
      * Register a new user via VPS Backend.
      * Server is the strict SOURCE OF TRUTH.
@@ -352,8 +381,18 @@ class TransportRepository(
         }
     }
 
-    suspend fun startDriverTrip(routeId: String, vehicleId: String): TripDto {
-        val response = apiService.startTrip(StartTripRequest(routeId = routeId, vehicleId = vehicleId))
+    suspend fun getDriverTripReadiness(routeId: String, direction: String): TripReadinessResponse {
+        val response = apiService.getTripReadiness(routeId = routeId, direction = direction)
+        if (response.isSuccessful && response.body()?.success == true) return response.body()!!
+        val error = response.errorBody()?.string()
+        val message = try {
+            if (!error.isNullOrBlank()) org.json.JSONObject(error).optString("error") else null
+        } catch (_: Exception) { null }
+        throw IllegalStateException(message ?: response.body()?.error ?: "Could not check departure readiness.")
+    }
+
+    suspend fun startDriverTrip(routeId: String, vehicleId: String, direction: String, confirmedArrival: Boolean): TripDto {
+        val response = apiService.startTrip(StartTripRequest(routeId = routeId, vehicleId = vehicleId, direction = direction, confirmedArrival = confirmedArrival))
         if (response.isSuccessful && response.body()?.success == true && response.body()?.trip != null) {
             return response.body()!!.trip!!
         }
