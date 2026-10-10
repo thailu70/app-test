@@ -155,6 +155,34 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     private val _networkStatus = MutableStateFlow(NetworkStatus.ONLINE)
     val networkStatus: StateFlow<NetworkStatus> = _networkStatus.asStateFlow()
 
+    private val _myRoster = MutableStateFlow<Map<String, Any>?>(null)
+    val myRoster: StateFlow<Map<String, Any>?> = _myRoster.asStateFlow()
+    private val _mediaUploadMessage = MutableStateFlow<String?>(null)
+    val mediaUploadMessage: StateFlow<String?> = _mediaUploadMessage.asStateFlow()
+
+    fun refreshMyRoster() {
+        viewModelScope.launch {
+            try {
+                _myRoster.value = repository.getMyRoster()
+            } catch (e: Exception) {
+                _mediaUploadMessage.value = e.message ?: "Could not load roster."
+            }
+        }
+    }
+
+    fun uploadProfileMedia(assetType: String, fileName: String, contentType: String, dataBase64: String) {
+        viewModelScope.launch {
+            _mediaUploadMessage.value = "Uploading $assetType..."
+            try {
+                repository.uploadProfileMedia(assetType, fileName, contentType, dataBase64)
+                _mediaUploadMessage.value = "$assetType uploaded successfully."
+                refreshMyRoster()
+            } catch (e: Exception) {
+                _mediaUploadMessage.value = e.message ?: "File upload failed."
+            }
+        }
+    }
+
     // Notification Tray State
     private val _isNotificationTrayOpen = MutableStateFlow(false)
     val isNotificationTrayOpen: StateFlow<Boolean> = _isNotificationTrayOpen.asStateFlow()
