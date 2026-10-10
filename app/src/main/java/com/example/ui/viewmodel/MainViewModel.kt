@@ -797,6 +797,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
             if (result is QrValidationResult.Valid) {
                 _driverTrip.update { it.copy(checkedInCount = it.checkedInCount + 1) }
+                refreshMyRoster()
             }
         }
     }
