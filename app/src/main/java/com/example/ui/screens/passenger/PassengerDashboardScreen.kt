@@ -160,6 +160,7 @@ fun PassengerDashboardScreen(
         item {
             FinancialBalanceCard(
                 lang = lang,
+                amountEtb = checkoutAmount,
                 onPayClick = { viewModel.openTelebirrDialog() }
             )
         }
@@ -771,6 +772,7 @@ private fun StopPoint(name: String, isActive: Boolean, isCurrent: Boolean) {
 @Composable
 fun FinancialBalanceCard(
     lang: AppLanguage,
+    amountEtb: Double,
     onPayClick: () -> Unit
 ) {
     fun t(key: String) = AppStrings.get(key, lang)
