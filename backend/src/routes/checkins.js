@@ -229,7 +229,7 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
     // Persist a passenger-facing boarding notice as well as a real-time event.
     const boardingNoticeId = `notif_${crypto.randomUUID()}`;
     await DB.prepare('INSERT INTO notifications (id, title, message, targetAudience, type, senderName) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(boardingNoticeId, 'Boarding confirmed', `${result.passengerName}, your boarding has been confirmed on vehicle ${vehicle.plateNumber} at ${currentStop}.`, 'PASSENGERS', 'SERVICE', 'RoutePass Boarding');
+      .run(boardingNoticeId, 'Boarding confirmed', `Boarding was confirmed on vehicle ${vehicle.plateNumber} at ${currentStop}. Check your RoutePass trip status.`, 'PASSENGERS', 'SERVICE', 'RoutePass Boarding');
 
     // Broadcast check-in event to WebSockets
     if (req.app.locals.broadcastWs) {
