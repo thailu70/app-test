@@ -176,7 +176,7 @@ router.post('/register', authLimiter, async (req, res) => {
       }
     });
 
-    if (normalizedRole !== 'ADMIN' && process.env.NODE_ENV === 'production') {
+    if (normalizedRole !== 'ADMIN' && process.env.NODE_ENV === 'production' && !(normalizedRole === 'PASSENGER' && process.env.ROUTEPASS_TEST_MODE === 'true') && otpProof) {
       await DB.prepare('DELETE FROM otp_challenges WHERE phone = ? AND proof_hash = ?').run(phone.trim().replace(/[\s()-]/g, ''), sha256(otpProof));
     }
 
