@@ -75,6 +75,15 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
       });
     }
 
+    if (!Array.isArray(stops) || stops.length !== 2 ||
+        !String(stops[0]?.stopName || '').trim() || !String(stops[1]?.stopName || '').trim() ||
+        String(stops[0].stopName).trim().toLowerCase() === String(stops[1].stopName).trim().toLowerCase()) {
+      return res.status(400).json({
+        success: false,
+        error: 'A route must have exactly two different endpoints: one departure point and one destination point.'
+      });
+    }
+
     const routeId = `route_${crypto.randomUUID().slice(0, 8)}`;
 
     await DB.prepare(`
@@ -149,6 +158,14 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
     const name = String(req.body.name ?? current.name).trim();
     const nameAm = String(req.body.nameAm ?? current.nameAm).trim();
     if (!name || !nameAm) return res.status(400).json({ success: false, error: 'Route names in English and Amharic are required.' });
+    if (req.body.stops !== undefined && (
+      !Array.isArray(req.body.stops) || req.body.stops.length !== 2 ||
+      !String(req.body.stops[0]?.stopName || '').trim() ||
+      !String(req.body.stops[1]?.stopName || '').trim() ||
+      String(req.body.stops[0].stopName).trim().toLowerCase() === String(req.body.stops[1].stopName).trim().toLowerCase()
+    )) {
+      return res.status(400).json({ success: false, error: 'A route must have exactly two different endpoints: one departure point and one destination point.' });
+    }
     const serviceType = String(req.body.serviceType ?? current.serviceType ?? 'TWO_WAY').toUpperCase();
     if (!['ONE_WAY', 'TWO_WAY'].includes(serviceType)) return res.status(400).json({ success: false, error: 'serviceType must be ONE_WAY or TWO_WAY.' });
 
