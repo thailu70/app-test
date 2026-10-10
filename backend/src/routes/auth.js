@@ -110,8 +110,12 @@ router.post('/register', authLimiter, async (req, res) => {
       }
     }
 
-    // All self-service registrations require a recent server-issued OTP proof for this exact phone.
-    if (normalizedRole !== 'ADMIN' && process.env.NODE_ENV === 'production') {
+    // Production requires OTP for self-service registrations. A narrowly scoped passenger
+    // bypass is available only when an administrator explicitly enables ROUTEPASS_TEST_MODE
+    // on a test instance; drivers still require verified OTP.
+    const testPassengerRegistration = normalizedRole === 'PASSENGER' &&
+      process.env.NODE_ENV === 'production' && process.env.ROUTEPASS_TEST_MODE === 'true';
+    if (normalizedRole !== 'ADMIN' && process.env.NODE_ENV === 'production' && !testPassengerRegistration) {
       if (typeof otpProof !== 'string' || otpProof.length < 32) {
         return res.status(403).json({ success: false, error: 'Verify your mobile number by SMS before registering.' });
       }
