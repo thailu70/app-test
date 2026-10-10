@@ -158,6 +158,69 @@ router.get('/drivers', async (req, res) => {
 });
 
 /**
+ * GET /api/admin/passengers
+ * Admin-only passenger directory with latest subscription and assigned driver.
+ * Password hashes and authentication material are deliberately excluded.
+ */
+router.get('/passengers', async (req, res) => {
+  try {
+    const passengers = await DB.prepare(`
+      SELECT u.id, u.fullName, u.phone, u.email, u.status, u.createdAt,
+             r.name AS routeName, s.subscriptionStatus, s.paymentStatus, s.endDate,
+             v.plateNumber AS vehiclePlate, d.fullName AS driverName, d.id AS driverId
+      FROM users u
+      LEFT JOIN subscriptions s ON s.id = (
+        SELECT s2.id FROM subscriptions s2
+        WHERE s2.passengerId = u.id
+        ORDER BY s2.updatedAt DESC LIMIT 1
+      )
+      LEFT JOIN routes r ON r.id = s.routeId
+      LEFT JOIN vehicles v ON v.id = s.vehicleId
+      LEFT JOIN users d ON d.id = v.driverId AND d.role = 'DRIVER'
+      WHERE u.role = 'PASSENGER'
+      ORDER BY u.createdAt DESC
+    `).all();
+    res.json({ success: true, passengers });
+  } catch (err) {
+    console.error('[Admin] passenger directory failed:', err);
+    res.status(500).json({ success: false, error: 'Could not load passenger directory.' });
+  }
+});
+
+/**
+ * GET /api/admin/tracking
+ * Admin-only live vehicle locations and active trip progress.
+ */
+router.get('/tracking', async (req, res) => {
+  try {
+    const vehicles = await DB.prepare(`
+      SELECT v.id, v.plateNumber, v.model, v.status AS vehicleStatus,
+             v.driverId, u.fullName AS driverName, u.phone AS driverPhone,
+             r.id AS routeId, r.name AS routeName,
+             l.latitude, l.longitude, l.speed, l.current_stop AS currentStop,
+             l.updated_at AS lastGpsAt,
+             t.currentStop AS tripCurrentStop, t.direction AS tripDirection, t.status AS tripStatus
+      FROM vehicles v
+      LEFT JOIN users u ON u.id = v.driverId AND u.role = 'DRIVER'
+      LEFT JOIN routes r ON r.id = v.assignedRouteId
+      LEFT JOIN vehicle_live_locations l ON l.vehicle_id = v.id
+      LEFT JOIN trips t ON t.vehicleId = v.id AND t.status = 'IN_PROGRESS'
+      ORDER BY v.plateNumber ASC
+    `).all();
+    res.json({ success: true, vehicles: vehicles.map(v => ({
+      ...v,
+      latitude: v.latitude == null ? null : Number(v.latitude),
+      longitude: v.longitude == null ? null : Number(v.longitude),
+      speed: v.speed == null ? null : Number(v.speed),
+      hasLocation: v.latitude != null && v.longitude != null && Boolean(v.lastGpsAt)
+    })) });
+  } catch (err) {
+    console.error('[Admin] live tracking query failed:', err);
+    res.status(500).json({ success: false, error: 'Could not load live driver tracking.' });
+  }
+});
+
+/**
  * GET /api/admin/subscriptions
  * List all subscriptions
  */
