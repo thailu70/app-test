@@ -8,9 +8,9 @@ plugins {
   // alias(libs.plugins.google.services)
 }
 
-// Configure for each deployment with -PROUTEPASS_API_BASE_URL=https://api.yourdomain.com/
+// Defaults to the live RoutePass VPS; override with -PROUTEPASS_API_BASE_URL only for other environments.
 val routePassApiBaseUrl = providers.gradleProperty("ROUTEPASS_API_BASE_URL")
-  .orElse("https://api.example.com/")
+  .orElse("https://routepass.duckdns.org/")
   .get()
   .let { if (it.endsWith("/")) it else "$it/" }
 
