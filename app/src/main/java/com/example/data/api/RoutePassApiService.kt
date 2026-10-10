@@ -116,6 +116,15 @@ interface RoutePassApiService {
     suspend fun getCheckinsForTrip(@Path("tripId") tripId: String): Response<Map<String, Any>>
 
     // -------------------------------------------------------------
+    // Profile photos, transporter documents, and roster attendance
+    // -------------------------------------------------------------
+    @POST("api/profile-media/upload")
+    suspend fun uploadProfileMedia(@Body request: Map<String, String>): Response<Map<String, Any>>
+
+    @GET("api/rosters/my")
+    suspend fun getMyRoster(): Response<Map<String, Any>>
+
+    // -------------------------------------------------------------
     // Operational Notifications
     // -------------------------------------------------------------
     @GET("api/notifications")
