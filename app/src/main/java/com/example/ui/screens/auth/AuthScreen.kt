@@ -61,6 +61,11 @@ fun AuthScreen(
     var vehicleType by remember { mutableStateOf("MINIBUS_14") }
     var vehicleTypeMenuExpanded by remember { mutableStateOf(false) }
     var adminSecret by remember { mutableStateOf("") }
+    var otpCode by remember { mutableStateOf("") }
+    var otpRequestedPhone by remember { mutableStateOf("") }
+    var isPhoneVerified by remember { mutableStateOf(false) }
+    var otpMessage by remember { mutableStateOf<String?>(null) }
+    var otpBusy by remember { mutableStateOf(false) }
 
     // Applied Route Selection for Passenger and Driver
     var selectedRouteId by remember { mutableStateOf("route_bole_merkato") }
@@ -80,6 +85,11 @@ fun AuthScreen(
         password = ""
         confirmPassword = ""
         registrationValidationMessage = null
+        otpCode = ""
+        otpRequestedPhone = ""
+        isPhoneVerified = false
+        otpMessage = null
+        otpBusy = false
         if (isRegisterMode) fullName = ""
     }
 
@@ -611,7 +621,15 @@ fun AuthScreen(
 
                         OutlinedTextField(
                             value = phone,
-                            onValueChange = { phone = it },
+                            onValueChange = {
+                                if (it.trim() != otpRequestedPhone) {
+                                    isPhoneVerified = false
+                                    otpRequestedPhone = ""
+                                    otpCode = ""
+                                    otpMessage = null
+                                }
+                                phone = it
+                            },
                             label = { Text("Mobile Phone Number (+251 / 09...)") },
                             placeholder = { Text("+251911223344") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
@@ -620,6 +638,69 @@ fun AuthScreen(
                                 .fillMaxWidth()
                                 .testTag("auth_phone_input")
                         )
+
+                        if (isRegisterMode) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        otpBusy = true
+                                        otpMessage = null
+                                        viewModel.requestSignupOtp(phone) { ok, message ->
+                                            otpBusy = false
+                                            otpMessage = message
+                                            if (ok) {
+                                                otpRequestedPhone = phone.trim()
+                                                isPhoneVerified = false
+                                                otpCode = ""
+                                            }
+                                        }
+                                    },
+                                    enabled = !otpBusy && phone.isNotBlank() && !isPhoneVerified,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(if (otpBusy) "Please wait…" else "Send SMS OTP")
+                                }
+                                if (isPhoneVerified) {
+                                    Text("Verified", color = TransportGreenPrimary, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                            if (otpRequestedPhone.isNotBlank() && !isPhoneVerified) {
+                                OutlinedTextField(
+                                    value = otpCode,
+                                    onValueChange = { otpCode = it.filter(Char::isDigit).take(6) },
+                                    label = { Text("6-digit SMS verification code") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth().testTag("auth_otp_input")
+                                )
+                                Button(
+                                    onClick = {
+                                        otpBusy = true
+                                        viewModel.verifySignupOtp(phone, otpCode) { ok, message ->
+                                            otpBusy = false
+                                            otpMessage = message
+                                            isPhoneVerified = ok
+                                        }
+                                    },
+                                    enabled = !otpBusy && otpCode.length == 6 && phone.trim() == otpRequestedPhone,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(if (otpBusy) "Verifying…" else "Verify phone number")
+                                }
+                            }
+                            otpMessage?.let { message ->
+                                Text(
+                                    text = message,
+                                    color = if (isPhoneVerified) TransportGreenPrimary else MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
 
                         OutlinedTextField(
                             value = password,
@@ -687,6 +768,7 @@ fun AuthScreen(
                             onClick = {
                                 if (isRegisterMode) {
                                     val validationMessage = when {
+                                        !isPhoneVerified -> "Verify your phone number by SMS OTP before creating the account."
                                         password.length < 10 -> "Use a password with at least 10 characters."
                                         password != confirmPassword -> "The two passwords do not match. Please re-enter them."
                                         else -> null
