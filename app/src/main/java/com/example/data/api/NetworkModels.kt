@@ -58,6 +58,14 @@ data class AuthResponse(
 )
 
 @JsonClass(generateAdapter = true)
+data class PublicConfigResponse(
+    val success: Boolean,
+    val testMode: Boolean = false,
+    val passengerOtpRequired: Boolean = true,
+    val driverOtpRequired: Boolean = true
+)
+
+@JsonClass(generateAdapter = true)
 data class OtpRequest(val phone: String)
 
 @JsonClass(generateAdapter = true)
