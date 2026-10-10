@@ -14,6 +14,12 @@ interface RoutePassApiService {
     @POST("api/auth/register")
     suspend fun register(@Body request: RegisterRequest): Response<AuthResponse>
 
+    @POST("api/auth/otp/request")
+    suspend fun requestOtp(@Body request: OtpRequest): Response<OtpRequestResponse>
+
+    @POST("api/auth/otp/verify")
+    suspend fun verifyOtp(@Body request: OtpVerifyRequest): Response<OtpVerifyResponse>
+
     @GET("api/auth/me")
     suspend fun getCurrentUser(): Response<AuthResponse>
 
