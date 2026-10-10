@@ -372,8 +372,8 @@ class TransportRepository(
         }
     }
 
-    suspend fun startDriverTrip(routeId: String, vehicleId: String): TripDto {
-        val response = apiService.startTrip(StartTripRequest(routeId = routeId, vehicleId = vehicleId))
+    suspend fun startDriverTrip(routeId: String, vehicleId: String, latitude: Double, longitude: Double, direction: String = "OUTBOUND"): TripDto {
+        val response = apiService.startTrip(StartTripRequest(routeId = routeId, vehicleId = vehicleId, latitude = latitude, longitude = longitude, direction = direction, arrivalConfirmed = true))
         if (response.isSuccessful && response.body()?.success == true && response.body()?.trip != null) {
             return response.body()!!.trip!!
         }
