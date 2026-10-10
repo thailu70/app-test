@@ -69,7 +69,7 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
     // grace windows are explicit server settings so operations can tune them intentionally.
     if (process.env.NODE_ENV === 'production' && process.env.ENFORCE_DEPARTURE_SCHEDULE !== 'false') {
       const scheduledTime = String(String(direction).toUpperCase() === 'INBOUND' ? route.eveningDeparture : route.morningDeparture || '').slice(0, 5);
-      const match = /^(\\d{2}):(\\d{2})$/.exec(scheduledTime);
+      const match = /^(\d{2}):(\d{2})$/.exec(scheduledTime);
       if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) {
         return res.status(409).json({ success: false, code: 'DEPARTURE_SCHEDULE_MISSING', error: 'The assigned route has no valid departure time. Contact the administrator.' });
       }
