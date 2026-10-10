@@ -56,6 +56,7 @@ import com.example.core.localization.AppLanguage
 import com.example.core.localization.AppStrings
 import com.example.core.qr.QrValidationResult
 import com.example.data.entity.RouteStopEntity
+import com.example.ui.components.PrivateMediaUploadButton
 import com.example.ui.components.MiniVehicleMap
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DriverTripState
@@ -81,6 +82,10 @@ fun DriverTripScreen(
     val networkStatus by viewModel.networkStatus.collectAsState()
     val isScannerOpen by viewModel.isScannerOpen.collectAsState()
     val scanResult by viewModel.scanResult.collectAsState()
+    val myRoster by viewModel.myRoster.collectAsState()
+    val mediaUploadMessage by viewModel.mediaUploadMessage.collectAsState()
+    LaunchedEffect(currentUser?.id) { if (currentUser != null) viewModel.refreshMyRoster() }
+    val rosterPassengers = myRoster?.get("passengers") as? List<*> ?: emptyList<Any>()
 
     fun t(key: String) = AppStrings.get(key, lang)
 
@@ -109,6 +114,42 @@ fun DriverTripScreen(
                     onToggleNetwork = { viewModel.toggleNetworkMode() },
                     onSetVehicleType = { type, cap -> viewModel.setVehicleType(type, cap) }
                 )
+            }
+
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Driver and vehicle documents", fontWeight = FontWeight.Bold)
+                        Text("Upload clear, current documents. Each file must be 5 MB or smaller.")
+                        PrivateMediaUploadButton(viewModel, "DRIVER_LICENSE", "Upload driver's licence")
+                        PrivateMediaUploadButton(viewModel, "VEHICLE_PHOTO", "Upload vehicle photo", imagesOnly = true)
+                        PrivateMediaUploadButton(viewModel, "TRADE_LICENSE", "Upload trade licence")
+                        mediaUploadMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    }
+                }
+            }
+
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Passenger roster & attendance", fontWeight = FontWeight.Bold)
+                        Text("Attendance changes to PRESENT after a successful QR scan for this active trip.")
+                        Text("Passengers: ${rosterPassengers.size}", style = MaterialTheme.typography.bodySmall)
+                        rosterPassengers.forEach { row ->
+                            val passenger = row as? Map<*, *> ?: return@forEach
+                            Divider()
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(passenger["fullName"]?.toString() ?: "Passenger", fontWeight = FontWeight.SemiBold)
+                                    Text(passenger["attendance"]?.toString() ?: "NOT_SCANNED", style = MaterialTheme.typography.bodySmall)
+                                }
+                                Text(if (passenger["attendance"] == "PRESENT") "Present" else "Not scanned", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        if (rosterPassengers.isEmpty()) Text("No active paid passengers found for the assigned route.")
+                        Button(onClick = { viewModel.refreshMyRoster() }) { Text("Refresh roster") }
+                    }
+                }
             }
 
             // 2. Actual vehicle position, reported by this driver's phone.
