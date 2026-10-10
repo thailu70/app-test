@@ -105,6 +105,29 @@ class TransportRepository(
         return body.otpProof
     }
 
+    suspend fun uploadProfileMedia(assetType: String, fileName: String, contentType: String, dataBase64: String): Map<String, Any> {
+        val response = apiService.uploadProfileMedia(mapOf(
+            "assetType" to assetType,
+            "fileName" to fileName,
+            "contentType" to contentType,
+            "dataBase64" to dataBase64
+        ))
+        val body = response.body()
+        if (!response.isSuccessful || body?.get("success") != true) {
+            throw IllegalStateException(body?.get("error")?.toString() ?: "File upload failed.")
+        }
+        return body
+    }
+
+    suspend fun getMyRoster(): Map<String, Any> {
+        val response = apiService.getMyRoster()
+        val body = response.body()
+        if (!response.isSuccessful || body?.get("success") != true) {
+            throw IllegalStateException(body?.get("error")?.toString() ?: "Could not load roster.")
+        }
+        return body
+    }
+
     /**
      * Register a new user via VPS Backend.
      * Server is the strict SOURCE OF TRUTH.
