@@ -170,6 +170,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         }
     }
 
+    fun reportMediaUploadError(message: String) { _mediaUploadMessage.value = message }
+
     fun uploadProfileMedia(assetType: String, fileName: String, contentType: String, dataBase64: String) {
         viewModelScope.launch {
             _mediaUploadMessage.value = "Uploading $assetType..."
