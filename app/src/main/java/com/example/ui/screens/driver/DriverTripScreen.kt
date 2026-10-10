@@ -24,6 +24,7 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.delay
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -76,6 +77,24 @@ fun DriverTripScreen(
     val trackingMessage by viewModel.trackingMessage.collectAsState()
     val driverActionMessage by viewModel.driverActionMessage.collectAsState()
     var gpsStatus by remember { mutableStateOf("Waiting for GPS permission.") }
+    var departureDirection by remember { mutableStateOf("OUTBOUND") }
+    var departureStatus by remember { mutableStateOf("Waiting for schedule and GPS status.") }
+    var showArrivalConfirmation by remember { mutableStateOf(false) }
+    var showCompleteConfirmation by remember { mutableStateOf(false) }
+    val tripReadiness by viewModel.tripReadiness.collectAsState()
+
+    // Refresh route schedule and geofence while the driver portal is open so the on-time
+    // reminder and arrival confirmation are based on current server GPS, not a local estimate.
+    LaunchedEffect(currentUser?.id, departureDirection, tripState.isNavigating) {
+        if (currentUser?.role == "DRIVER" && !tripState.isNavigating) {
+            while (true) {
+                viewModel.refreshDepartureReadiness(departureDirection) { _, message ->
+                    departureStatus = message
+                }
+                delay(15000)
+            }
+        }
+    }
     val networkStatus by viewModel.networkStatus.collectAsState()
     val isScannerOpen by viewModel.isScannerOpen.collectAsState()
     val scanResult by viewModel.scanResult.collectAsState()
@@ -120,13 +139,66 @@ fun DriverTripScreen(
                 }
             }
 
-            // 3. High-Visibility Big Navigation HUD
+            // 3. Scheduled departure & arrival confirmation
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().testTag("driver_departure_readiness_card"),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("Scheduled departure", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("Choose the assigned direction. RoutePass checks departure time, your live GPS and the 50 m pickup radius on the server.")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { departureDirection = "OUTBOUND" },
+                                enabled = !tripState.isNavigating,
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Home → Work / School") }
+                            OutlinedButton(
+                                onClick = { departureDirection = "INBOUND" },
+                                enabled = !tripState.isNavigating,
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Work / School → Home") }
+                        }
+                        tripReadiness?.let { readiness ->
+                            Text(
+                                "Departure stop: " + (readiness.departureStop?.name ?: "Not configured"),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                "Scheduled: " + (readiness.scheduledTime ?: "—") +
+                                    " · Distance: " + (readiness.distanceMeters?.let { "$it m" } ?: "Waiting for GPS"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Slate600
+                            )
+                            if (readiness.reminderDue && !readiness.reminderMessage.isNullOrBlank()) {
+                                Text("⏰ " + readiness.reminderMessage, color = Color(0xFFB45309), fontWeight = FontWeight.Bold)
+                            }
+                            if (readiness.canConfirmArrival) {
+                                Text("You are within 50 metres of the assigned pickup point. Confirm arrival to notify passengers.", color = TransportGreenPrimary, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                        Text(departureStatus, style = MaterialTheme.typography.bodySmall, color = if (tripReadiness?.canConfirmArrival == true) TransportGreenPrimary else Slate600)
+                    }
+                }
+            }
+
+            // 4. High-Visibility Big Navigation HUD
             item {
                 DriverNavigationHudCard(
                     tripState = tripState,
                     currentStop = stops.getOrNull(tripState.currentStopIndex),
                     lang = lang,
-                    onStartNavigation = { viewModel.startNavigation() },
+                    onStartNavigation = {
+                        viewModel.refreshDepartureReadiness(departureDirection) { canConfirm, message ->
+                            departureStatus = message
+                            if (canConfirm) showArrivalConfirmation = true
+                        }
+                    },
                     onArrived = { viewModel.arriveAtCurrentStop() },
                     onScanQr = { viewModel.openScanner() },
                     onSkip = { viewModel.skipCurrentStop() },
@@ -134,7 +206,21 @@ fun DriverTripScreen(
                 )
             }
 
-            // 4. Stop Sequence & Passenger Attendance
+            if (tripState.isNavigating) {
+                item {
+                    Button(
+                        onClick = { showCompleteConfirmation = true },
+                        modifier = Modifier.fillMaxWidth().height(52.dp).testTag("driver_complete_route_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = TransportGreenDark)
+                    ) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Complete route")
+                    }
+                }
+            }
+
+            // 5. Stop Sequence & Passenger Attendance
             item {
                 Text(
                     text = t("pickup_sequence"),
@@ -155,6 +241,43 @@ fun DriverTripScreen(
                     }
                 )
             }
+        }
+
+        if (showArrivalConfirmation) {
+            AlertDialog(
+                onDismissRequest = { showArrivalConfirmation = false },
+                title = { Text("Confirm vehicle arrival?") },
+                text = { Text(
+                    "RoutePass reports the vehicle within 50 metres of " +
+                        (tripReadiness?.departureStop?.name ?: "the assigned departure stop") +
+                        " and inside the scheduled departure window. Confirming starts the route and notifies active passengers to board."
+                ) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showArrivalConfirmation = false
+                        viewModel.startNavigation(direction = departureDirection, confirmArrival = true)
+                    }) { Text("Confirm arrival & start") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showArrivalConfirmation = false }) { Text("Not yet") }
+                }
+            )
+        }
+        if (showCompleteConfirmation) {
+            AlertDialog(
+                onDismissRequest = { showCompleteConfirmation = false },
+                title = { Text("Complete this route?") },
+                text = { Text("This will mark the route as completed and notify the passengers subscribed to this route.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showCompleteConfirmation = false
+                        viewModel.completeNavigation()
+                    }) { Text("Complete route") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCompleteConfirmation = false }) { Text("Cancel") }
+                }
+            )
         }
 
         // Camera-backed scanner dialog; each decoded QR is checked by the VPS.
@@ -580,7 +703,18 @@ fun DriverNavigationHudCard(
 
             // Big Hands-Free / Driver-Safe Action Buttons
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (!tripState.isArrivedAtStop) {
+                if (!tripState.isNavigating) {
+                    Button(
+                        onClick = onStartNavigation,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = TransportGreenPrimary),
+                        modifier = Modifier.fillMaxWidth().height(56.dp).testTag("driver_start_route_button")
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("Check departure & start route", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
+                } else if (!tripState.isArrivedAtStop) {
                     Button(
                         onClick = onArrived,
                         shape = RoundedCornerShape(14.dp),
