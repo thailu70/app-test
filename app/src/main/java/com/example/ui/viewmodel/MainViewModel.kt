@@ -105,6 +105,47 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
     fun clearRegistrationMessage() { _registrationMessage.value = null }
 
+    private val _otpChallengeId = MutableStateFlow<String?>(null)
+    val otpChallengeId: StateFlow<String?> = _otpChallengeId.asStateFlow()
+    private val _otpProof = MutableStateFlow<String?>(null)
+    val otpProof: StateFlow<String?> = _otpProof.asStateFlow()
+    private val _otpMessage = MutableStateFlow<String?>(null)
+    val otpMessage: StateFlow<String?> = _otpMessage.asStateFlow()
+
+    fun requestRegistrationOtp(phone: String) {
+        viewModelScope.launch {
+            _authError.value = null
+            _otpProof.value = null
+            _otpChallengeId.value = null
+            try {
+                _otpChallengeId.value = repository.requestRegistrationOtp(phone)
+                _otpMessage.value = "Verification code sent by SMS. It expires in 5 minutes."
+            } catch (e: Exception) {
+                _otpMessage.value = null
+                _authError.value = e.message ?: "Could not send verification code."
+            }
+        }
+    }
+
+    fun verifyRegistrationOtp(code: String) {
+        viewModelScope.launch {
+            _authError.value = null
+            val challenge = _otpChallengeId.value
+            if (challenge.isNullOrBlank()) {
+                _authError.value = "Request a verification code first."
+                return@launch
+            }
+            try {
+                _otpProof.value = repository.verifyRegistrationOtp(challenge, code)
+                _otpMessage.value = "Mobile number verified. You can complete registration."
+            } catch (e: Exception) {
+                _otpProof.value = null
+                _authError.value = e.message ?: "Could not verify code."
+            }
+        }
+    }
+
+
     private val _networkStatus = MutableStateFlow(NetworkStatus.ONLINE)
     val networkStatus: StateFlow<NetworkStatus> = _networkStatus.asStateFlow()
 
@@ -381,7 +422,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         vehicleModel: String = "",
         vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
-        appliedRouteName: String = ""
+        appliedRouteName: String = "",
+        otpProof: String = ""
     ) {
         viewModelScope.launch {
             _authError.value = null
@@ -419,7 +461,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     vehicleModel = vehicleModel,
                     vehicleType = vehicleType,
                     appliedRouteId = appliedRouteId,
-                    appliedRouteName = appliedRouteName
+                    appliedRouteName = appliedRouteName,
+                    otpProof = otpProof
                 )
                 if (role == AppRole.DRIVER) {
                     _registrationMessage.value = "Thank you for registering. We will review your licence and vehicle, authorize your account, assign your route, and connect appropriate passenger subscriptions to your vehicle. We will contact you when it is ready. You can sign in after approval."
