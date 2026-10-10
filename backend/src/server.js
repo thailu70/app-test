@@ -119,6 +119,7 @@ app.get('/api/ready', async (req, res) => {
 
 // Mount Route Modules
 app.use('/api/auth/otp', require('./routes/otp'));
+app.use('/api/workflow', require('./routes/workflow'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/routes', require('./routes/routes'));
 app.use('/api/subscriptions/telebirr', require('./routes/telebirr'));
@@ -408,6 +409,37 @@ app.locals.broadcastWs = broadcastAuthorized;
 // Start only after applying the additive runtime GPS-table migration. This supports existing
 // PostgreSQL installations where init-db.sql was executed before vehicle_live_locations existed.
 async function startServer() {
+  await DB.prepare(`
+    CREATE TABLE IF NOT EXISTS route_schedule_assignments (
+      id VARCHAR(64) PRIMARY KEY,
+      route_id VARCHAR(64) NOT NULL REFERENCES routes(id),
+      vehicle_id VARCHAR(64) NOT NULL REFERENCES vehicles(id),
+      driver_id VARCHAR(64) NOT NULL REFERENCES users(id),
+      direction VARCHAR(20) NOT NULL CHECK (direction IN ('HOME_TO_WORK', 'WORK_TO_HOME')),
+      departure_stop_id VARCHAR(64) NOT NULL REFERENCES route_stops(id),
+      scheduled_departure_at TIMESTAMP NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'ASSIGNED',
+      arrival_confirmed_at TIMESTAMP,
+      completed_at TIMESTAMP,
+      created_by VARCHAR(64) REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+  await DB.prepare('CREATE INDEX IF NOT EXISTS idx_route_schedule_driver_time ON route_schedule_assignments(driver_id, scheduled_departure_at)').run();
+  await DB.prepare(`
+    CREATE TABLE IF NOT EXISTS routepass_notifications (
+      id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      schedule_id VARCHAR(64) REFERENCES route_schedule_assignments(id) ON DELETE CASCADE,
+      type VARCHAR(50) NOT NULL,
+      title VARCHAR(160) NOT NULL,
+      message TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      read_at TIMESTAMP
+    )
+  `).run();
+  await DB.prepare('CREATE INDEX IF NOT EXISTS idx_routepass_notifications_user_time ON routepass_notifications(user_id, created_at)').run();
+
   await DB.prepare(`
     CREATE TABLE IF NOT EXISTS phone_otp_challenges (
       phone VARCHAR(32) PRIMARY KEY,
