@@ -25,6 +25,9 @@ if (process.env.NODE_ENV === 'production') {
   if (!process.env.QR_SIGNING_KEY || process.env.QR_SIGNING_KEY.length < 32) {
     throw new Error('[FATAL CONFIGURATION ERROR] QR_SIGNING_KEY must be at least 32 characters in production.');
   }
+  if (!process.env.OTP_HASH_SECRET || process.env.OTP_HASH_SECRET.length < 32) {
+    throw new Error('[FATAL CONFIGURATION ERROR] OTP_HASH_SECRET must be at least 32 characters in production.');
+  }
 }
 
 const app = express();
