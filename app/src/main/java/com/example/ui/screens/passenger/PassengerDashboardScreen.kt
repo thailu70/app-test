@@ -1,9 +1,11 @@
 package com.example.ui.screens.passenger
 
 import android.net.Uri
+import android.graphics.BitmapFactory
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
@@ -63,6 +66,8 @@ fun PassengerDashboardScreen(
     val isComplaintOpen by viewModel.isComplaintDialogOpen.collectAsState()
     val myRoster by viewModel.myRoster.collectAsState()
     val mediaUploadMessage by viewModel.mediaUploadMessage.collectAsState()
+    val driverPhotoBytes by viewModel.assignedDriverPhotoBytes.collectAsState()
+    val driverPhotoBitmap = remember(driverPhotoBytes) { driverPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
 
     LaunchedEffect(currentUser?.id) { if (currentUser != null) viewModel.refreshMyRoster() }
     val assignment = myRoster?.get("assignment") as? Map<*, *>
@@ -110,8 +115,16 @@ fun PassengerDashboardScreen(
                     mediaUploadMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     Divider()
                     Text("Assigned driver", fontWeight = FontWeight.Bold)
+                    if (driverPhotoBitmap != null) {
+                        Image(
+                            bitmap = driverPhotoBitmap!!.asImageBitmap(),
+                            contentDescription = "Assigned driver photo",
+                            modifier = Modifier.size(88.dp).clip(CircleShape)
+                        )
+                    } else {
+                        Text("Driver photo not uploaded yet", style = MaterialTheme.typography.bodySmall)
+                    }
                     Text(assignedDriver?.get("fullName")?.toString() ?: "Driver not assigned yet")
-                    Text("Driver photo is available when the assigned driver uploads one.", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
