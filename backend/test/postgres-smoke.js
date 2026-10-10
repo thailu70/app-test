@@ -79,6 +79,14 @@ async function run() {
     assert.equal(result.data.stops.length, 1, 'Nested route stop must have been inserted');
     const createdRouteId = result.data.route.id;
 
+    result = await requestJson(baseUrl, '/api/auth/register', 'POST', {
+      fullName: 'Unverified CI Passenger',
+      phone: '+251900000102',
+      password: 'CI_Passenger_Password#2026',
+      role: 'PASSENGER',
+      appliedRouteId: 'route_bole_merkato'
+    });
+    assert.equal(result.status, 403, 'Signup without verified OTP must be rejected');
     const passengerOtpChallengeId = await seedVerifiedOtp('+251900000102');
     result = await requestJson(baseUrl, '/api/auth/register', 'POST', {
       fullName: 'CI Passenger',
