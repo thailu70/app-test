@@ -87,6 +87,34 @@ class TransportRepository(
         }
     }
 
+    suspend fun requestSignupOtp(phone: String): OtpResponse {
+        val response = try {
+            apiService.requestSignupOtp(OtpRequest(phone.trim()))
+        } catch (e: Exception) {
+            throw IllegalStateException("Could not contact RoutePass SMS verification service: ${e.message}")
+        }
+        if (response.isSuccessful && response.body()?.success == true) return response.body()!!
+        val errorBody = response.errorBody()?.string()
+        val message = try {
+            if (!errorBody.isNullOrBlank()) org.json.JSONObject(errorBody).optString("error") else null
+        } catch (_: Exception) { null }
+        throw IllegalStateException(message ?: "Could not send the SMS verification code.")
+    }
+
+    suspend fun verifySignupOtp(phone: String, challengeId: String, code: String): OtpResponse {
+        val response = try {
+            apiService.verifySignupOtp(OtpVerifyRequest(phone.trim(), challengeId, code.trim()))
+        } catch (e: Exception) {
+            throw IllegalStateException("Could not contact RoutePass SMS verification service: ${e.message}")
+        }
+        if (response.isSuccessful && response.body()?.success == true && response.body()?.verified == true) return response.body()!!
+        val errorBody = response.errorBody()?.string()
+        val message = try {
+            if (!errorBody.isNullOrBlank()) org.json.JSONObject(errorBody).optString("error") else null
+        } catch (_: Exception) { null }
+        throw IllegalStateException(message ?: "The verification code is invalid or expired.")
+    }
+
     /**
      * Register a new user via VPS Backend.
      * Server is the strict SOURCE OF TRUTH.
@@ -105,7 +133,8 @@ class TransportRepository(
         vehicleModel: String = "",
         vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
-        appliedRouteName: String = ""
+        appliedRouteName: String = "",
+        otpChallengeId: String = ""
     ): UserEntity {
         val normalizedRole = role.trim().uppercase()
         val cleanPhone = phone.trim()
@@ -123,7 +152,8 @@ class TransportRepository(
             vehicleModel = vehicleModel.ifBlank { null },
             vehicleType = vehicleType.ifBlank { null },
             appliedRouteId = appliedRouteId.ifBlank { null },
-            appliedRouteName = appliedRouteName.ifBlank { null }
+            appliedRouteName = appliedRouteName.ifBlank { null },
+            otpChallengeId = otpChallengeId.ifBlank { null }
         )
 
         val response = try {
