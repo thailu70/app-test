@@ -14,6 +14,12 @@ interface RoutePassApiService {
     @POST("api/auth/register")
     suspend fun register(@Body request: RegisterRequest): Response<AuthResponse>
 
+    @POST("api/auth/otp/request")
+    suspend fun requestSignupOtp(@Body request: OtpRequest): Response<OtpResponse>
+
+    @POST("api/auth/otp/verify")
+    suspend fun verifySignupOtp(@Body request: OtpVerifyRequest): Response<OtpResponse>
+
     @GET("api/auth/me")
     suspend fun getCurrentUser(): Response<AuthResponse>
 
@@ -82,6 +88,12 @@ interface RoutePassApiService {
     // -------------------------------------------------------------
     // Driver Trips
     // -------------------------------------------------------------
+    @GET("api/trips/readiness")
+    suspend fun getTripReadiness(
+        @Query("routeId") routeId: String,
+        @Query("direction") direction: String = "OUTBOUND"
+    ): Response<TripReadinessResponse>
+
     @POST("api/trips/start")
     suspend fun startTrip(@Body request: StartTripRequest): Response<StartTripResponse>
 
