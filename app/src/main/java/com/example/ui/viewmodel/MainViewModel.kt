@@ -179,7 +179,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 val assignment = roster["assignment"] as? Map<*, *>
                 val driver = assignment?.get("driver") as? Map<*, *>
                 val driverId = driver?.get("id")?.toString()
-                _assignedDriverPhotoBytes.value = if (!driverId.isNullOrBlank()) repository.getProfileMedia(driverId, "PROFILE_PHOTO") else null
+                _assignedDriverPhotoBytes.value = if (!driverId.isNullOrBlank()) repository.getProfileMedia(driverId, "DRIVER_PROFILE_PHOTO") else null
             } catch (e: Exception) {
                 _mediaUploadMessage.value = e.message ?: "Could not load roster."
             }
