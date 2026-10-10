@@ -334,7 +334,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                         _trackingMessage.value = "Tracking refresh failed: ${error.message ?: "server unavailable"}"
                         emit(null)
                     }
-                    delay(5000)
+                    delay(3000)
                 }
             }
         }
