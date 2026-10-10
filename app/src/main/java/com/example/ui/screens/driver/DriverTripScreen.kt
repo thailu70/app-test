@@ -88,6 +88,7 @@ fun DriverTripScreen(
     val isScannerOpen by viewModel.isScannerOpen.collectAsState()
     val scanResult by viewModel.scanResult.collectAsState()
     val myRoster by viewModel.myRoster.collectAsState()
+    val rosterPassengerPhotos by viewModel.rosterPassengerPhotos.collectAsState()
     val mediaUploadMessage by viewModel.mediaUploadMessage.collectAsState()
     val driverPhotoBytes by viewModel.assignedDriverPhotoBytes.collectAsState()
     val driverPhotoBitmap = remember(driverPhotoBytes) { driverPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
@@ -180,12 +181,55 @@ fun DriverTripScreen(
                         rosterPassengers.forEach { row ->
                             val passenger = row as? Map<*, *> ?: return@forEach
                             Divider()
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(passenger["fullName"]?.toString() ?: "Passenger", fontWeight = FontWeight.SemiBold)
-                                    Text(passenger["attendance"]?.toString() ?: "NOT_SCANNED", style = MaterialTheme.typography.bodySmall)
+                            val passengerId = passenger["id"]?.toString().orEmpty()
+                            val passengerName = passenger["fullName"]?.toString() ?: "Passenger"
+                            val passengerPhotoBytes = rosterPassengerPhotos[passengerId]
+                            val passengerPhotoBitmap = remember(passengerPhotoBytes) {
+                                passengerPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+                            }
+                            val isPresent = passenger["attendance"]?.toString() == "PRESENT"
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (passengerPhotoBitmap != null) {
+                                    Image(
+                                        bitmap = passengerPhotoBitmap.asImageBitmap(),
+                                        contentDescription = "$passengerName profile photo",
+                                        modifier = Modifier.size(54.dp).clip(CircleShape)
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier.size(54.dp).clip(CircleShape).background(Slate200),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            passengerName.split(" ").mapNotNull { it.firstOrNull() }.take(2).joinToString("").ifBlank { "P" },
+                                            color = Slate700,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
-                                Text(if (passenger["attendance"] == "PRESENT") "Present" else "Not scanned", style = MaterialTheme.typography.bodySmall)
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text(passengerName, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        if (isPresent) "Boarded · PRESENT" else "Awaiting QR scan · NOT SCANNED",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (isPresent) StatusActiveGreen else Slate600
+                                    )
+                                }
+                                Surface(
+                                    color = if (isPresent) StatusActiveGreen.copy(alpha = 0.12f) else Slate200,
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Text(
+                                        if (isPresent) "Present" else "Not scanned",
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isPresent) StatusActiveGreen else Slate700
+                                    )
+                                }
                             }
                         }
                         if (rosterPassengers.isEmpty()) Text("No active paid passengers found for the assigned route.")
