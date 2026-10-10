@@ -331,6 +331,15 @@ class TransportRepository(
         basePriceEtb: Double,
         stopsList: List<Pair<String, String>> = emptyList()
     ): RouteEntity {
+        require(stopsList.size == 2) { "A route must have exactly one departure point and one destination point." }
+        require(stopsList[0].first.isNotBlank() && stopsList[1].first.isNotBlank()) {
+            "Departure and destination points are required."
+        }
+        require(!stopsList[0].first.trim().equals(stopsList[1].first.trim(), ignoreCase = true)) {
+            "Departure and destination must be different places."
+        }
+
+        val endpoints = listOf(stopsList.first(), stopsList.last())
         val routeId = "route_" + UUID.randomUUID().toString().take(8)
         val route = RouteEntity(
             id = routeId,
@@ -343,36 +352,49 @@ class TransportRepository(
             basePriceEtb = basePriceEtb,
             active = true
         )
-        dao.insertRoute(route)
-
-        stopsList.forEachIndexed { index, pair ->
-            val stop = RouteStopEntity(
-                id = "stop_" + UUID.randomUUID().toString().take(6),
-                routeId = routeId,
-                stopName = pair.first,
-                stopNameAm = pair.second,
-                stopOrder = index + 1,
-                latitude = 9.01 + (index * 0.005),
-                longitude = 38.75 + (index * 0.005),
-                scheduledMorningTime = morningDeparture,
-                scheduledEveningTime = eveningDeparture,
-                maxCapacity = 20
-            )
-            dao.insertStop(stop)
-        }
 
         try {
-            apiService.createRoute(mapOf(
+            val response = apiService.createRoute(mapOf(
                 "name" to name,
                 "nameAm" to nameAm,
                 "description" to description,
                 "morningDeparture" to morningDeparture,
                 "eveningDeparture" to eveningDeparture,
                 "distanceKm" to distanceKm,
-                "basePriceEtb" to basePriceEtb
+                "basePriceEtb" to basePriceEtb,
+                "stops" to endpoints.mapIndexed { index, pair ->
+                    mapOf(
+                        "stopName" to pair.first,
+                        "stopNameAm" to pair.second,
+                        "stopOrder" to index + 1,
+                        "scheduledMorningTime" to morningDeparture,
+                        "scheduledEveningTime" to eveningDeparture
+                    )
+                }
             ))
+            if (!response.isSuccessful || response.body()?.success != true) {
+                throw IllegalStateException(response.body()?.error ?: "The server could not create this route.")
+            }
         } catch (e: Exception) {
-            // Offline
+            throw IllegalStateException(e.message ?: "Could not create route on the server.", e)
+        }
+
+        dao.insertRoute(route)
+        endpoints.forEachIndexed { index, pair ->
+            dao.insertStop(
+                RouteStopEntity(
+                    id = "stop_" + UUID.randomUUID().toString().take(6),
+                    routeId = routeId,
+                    stopName = pair.first,
+                    stopNameAm = pair.second,
+                    stopOrder = index + 1,
+                    latitude = 9.01 + (index * 0.005),
+                    longitude = 38.75 + (index * 0.005),
+                    scheduledMorningTime = morningDeparture,
+                    scheduledEveningTime = eveningDeparture,
+                    maxCapacity = 20
+                )
+            )
         }
 
         logAction("ROUTE_CREATED", "admin", "ADMIN", "Created route $name (ETB $basePriceEtb)")
