@@ -647,13 +647,14 @@ fun AuthScreen(
                             ) {
                                 OutlinedButton(
                                     onClick = {
+                                        val requestedPhone = phone.trim()
                                         otpBusy = true
                                         otpMessage = null
-                                        viewModel.requestSignupOtp(phone) { ok, message ->
+                                        viewModel.requestSignupOtp(requestedPhone) { ok, message ->
                                             otpBusy = false
                                             otpMessage = message
                                             if (ok) {
-                                                otpRequestedPhone = phone.trim()
+                                                otpRequestedPhone = requestedPhone
                                                 isPhoneVerified = false
                                                 otpCode = ""
                                             }
@@ -679,11 +680,16 @@ fun AuthScreen(
                                 )
                                 Button(
                                     onClick = {
+                                        val requestedPhone = otpRequestedPhone
+                                        val submittedCode = otpCode
                                         otpBusy = true
-                                        viewModel.verifySignupOtp(phone, otpCode) { ok, message ->
+                                        viewModel.verifySignupOtp(requestedPhone, submittedCode) { ok, message ->
                                             otpBusy = false
                                             otpMessage = message
-                                            isPhoneVerified = ok
+                                            isPhoneVerified = ok && phone.trim() == requestedPhone
+                                            if (ok && phone.trim() != requestedPhone) {
+                                                otpMessage = "Phone number changed. Request and verify a new code."
+                                            }
                                         }
                                     },
                                     enabled = !otpBusy && otpCode.length == 6 && phone.trim() == otpRequestedPhone,
