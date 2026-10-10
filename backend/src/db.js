@@ -534,7 +534,7 @@ function seedSqliteData() {
 
 initSqliteSchema();
 if (sqliteDb) {
-  try { sqliteDb.exec(\"ALTER TABLE routes ADD COLUMN serviceType TEXT NOT NULL DEFAULT 'TWO_WAY' CHECK (serviceType IN ('ONE_WAY', 'TWO_WAY'))\"); }
+  try { sqliteDb.exec("ALTER TABLE routes ADD COLUMN serviceType TEXT NOT NULL DEFAULT 'TWO_WAY' CHECK (serviceType IN ('ONE_WAY', 'TWO_WAY'))"); }
   catch (err) { if (!/duplicate column name/i.test(String(err.message))) throw err; }
 }
 seedSqliteData();
