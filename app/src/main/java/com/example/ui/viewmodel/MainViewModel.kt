@@ -40,6 +40,7 @@ enum class NavigationStepState {
 
 data class DriverTripState(
     val tripId: String = "",
+    val direction: String = "OUTBOUND",
     val vehicleId: String = "",
     val routeId: String = "",
     val routeName: String = "",
@@ -102,6 +103,28 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
     private val _registrationMessage = MutableStateFlow<String?>(null)
     val registrationMessage: StateFlow<String?> = _registrationMessage.asStateFlow()
+
+    fun requestSignupOtp(phone: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            if (phone.isBlank()) {
+                onResult(false, "Enter your mobile number first.")
+                return@launch
+            }
+            val (ok, message) = repository.requestSignupOtp(phone)
+            onResult(ok, message)
+        }
+    }
+
+    fun verifySignupOtp(phone: String, code: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            if (phone.isBlank() || !code.matches(Regex("^[0-9]{6}$"))) {
+                onResult(false, "Enter the six-digit code sent to your phone.")
+                return@launch
+            }
+            val (ok, message) = repository.verifySignupOtp(phone, code)
+            onResult(ok, message)
+        }
+    }
 
     fun clearRegistrationMessage() { _registrationMessage.value = null }
 
@@ -186,6 +209,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Driver Trip State
+    private val _tripReadiness = MutableStateFlow<TripReadinessResponse?>(null)
+    val tripReadiness: StateFlow<TripReadinessResponse?> = _tripReadiness.asStateFlow()
     private val _driverTrip = MutableStateFlow(DriverTripState())
     val driverTrip: StateFlow<DriverTripState> = _driverTrip.asStateFlow()
 
@@ -550,8 +575,26 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         }
     }
 
-    // Start a server-authoritative trip using the driver's own registered vehicle and admin-assigned route.
-    fun startNavigation() {
+    fun refreshDepartureReadiness(direction: String = _driverTrip.value.direction, onResult: ((Boolean, String) -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                val vehicle = repository.fetchTrackedVehicle()
+                    ?: throw IllegalStateException("Your registered vehicle is not available yet.")
+                val routeId = vehicle.assignedRouteId?.takeIf { it.isNotBlank() }
+                    ?: throw IllegalStateException("Your vehicle has no route assigned by the administrator yet.")
+                val readiness = repository.getDriverTripReadiness(routeId, direction)
+                _tripReadiness.value = readiness
+                onResult?.invoke(readiness.canConfirmArrival, readiness.message ?: "Departure readiness checked.")
+            } catch (e: Exception) {
+                _tripReadiness.value = null
+                onResult?.invoke(false, e.message ?: "Could not check departure readiness.")
+            }
+        }
+    }
+
+    // Server revalidates schedule, approved driver, active route, live GPS age and 50m geofence at start.
+    fun startNavigation(direction: String = _driverTrip.value.direction, confirmArrival: Boolean = false) {
+
         viewModelScope.launch {
             _driverActionMessage.value = null
             try {
@@ -560,10 +603,16 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     ?: throw IllegalStateException("Your owned vehicle is not registered. Sign out and register it again.")
                 val routeId = vehicle.assignedRouteId?.takeIf { it.isNotBlank() }
                     ?: throw IllegalStateException("Your vehicle has not been assigned a route yet. Contact the RoutePass administrator.")
-                val trip = repository.startDriverTrip(routeId, vehicle.id)
+                val readiness = repository.getDriverTripReadiness(routeId, direction)
+                _tripReadiness.value = readiness
+                if (!confirmArrival || !readiness.canConfirmArrival) {
+                    throw IllegalStateException(readiness.message ?: "Your vehicle must be within 50 metres of the scheduled departure stop before you can confirm arrival.")
+                }
+                val trip = repository.startDriverTrip(routeId, vehicle.id, direction, confirmedArrival = true)
                 val stops = repository.getStopsForRouteSync(routeId)
                 _driverTrip.value = DriverTripState(
                     tripId = trip.id,
+                    direction = direction,
                     vehicleId = vehicle.id,
                     routeId = routeId,
                     routeName = trip.routeName ?: vehicle.routeName.orEmpty(),
@@ -577,7 +626,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     checkedInCount = trip.currentOccupancy,
                     totalPassengers = trip.capacityLimit ?: vehicle.capacityLimit
                 )
-                _driverActionMessage.value = if (stops.isEmpty()) "Trip started, but this route has no stop list configured yet." else "Live trip started. GPS sharing is available while this screen is open."
+                _driverActionMessage.value = if (stops.isEmpty()) "Trip started, but this route has no stop list configured yet." else "Arrival confirmed. Passengers on your route have been notified to board."
                 repository.logAction("DRIVER_NAVIGATION_START", user.id, "DRIVER", "Started live trip ${trip.id} on route ${trip.routeId}")
             } catch (e: Exception) {
                 _driverActionMessage.value = e.message ?: "Could not start the trip."
