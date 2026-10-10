@@ -170,6 +170,27 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     val assignedDriverPhotoBytes: StateFlow<ByteArray?> = _assignedDriverPhotoBytes.asStateFlow()
     private val _passengerProfilePhotoBytes = MutableStateFlow<ByteArray?>(null)
     val passengerProfilePhotoBytes: StateFlow<ByteArray?> = _passengerProfilePhotoBytes.asStateFlow()
+    private val _rosterPassengerPhotos = MutableStateFlow<Map<String, ByteArray>>(emptyMap())
+    val rosterPassengerPhotos: StateFlow<Map<String, ByteArray>> = _rosterPassengerPhotos.asStateFlow()
+    private val rosterPhotoRequests = mutableSetOf<String>()
+
+    private suspend fun loadRosterPassengerPhotos(roster: Map<String, Any>) {
+        if (_currentUser.value?.role != "DRIVER") return
+        val passengers = roster["passengers"] as? List<*> ?: emptyList<Any>()
+        for (entry in passengers) {
+            val passenger = entry as? Map<*, *> ?: continue
+            val passengerId = passenger["id"]?.toString()?.takeIf { it.isNotBlank() } ?: continue
+            if (_rosterPassengerPhotos.value.containsKey(passengerId) || !rosterPhotoRequests.add(passengerId)) continue
+            try {
+                val bytes = repository.getProfileMedia(passengerId, "PROFILE_PHOTO")
+                if (bytes != null && bytes.isNotEmpty()) {
+                    _rosterPassengerPhotos.update { it + (passengerId to bytes) }
+                }
+            } catch (_: Exception) {
+                // Missing/unavailable photos use the initials placeholder in the roster.
+            }
+        }
+    }
     private val _mediaUploadMessage = MutableStateFlow<String?>(null)
     val mediaUploadMessage: StateFlow<String?> = _mediaUploadMessage.asStateFlow()
 
@@ -178,6 +199,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
             try {
                 val roster = repository.getMyRoster()
                 _myRoster.value = roster
+                loadRosterPassengerPhotos(roster)
                 val assignment = roster["assignment"] as? Map<*, *>
                 val driver = assignment?.get("driver") as? Map<*, *>
                 val signedInUser = _currentUser.value
