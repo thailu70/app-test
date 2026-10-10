@@ -302,7 +302,10 @@ data class LocationUpdateRequest(
 data class StartTripRequest(
     val routeId: String,
     val direction: String = "OUTBOUND",
-    val vehicleId: String? = null
+    val vehicleId: String? = null,
+    val latitude: Double,
+    val longitude: Double,
+    val arrivalConfirmed: Boolean = true
 )
 
 @JsonClass(generateAdapter = true)
