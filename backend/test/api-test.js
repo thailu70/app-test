@@ -14,6 +14,20 @@
  */
 
 const http = require('http');
+const crypto = require('node:crypto');
+const { DB } = require('../src/db');
+const otpRoutes = require('../src/routes/otp');
+
+async function seedVerifiedOtp(phone) {
+  await otpRoutes.ensureOtpSchema();
+  const normalizedPhone = otpRoutes.normalizePhone(phone);
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const expires = new Date(Date.now() + 300000).toISOString();
+  const codeHash = otpRoutes.hashOtp(id, normalizedPhone, '123456');
+  await DB.prepare('INSERT INTO otp_challenges (id, phone, purpose, code_hash, expires_at, attempts, max_attempts, sent_at, verified_at, consumed_at, created_at) VALUES (?, ?, ?, ?, ?, 0, 5, ?, ?, NULL, ?)').run(id, normalizedPhone, 'SIGNUP', codeHash, expires, now, now, now);
+  return id;
+}
 
 const PORT = 3999;
 process.env.PORT = PORT;
@@ -125,11 +139,13 @@ async function runTests() {
 
     // 5. Registration does NOT activate subscription
     const testPassengerPhone = '+2519' + Math.floor(10000000 + Math.random() * 90000000);
+    const newPassengerOtpChallengeId = await seedVerifiedOtp(testPassengerPhone);
     const newPasReg = await makeRequest('POST', '/api/auth/register', {
       fullName: 'Hiwot Bekele',
       phone: testPassengerPhone,
       password: 'RoutePassTest#2026',
       role: 'PASSENGER',
+      otpChallengeId: newPassengerOtpChallengeId,
       appliedRouteId: 'route_bole_merkato',
       appliedRouteName: 'Bole - Merkato Express'
     });
@@ -223,11 +239,13 @@ async function runTests() {
 
     // Register second passenger and pay to obtain valid QR pass
     const testPassenger2Phone = '+2519' + Math.floor(10000000 + Math.random() * 90000000);
+    const passenger2OtpChallengeId = await seedVerifiedOtp(testPassenger2Phone);
     const pas2Reg = await makeRequest('POST', '/api/auth/register', {
       fullName: 'Dawit Mengistu',
       phone: testPassenger2Phone,
       password: 'RoutePassTest#2026',
       role: 'PASSENGER',
+      otpChallengeId: passenger2OtpChallengeId,
       appliedRouteId: 'route_bole_merkato'
     });
     const pas2Pay = await makeRequest('POST', '/api/subscriptions/telebirr/pay', {
