@@ -34,6 +34,7 @@ import androidx.compose.ui.window.Dialog
 import com.example.core.localization.AppLanguage
 import com.example.core.localization.AppStrings
 import com.example.data.entity.PaymentTransactionEntity
+import com.example.ui.components.PrivateMediaUploadButton
 import com.example.ui.components.QrCodeCanvas
 import com.example.ui.components.MiniVehicleMap
 import com.example.ui.theme.*
@@ -60,6 +61,12 @@ fun PassengerDashboardScreen(
     val paymentMessage by viewModel.paymentMessage.collectAsState()
     val selectedReceipt by viewModel.selectedReceipt.collectAsState()
     val isComplaintOpen by viewModel.isComplaintDialogOpen.collectAsState()
+    val myRoster by viewModel.myRoster.collectAsState()
+    val mediaUploadMessage by viewModel.mediaUploadMessage.collectAsState()
+
+    LaunchedEffect(currentUser?.id) { if (currentUser != null) viewModel.refreshMyRoster() }
+    val assignment = myRoster?.get("assignment") as? Map<*, *>
+    val assignedDriver = assignment?.get("driver") as? Map<*, *>
 
     fun t(key: String): String = AppStrings.get(key, lang)
 
@@ -95,6 +102,20 @@ fun PassengerDashboardScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
     ) {
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Passenger profile", fontWeight = FontWeight.Bold)
+                    PrivateMediaUploadButton(viewModel, "PROFILE_PHOTO", "Upload / update profile photo", imagesOnly = true)
+                    mediaUploadMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    Divider()
+                    Text("Assigned driver", fontWeight = FontWeight.Bold)
+                    Text(assignedDriver?.get("fullName")?.toString() ?: "Driver not assigned yet")
+                    Text("Driver photo is available when the assigned driver uploads one.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+
         // 1. Subscription Overview Card
         item {
             SubscriptionStatusCard(
