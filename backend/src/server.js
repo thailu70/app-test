@@ -68,7 +68,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '8mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 if (process.env.NODE_ENV !== 'test') {
@@ -139,6 +139,7 @@ app.use('/api/subscriptions', require('./routes/subscriptions'));
 app.use('/api/vehicles', require('./routes/vehicles'));
 app.use('/api/trips', require('./routes/trips'));
 app.use('/api/checkins', require('./routes/checkins'));
+app.use('/api/profile-media', require('./routes/profile-media'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/complaints', require('./routes/complaints'));
 app.use('/api/notifications', require('./routes/notifications'));
