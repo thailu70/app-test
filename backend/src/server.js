@@ -16,7 +16,7 @@ const { DB } = require('./db');
 
 // OTP challenges are short-lived, hashed, rate-limited and stored server-side.
 // This idempotent schema bootstrap supports both PostgreSQL and local SQLite.
-DB.prepare(`CREATE TABLE IF NOT EXISTS otp_challenges (
+const otpSchemaReady = DB.prepare(`CREATE TABLE IF NOT EXISTS otp_challenges (
   id TEXT PRIMARY KEY, phone TEXT NOT NULL, otp_hash TEXT NOT NULL,
   expires_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
   verified INTEGER NOT NULL DEFAULT 0, proof_hash TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -126,6 +126,7 @@ app.get('/api/ready', async (req, res) => {
 });
 
 // Mount Route Modules
+app.use('/api/auth', (req, res, next) => Promise.resolve(otpSchemaReady).then(() => next()).catch(next));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/auth/otp', require('./routes/otp'));
 app.use('/api/routes', require('./routes/routes'));
