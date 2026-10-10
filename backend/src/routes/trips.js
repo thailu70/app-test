@@ -210,7 +210,7 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
         WHERE id = ?
       `).run(routeId, currentVehicle.id);
       await tx.prepare(`
-        INSERT INTO trips (id, driverId, vehicleId, routeId, requestedDirection, currentStop, currentOccupancy, status, arrivalConfirmedAt, scheduledDepartureAt, arrivalDistanceMeters)
+        INSERT INTO trips (id, driverId, vehicleId, routeId, direction, currentStop, currentOccupancy, status, arrivalConfirmedAt, scheduledDepartureAt, arrivalDistanceMeters)
         VALUES (?, ?, ?, ?, ?, ?, 0, 'IN_PROGRESS', ?, ?, ?)
       `).run(tripId, driverId, currentVehicle.id, routeId, requestedDirection, initialStop, arrival ? new Date().toISOString() : null, arrival ? arrival.scheduledAt.toISOString() : null, arrival ? arrival.distanceMeters : null);
       return { status: 'STARTED', vehicle: currentVehicle };
@@ -238,7 +238,7 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
         routeId,
         vehicleId: vehicle.id,
         plateNumber: vehicle.plateNumber,
-        requestedDirection,
+        direction: requestedDirection,
         currentStop: initialStop,
         timestamp: new Date().toISOString()
       });
@@ -253,7 +253,7 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
         vehicleId: vehicle.id,
         plateNumber: vehicle.plateNumber,
         routeId,
-        requestedDirection,
+        direction: requestedDirection,
         currentStop: initialStop,
         currentOccupancy: 0,
         capacityLimit: vehicle.capacityLimit,
