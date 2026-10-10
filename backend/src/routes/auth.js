@@ -54,6 +54,12 @@ router.post('/register', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Password must contain at least 10 characters.' });
     }
 
+    const normalizedPhone = String(phone).replace(/[\\s()-]/g, '');
+    const otpChallenge = await DB.prepare('SELECT phone, verified_at, expires_at FROM phone_otp_challenges WHERE phone = ?').get(normalizedPhone);
+    if (!otpChallenge || !otpChallenge.verified_at || new Date(otpChallenge.expires_at).getTime() < Date.now()) {
+      return res.status(403).json({ success: false, code: 'PHONE_OTP_REQUIRED', error: 'Verify your phone number with the SMS code before completing registration.' });
+    }
+
     const normalizedRole = role.toUpperCase();
     if (!['PASSENGER', 'DRIVER', 'ADMIN'].includes(normalizedRole)) {
       return res.status(400).json({
@@ -109,18 +115,18 @@ router.post('/register', authLimiter, async (req, res) => {
     }
 
     // Check if phone is already registered
-    const existing = await DB.prepare('SELECT id FROM users WHERE phone = ?').get(phone.trim());
+    const existing = await DB.prepare('SELECT id FROM users WHERE phone = ?').get(normalizedPhone);
     if (existing) {
       return res.status(409).json({
         success: false,
-        error: `User with phone number ${phone} is already registered.`
+        error: `User with phone number ${normalizedPhone} is already registered.`
       });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
 
     const userId = `usr_${normalizedRole.toLowerCase().slice(0, 3)}_${crypto.randomUUID().slice(0, 8)}`;
-    const finalEmail = email?.trim() || `${phone.trim()}@transport.et`;
+    const finalEmail = email?.trim() || `${normalizedPhone}@transport.et`;
 
     await DB.transaction(async (tx) => {
       await tx.prepare(`
@@ -130,7 +136,7 @@ router.post('/register', authLimiter, async (req, res) => {
         userId,
         normalizedRole,
         fullName.trim(),
-        phone.trim(),
+        normalizedPhone,
         finalEmail,
         passwordHash,
         normalizedRole === 'DRIVER' ? 'PENDING' : 'ACTIVE',
@@ -157,6 +163,8 @@ router.post('/register', authLimiter, async (req, res) => {
         );
       }
     });
+
+    await DB.prepare('DELETE FROM phone_otp_challenges WHERE phone = ?').run(normalizedPhone);
 
     // CRITICAL: Registration does NOT activate a subscription!
     // If passenger selected a route during signup, create a PENDING unpaid subscription.
