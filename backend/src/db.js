@@ -125,6 +125,7 @@ function translateSqlForPostgres(sql) {
     .replace(/\bassignedVehiclePlate\b/g, 'assigned_vehicle_plate')
     .replace(/\bappliedRouteId\b/g, 'applied_route_id')
     .replace(/\bappliedRouteName\b/g, 'applied_route_name')
+    .replace(/\bserviceType\b/g, 'service_type')
     .replace(/\bplateNumber\b/g, 'plate_number')
     .replace(/\bvehicleType\b/g, 'vehicle_type')
     .replace(/\bcapacityLimit\b/g, 'capacity_limit')
