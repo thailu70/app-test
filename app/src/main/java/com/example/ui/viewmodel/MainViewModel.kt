@@ -168,6 +168,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     val myRoster: StateFlow<Map<String, Any>?> = _myRoster.asStateFlow()
     private val _assignedDriverPhotoBytes = MutableStateFlow<ByteArray?>(null)
     val assignedDriverPhotoBytes: StateFlow<ByteArray?> = _assignedDriverPhotoBytes.asStateFlow()
+    private val _passengerProfilePhotoBytes = MutableStateFlow<ByteArray?>(null)
+    val passengerProfilePhotoBytes: StateFlow<ByteArray?> = _passengerProfilePhotoBytes.asStateFlow()
     private val _mediaUploadMessage = MutableStateFlow<String?>(null)
     val mediaUploadMessage: StateFlow<String?> = _mediaUploadMessage.asStateFlow()
 
@@ -180,8 +182,10 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 val driver = assignment?.get("driver") as? Map<*, *>
                 val signedInUser = _currentUser.value
                 val photoOwnerId = if (signedInUser?.role == "DRIVER") signedInUser.id else driver?.get("id")?.toString()
-                val photoAssetType = if (signedInUser?.role == "DRIVER") "DRIVER_PROFILE_PHOTO" else "DRIVER_PROFILE_PHOTO"
-                _assignedDriverPhotoBytes.value = if (!photoOwnerId.isNullOrBlank()) repository.getProfileMedia(photoOwnerId, photoAssetType) else null
+                _assignedDriverPhotoBytes.value = if (!photoOwnerId.isNullOrBlank()) repository.getProfileMedia(photoOwnerId, "DRIVER_PROFILE_PHOTO") else null
+                if (signedInUser?.role == "PASSENGER") {
+                    _passengerProfilePhotoBytes.value = repository.getProfileMedia(signedInUser.id, "PROFILE_PHOTO")
+                }
             } catch (e: Exception) {
                 _mediaUploadMessage.value = e.message ?: "Could not load roster."
             }
@@ -195,6 +199,12 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
             _mediaUploadMessage.value = "Uploading $assetType..."
             try {
                 repository.uploadProfileMedia(assetType, fileName, contentType, dataBase64)
+                if (assetType == "PROFILE_PHOTO") {
+                    val userId = _currentUser.value?.id
+                    if (!userId.isNullOrBlank()) {
+                        _passengerProfilePhotoBytes.value = repository.getProfileMedia(userId, "PROFILE_PHOTO")
+                    }
+                }
                 _mediaUploadMessage.value = "$assetType uploaded successfully."
                 refreshMyRoster()
             } catch (e: Exception) {
