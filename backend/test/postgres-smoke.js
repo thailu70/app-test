@@ -1,5 +1,19 @@
 const assert = require('node:assert/strict');
 const { server } = require('../src/server');
+const { DB } = require('../src/db');
+const otpRoutes = require('../src/routes/otp');
+const crypto = require('node:crypto');
+
+async function seedVerifiedOtp(phone) {
+  await otpRoutes.ensureOtpSchema();
+  const normalizedPhone = otpRoutes.normalizePhone(phone);
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const expires = new Date(Date.now() + 300000).toISOString();
+  const codeHash = otpRoutes.hashOtp(id, normalizedPhone, '123456');
+  await DB.prepare('INSERT INTO otp_challenges (id, phone, purpose, code_hash, expires_at, attempts, max_attempts, sent_at, verified_at, consumed_at, created_at) VALUES (?, ?, ?, ?, ?, 0, 5, ?, ?, NULL, ?)').run(id, normalizedPhone, 'SIGNUP', codeHash, expires, now, now, now);
+  return id;
+}
 
 const host = '127.0.0.1';
 const bootstrapSecret = process.env.ADMIN_REGISTRATION_SECRET;
@@ -65,11 +79,13 @@ async function run() {
     assert.equal(result.data.stops.length, 1, 'Nested route stop must have been inserted');
     const createdRouteId = result.data.route.id;
 
+    const passengerOtpChallengeId = await seedVerifiedOtp('+251900000102');
     result = await requestJson(baseUrl, '/api/auth/register', 'POST', {
       fullName: 'CI Passenger',
       phone: '+251900000102',
       password: 'CI_Passenger_Password#2026',
       role: 'PASSENGER',
+      otpChallengeId: passengerOtpChallengeId,
       appliedRouteId: 'route_bole_merkato'
     });
     assert.equal(result.status, 201, 'Passenger registration must work against PostgreSQL');
@@ -92,11 +108,13 @@ async function run() {
     assert.match(result.data.subscription.qrToken, /^RP1:/, 'Manual recharge must issue a signed QR pass');
 
     // A driver self-registers, awaits admin approval, then receives a route assignment.
+    const driverOtpChallengeId = await seedVerifiedOtp('+251900000103');
     result = await requestJson(baseUrl, '/api/auth/register', 'POST', {
       fullName: 'CI Driver Owner',
       phone: '+251900000103',
       password: 'CI_Driver_Password#2026',
       role: 'DRIVER',
+      otpChallengeId: driverOtpChallengeId,
       licenseNumber: 'CI-DL-1',
       companyName: 'CI Transport',
       assignedVehiclePlate: '3-CI-0001',
