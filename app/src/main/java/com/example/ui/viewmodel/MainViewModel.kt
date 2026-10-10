@@ -157,13 +157,20 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
     private val _myRoster = MutableStateFlow<Map<String, Any>?>(null)
     val myRoster: StateFlow<Map<String, Any>?> = _myRoster.asStateFlow()
+    private val _assignedDriverPhotoBytes = MutableStateFlow<ByteArray?>(null)
+    val assignedDriverPhotoBytes: StateFlow<ByteArray?> = _assignedDriverPhotoBytes.asStateFlow()
     private val _mediaUploadMessage = MutableStateFlow<String?>(null)
     val mediaUploadMessage: StateFlow<String?> = _mediaUploadMessage.asStateFlow()
 
     fun refreshMyRoster() {
         viewModelScope.launch {
             try {
-                _myRoster.value = repository.getMyRoster()
+                val roster = repository.getMyRoster()
+                _myRoster.value = roster
+                val assignment = roster["assignment"] as? Map<*, *>
+                val driver = assignment?.get("driver") as? Map<*, *>
+                val driverId = driver?.get("id")?.toString()
+                _assignedDriverPhotoBytes.value = if (!driverId.isNullOrBlank()) repository.getProfileMedia(driverId, "PROFILE_PHOTO") else null
             } catch (e: Exception) {
                 _mediaUploadMessage.value = e.message ?: "Could not load roster."
             }
