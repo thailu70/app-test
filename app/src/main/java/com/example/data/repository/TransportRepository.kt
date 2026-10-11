@@ -201,6 +201,11 @@ class TransportRepository(
         appliedRouteId: String = "",
         appliedRouteName: String = "",
         requestedRoute: String = "",
+        requestedOrigin: String = "",
+        requestedDestination: String = "",
+        requestedJourneyType: String = "ROUND_TRIP",
+        requestedOutboundPickupTime: String = "06:30",
+        requestedReturnPickupTime: String = "17:30",
         otpProof: String = ""
     ): UserEntity {
         val normalizedRole = role.trim().uppercase()
@@ -221,6 +226,11 @@ class TransportRepository(
             appliedRouteId = appliedRouteId.ifBlank { null },
             appliedRouteName = appliedRouteName.ifBlank { null },
             requestedRoute = requestedRoute.trim().ifBlank { null },
+            requestedOrigin = requestedOrigin.trim().ifBlank { null },
+            requestedDestination = requestedDestination.trim().ifBlank { null },
+            requestedJourneyType = requestedJourneyType.trim().ifBlank { null },
+            requestedOutboundPickupTime = requestedOutboundPickupTime.trim().ifBlank { null },
+            requestedReturnPickupTime = requestedReturnPickupTime.trim().ifBlank { null },
             otpProof = otpProof.ifBlank { null }
         )
 
