@@ -406,7 +406,11 @@
           { label: "Payment", render: r => pill(value(r, "paymentStatus", "payment_status")) },
           { label: "Subscription", render: r => pill(value(r, "subscriptionStatus", "subscription_status")) },
           { label: "End date", keys: ["endDate", "end_date"] },
-          { label: "Route / schedule", render: r => '<button class="btn btn-secondary" data-edit-subscription="' + esc(value(r, "id")) + '">Edit details</button><br><span class="muted">' + esc(value(r, "journey_type")) + ' · ' + esc(value(r, "outbound_pickup_time", "morningSchedule", "morning_schedule")) + ' / ' + esc(value(r, "return_pickup_time", "eveningSchedule", "evening_schedule")) + '</span>' },
+          { label: "Route / schedule", render: r => {
+            const journey = String(value(r, "journey_type") === "—" ? "ROUND_TRIP" : value(r, "journey_type")).toUpperCase();
+            const returning = journey === "ONE_WAY" ? "no return" : value(r, "return_pickup_time", "eveningSchedule", "evening_schedule");
+            return '<button class="btn btn-secondary" data-edit-subscription="' + esc(value(r, "id")) + '">Edit details</button><br><span class="muted">' + esc(journey) + ' · ' + esc(value(r, "outbound_pickup_time", "morningSchedule", "morning_schedule")) + ' / ' + esc(returning) + '</span>';
+          } },
           { label: "Payment entry", render: r => '<div class="inline-actions"><button class="btn btn-primary" data-manual-payment="' + esc(value(r, "id")) + '">Record payment</button><button class="btn btn-secondary" data-recharge="' + esc(value(r, "id")) + '">Test only</button></div>' }
         ], data));
   }
