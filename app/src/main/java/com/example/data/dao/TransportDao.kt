@@ -45,6 +45,9 @@ interface TransportDao {
 
     // The VPS /api/routes endpoint returns only active routes. Before upserting that
     // authoritative list, hide any previously cached routes that are no longer returned.
+    @Query("UPDATE routes SET active = 0 WHERE id NOT IN (:activeRouteIds)")
+    suspend fun deactivateRoutesExcept(activeRouteIds: List<String>)
+
     @Query("UPDATE routes SET active = 0")
     suspend fun deactivateAllRoutes()
 
