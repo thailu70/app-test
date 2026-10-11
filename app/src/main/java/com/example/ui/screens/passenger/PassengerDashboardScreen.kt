@@ -66,6 +66,11 @@ fun PassengerDashboardScreen(
     val selectedReceipt by viewModel.selectedReceipt.collectAsState()
     val isComplaintOpen by viewModel.isComplaintDialogOpen.collectAsState()
     val passengerAssignmentData by viewModel.passengerAssignment.collectAsState()
+    val passengerProfilePhotoBytes by viewModel.passengerProfilePhotoBytes.collectAsState()
+    val passengerProfileBitmap = remember(passengerProfilePhotoBytes) {
+        passengerProfilePhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+    }
+    val mediaUploadMessage by viewModel.mediaUploadMessage.collectAsState()
     val driverPhotoBytes by viewModel.assignedDriverPhotoBytes.collectAsState()
     val driverPhotoBitmap = remember(driverPhotoBytes) { driverPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
 
@@ -113,6 +118,57 @@ fun PassengerDashboardScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
     ) {
+        // Passenger profile is the first item on the dashboard. This screen deliberately
+        // does not fetch or display any other passengers' roster.
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (passengerProfileBitmap != null) {
+                            Image(
+                                bitmap = passengerProfileBitmap!!.asImageBitmap(),
+                                contentDescription = "Your passenger profile photo",
+                                modifier = Modifier.size(64.dp).clip(CircleShape)
+                            )
+                        } else {
+                            Surface(
+                                modifier = Modifier.size(64.dp),
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surfaceVariant
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Person, contentDescription = "Passenger profile photo")
+                                }
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("Passenger profile", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text(currentUser?.fullName ?: "Passenger", fontWeight = FontWeight.SemiBold)
+                            Text(currentUser?.phone ?: "", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                        }
+                    }
+                    PrivateMediaUploadButton(
+                        viewModel = viewModel,
+                        assetType = "PROFILE_PHOTO",
+                        label = if (passengerProfileBitmap == null) "Upload profile photo" else "Change profile photo",
+                        imagesOnly = true
+                    )
+                    mediaUploadMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Slate600) }
+                }
+            }
+        }
+
         item {
             RoutePassHeroHeader(
                 title = "Your everyday, upgraded.",
