@@ -16,7 +16,8 @@ router.get('/my', async (req, res) => {
         success: true, role: 'DRIVER', trip: null, passengers: [],
         rosterMessage: 'No vehicle is registered to this driver account yet. Ask the administrator to verify the driver-to-vehicle assignment.'
       });
-      const trip = await DB.prepare("SELECT id, routeId, status, direction, startedAt FROM trips WHERE driverId = ? AND vehicleId = ? AND status = 'IN_PROGRESS' ORDER BY startTime DESC LIMIT 1").get(req.user.id, vehicle.id);
+      // The trips schema records startTime/start_time; there is no startedAt column.
+      const trip = await DB.prepare("SELECT id, routeId, status, direction FROM trips WHERE driverId = ? AND vehicleId = ? AND status = 'IN_PROGRESS' ORDER BY startTime DESC LIMIT 1").get(req.user.id, vehicle.id);
       const routeId = trip?.routeId || vehicle.assignedRouteId;
       if (!routeId) return res.json({
         success: true, role: 'DRIVER', trip: trip || null, passengers: [],
