@@ -144,6 +144,7 @@ fun AuthScreen(
         }
 
         // Account type selector shown directly on the sign-in / registration page.
+        // Admin authentication is intentionally kept in the web portal only.
         item {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -172,28 +173,25 @@ fun AuthScreen(
                         modifier = Modifier.weight(1f).testTag("auth_role_passenger_switch")
                     )
                     FilterChip(
-                        selected = selectedPortal == AppRole.ADMIN,
+                        selected = selectedPortal == AppRole.DRIVER,
                         onClick = {
                             viewModel.clearRegistrationMessage()
-                            selectedPortal = AppRole.ADMIN
+                            selectedPortal = AppRole.DRIVER
                             isRegisterMode = false
                         },
-                        label = { Text(if (lang == AppLanguage.AMHARIC) "አስተዳዳሪ" else "Admin") },
-                        modifier = Modifier.weight(1f).testTag("auth_role_admin_switch")
+                        label = { Text(if (lang == AppLanguage.AMHARIC) "ሹፌር" else "Driver") },
+                        modifier = Modifier.weight(1f).testTag("auth_role_driver_switch")
                     )
                 }
-                TextButton(
-                    onClick = {
-                        viewModel.clearRegistrationMessage()
-                        selectedPortal = AppRole.DRIVER
-                        isRegisterMode = false
-                    },
-                    modifier = Modifier.testTag("auth_driver_access_button")
-                ) {
-                    Icon(Icons.Default.DirectionsBus, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (lang == AppLanguage.AMHARIC) "የሹፌር መግቢያ" else "Driver / transporter access")
-                }
+                Text(
+                    text = if (lang == AppLanguage.AMHARIC)
+                        "የአስተዳዳሪ መግቢያ በድር ፖርታል ብቻ ይገኛል።"
+                    else
+                        "Admin access is available through the web portal only.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Slate600,
+                    textAlign = TextAlign.Center
+                )
             }
         }
 
