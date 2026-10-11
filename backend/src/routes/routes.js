@@ -159,12 +159,12 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
     const nameAm = String(req.body.nameAm ?? current.nameAm).trim();
     if (!name || !nameAm) return res.status(400).json({ success: false, error: 'Route names in English and Amharic are required.' });
     if (req.body.stops !== undefined && (
-      !Array.isArray(req.body.stops) || req.body.stops.length !== 2 ||
-      !String(req.body.stops[0]?.stopName || '').trim() ||
-      !String(req.body.stops[1]?.stopName || '').trim() ||
-      String(req.body.stops[0].stopName).trim().toLowerCase() === String(req.body.stops[1].stopName).trim().toLowerCase()
+      !Array.isArray(req.body.stops) || req.body.stops.length < 2 ||
+      req.body.stops.some(stop => !String(stop?.stopName || '').trim()) ||
+      String(req.body.stops[0].stopName).trim().toLowerCase() ===
+        String(req.body.stops[req.body.stops.length - 1].stopName).trim().toLowerCase()
     )) {
-      return res.status(400).json({ success: false, error: 'A route must have exactly two different endpoints: one departure point and one destination point.' });
+      return res.status(400).json({ success: false, error: 'A route must contain at least two ordered stops with different departure and destination points.' });
     }
     const serviceType = String(req.body.serviceType ?? current.serviceType ?? 'TWO_WAY').toUpperCase();
     if (!['ONE_WAY', 'TWO_WAY'].includes(serviceType)) return res.status(400).json({ success: false, error: 'serviceType must be ONE_WAY or TWO_WAY.' });
