@@ -650,7 +650,7 @@ router.patch('/subscriptions/:id/details', async (req, res) => {
     const journeyType = String(req.body.journeyType ?? current.journey_type ?? 'ROUND_TRIP').trim().toUpperCase();
     const outbound = String(req.body.outboundPickupTime ?? current.outbound_pickup_time ?? current.morningSchedule ?? '06:30').trim();
     const returnTime = journeyType === 'ONE_WAY' ? null : String(req.body.returnPickupTime ?? current.return_pickup_time ?? current.eveningSchedule ?? '17:30').trim();
-    const timeIsValid = t => /^(\\d{2}):(\\d{2})$/.test(t) && Number(t.slice(0, 2)) <= 23 && Number(t.slice(3, 5)) <= 59;
+    const timeIsValid = t => /^(\d{2}):(\d{2})$/.test(t) && Number(t.slice(0, 2)) <= 23 && Number(t.slice(3, 5)) <= 59;
     if (!['ONE_WAY', 'ROUND_TRIP'].includes(journeyType) || !timeIsValid(outbound) || (journeyType === 'ROUND_TRIP' && !timeIsValid(returnTime))) {
       return res.status(400).json({ success: false, error: 'Choose ONE_WAY or ROUND_TRIP and enter valid HH:mm pickup times.' });
     }
