@@ -51,8 +51,9 @@ class MainActivity : ComponentActivity() {
         viewModel = ViewModelProvider(this, factory)[MainViewModel::class.java]
 
         setContent {
-            MyApplicationTheme {
-                MainTransportApp(viewModel = viewModel)
+            var darkTheme by remember { mutableStateOf(false) }
+            MyApplicationTheme(darkTheme = darkTheme) {
+                MainTransportApp(viewModel = viewModel, onDarkThemeChange = { darkTheme = it })
             }
         }
     }
@@ -60,7 +61,8 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainTransportApp(viewModel: MainViewModel) {
+fun MainTransportApp(viewModel: MainViewModel, onDarkThemeChange: (Boolean) -> Unit = {}) {
+    var showSettings by remember { mutableStateOf(false) }
     val isAuthenticated by viewModel.isAuthenticated.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val currentRole by viewModel.currentRole.collectAsState()
@@ -157,6 +159,9 @@ fun MainTransportApp(viewModel: MainViewModel) {
                         }
                     },
                     actions = {
+                        IconButton(onClick = { showSettings = true }, modifier = Modifier.testTag("top_bar_settings_button")) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Slate700)
+                        }
                         // Notifications Bell with Badge
                         IconButton(
                             onClick = { viewModel.openNotificationTray() },
@@ -274,6 +279,16 @@ fun MainTransportApp(viewModel: MainViewModel) {
             }
         }
 
+        if (showSettings) {
+            RoutePassSettingsDialog(
+                userName = currentUser?.fullName.orEmpty(),
+                phone = currentUser?.phone.orEmpty(),
+                roleLabel = when (currentRole) { AppRole.PASSENGER -> "Passenger"; AppRole.DRIVER -> "Driver"; AppRole.ADMIN -> "Administrator" },
+                onDarkThemeChange = onDarkThemeChange,
+                onDismiss = { showSettings = false }
+            )
+        }
+
         // Notification Tray Dialog
         if (isNotificationTrayOpen) {
             NotificationTrayDialog(
@@ -286,4 +301,63 @@ fun MainTransportApp(viewModel: MainViewModel) {
             )
         }
     }
+}
+
+@Composable
+private fun RoutePassSettingsDialog(
+    userName: String,
+    phone: String,
+    roleLabel: String,
+    onDarkThemeChange: (Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var darkTheme by remember { mutableStateOf(false) }
+    var profileExpanded by remember { mutableStateOf(true) }
+    var appearanceExpanded by remember { mutableStateOf(false) }
+    var notificationsExpanded by remember { mutableStateOf(false) }
+    var supportExpanded by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Settings", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(Modifier.fillMaxWidth().heightIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                        TextButton(onClick = { profileExpanded = !profileExpanded }) { Text(if (profileExpanded) "▼ Profile & security" else "▶ Profile & security") }
+                        if (profileExpanded) {
+                            Text(userName.ifBlank { "RoutePass user" }, fontWeight = FontWeight.SemiBold)
+                            Text("Account type: $roleLabel")
+                            Text("Phone: $phone")
+                            Text("Password changes and profile editing require secure account-API integration.", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                        TextButton(onClick = { appearanceExpanded = !appearanceExpanded }) { Text(if (appearanceExpanded) "▼ Appearance" else "▶ Appearance") }
+                        if (appearanceExpanded) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Dark theme", modifier = Modifier.weight(1f))
+                                Switch(checked = darkTheme, onCheckedChange = { darkTheme = it; onDarkThemeChange(it) }, modifier = Modifier.testTag("settings_dark_theme_switch"))
+                            }
+                            Text("Theme applies for this session.", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                        TextButton(onClick = { notificationsExpanded = !notificationsExpanded }) { Text(if (notificationsExpanded) "▼ Notifications" else "▶ Notifications") }
+                        if (notificationsExpanded) Text("Use the notification bell for available alerts. Notification preferences are not connected yet.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                        TextButton(onClick = { supportExpanded = !supportExpanded }) { Text(if (supportExpanded) "▼ Support & route requests" else "▶ Support & route requests") }
+                        if (supportExpanded) Text("Contact your RoutePass administrator for support. Route-change requests and approval are not enabled here; no request has been submitted.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
+    )
 }
