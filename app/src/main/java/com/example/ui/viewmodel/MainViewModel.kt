@@ -250,6 +250,12 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     val currentDriverId: String
         get() = _currentUser.value?.id ?: ""
 
+    fun refreshRoutesFromBackend() {
+        viewModelScope.launch {
+            repository.refreshRoutesFromBackend()
+        }
+    }
+
     init {
         viewModelScope.launch {
             try {
