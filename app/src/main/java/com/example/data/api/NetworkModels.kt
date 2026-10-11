@@ -28,6 +28,7 @@ data class RegisterRequest(
     val vehicleType: String? = null,
     val appliedRouteId: String? = null,
     val appliedRouteName: String? = null,
+    val requestedRoute: String? = null,
     val otpProof: String? = null
 )
 

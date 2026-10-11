@@ -144,6 +144,15 @@ class TransportRepository(
         return body
     }
 
+    suspend fun getPassengerAssignment(): Map<String, Any> {
+        val response = apiService.getPassengerAssignment()
+        val body = response.body()
+        if (!response.isSuccessful || body?.get("success") != true) {
+            throw IllegalStateException(body?.get("error")?.toString() ?: "Could not load your driver assignment.")
+        }
+        return body
+    }
+
     /**
      * Register a new user via VPS Backend.
      * Server is the strict SOURCE OF TRUTH.
@@ -163,6 +172,7 @@ class TransportRepository(
         vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
         appliedRouteName: String = "",
+        requestedRoute: String = "",
         otpProof: String = ""
     ): UserEntity {
         val normalizedRole = role.trim().uppercase()
@@ -182,6 +192,7 @@ class TransportRepository(
             vehicleType = vehicleType.ifBlank { null },
             appliedRouteId = appliedRouteId.ifBlank { null },
             appliedRouteName = appliedRouteName.ifBlank { null },
+            requestedRoute = requestedRoute.trim().ifBlank { null },
             otpProof = otpProof.ifBlank { null }
         )
 

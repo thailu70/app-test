@@ -65,15 +65,17 @@ fun PassengerDashboardScreen(
     val paymentMessage by viewModel.paymentMessage.collectAsState()
     val selectedReceipt by viewModel.selectedReceipt.collectAsState()
     val isComplaintOpen by viewModel.isComplaintDialogOpen.collectAsState()
-    val myRoster by viewModel.myRoster.collectAsState()
-    val mediaUploadMessage by viewModel.mediaUploadMessage.collectAsState()
+    val passengerAssignmentData by viewModel.passengerAssignment.collectAsState()
     val driverPhotoBytes by viewModel.assignedDriverPhotoBytes.collectAsState()
     val driverPhotoBitmap = remember(driverPhotoBytes) { driverPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
-    val passengerPhotoBytes by viewModel.passengerProfilePhotoBytes.collectAsState()
-    val passengerPhotoBitmap = remember(passengerPhotoBytes) { passengerPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
 
-    LaunchedEffect(currentUser?.id) { if (currentUser != null) viewModel.refreshMyRoster() }
-    val assignment = myRoster?.get("assignment") as? Map<*, *>
+    LaunchedEffect(currentUser?.id) {
+        if (currentUser != null) {
+            viewModel.refreshPassengerProfilePhoto()
+            viewModel.refreshPassengerAssignment()
+        }
+    }
+    val assignment = passengerAssignmentData?.get("assignment") as? Map<*, *>
     val assignedDriver = assignment?.get("driver") as? Map<*, *>
 
     fun t(key: String): String = AppStrings.get(key, lang)
@@ -119,49 +121,37 @@ fun PassengerDashboardScreen(
             )
         }
 
+        if (currentUser?.appliedRouteId.isNullOrBlank()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF7E6)),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Route request pending", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF92400E))
+                        Text(
+                            "Requested route: " + (currentUser?.appliedRouteName?.ifBlank { "Not specified" } ?: "Not specified"),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            "An administrator must assign an active route before a subscription or payment pass can be activated.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        paymentMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    }
+                }
+            }
+        }
+
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(22.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
             ) {
                 Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Your passenger profile", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        if (passengerPhotoBitmap != null) {
-                            Image(
-                                bitmap = passengerPhotoBitmap!!.asImageBitmap(),
-                                contentDescription = "Your profile photo",
-                                modifier = Modifier.size(88.dp).clip(CircleShape).border(2.dp, Color(0xFF19B7A5), CircleShape)
-                            )
-                        } else {
-                            androidx.compose.material3.Surface(
-                                modifier = Modifier.size(88.dp),
-                                shape = CircleShape,
-                                color = Color(0xFFE0F2F1),
-                                border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF19B7A5))
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(
-                                        currentUser?.fullName?.split(" ")?.mapNotNull { it.firstOrNull() }?.take(2)?.joinToString("") ?: "RP",
-                                        color = Color(0xFF087F8C), fontWeight = FontWeight.Bold, fontSize = 24.sp
-                                    )
-                                }
-                            }
-                        }
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(currentUser?.fullName ?: "Passenger", fontWeight = FontWeight.SemiBold)
-                            Text(if (passengerPhotoBitmap != null) "Profile photo added" else "Add a photo so your profile is recognizable", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            PrivateMediaUploadButton(
-                                viewModel, "PROFILE_PHOTO",
-                                if (passengerPhotoBitmap != null) "Change photo" else "Add profile photo",
-                                imagesOnly = true
-                            )
-                        }
-                    }
-                    mediaUploadMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                    Divider()
-                    Text("Your driver", fontWeight = FontWeight.Bold)
+                    Text("Your driver", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         if (driverPhotoBitmap != null) {
                             Image(
@@ -170,14 +160,22 @@ fun PassengerDashboardScreen(
                                 modifier = Modifier.size(64.dp).clip(CircleShape)
                             )
                         } else {
-                            androidx.compose.material3.Surface(
+                            Surface(
                                 modifier = Modifier.size(64.dp), shape = CircleShape,
                                 color = MaterialTheme.colorScheme.surfaceVariant
-                            ) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Person, contentDescription = null) } }
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Person, contentDescription = null)
+                                }
+                            }
                         }
                         Column {
                             Text(assignedDriver?.get("fullName")?.toString() ?: "Driver not assigned yet", fontWeight = FontWeight.Medium)
-                            Text(if (driverPhotoBitmap != null) "Verified driver profile" else "Driver photo not available yet", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                if (driverPhotoBitmap != null) "Driver profile photo" else "Driver photo not available yet",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }

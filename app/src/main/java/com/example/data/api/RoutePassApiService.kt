@@ -128,6 +128,9 @@ interface RoutePassApiService {
     @GET("api/rosters/my")
     suspend fun getMyRoster(): Response<Map<String, Any>>
 
+    @GET("api/rosters/my-assignment")
+    suspend fun getPassengerAssignment(): Response<Map<String, Any>>
+
     @GET("api/profile-media/{ownerId}/{assetType}")
     suspend fun getProfileMedia(@Path("ownerId") ownerId: String, @Path("assetType") assetType: String): Response<ResponseBody>
 

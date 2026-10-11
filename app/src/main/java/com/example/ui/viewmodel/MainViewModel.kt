@@ -166,6 +166,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
     private val _myRoster = MutableStateFlow<Map<String, Any>?>(null)
     val myRoster: StateFlow<Map<String, Any>?> = _myRoster.asStateFlow()
+    private val _passengerAssignment = MutableStateFlow<Map<String, Any>?>(null)
+    val passengerAssignment: StateFlow<Map<String, Any>?> = _passengerAssignment.asStateFlow()
     private val _assignedDriverPhotoBytes = MutableStateFlow<ByteArray?>(null)
     val assignedDriverPhotoBytes: StateFlow<ByteArray?> = _assignedDriverPhotoBytes.asStateFlow()
     private val _passengerProfilePhotoBytes = MutableStateFlow<ByteArray?>(null)
@@ -185,9 +187,12 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 val bytes = repository.getProfileMedia(passengerId, "PROFILE_PHOTO")
                 if (bytes != null && bytes.isNotEmpty()) {
                     _rosterPassengerPhotos.update { it + (passengerId to bytes) }
+                } else {
+                    rosterPhotoRequests.remove(passengerId)
                 }
             } catch (_: Exception) {
-                // Missing/unavailable photos use the initials placeholder in the roster.
+                // Retry later if the photo has not been uploaded or retrieval failed transiently.
+                rosterPhotoRequests.remove(passengerId)
             }
         }
     }
@@ -195,26 +200,63 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     val mediaUploadMessage: StateFlow<String?> = _mediaUploadMessage.asStateFlow()
 
     fun refreshMyRoster() {
+        // This endpoint returns passengers and is driver-only.
+        if (_currentUser.value?.role != "DRIVER") return
         viewModelScope.launch {
+            if (_currentUser.value?.role != "DRIVER") return@launch
             try {
                 val roster = repository.getMyRoster()
                 _myRoster.value = roster
                 loadRosterPassengerPhotos(roster)
-                val assignment = roster["assignment"] as? Map<*, *>
-                val driver = assignment?.get("driver") as? Map<*, *>
-                val signedInUser = _currentUser.value
-                val photoOwnerId = if (signedInUser?.role == "DRIVER") signedInUser.id else driver?.get("id")?.toString()
-                _assignedDriverPhotoBytes.value = if (!photoOwnerId.isNullOrBlank()) repository.getProfileMedia(photoOwnerId, "DRIVER_PROFILE_PHOTO") else null
-                if (signedInUser?.role == "PASSENGER") {
-                    _passengerProfilePhotoBytes.value = repository.getProfileMedia(signedInUser.id, "PROFILE_PHOTO")
-                }
+                val driverId = _currentUser.value?.id.orEmpty()
+                _assignedDriverPhotoBytes.value = if (driverId.isNotBlank()) {
+                    repository.getProfileMedia(driverId, "DRIVER_PROFILE_PHOTO")
+                } else null
             } catch (e: Exception) {
-                _mediaUploadMessage.value = e.message ?: "Could not load roster."
+                _mediaUploadMessage.value = e.message ?: "Could not load driver roster."
             }
         }
     }
 
-    fun reportMediaUploadError(message: String) { _mediaUploadMessage.value = message }
+    fun refreshPassengerAssignment() {
+        viewModelScope.launch {
+            val user = _currentUser.value
+            if (user?.role != "PASSENGER") {
+                _passengerAssignment.value = null
+                return@launch
+            }
+            try {
+                val result = repository.getPassengerAssignment()
+                _passengerAssignment.value = result
+                val assignment = result["assignment"] as? Map<*, *>
+                val driver = assignment?.get("driver") as? Map<*, *>
+                val driverId = driver?.get("id")?.toString().orEmpty()
+                _assignedDriverPhotoBytes.value = if (driverId.isNotBlank()) {
+                    repository.getProfileMedia(driverId, "DRIVER_PROFILE_PHOTO")
+                } else null
+            } catch (_: Exception) {
+                _passengerAssignment.value = null
+                _assignedDriverPhotoBytes.value = null
+            }
+        }
+    }
+
+    fun refreshPassengerProfilePhoto() {
+        viewModelScope.launch {
+            val user = _currentUser.value
+            if (user?.role != "PASSENGER" || user.id.isBlank()) {
+                _passengerProfilePhotoBytes.value = null
+                return@launch
+            }
+            _passengerProfilePhotoBytes.value = try {
+                repository.getProfileMedia(user.id, "PROFILE_PHOTO")
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+
+    fun reportMediaUploadError(message: String) { _mediaUploadMessage.value = message }    fun reportMediaUploadError(message: String) { _mediaUploadMessage.value = message }
 
     fun uploadProfileMedia(assetType: String, fileName: String, contentType: String, dataBase64: String) {
         viewModelScope.launch {
@@ -228,7 +270,11 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     }
                 }
                 _mediaUploadMessage.value = "$assetType uploaded successfully."
-                refreshMyRoster()
+                when (_currentUser.value?.role) {
+                    "DRIVER" -> refreshMyRoster()
+                    "PASSENGER" -> refreshPassengerProfilePhoto()
+                    else -> Unit
+                }
             } catch (e: Exception) {
                 _mediaUploadMessage.value = e.message ?: "File upload failed."
             }
@@ -495,6 +541,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     }
                 } else if (role == AppRole.PASSENGER) {
                     startPassengerSubscriptionRefresh(user.id)
+                    refreshPassengerProfilePhoto()
+                    refreshPassengerAssignment()
                 } else {
                     stopPassengerSubscriptionRefresh()
                 }
@@ -520,6 +568,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
         appliedRouteName: String = "",
+        requestedRoute: String = "",
         otpProof: String = ""
     ) {
         viewModelScope.launch {
@@ -529,8 +578,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 _authError.value = "Full Name and Phone Number are required."
                 return@launch
             }
-            if (role == AppRole.PASSENGER && appliedRouteId.isBlank()) {
-                _authError.value = "Please select the route you want to subscribe to."
+            if (role == AppRole.PASSENGER && appliedRouteId.isBlank() && requestedRoute.isBlank()) {
+                _authError.value = "Select an active route or enter the route you need so an administrator can review it."
                 return@launch
             }
             if (role == AppRole.DRIVER &&
@@ -559,6 +608,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     vehicleType = vehicleType,
                     appliedRouteId = appliedRouteId,
                     appliedRouteName = appliedRouteName,
+                    requestedRoute = requestedRoute,
                     otpProof = otpProof
                 )
                 if (role == AppRole.DRIVER) {
@@ -589,6 +639,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     } catch (_: Exception) {}
                 } else if (role == AppRole.PASSENGER) {
                     startPassengerSubscriptionRefresh(user.id)
+                    refreshPassengerProfilePhoto()
+                    refreshPassengerAssignment()
                 } else {
                     stopPassengerSubscriptionRefresh()
                 }
@@ -602,6 +654,12 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         stopPassengerSubscriptionRefresh()
         _currentUser.value = null
         _isAuthenticated.value = false
+        _myRoster.value = null
+        _passengerAssignment.value = null
+        _rosterPassengerPhotos.value = emptyMap()
+        rosterPhotoRequests.clear()
+        _assignedDriverPhotoBytes.value = null
+        _passengerProfilePhotoBytes.value = null
         _authError.value = null
     }
 
@@ -861,6 +919,10 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     fun openTelebirrDialog() {
         _paymentMessage.value = null
         _telebirrCheckoutUrl.value = null
+        if (_currentRole.value == AppRole.PASSENGER && _currentUser.value?.appliedRouteId.isNullOrBlank()) {
+            _paymentMessage.value = "Your route request is pending administrator review. Payment will be available after a route is assigned."
+            return
+        }
         _isTelebirrDialogOpen.value = true
     }
 
@@ -872,12 +934,21 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     fun processTelebirrPayment() {
         viewModelScope.launch {
             telebirrStatusPollJob?.cancel()
-            _isProcessingPayment.value = true
             val user = _currentUser.value
-            val appliedRouteId = user?.appliedRouteId?.ifBlank { "route_bole_merkato" } ?: "route_bole_merkato"
-            val routesList = repository.allRoutes.firstOrNull() ?: emptyList()
+            val appliedRouteId = user?.appliedRouteId?.takeIf { it.isNotBlank() }
+            if (appliedRouteId == null) {
+                _paymentMessage.value = "Your route request is pending administrator review. Payment will be available after a route is assigned."
+                _isProcessingPayment.value = false
+                return@launch
+            }
+            _isProcessingPayment.value = true
+            val routesList = repository.activeRoutes.firstOrNull() ?: emptyList()
             val matchedRoute = routesList.find { it.id == appliedRouteId }
-            val amount = matchedRoute?.basePriceEtb ?: 2500.0
+            val amount = matchedRoute?.basePriceEtb ?: run {
+                _paymentMessage.value = "The assigned route is no longer active. Contact the administrator."
+                _isProcessingPayment.value = false
+                return@launch
+            }
 
             val result = TelebirrGateway.processSubscriptionPayment(
                 passengerId = currentPassengerId,

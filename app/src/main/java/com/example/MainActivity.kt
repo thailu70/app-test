@@ -1,9 +1,11 @@
 package com.example
 
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -86,6 +89,16 @@ fun MainTransportApp(
     val transporterNotifs by viewModel.transporterNotifications.collectAsState()
     val allNotifs by viewModel.allNotifications.collectAsState()
     val mediaUploadMessage by viewModel.mediaUploadMessage.collectAsState()
+    val passengerPhotoBytes by viewModel.passengerProfilePhotoBytes.collectAsState()
+    val driverPhotoBytes by viewModel.assignedDriverPhotoBytes.collectAsState()
+    val topProfilePhotoBytes = when (currentRole) {
+        AppRole.PASSENGER -> passengerPhotoBytes
+        AppRole.DRIVER -> driverPhotoBytes
+        AppRole.ADMIN -> null
+    }
+    val topProfilePhoto = remember(topProfilePhotoBytes) {
+        topProfilePhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+    }
 
     fun t(key: String) = AppStrings.get(key, currentLang)
 
@@ -144,13 +157,21 @@ fun MainTransportApp(
                                 shape = CircleShape,
                                 modifier = Modifier.size(34.dp)
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = currentUser?.avatarInitials ?: "ET",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp
+                                if (topProfilePhoto != null) {
+                                    Image(
+                                        bitmap = topProfilePhoto!!.asImageBitmap(),
+                                        contentDescription = "Profile photo",
+                                        modifier = Modifier.size(34.dp).clip(CircleShape)
                                     )
+                                } else {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = currentUser?.avatarInitials ?: "ET",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp
+                                        )
+                                    }
                                 }
                             }
                             Column {

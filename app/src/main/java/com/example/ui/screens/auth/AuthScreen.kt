@@ -69,17 +69,19 @@ fun AuthScreen(
     // Never default to a hard-coded/demo route: select from the live active-route list only.
     var selectedRouteId by remember { mutableStateOf("") }
     var selectedRouteName by remember { mutableStateOf("") }
+    var requestedRouteText by remember { mutableStateOf("") }
+    var manualRouteRequest by remember { mutableStateOf(false) }
 
-    // Keep a still-active selection, refresh its display name after edits, and replace it
-    // automatically if the administrator deactivated that route.
-    LaunchedEffect(availableRoutes) {
-        val selectedRoute = availableRoutes.firstOrNull { it.id == selectedRouteId }
-        if (selectedRoute == null) {
-            val firstActiveRoute = availableRoutes.firstOrNull()
-            selectedRouteId = firstActiveRoute?.id.orEmpty()
-            selectedRouteName = firstActiveRoute?.name.orEmpty()
-        } else {
-            selectedRouteName = selectedRoute.name
+    LaunchedEffect(availableRoutes, manualRouteRequest) {
+        if (!manualRouteRequest) {
+            val selectedRoute = availableRoutes.firstOrNull { it.id == selectedRouteId }
+            if (selectedRoute == null) {
+                val firstActiveRoute = availableRoutes.firstOrNull()
+                selectedRouteId = firstActiveRoute?.id.orEmpty()
+                selectedRouteName = firstActiveRoute?.name.orEmpty()
+            } else {
+                selectedRouteName = selectedRoute.name
+            }
         }
     }
 
@@ -91,6 +93,8 @@ fun AuthScreen(
         password = ""
         confirmPassword = ""
         registrationValidationMessage = null
+        requestedRouteText = ""
+        manualRouteRequest = false
         if (isRegisterMode) fullName = ""
         if (isRegisterMode && selectedPortal == AppRole.PASSENGER) {
             viewModel.refreshRoutesFromBackend()
@@ -204,6 +208,7 @@ fun AuthScreen(
         }
 
         val portal = selectedPortal
+    val manualRouteMode = portal == AppRole.PASSENGER && (manualRouteRequest || availableRoutes.isEmpty())
 
 
 
@@ -459,10 +464,42 @@ fun AuthScreen(
                                         }
                                     }
 
+                                    if (availableRoutes.isNotEmpty()) {
+                                        TextButton(
+                                            onClick = {
+                                                manualRouteRequest = !manualRouteRequest
+                                                if (manualRouteRequest) {
+                                                    selectedRouteId = ""
+                                                    selectedRouteName = ""
+                                                } else {
+                                                    requestedRouteText = ""
+                                                }
+                                            },
+                                            modifier = Modifier.align(Alignment.Start)
+                                        ) {
+                                            Text(if (manualRouteRequest) "Choose an active route instead" else "My route is not listed — request a route")
+                                        }
+                                    }
+                                    if (manualRouteMode) {
+                                        OutlinedTextField(
+                                            value = requestedRouteText,
+                                            onValueChange = {
+                                                requestedRouteText = it.take(200)
+                                                registrationValidationMessage = null
+                                            },
+                                            label = { Text("Enter your required route (origin → destination)") },
+                                            placeholder = { Text("Example: Summit → Bole Medhanialem") },
+                                            supportingText = { Text("Your request stays pending until an administrator assigns an active route.") },
+                                            minLines = 2,
+                                            maxLines = 3,
+                                            modifier = Modifier.fillMaxWidth().testTag("auth_requested_route_input")
+                                        )
+                                    }
+
                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         if (availableRoutes.isEmpty()) {
                                             Text(
-                                                text = "No active routes are available. Refresh the list or contact the administrator.",
+                                                text = "No active routes are available. Enter the route you need above; it will remain pending until administrator review.",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = Color(0xFFB45309),
                                                 modifier = Modifier.padding(vertical = 8.dp)
@@ -480,6 +517,8 @@ fun AuthScreen(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .clickable {
+                                                        manualRouteRequest = false
+                                                        requestedRouteText = ""
                                                         selectedRouteId = route.id
                                                         selectedRouteName = route.name
                                                     }
@@ -591,7 +630,9 @@ fun AuthScreen(
                                             phone.isBlank() -> "Enter your mobile number first."
                                             password.length < 10 -> "Use a password with at least 10 characters before requesting OTP."
                                             password != confirmPassword -> "The two passwords do not match."
-                                            portal == AppRole.PASSENGER && selectedRouteId.isBlank() -> "Select your subscription route first."
+                                            portal == AppRole.PASSENGER &&
+                                                (if (manualRouteMode) requestedRouteText.isBlank() else selectedRouteId.isBlank()) ->
+                                                "Select an active route or enter the route you need."
                                             portal == AppRole.DRIVER && (licenseNumber.isBlank() || vehiclePlate.isBlank() || vehicleModel.isBlank()) -> "Complete your driver licence and vehicle details first."
                                             else -> null
                                         }
@@ -669,6 +710,9 @@ fun AuthScreen(
                                     val validationMessage = when {
                                         password.length < 10 -> "Use a password with at least 10 characters."
                                         password != confirmPassword -> "The two passwords do not match. Please re-enter them."
+                                        portal == AppRole.PASSENGER &&
+                                            (if (manualRouteMode) requestedRouteText.isBlank() else selectedRouteId.isBlank()) ->
+                                            "Select an active route or enter the route you need."
                                         portal != AppRole.ADMIN && !(portal == AppRole.PASSENGER && testPassengerRegistrationBypass) && otpProof.isNullOrBlank() -> "Verify your mobile number by SMS before registering."
                                          else -> null
                                     }
@@ -687,10 +731,11 @@ fun AuthScreen(
                                             assignedVehiclePlate = vehiclePlate,
                                             vehicleModel = vehicleModel,
                                             vehicleType = vehicleType,
-                                            appliedRouteId = selectedRouteId,
-                                            appliedRouteName = selectedRouteName,
+                                            appliedRouteId = if (manualRouteMode) "" else selectedRouteId,
+                                            appliedRouteName = if (manualRouteMode) requestedRouteText.trim() else selectedRouteName,
+                                            requestedRoute = if (manualRouteMode) requestedRouteText.trim() else "",
                                             adminSecret = adminSecret,
-                                             otpProof = otpProof.orEmpty()
+                                            otpProof = otpProof.orEmpty()
                                         )
                                     }
                                 } else {
