@@ -56,6 +56,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import java.text.SimpleDateFormat
+import java.util.Locale
 import com.example.core.localization.AppLanguage
 import com.example.core.localization.AppStrings
 import com.example.core.qr.QrValidationResult
@@ -68,6 +70,15 @@ import com.example.ui.viewmodel.DriverTripState
 import com.example.ui.viewmodel.MainViewModel
 import com.example.ui.viewmodel.NavigationStepState
 import com.example.ui.viewmodel.NetworkStatus
+
+private fun formatRouteTime12Hour(value: String): String {
+    return try {
+        val parsed = SimpleDateFormat("HH:mm", Locale.US).apply { isLenient = false }.parse(value)
+        if (parsed == null) value else SimpleDateFormat("h:mm a", Locale.US).format(parsed)
+    } catch (_: Exception) {
+        value
+    }
+}
 
 @Composable
 fun DriverTripScreen(
@@ -634,7 +645,7 @@ fun DriverCockpitHeaderCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(text = t("todays_trips"), style = MaterialTheme.typography.labelSmall, color = Slate400)
-                    Text(text = "Scheduled trip (${tripState.departureTime})", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = TransportGold)
+                    Text(text = "Scheduled trip (${formatRouteTime12Hour(tripState.departureTime)})", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = TransportGold)
                     Text(text = routeName, style = MaterialTheme.typography.bodySmall, color = Color.White)
                 }
                 Column(horizontalAlignment = Alignment.End) {
@@ -773,7 +784,7 @@ fun DriverNavigationHudCard(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Scheduled route departure: ${tripState.departureTime}",
+                    text = "Scheduled route departure: ${formatRouteTime12Hour(tripState.departureTime)}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Slate600
                 )
