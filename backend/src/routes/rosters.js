@@ -31,7 +31,7 @@ router.get('/my', async (req, res) => {
         JOIN users u ON u.id = s.passengerId
         LEFT JOIN checkin_records c ON c.passengerId = s.passengerId AND c.tripId = ?
           AND c.status = 'BOARDED'
-        WHERE s.vehicleId = ? AND s.routeId = ? AND s.subscriptionStatus = 'ACTIVE' AND s.paymentStatus = 'PAID'
+        WHERE (s.vehicleId = ? OR s.vehicleId IS NULL OR s.vehicleId = '') AND s.routeId = ? AND s.subscriptionStatus = 'ACTIVE' AND s.paymentStatus = 'PAID'
           AND s.daysRemaining > 0 AND u.role = 'PASSENGER'
         ORDER BY u.fullName ASC
       `).all(trip?.id || '', vehicle.id, routeId);
