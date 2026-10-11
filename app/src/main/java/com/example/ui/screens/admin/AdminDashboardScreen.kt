@@ -26,6 +26,7 @@ import androidx.compose.ui.window.Dialog
 import com.example.core.localization.AppLanguage
 import com.example.core.localization.AppStrings
 import com.example.data.entity.RouteEntity
+import com.example.data.entity.RouteStopEntity
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.MainViewModel
 
@@ -480,6 +481,7 @@ private fun RouteProgressItem(name: String, utilization: Float, passengers: Stri
 fun AdminRoutesManagementCard(
     routes: List<RouteEntity>,
     onAddNewRoute: () -> Unit,
+    onEditRoute: (RouteEntity) -> Unit,
     onDeleteRoute: (String) -> Unit
 ) {
     Card(
@@ -538,6 +540,9 @@ fun AdminRoutesManagementCard(
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(text = "ETB ${r.basePriceEtb.toInt()}/mo", fontWeight = FontWeight.Bold, color = TransportGreenPrimary)
+                                TextButton(onClick = { onEditRoute(r) }) {
+                                    Text("Edit")
+                                }
                                 IconButton(
                                     onClick = { onDeleteRoute(r.id) },
                                     modifier = Modifier.size(32.dp)
@@ -555,6 +560,360 @@ fun AdminRoutesManagementCard(
                             Text(text = "Morning: ${r.morningDeparture}", style = MaterialTheme.typography.labelSmall, color = Slate600)
                             Text(text = "Evening: ${r.eveningDeparture}", style = MaterialTheme.typography.labelSmall, color = Slate600)
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun adminRowValue(row: Map<String, Any?>, vararg keys: String): String {
+    for (key in keys) {
+        val value = row[key]?.toString()?.trim()
+        if (!value.isNullOrEmpty() && value != "null") return value
+    }
+    return ""
+}
+
+@Composable
+fun AdminRouteRequestsCard(
+    requests: List<Map<String, Any?>>,
+    routes: List<RouteEntity>,
+    onRefresh: () -> Unit,
+    onAssign: (String, String) -> Unit
+) {
+    val activeRoutes = routes.filter { it.active }
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Passenger route requests", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Review requested locations and times before assigning a route.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                }
+                TextButton(onClick = onRefresh) { Text("Refresh") }
+            }
+            if (requests.isEmpty()) {
+                Text("No passenger route requests are available.", style = MaterialTheme.typography.bodyMedium, color = Slate600)
+            }
+            requests.forEach { request ->
+                val requestId = adminRowValue(request, "id")
+                val status = adminRowValue(request, "status").uppercase()
+                var selectedRouteId by remember(requestId, activeRoutes) {
+                    mutableStateOf(activeRoutes.firstOrNull()?.id.orEmpty())
+                }
+                var routeMenuOpen by remember(requestId) { mutableStateOf(false) }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            adminRowValue(request, "passengerName", "passenger_name").ifBlank { "Passenger" },
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            adminRowValue(request, "origin") + " → " + adminRowValue(request, "destination"),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            "Journey: " + adminRowValue(request, "journey_type") +
+                                " · Outbound: " + adminRowValue(request, "outbound_pickup_time") +
+                                " · Return: " + adminRowValue(request, "return_pickup_time").ifBlank { "—" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Slate600
+                        )
+                        Text("Status: $status", style = MaterialTheme.typography.labelMedium)
+                        if (status == "PENDING") {
+                            Box {
+                                OutlinedButton(
+                                    onClick = { routeMenuOpen = true },
+                                    enabled = activeRoutes.isNotEmpty(),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(activeRoutes.find { it.id == selectedRouteId }?.name ?: "Choose active route")
+                                }
+                                DropdownMenu(expanded = routeMenuOpen, onDismissRequest = { routeMenuOpen = false }) {
+                                    activeRoutes.forEach { route ->
+                                        DropdownMenuItem(
+                                            text = { Text(route.name) },
+                                            onClick = { selectedRouteId = route.id; routeMenuOpen = false }
+                                        )
+                                    }
+                                }
+                            }
+                            Button(
+                                onClick = { if (requestId.isNotBlank() && selectedRouteId.isNotBlank()) onAssign(requestId, selectedRouteId) },
+                                enabled = requestId.isNotBlank() && selectedRouteId.isNotBlank() && activeRoutes.isNotEmpty(),
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = TransportGreenPrimary)
+                            ) { Text("Assign route (subscription remains unpaid)") }
+                        } else {
+                            Text("Assigned route: " + adminRowValue(request, "assignedRouteName", "assigned_route_name"), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AdminSubscriptionsCard(
+    subscriptions: List<Map<String, Any?>>,
+    onRefresh: () -> Unit,
+    onEdit: (Map<String, Any?>) -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Passenger subscriptions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Edit route, pickup, destination, journey type and requested times.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                }
+                TextButton(onClick = onRefresh) { Text("Refresh") }
+            }
+            if (subscriptions.isEmpty()) {
+                Text("No subscription records were returned by the server.", style = MaterialTheme.typography.bodyMedium, color = Slate600)
+            }
+            subscriptions.forEach { row ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text(adminRowValue(row, "passengerName", "passenger_name").ifBlank { adminRowValue(row, "passengerId", "passenger_id") }, fontWeight = FontWeight.Bold)
+                        Text("Route: " + adminRowValue(row, "routeName", "route_name", "routeId", "route_id"), style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            adminRowValue(row, "journey_type").ifBlank { "ROUND_TRIP" } + " · " +
+                                adminRowValue(row, "outbound_pickup_time", "morningSchedule", "morning_schedule").ifBlank { "06:30" } +
+                                " / " + adminRowValue(row, "return_pickup_time", "eveningSchedule", "evening_schedule").ifBlank { "—" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Slate600
+                        )
+                        Text(
+                            "Subscription: " + adminRowValue(row, "subscriptionStatus", "subscription_status") +
+                                " · Payment: " + adminRowValue(row, "paymentStatus", "payment_status"),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                        TextButton(onClick = { onEdit(row) }) { Text("Edit route & schedule details") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun EditRouteDialog(
+    route: RouteEntity,
+    initialStops: List<RouteStopEntity>,
+    onDismiss: () -> Unit,
+    onSave: (RouteEntity, List<RouteStopEntity>) -> Unit
+) {
+    var name by remember(route.id) { mutableStateOf(route.name) }
+    var nameAm by remember(route.id) { mutableStateOf(route.nameAm) }
+    var description by remember(route.id) { mutableStateOf(route.description) }
+    var morning by remember(route.id) { mutableStateOf(route.morningDeparture) }
+    var evening by remember(route.id) { mutableStateOf(route.eveningDeparture) }
+    var distance by remember(route.id) { mutableStateOf(route.distanceKm.toString()) }
+    var price by remember(route.id) { mutableStateOf(route.basePriceEtb.toString()) }
+    val orderedStops = initialStops.sortedBy { it.stopOrder }
+    var departure by remember(route.id, orderedStops) { mutableStateOf(orderedStops.getOrNull(0)?.stopName.orEmpty()) }
+    var departureAm by remember(route.id, orderedStops) { mutableStateOf(orderedStops.getOrNull(0)?.stopNameAm.orEmpty()) }
+    var destination by remember(route.id, orderedStops) { mutableStateOf(orderedStops.getOrNull(1)?.stopName.orEmpty()) }
+    var destinationAm by remember(route.id, orderedStops) { mutableStateOf(orderedStops.getOrNull(1)?.stopNameAm.orEmpty()) }
+    val canSave = name.isNotBlank() && nameAm.isNotBlank() && departure.isNotBlank() && destination.isNotBlank() &&
+        !departure.trim().equals(destination.trim(), ignoreCase = true) && distance.toDoubleOrNull() != null &&
+        price.toDoubleOrNull() != null && orderedStops.size == 2
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                item { Text("Edit route", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+                item { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Route name") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
+                item { OutlinedTextField(value = nameAm, onValueChange = { nameAm = it }, label = { Text("Route name (Amharic)") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
+                item { OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth()) }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(value = morning, onValueChange = { morning = it }, label = { Text("Outbound HH:mm") }, modifier = Modifier.weight(1f))
+                        OutlinedTextField(value = evening, onValueChange = { evening = it }, label = { Text("Return HH:mm") }, modifier = Modifier.weight(1f))
+                    }
+                }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(value = distance, onValueChange = { distance = it }, label = { Text("Distance km") }, modifier = Modifier.weight(1f))
+                        OutlinedTextField(value = price, onValueChange = { price = it }, label = { Text("Monthly ETB") }, modifier = Modifier.weight(1f))
+                    }
+                }
+                item { Text("Departure and destination points", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold) }
+                item { OutlinedTextField(value = departure, onValueChange = { departure = it }, label = { Text("Departure point") }, modifier = Modifier.fillMaxWidth()) }
+                item { OutlinedTextField(value = departureAm, onValueChange = { departureAm = it }, label = { Text("Departure name (Amharic)") }, modifier = Modifier.fillMaxWidth()) }
+                item { OutlinedTextField(value = destination, onValueChange = { destination = it }, label = { Text("Destination point") }, modifier = Modifier.fillMaxWidth()) }
+                item { OutlinedTextField(value = destinationAm, onValueChange = { destinationAm = it }, label = { Text("Destination name (Amharic)") }, modifier = Modifier.fillMaxWidth()) }
+                if (orderedStops.size != 2) {
+                    item { Text("This route has no two-stop cache loaded. Refresh routes and retry before editing.", color = StatusExpiredRed, style = MaterialTheme.typography.bodySmall) }
+                }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                        Button(
+                            onClick = {
+                                if (canSave) {
+                                    val stops = listOf(
+                                        orderedStops[0].copy(stopName = departure.trim(), stopNameAm = departureAm.ifBlank { departure }.trim(), stopOrder = 1, scheduledMorningTime = morning.trim(), scheduledEveningTime = evening.trim()),
+                                        orderedStops[1].copy(stopName = destination.trim(), stopNameAm = destinationAm.ifBlank { destination }.trim(), stopOrder = 2, scheduledMorningTime = morning.trim(), scheduledEveningTime = evening.trim())
+                                    )
+                                    onSave(route.copy(
+                                        name = name.trim(), nameAm = nameAm.trim(), description = description.trim(),
+                                        morningDeparture = morning.trim(), eveningDeparture = evening.trim(),
+                                        distanceKm = distance.toDouble(), basePriceEtb = price.toDouble()
+                                    ), stops)
+                                }
+                            },
+                            enabled = canSave,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = TransportGreenPrimary)
+                        ) { Text("Save changes") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun EditSubscriptionDialog(
+    subscription: Map<String, Any?>,
+    routes: List<RouteEntity>,
+    stops: List<RouteStopEntity>,
+    onRouteSelected: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String, String, String, String, String) -> Unit
+) {
+    val id = adminRowValue(subscription, "id")
+    var routeId by remember(id) { mutableStateOf(adminRowValue(subscription, "routeId", "route_id")) }
+    var pickupStopId by remember(id) { mutableStateOf(adminRowValue(subscription, "pickupStopId", "pickup_stop_id")) }
+    var destinationStopId by remember(id) { mutableStateOf(adminRowValue(subscription, "destinationStopId", "destination_stop_id")) }
+    var journeyType by remember(id) { mutableStateOf(adminRowValue(subscription, "journey_type").ifBlank { "ROUND_TRIP" }) }
+    var outbound by remember(id) { mutableStateOf(adminRowValue(subscription, "outbound_pickup_time", "morningSchedule", "morning_schedule").ifBlank { "06:30" }) }
+    var returning by remember(id) { mutableStateOf(adminRowValue(subscription, "return_pickup_time", "eveningSchedule", "evening_schedule").ifBlank { "17:30" }) }
+    var routeMenuOpen by remember { mutableStateOf(false) }
+    var pickupMenuOpen by remember { mutableStateOf(false) }
+    var destinationMenuOpen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(routeId) { if (routeId.isNotBlank()) onRouteSelected(routeId) }
+    LaunchedEffect(routeId, stops) {
+        if (stops.isNotEmpty() && stops.none { it.id == pickupStopId }) pickupStopId = stops.first().id
+        if (stops.isNotEmpty() && stops.none { it.id == destinationStopId }) destinationStopId = stops.last().id
+    }
+    val activeRoutes = routes.filter { it.active }
+    val selectedRoute = activeRoutes.find { it.id == routeId }
+    val selectedPickup = stops.find { it.id == pickupStopId }
+    val selectedDestination = stops.find { it.id == destinationStopId }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                item { Text("Edit subscription", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+                item {
+                    Box {
+                        OutlinedButton(onClick = { routeMenuOpen = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(selectedRoute?.name ?: "Choose active route")
+                        }
+                        DropdownMenu(expanded = routeMenuOpen, onDismissRequest = { routeMenuOpen = false }) {
+                            activeRoutes.forEach { route ->
+                                DropdownMenuItem(
+                                    text = { Text(route.name) },
+                                    onClick = {
+                                        if (routeId != route.id) {
+                                            routeId = route.id
+                                            pickupStopId = ""
+                                            destinationStopId = ""
+                                        }
+                                        routeMenuOpen = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                item {
+                    Box {
+                        OutlinedButton(onClick = { pickupMenuOpen = true }, enabled = stops.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                            Text(selectedPickup?.stopName ?: "Choose pickup stop")
+                        }
+                        DropdownMenu(expanded = pickupMenuOpen, onDismissRequest = { pickupMenuOpen = false }) {
+                            stops.forEach { stop -> DropdownMenuItem(text = { Text(stop.stopName) }, onClick = { pickupStopId = stop.id; pickupMenuOpen = false }) }
+                        }
+                    }
+                }
+                item {
+                    Box {
+                        OutlinedButton(onClick = { destinationMenuOpen = true }, enabled = stops.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                            Text(selectedDestination?.stopName ?: "Choose destination stop")
+                        }
+                        DropdownMenu(expanded = destinationMenuOpen, onDismissRequest = { destinationMenuOpen = false }) {
+                            stops.forEach { stop -> DropdownMenuItem(text = { Text(stop.stopName) }, onClick = { destinationStopId = stop.id; destinationMenuOpen = false }) }
+                        }
+                    }
+                }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = journeyType == "ONE_WAY", onClick = { journeyType = "ONE_WAY" }, label = { Text("One-way") })
+                        FilterChip(selected = journeyType == "ROUND_TRIP", onClick = { journeyType = "ROUND_TRIP" }, label = { Text("Round-trip") })
+                    }
+                }
+                item { OutlinedTextField(value = outbound, onValueChange = { outbound = it }, label = { Text("Outbound pickup (HH:mm)") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
+                if (journeyType == "ROUND_TRIP") {
+                    item { OutlinedTextField(value = returning, onValueChange = { returning = it }, label = { Text("Return pickup (HH:mm)") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
+                }
+                item {
+                    Text(
+                        "Changing the route, stops, journey, time or tariff may reset this pass to PENDING / UNPAID.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = StatusExpiredRed
+                    )
+                }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                        Button(
+                            onClick = {
+                                if (id.isNotBlank() && routeId.isNotBlank() && pickupStopId.isNotBlank() &&
+                                    destinationStopId.isNotBlank() && pickupStopId != destinationStopId &&
+                                    outbound.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$")) &&
+                                    (journeyType == "ONE_WAY" || returning.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$"))) {
+                                    onSave(id, routeId, pickupStopId, destinationStopId, journeyType, outbound.trim(), if (journeyType == "ONE_WAY") "" else returning.trim())
+                                }
+                            },
+                            enabled = routeId.isNotBlank() && pickupStopId.isNotBlank() && destinationStopId.isNotBlank() &&
+                                pickupStopId != destinationStopId && stops.isNotEmpty(),
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = TransportGreenPrimary)
+                        ) { Text("Save changes") }
                     }
                 }
             }
