@@ -311,6 +311,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     val adminRouteRequests: StateFlow<List<Map<String, Any?>>> = _adminRouteRequests.asStateFlow()
     private val _adminSubscriptionRows = MutableStateFlow<List<Map<String, Any?>>>(emptyList())
     val adminSubscriptionRows: StateFlow<List<Map<String, Any?>>> = _adminSubscriptionRows.asStateFlow()
+    private val _adminSubscriptionEditStops = MutableStateFlow<List<RouteStopEntity>>(emptyList())
+    val adminSubscriptionEditStops: StateFlow<List<RouteStopEntity>> = _adminSubscriptionEditStops.asStateFlow()
     private val _adminOperationMessage = MutableStateFlow<String?>(null)
     val adminOperationMessage: StateFlow<String?> = _adminOperationMessage.asStateFlow()
 
@@ -815,6 +817,24 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 _adminOperationMessage.value = null
             } catch (e: Exception) {
                 _adminOperationMessage.value = e.message ?: "Could not load subscription records."
+            }
+        }
+    }
+
+    fun loadAdminSubscriptionStops(routeId: String) {
+        viewModelScope.launch {
+            try {
+                _adminSubscriptionEditStops.value = repository.getStopsForRouteSync(routeId)
+                if (_adminSubscriptionEditStops.value.isEmpty()) {
+                    repository.refreshRoutesFromBackend()
+                    _adminSubscriptionEditStops.value = repository.getStopsForRouteSync(routeId)
+                }
+                if (_adminSubscriptionEditStops.value.isEmpty()) {
+                    _adminOperationMessage.value = "No stops are configured for the selected route."
+                }
+            } catch (e: Exception) {
+                _adminSubscriptionEditStops.value = emptyList()
+                _adminOperationMessage.value = e.message ?: "Could not load route stops."
             }
         }
     }
