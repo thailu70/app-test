@@ -44,7 +44,7 @@ fun AuthScreen(
     val otpProof by viewModel.otpProof.collectAsState()
     val otpMessage by viewModel.otpMessage.collectAsState()
     val testPassengerRegistrationBypass by viewModel.testPassengerRegistrationBypass.collectAsState()
-    val availableRoutes by viewModel.allRoutes.collectAsState()
+    val availableRoutes by viewModel.activeRoutes.collectAsState()
 
     // The login screen defaults to Passenger and can switch to Admin. Driver access remains available separately.
     var selectedPortal by remember { mutableStateOf(AppRole.PASSENGER) }
@@ -66,15 +66,20 @@ fun AuthScreen(
     var vehicleTypeMenuExpanded by remember { mutableStateOf(false) }
     var adminSecret by remember { mutableStateOf("") }
 
-    // Applied Route Selection for Passenger and Driver
-    var selectedRouteId by remember { mutableStateOf("route_bole_merkato") }
-    var selectedRouteName by remember { mutableStateOf("Bole → Merkato") }
+    // Never default to a hard-coded/demo route: select from the live active-route list only.
+    var selectedRouteId by remember { mutableStateOf("") }
+    var selectedRouteName by remember { mutableStateOf("") }
 
-    // Automatically synchronize default route if available
+    // Keep a still-active selection, refresh its display name after edits, and replace it
+    // automatically if the administrator deactivated that route.
     LaunchedEffect(availableRoutes) {
-        if (selectedRouteId.isBlank() && availableRoutes.isNotEmpty()) {
-            selectedRouteId = availableRoutes.first().id
-            selectedRouteName = availableRoutes.first().name
+        val selectedRoute = availableRoutes.firstOrNull { it.id == selectedRouteId }
+        if (selectedRoute == null) {
+            val firstActiveRoute = availableRoutes.firstOrNull()
+            selectedRouteId = firstActiveRoute?.id.orEmpty()
+            selectedRouteName = firstActiveRoute?.name.orEmpty()
+        } else {
+            selectedRouteName = selectedRoute.name
         }
     }
 
@@ -87,6 +92,9 @@ fun AuthScreen(
         confirmPassword = ""
         registrationValidationMessage = null
         if (isRegisterMode) fullName = ""
+        if (isRegisterMode && selectedPortal == AppRole.PASSENGER) {
+            viewModel.refreshRoutesFromBackend()
+        }
     }
 
     LaunchedEffect(registrationMessage) {
@@ -433,13 +441,33 @@ fun AuthScreen(
                                         )
                                     }
 
-                                    Text(
-                                        text = "Select the daily commuter shuttle route you wish to subscribe to:",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Slate600
-                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "Select the daily commuter shuttle route you wish to subscribe to:",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Slate600,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        TextButton(onClick = { viewModel.refreshRoutesFromBackend() }) {
+                                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Refresh")
+                                        }
+                                    }
 
                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        if (availableRoutes.isEmpty()) {
+                                            Text(
+                                                text = "No active routes are available. Refresh the list or contact the administrator.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color(0xFFB45309),
+                                                modifier = Modifier.padding(vertical = 8.dp)
+                                            )
+                                        }
                                         availableRoutes.forEach { route ->
                                             val isSelected = selectedRouteId == route.id
                                             Surface(
