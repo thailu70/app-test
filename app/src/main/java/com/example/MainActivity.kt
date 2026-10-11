@@ -378,7 +378,7 @@ private fun RoutePassSettingsDialog(
                         if (appearanceExpanded) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text("Dark theme", modifier = Modifier.weight(1f))
-                                Switch(checked = darkTheme, onCheckedChange = { darkTheme = it; onDarkThemeChange(it) }, modifier = Modifier.testTag("settings_dark_theme_switch"))
+                                Switch(checked = darkTheme, onCheckedChange = { enabled -> onDarkThemeChange(enabled) }, modifier = Modifier.testTag("settings_dark_theme_switch"))
                             }
                             Text("Theme preference is saved on this device.", style = MaterialTheme.typography.bodySmall)
                         }
