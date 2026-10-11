@@ -221,6 +221,116 @@ router.get('/tracking', async (req, res) => {
 });
 
 /**
+ * GET /api/admin/route-requests
+ * Structured custom-route requests submitted by passengers.
+ */
+router.get('/route-requests', async (req, res) => {
+  try {
+    const status = String(req.query.status || 'PENDING').trim().toUpperCase();
+    if (!['PENDING', 'ASSIGNED', 'REJECTED', 'ALL'].includes(status)) {
+      return res.status(400).json({ success: false, error: 'Invalid route-request status filter.' });
+    }
+    const filter = status === 'ALL' ? '' : 'WHERE rr.status = ?';
+    const requests = await DB.prepare(`
+      SELECT rr.*, u.fullName AS passengerName, u.phone AS passengerPhone,
+             r.name AS assignedRouteName
+      FROM passenger_route_requests rr
+      JOIN users u ON u.id = rr.passenger_id
+      LEFT JOIN routes r ON r.id = rr.assigned_route_id
+      ${filter}
+      ORDER BY rr.created_at DESC
+    `).all(...(status === 'ALL' ? [] : [status]));
+    return res.json({ success: true, requests });
+  } catch (err) {
+    console.error('[Admin] route request list failed:', err);
+    return res.status(500).json({ success: false, error: 'Could not load passenger route requests.' });
+  }
+});
+
+/**
+ * PATCH /api/admin/route-requests/:id/assign
+ * Assign a custom passenger request to an existing active route. No pass/payment is activated.
+ */
+router.patch('/route-requests/:id/assign', async (req, res) => {
+  try {
+    const routeId = String(req.body.routeId || '').trim();
+    if (!routeId) return res.status(400).json({ success: false, error: 'Choose an active route to assign.' });
+
+    const request = await DB.prepare('SELECT * FROM passenger_route_requests WHERE id = ?').get(req.params.id);
+    if (!request) return res.status(404).json({ success: false, error: 'Passenger route request not found.' });
+    if (request.status !== 'PENDING') return res.status(409).json({ success: false, error: 'Only pending route requests can be assigned.' });
+
+    const route = await DB.prepare('SELECT * FROM routes WHERE id = ? AND active = TRUE').get(routeId);
+    if (!route) return res.status(404).json({ success: false, error: 'The selected active route was not found.' });
+    const stops = await DB.prepare('SELECT * FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC').all(routeId);
+    if (!Array.isArray(stops) || stops.length < 2) {
+      return res.status(409).json({ success: false, error: 'The selected route needs at least two configured stops before assignment.' });
+    }
+    const originMatch = stops.find(s => String(s.stopName || '').trim().toLowerCase() === String(request.origin || '').trim().toLowerCase());
+    const destinationMatch = stops.find(s => String(s.stopName || '').trim().toLowerCase() === String(request.destination || '').trim().toLowerCase());
+    const pickup = originMatch || stops[0];
+    const destination = destinationMatch || stops[stops.length - 1];
+    if (!pickup || !destination || pickup.id === destination.id) {
+      return res.status(409).json({ success: false, error: 'Route pickup and destination must be different stops.' });
+    }
+    const existing = await DB.prepare('SELECT id FROM subscriptions WHERE passengerId = ? ORDER BY updatedAt DESC LIMIT 1').get(request.passenger_id);
+    const pickupTime = request.outbound_pickup_time || '06:30';
+    const returnTime = request.journey_type === 'ONE_WAY' ? null : (request.return_pickup_time || route.eveningDeparture || '17:30');
+    await DB.transaction(async (tx) => {
+      await tx.prepare('UPDATE users SET appliedRouteId = ?, appliedRouteName = ? WHERE id = ? AND role = \'PASSENGER\'')
+        .run(route.id, route.name, request.passenger_id);
+
+      if (existing) {
+        await tx.prepare(`
+          UPDATE subscriptions
+          SET routeId = ?, pickupStopId = ?, destinationStopId = ?,
+              morningSchedule = ?, eveningSchedule = ?, priceEtb = ?,
+              journey_type = ?, outbound_pickup_time = ?, return_pickup_time = ?,
+              paymentStatus = 'UNPAID', subscriptionStatus = 'PENDING',
+              daysRemaining = 0, qrToken = NULL, vehicleId = NULL, updatedAt = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(
+          route.id, pickup.id, destination.id, pickupTime, returnTime || route.eveningDeparture || '17:30',
+          route.basePriceEtb, request.journey_type, pickupTime, returnTime, existing.id
+        );
+      } else {
+        const subscriptionId = `sub_${request.passenger_id}_${Date.now().toString(36)}`;
+        await tx.prepare(`
+          INSERT INTO subscriptions
+            (id, passengerId, routeId, pickupStopId, destinationStopId, morningSchedule, eveningSchedule,
+             priceEtb, paymentStatus, subscriptionStatus, journey_type, outbound_pickup_time,
+             return_pickup_time, daysRemaining, qrToken, vehicleId)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'UNPAID', 'PENDING', ?, ?, ?, 0, NULL, NULL)
+        `).run(
+          subscriptionId, request.passenger_id, route.id, pickup.id, destination.id,
+          pickupTime, returnTime || route.eveningDeparture || '17:30', route.basePriceEtb,
+          request.journey_type, pickupTime, returnTime
+        );
+      }
+
+      await tx.prepare(`
+        UPDATE passenger_route_requests
+        SET status = 'ASSIGNED', assigned_route_id = ?, assigned_by = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status = 'PENDING'
+      `).run(route.id, req.user.id, request.id);
+      await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
+        .run('PASSENGER_ROUTE_REQUEST_ASSIGNED', req.user.id, 'ADMIN',
+          `Assigned passenger ${request.passenger_id} request ${request.id} to route ${route.name}; ${pickup.stopName} to ${destination.stopName}; ${request.journey_type}; outbound ${pickupTime}; return ${returnTime || 'none'}`);
+    });
+
+    return res.json({
+      success: true,
+      message: 'Route assigned. The passenger subscription remains pending and unpaid until payment is recorded.',
+      request: { id: request.id, status: 'ASSIGNED', assignedRouteId: route.id, assignedRouteName: route.name },
+      subscription: { passengerId: request.passenger_id, routeId: route.id, pickupStopId: pickup.id, destinationStopId: destination.id, journeyType: request.journey_type, outboundPickupTime: pickupTime, returnPickupTime: returnTime, paymentStatus: 'UNPAID', subscriptionStatus: 'PENDING' }
+    });
+  } catch (err) {
+    console.error('[Admin] route request assignment failed:', err);
+    return res.status(500).json({ success: false, error: 'Could not assign the passenger route request.' });
+  }
+});
+
+/**
  * GET /api/admin/subscriptions
  * List all subscriptions
  */
@@ -513,6 +623,72 @@ router.get('/audit-logs', async (req, res) => {
   }
 });
 
+
+/**
+ * PATCH /api/admin/subscriptions/:id/details
+ * Edit a passenger route/schedule without allowing admin edits to mark a subscription paid.
+ */
+router.patch('/subscriptions/:id/details', async (req, res) => {
+  try {
+    const current = await DB.prepare('SELECT * FROM subscriptions WHERE id = ?').get(req.params.id);
+    if (!current) return res.status(404).json({ success: false, error: 'Subscription not found.' });
+
+    const routeId = String(req.body.routeId ?? current.routeId ?? '').trim();
+    const journeyType = String(req.body.journeyType ?? current.journey_type ?? 'ROUND_TRIP').trim().toUpperCase();
+    const outbound = String(req.body.outboundPickupTime ?? current.outbound_pickup_time ?? current.morningSchedule ?? '06:30').trim();
+    const returnTime = journeyType === 'ONE_WAY' ? null : String(req.body.returnPickupTime ?? current.return_pickup_time ?? current.eveningSchedule ?? '17:30').trim();
+    const timeIsValid = t => /^(\\d{2}):(\\d{2})$/.test(t) && Number(t.slice(0, 2)) <= 23 && Number(t.slice(3, 5)) <= 59;
+    if (!['ONE_WAY', 'ROUND_TRIP'].includes(journeyType) || !timeIsValid(outbound) || (journeyType === 'ROUND_TRIP' && !timeIsValid(returnTime))) {
+      return res.status(400).json({ success: false, error: 'Choose ONE_WAY or ROUND_TRIP and enter valid HH:mm pickup times.' });
+    }
+    const route = await DB.prepare('SELECT * FROM routes WHERE id = ? AND active = TRUE').get(routeId);
+    if (!route) return res.status(404).json({ success: false, error: 'Choose an active route.' });
+    const pickupStopId = String(req.body.pickupStopId ?? current.pickupStopId ?? '').trim();
+    const destinationStopId = String(req.body.destinationStopId ?? current.destinationStopId ?? '').trim();
+    const stops = await DB.prepare('SELECT id FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC').all(routeId);
+    if (!stops.some(s => s.id === pickupStopId) || !stops.some(s => s.id === destinationStopId) || pickupStopId === destinationStopId) {
+      return res.status(400).json({ success: false, error: 'Pickup and destination must be two different stops on the selected route.' });
+    }
+    const changed = routeId !== current.routeId || pickupStopId !== current.pickupStopId ||
+      destinationStopId !== current.destinationStopId || journeyType !== String(current.journey_type || 'ROUND_TRIP') ||
+      outbound !== String(current.outbound_pickup_time || current.morningSchedule || '06:30') ||
+      returnTime !== (current.return_pickup_time || current.eveningSchedule || null);
+    await DB.transaction(async tx => {
+      await tx.prepare(`
+        UPDATE subscriptions
+        SET routeId = ?, pickupStopId = ?, destinationStopId = ?, morningSchedule = ?, eveningSchedule = ?,
+            journey_type = ?, outbound_pickup_time = ?, return_pickup_time = ?, priceEtb = ?,
+            paymentStatus = ?, subscriptionStatus = ?, daysRemaining = ?, qrToken = ?, vehicleId = ?,
+            updatedAt = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(
+        route.id, pickupStopId, destinationStopId, outbound, returnTime || route.eveningDeparture || '17:30',
+        journeyType, outbound, returnTime, route.basePriceEtb,
+        changed ? 'UNPAID' : current.paymentStatus,
+        changed ? 'PENDING' : current.subscriptionStatus,
+        changed ? 0 : current.daysRemaining,
+        changed ? null : current.qrToken,
+        changed ? null : current.vehicleId,
+        current.id
+      );
+      await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
+        .run('SUBSCRIPTION_DETAILS_UPDATED', req.user.id, 'ADMIN',
+          `Updated subscription ${current.id}: route ${route.name}; pickup ${pickupStopId}; destination ${destinationStopId}; ${journeyType}; outbound ${outbound}; return ${returnTime || 'none'}`);
+    });
+    return res.json({
+      success: true,
+      message: changed
+        ? 'Subscription updated. Because route or schedule details changed, its pass is pending and unpaid until payment is recorded again.'
+        : 'Subscription details saved.',
+      subscriptionId: current.id,
+      paymentStatus: changed ? 'UNPAID' : current.paymentStatus,
+      subscriptionStatus: changed ? 'PENDING' : current.subscriptionStatus
+    });
+  } catch (err) {
+    console.error('[Admin] subscription details update failed:', err);
+    return res.status(500).json({ success: false, error: 'Could not update subscription details.' });
+  }
+});
 
 /**
  * PATCH /api/admin/subscriptions/:id/vehicle
