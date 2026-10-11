@@ -738,11 +738,11 @@ fun EditRouteDialog(
     val orderedStops = initialStops.sortedBy { it.stopOrder }
     var departure by remember(route.id, orderedStops) { mutableStateOf(orderedStops.getOrNull(0)?.stopName.orEmpty()) }
     var departureAm by remember(route.id, orderedStops) { mutableStateOf(orderedStops.getOrNull(0)?.stopNameAm.orEmpty()) }
-    var destination by remember(route.id, orderedStops) { mutableStateOf(orderedStops.getOrNull(1)?.stopName.orEmpty()) }
-    var destinationAm by remember(route.id, orderedStops) { mutableStateOf(orderedStops.getOrNull(1)?.stopNameAm.orEmpty()) }
+    var destination by remember(route.id, orderedStops) { mutableStateOf(orderedStops.lastOrNull()?.stopName.orEmpty()) }
+    var destinationAm by remember(route.id, orderedStops) { mutableStateOf(orderedStops.lastOrNull()?.stopNameAm.orEmpty()) }
     val canSave = name.isNotBlank() && nameAm.isNotBlank() && departure.isNotBlank() && destination.isNotBlank() &&
         !departure.trim().equals(destination.trim(), ignoreCase = true) && distance.toDoubleOrNull() != null &&
-        price.toDoubleOrNull() != null && orderedStops.size == 2
+        price.toDoubleOrNull() != null && orderedStops.size >= 2
 
     Dialog(onDismissRequest = onDismiss) {
         Card(shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().padding(8.dp)) {
@@ -771,8 +771,10 @@ fun EditRouteDialog(
                 item { OutlinedTextField(value = departureAm, onValueChange = { departureAm = it }, label = { Text("Departure name (Amharic)") }, modifier = Modifier.fillMaxWidth()) }
                 item { OutlinedTextField(value = destination, onValueChange = { destination = it }, label = { Text("Destination point") }, modifier = Modifier.fillMaxWidth()) }
                 item { OutlinedTextField(value = destinationAm, onValueChange = { destinationAm = it }, label = { Text("Destination name (Amharic)") }, modifier = Modifier.fillMaxWidth()) }
-                if (orderedStops.size != 2) {
-                    item { Text("This route has no two-stop cache loaded. Refresh routes and retry before editing.", color = StatusExpiredRed, style = MaterialTheme.typography.bodySmall) }
+                if (orderedStops.size < 2) {
+                    item { Text("At least two route stops must be loaded before editing.", color = StatusExpiredRed, style = MaterialTheme.typography.bodySmall) }
+                } else if (orderedStops.size > 2) {
+                    item { Text("${orderedStops.size - 2} intermediate stop(s) will be preserved.", style = MaterialTheme.typography.bodySmall, color = Slate600) }
                 }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -780,10 +782,29 @@ fun EditRouteDialog(
                         Button(
                             onClick = {
                                 if (canSave) {
-                                    val stops = listOf(
-                                        orderedStops[0].copy(stopName = departure.trim(), stopNameAm = departureAm.ifBlank { departure }.trim(), stopOrder = 1, scheduledMorningTime = morning.trim(), scheduledEveningTime = evening.trim()),
-                                        orderedStops[1].copy(stopName = destination.trim(), stopNameAm = destinationAm.ifBlank { destination }.trim(), stopOrder = 2, scheduledMorningTime = morning.trim(), scheduledEveningTime = evening.trim())
-                                    )
+                                    val stops = orderedStops.mapIndexed { index, stop ->
+                                        when (index) {
+                                            0 -> stop.copy(
+                                                stopName = departure.trim(),
+                                                stopNameAm = departureAm.ifBlank { departure }.trim(),
+                                                stopOrder = index + 1,
+                                                scheduledMorningTime = morning.trim(),
+                                                scheduledEveningTime = evening.trim()
+                                            )
+                                            orderedStops.lastIndex -> stop.copy(
+                                                stopName = destination.trim(),
+                                                stopNameAm = destinationAm.ifBlank { destination }.trim(),
+                                                stopOrder = index + 1,
+                                                scheduledMorningTime = morning.trim(),
+                                                scheduledEveningTime = evening.trim()
+                                            )
+                                            else -> stop.copy(
+                                                stopOrder = index + 1,
+                                                scheduledMorningTime = morning.trim(),
+                                                scheduledEveningTime = evening.trim()
+                                            )
+                                        }
+                                    }
                                     onSave(route.copy(
                                         name = name.trim(), nameAm = nameAm.trim(), description = description.trim(),
                                         morningDeparture = morning.trim(), eveningDeparture = evening.trim(),
