@@ -286,7 +286,11 @@ class TransportRepository(
 
             // /api/routes is the authoritative active-route catalogue. Mark old cached entries
             // inactive first, then reactivate/upsert only routes returned by the current response.
-            dao.deactivateAllRoutes()
+            if (routeList.isEmpty()) {
+                dao.deactivateAllRoutes()
+            } else {
+                dao.deactivateRoutesExcept(routeList.map { it.id })
+            }
             synchronizedRoutes.forEach { (route, stops, hasAuthoritativeStops) ->
                 dao.insertRoute(
                     RouteEntity(
