@@ -66,6 +66,7 @@ fun MiniVehicleMap(
     val mapView = remember(context) { createMapView(context) }
     val markerHolder = remember(mapView) { arrayOfNulls<Marker>(1) }
     val lastCameraPoint = remember(mapView) { arrayOfNulls<GeoPoint>(1) }
+    val trackingIsStale = serverMessage?.contains("tracking refresh failed", ignoreCase = true) == true
 
     DisposableEffect(lifecycleOwner, mapView) {
         val observer = LifecycleEventObserver { _, event ->
@@ -112,7 +113,14 @@ fun MiniVehicleMap(
                         )
                     }
                 }
-                Surface(shape = CircleShape, color = if (vehicle?.hasGpsLocation == true) Color(0xFF123F39) else Color(0xFF354454)) {
+                Surface(
+                    shape = CircleShape,
+                    color = when {
+                        trackingIsStale -> Color(0xFF513D20)
+                        vehicle?.hasGpsLocation == true -> Color(0xFF123F39)
+                        else -> Color(0xFF354454)
+                    }
+                ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -121,10 +129,18 @@ fun MiniVehicleMap(
                         Icon(
                             if (vehicle?.hasGpsLocation == true) Icons.Default.GpsFixed else Icons.Default.LocationSearching,
                             contentDescription = null,
-                            tint = if (vehicle?.hasGpsLocation == true) Color(0xFF55E6D0) else Color(0xFFB7C7D5)
+                            tint = when {
+                                trackingIsStale -> Color(0xFFFFC66D)
+                                vehicle?.hasGpsLocation == true -> Color(0xFF55E6D0)
+                                else -> Color(0xFFB7C7D5)
+                            }
                         )
                         Text(
-                            if (vehicle?.hasGpsLocation == true) "LIVE" else "WAITING",
+                            when {
+                                trackingIsStale && vehicle?.hasGpsLocation == true -> "STALE"
+                                vehicle?.hasGpsLocation == true -> "GPS"
+                                else -> "WAITING"
+                            },
                             color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold
                         )
                     }
@@ -184,7 +200,11 @@ fun MiniVehicleMap(
                     color = Color(0xE6102233)
                 ) {
                     Text(
-                        if (vehicle?.hasGpsLocation == true) "Vehicle position from GPS" else "Waiting for first GPS signal",
+                        when {
+                            trackingIsStale && vehicle?.hasGpsLocation == true -> "Last known GPS position · refresh temporarily unavailable"
+                            vehicle?.hasGpsLocation == true -> "Vehicle position reported by GPS"
+                            else -> "Waiting for first GPS signal"
+                        },
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
                         color = Color.White, style = MaterialTheme.typography.labelSmall
                     )

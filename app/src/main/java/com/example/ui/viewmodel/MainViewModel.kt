@@ -339,10 +339,12 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
             }
         } else {
             flow {
+                var lastKnownVehicle: TrackedVehicleDto? = null
                 while (true) {
                     try {
                         val response = repository.fetchTrackedVehicleStatus()
                         val vehicle = response.vehicle
+                        lastKnownVehicle = vehicle
                         _trackingMessage.value = response.message ?: when {
                             vehicle == null -> "No vehicle is available for this account yet."
                             vehicle.hasGpsLocation && !vehicle.lastGpsAt.isNullOrBlank() ->
@@ -353,8 +355,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
-                        _trackingMessage.value = "Tracking refresh failed: ${error.message ?: "server unavailable"}"
-                        emit(null)
+                        _trackingMessage.value = "Tracking refresh failed; showing the last GPS fix when available. ${error.message ?: "Server unavailable."}"
+                        emit(lastKnownVehicle)
                     }
                     delay(3000)
                 }

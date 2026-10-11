@@ -28,6 +28,7 @@ import com.example.core.localization.AppStrings
 import com.example.data.database.TransportDatabase
 import com.example.data.repository.TransportRepository
 import com.example.ui.components.NotificationTrayDialog
+import com.example.ui.components.PrivateMediaUploadButton
 import com.example.ui.screens.auth.AuthScreen
 import com.example.ui.screens.driver.DriverTripScreen
 import com.example.ui.screens.passenger.PassengerDashboardScreen
@@ -51,9 +52,17 @@ class MainActivity : ComponentActivity() {
         viewModel = ViewModelProvider(this, factory)[MainViewModel::class.java]
 
         setContent {
-            var darkTheme by remember { mutableStateOf(false) }
+            val preferences = getSharedPreferences("routepass_preferences", MODE_PRIVATE)
+            var darkTheme by remember { mutableStateOf(preferences.getBoolean("dark_theme", false)) }
             MyApplicationTheme(darkTheme = darkTheme) {
-                MainTransportApp(viewModel = viewModel, onDarkThemeChange = { darkTheme = it })
+                MainTransportApp(
+                    viewModel = viewModel,
+                    darkTheme = darkTheme,
+                    onDarkThemeChange = { enabled ->
+                        darkTheme = enabled
+                        preferences.edit().putBoolean("dark_theme", enabled).apply()
+                    }
+                )
             }
         }
     }
@@ -61,7 +70,11 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainTransportApp(viewModel: MainViewModel, onDarkThemeChange: (Boolean) -> Unit = {}) {
+fun MainTransportApp(
+    viewModel: MainViewModel,
+    darkTheme: Boolean = false,
+    onDarkThemeChange: (Boolean) -> Unit = {}
+) {
     var showSettings by remember { mutableStateOf(false) }
     val isAuthenticated by viewModel.isAuthenticated.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
@@ -72,6 +85,7 @@ fun MainTransportApp(viewModel: MainViewModel, onDarkThemeChange: (Boolean) -> U
     val passengerNotifs by viewModel.passengerNotifications.collectAsState()
     val transporterNotifs by viewModel.transporterNotifications.collectAsState()
     val allNotifs by viewModel.allNotifications.collectAsState()
+    val mediaUploadMessage by viewModel.mediaUploadMessage.collectAsState()
 
     fun t(key: String) = AppStrings.get(key, currentLang)
 
@@ -281,10 +295,18 @@ fun MainTransportApp(viewModel: MainViewModel, onDarkThemeChange: (Boolean) -> U
 
         if (showSettings) {
             RoutePassSettingsDialog(
+                viewModel = viewModel,
                 userName = currentUser?.fullName.orEmpty(),
                 phone = currentUser?.phone.orEmpty(),
+                role = currentRole,
                 roleLabel = when (currentRole) { AppRole.PASSENGER -> "Passenger"; AppRole.DRIVER -> "Driver"; AppRole.ADMIN -> "Administrator" },
+                darkTheme = darkTheme,
+                mediaUploadMessage = mediaUploadMessage,
                 onDarkThemeChange = onDarkThemeChange,
+                onSwitchPortal = {
+                    showSettings = false
+                    viewModel.logout()
+                },
                 onDismiss = { showSettings = false }
             )
         }
@@ -305,13 +327,17 @@ fun MainTransportApp(viewModel: MainViewModel, onDarkThemeChange: (Boolean) -> U
 
 @Composable
 private fun RoutePassSettingsDialog(
+    viewModel: MainViewModel,
     userName: String,
     phone: String,
+    role: AppRole,
     roleLabel: String,
+    darkTheme: Boolean,
+    mediaUploadMessage: String?,
     onDarkThemeChange: (Boolean) -> Unit,
+    onSwitchPortal: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var darkTheme by remember { mutableStateOf(false) }
     var profileExpanded by remember { mutableStateOf(true) }
     var appearanceExpanded by remember { mutableStateOf(false) }
     var notificationsExpanded by remember { mutableStateOf(false) }
@@ -328,7 +354,21 @@ private fun RoutePassSettingsDialog(
                             Text(userName.ifBlank { "RoutePass user" }, fontWeight = FontWeight.SemiBold)
                             Text("Account type: $roleLabel")
                             Text("Phone: $phone")
-                            Text("Password changes and profile editing require secure account-API integration.", style = MaterialTheme.typography.bodySmall)
+                            if (role == AppRole.PASSENGER || role == AppRole.DRIVER) {
+                                PrivateMediaUploadButton(
+                                    viewModel = viewModel,
+                                    assetType = if (role == AppRole.DRIVER) "DRIVER_PROFILE_PHOTO" else "PROFILE_PHOTO",
+                                    label = "Upload profile photo",
+                                    imagesOnly = true
+                                )
+                                mediaUploadMessage?.let {
+                                    Text(it, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                            Text(
+                                "Password changes are not enabled by the account API yet. The app will not pretend a local-only change is secure.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                     }
                 }
@@ -340,7 +380,7 @@ private fun RoutePassSettingsDialog(
                                 Text("Dark theme", modifier = Modifier.weight(1f))
                                 Switch(checked = darkTheme, onCheckedChange = { darkTheme = it; onDarkThemeChange(it) }, modifier = Modifier.testTag("settings_dark_theme_switch"))
                             }
-                            Text("Theme applies for this session.", style = MaterialTheme.typography.bodySmall)
+                            Text("Theme preference is saved on this device.", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -356,6 +396,18 @@ private fun RoutePassSettingsDialog(
                         if (supportExpanded) Text("Contact your RoutePass administrator for support. Route-change requests and approval are not enabled here; no request has been submitted.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
+                OutlinedButton(
+                    onClick = onSwitchPortal,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.SwapHoriz, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Switch account / portal")
+                }
+                Text(
+                    "Portal access stays tied to your server-authorized account role. Sign in with an account registered for the other role.",
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }

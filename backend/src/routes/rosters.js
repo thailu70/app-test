@@ -41,7 +41,7 @@ router.get('/my', async (req, res) => {
         vehicle: { id: vehicle.id, plateNumber: vehicle.plateNumber, model: vehicle.model },
         rosterMessage: passengers.length
           ? 'Assigned active passenger roster loaded.'
-          : 'No active paid passengers are assigned to this vehicle yet. The administrator must assign each active subscription to this vehicle.',
+          : 'No eligible passengers matched this driver’s assigned route. Check that subscriptions are ACTIVE, PAID, have days remaining, and are assigned to this route/vehicle.',
         passengers: passengers.map(p => ({
           id: p.passengerId, fullName: p.passengerName,
           subscriptionId: p.subscriptionId, subscriptionStatus: p.subscriptionStatus,
