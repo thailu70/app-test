@@ -79,7 +79,9 @@ fun PassengerDashboardScreen(
     fun t(key: String): String = AppStrings.get(key, lang)
 
     val selectedRoute = routes.find { it.id == currentUser?.appliedRouteId }
-    val checkoutAmount = selectedRoute?.basePriceEtb ?: subscription?.priceEtb ?: 2500.0
+    // Do not expose a tariff or allow checkout until an administrator assigns an official route.
+    val hasAdminAssignedRoute = !currentUser?.appliedRouteId.isNullOrBlank() && selectedRoute != null
+    val checkoutAmount = if (hasAdminAssignedRoute) selectedRoute?.basePriceEtb ?: subscription?.priceEtb ?: 0.0 else 0.0
     val checkoutRouteName = selectedRoute?.name
         ?: currentUser?.appliedRouteName?.takeIf { it.isNotBlank() }
         ?: "Monthly commuter pass"
@@ -189,6 +191,7 @@ fun PassengerDashboardScreen(
             SubscriptionStatusCard(
                 subscription = subscription,
                 userAppliedRoute = currentUser?.appliedRouteName,
+                isRouteAssigned = hasAdminAssignedRoute,
                 lang = lang,
                 onRenewClick = { viewModel.openTelebirrDialog() },
                 onCancelClick = { viewModel.cancelSubscription() }
@@ -202,7 +205,8 @@ fun PassengerDashboardScreen(
                 token = subscription?.qrToken ?: "",
                 status = subscription?.subscriptionStatus ?: "NOT_SUBSCRIBED",
                 lang = lang,
-                onSubscribeClick = { viewModel.openTelebirrDialog() }
+                isRouteAssigned = hasAdminAssignedRoute,
+                onSubscribeClick = { if (hasAdminAssignedRoute) viewModel.openTelebirrDialog() }
             )
         }
 
@@ -216,7 +220,8 @@ fun PassengerDashboardScreen(
             FinancialBalanceCard(
                 lang = lang,
                 amountEtb = checkoutAmount,
-                onPayClick = { viewModel.openTelebirrDialog() }
+                isRouteAssigned = hasAdminAssignedRoute,
+                onPayClick = { if (hasAdminAssignedRoute) viewModel.openTelebirrDialog() }
             )
         }
 
@@ -245,7 +250,7 @@ fun PassengerDashboardScreen(
     }
 
     // Telebirr Payment Dialog
-    if (isTelebirrOpen) {
+    if (isTelebirrOpen && hasAdminAssignedRoute) {
         TelebirrCheckoutDialog(
             amountEtb = checkoutAmount,
             routeName = checkoutRouteName,
@@ -280,6 +285,7 @@ fun PassengerDashboardScreen(
 fun SubscriptionStatusCard(
     subscription: com.example.data.entity.SubscriptionEntity?,
     userAppliedRoute: String?,
+    isRouteAssigned: Boolean = true,
     lang: AppLanguage,
     onRenewClick: () -> Unit,
     onCancelClick: () -> Unit = {}
@@ -462,7 +468,9 @@ fun SubscriptionStatusCard(
                     Column {
                         Text(text = t("payment"), style = MaterialTheme.typography.labelSmall, color = Slate400)
                         Text(
-                            text = if (isSubscribed) "PAID (ETB $priceVal)" else "UNPAID (ETB $priceVal)",
+                            text = if (!isRouteAssigned) {
+                                if (lang == AppLanguage.AMHARIC) "መስመር እየተመደበ ነው" else "PENDING ROUTE ASSIGNMENT"
+                            } else if (isSubscribed) "PAID (ETB $priceVal)" else "UNPAID (ETB $priceVal)",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             color = if (isSubscribed) StatusActiveGreen else StatusErrorRed
@@ -470,8 +478,24 @@ fun SubscriptionStatusCard(
                     }
                 }
 
-                // Action button: Pay & Subscribe vs Renew
-                if (!isSubscribed) {
+                // Keep tariff and payment controls hidden until an administrator assigns an official route.
+                if (!isRouteAssigned) {
+                    Surface(
+                        color = Color(0xFFFEF3C7).copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B))
+                    ) {
+                        Text(
+                            text = if (lang == AppLanguage.AMHARIC)
+                                "የመስመር ምደባ በአስተዳዳሪ እስኪጸድቅ ድረስ የወርሃዊ ክፍያ መጠን አይታይም።"
+                            else
+                                "Route assignment pending. Your monthly price will be shown after an administrator assigns your route.",
+                            modifier = Modifier.padding(12.dp),
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                } else if (!isSubscribed) {
                     Button(
                         onClick = onRenewClick,
                         modifier = Modifier
@@ -533,6 +557,7 @@ fun PassengerQrCard(
     token: String,
     status: String,
     lang: AppLanguage,
+    isRouteAssigned: Boolean = true,
     onSubscribeClick: () -> Unit = {}
 ) {
     fun t(key: String) = AppStrings.get(key, lang)
@@ -678,13 +703,14 @@ fun PassengerQrCard(
                             text = if (lang == AppLanguage.AMHARIC)
                                 "የዲጂታል መሳፈሪያ QR ኮድ ለማግኘት እባክዎ አስቀድመው ለተመረጠው መስመር በቴሌብር ክፍያ ፈጽመው ይመዝገቡ።"
                             else
-                                "The dynamic QR boarding pass is locked because you do not have an active monthly subscription. Pay with Telebirr to activate your pass.",
+                                if (isRouteAssigned) "The dynamic QR boarding pass is locked because you do not have an active monthly subscription. Follow the payment instructions for your assigned route."
+                                else "Your route is awaiting administrator assignment. The price and payment option will appear after your route is assigned.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate600,
                             textAlign = TextAlign.Center
                         )
 
-                        Button(
+                        if (isRouteAssigned) Button(
                             onClick = onSubscribeClick,
                             shape = RoundedCornerShape(10.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue),
@@ -828,6 +854,7 @@ private fun StopPoint(name: String, isActive: Boolean, isCurrent: Boolean) {
 fun FinancialBalanceCard(
     lang: AppLanguage,
     amountEtb: Double,
+    isRouteAssigned: Boolean = true,
     onPayClick: () -> Unit
 ) {
     fun t(key: String) = AppStrings.get(key, lang)
@@ -873,7 +900,12 @@ fun FinancialBalanceCard(
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(text = t("monthly_fee"), style = MaterialTheme.typography.labelSmall, color = Slate600)
-                    Text(text = "ETB ${String.format(java.util.Locale.US, "%,.2f", amountEtb)}", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = if (isRouteAssigned) "ETB ${String.format(java.util.Locale.US, "%,.2f", amountEtb)}"
+                        else if (lang == AppLanguage.AMHARIC) "በመጠባበቅ ላይ" else "Pending assignment",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
 
@@ -888,7 +920,7 @@ fun FinancialBalanceCard(
                     Text(text = t("next_payment"), style = MaterialTheme.typography.labelSmall, color = Slate600)
                     Text(text = "01 Nov 2026", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                 }
-                Button(
+                if (isRouteAssigned) Button(
                     onClick = onPayClick,
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue),
