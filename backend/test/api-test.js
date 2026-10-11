@@ -138,6 +138,43 @@ async function runTests() {
     }
     console.log('✓ Admin passenger directory, fleet tracking and safe default test configuration verified');
 
+    // Updating an existing multi-stop route must preserve intermediate stops.
+    const existingRouteResult = await makeRequest('GET', '/api/routes/route_bole_merkato');
+    const existingRoute = existingRouteResult.data.route;
+    const existingStops = existingRouteResult.data.stops || [];
+    if (existingRouteResult.status !== 200 || !existingRoute || existingStops.length < 3) {
+      throw new Error('Seeded test route should expose its ordered multi-stop route details.');
+    }
+    const updateRouteResult = await makeRequest('PUT', '/api/routes/route_bole_merkato', {
+      name: existingRoute.name,
+      nameAm: existingRoute.nameAm,
+      description: existingRoute.description || '',
+      morningDeparture: existingRoute.morningDeparture || '06:30',
+      eveningDeparture: existingRoute.eveningDeparture || '17:30',
+      distanceKm: existingRoute.distanceKm,
+      basePriceEtb: existingRoute.basePriceEtb,
+      serviceType: existingRoute.serviceType || 'TWO_WAY',
+      active: existingRoute.active !== false && existingRoute.active !== 0,
+      stops: existingStops.map(stop => ({
+        id: stop.id,
+        stopName: stop.stopName,
+        stopNameAm: stop.stopNameAm,
+        latitude: stop.latitude,
+        longitude: stop.longitude,
+        scheduledMorningTime: stop.scheduledMorningTime,
+        scheduledEveningTime: stop.scheduledEveningTime,
+        maxCapacity: stop.maxCapacity
+      }))
+    }, adminToken);
+    const updatedStopNames = (updateRouteResult.data.stops || []).map(stop => stop.stopName);
+    const originalStopNames = existingStops.map(stop => stop.stopName);
+    if (updateRouteResult.status !== 200 || updateRouteResult.data.success !== true ||
+        updatedStopNames.length !== originalStopNames.length ||
+        updatedStopNames.some((name, index) => name !== originalStopNames[index])) {
+      throw new Error('Route editing did not preserve all ordered intermediate stops: ' + JSON.stringify(updateRouteResult.data));
+    }
+    console.log('✓ Admin can update an existing route while preserving all ordered intermediate stops');
+
     // 5. Registration does NOT activate subscription
     const testPassengerPhone = '+2519' + Math.floor(10000000 + Math.random() * 90000000);
     const newPasReg = await makeRequest('POST', '/api/auth/register', {
