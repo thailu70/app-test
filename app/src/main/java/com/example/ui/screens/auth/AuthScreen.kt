@@ -255,13 +255,12 @@ fun AuthScreen(
                     selectedTabIndex = when (portal) {
                         AppRole.PASSENGER -> 0
                         AppRole.DRIVER -> 1
-                        AppRole.ADMIN -> 2
                     },
                     modifier = Modifier.clip(RoundedCornerShape(12.dp)),
                     containerColor = Slate200,
                     indicator = {}
                 ) {
-                    listOf(AppRole.PASSENGER, AppRole.DRIVER, AppRole.ADMIN).forEachIndexed { index, role ->
+                    listOf(AppRole.PASSENGER, AppRole.DRIVER).forEachIndexed { index, role ->
                         Tab(
                             selected = portal == role,
                             onClick = {
@@ -276,7 +275,6 @@ fun AuthScreen(
                                     when (role) {
                                         AppRole.PASSENGER -> if (lang == AppLanguage.AMHARIC) "ተሳፋሪ" else "Passenger"
                                         AppRole.DRIVER -> if (lang == AppLanguage.AMHARIC) "ሹፌር" else "Driver"
-                                        AppRole.ADMIN -> if (lang == AppLanguage.AMHARIC) "አስተዳዳሪ" else "Admin"
                                     },
                                     fontWeight = if (portal == role) FontWeight.Bold else FontWeight.Normal,
                                     color = if (portal == role) TransportGreenPrimary else Slate700

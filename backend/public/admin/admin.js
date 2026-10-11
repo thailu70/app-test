@@ -286,10 +286,12 @@
   }
 
   async function renderRoutes() {
-    const result = await api("/api/admin/routes");
+    const [result, geofence] = await Promise.all([api("/api/admin/routes"), api("/api/admin/settings/geofence")]);
     const routes = asArray(result, "routes");
     state.cache.routes = routes;
     return pageHeader("Manage routes", "Create a route, update its timetable and tariff, or deactivate it without deleting history.") +
+      section("Driver GPS arrival radius", "Choose how close a driver must be to the assigned departure stop before confirming arrival. Allowed range: 25–5,000 metres.",
+        '<div class="form-card"><div class="field"><label for="driver-geofence-radius">GPS radius in metres</label><input id="driver-geofence-radius" type="number" min="25" max="5000" step="25" value="' + esc(geofence.radiusMeters || 200) + '" required><span class="hint">Examples: 50 m, 200 m, 1,000 m. Applies to trip-start confirmations immediately.</span></div><div class="form-actions"><button class="btn btn-primary" type="button" data-save-geofence>Save GPS radius</button></div></div>') +
       section("Create a route", "New routes are active by default.",
         '<form id="create-route-form" class="form-card"><div class="driver-form-grid">' +
         '<div class="field"><label for="route-name">Route name (English) *</label><input id="route-name" name="name" required maxlength="120" placeholder="Bole - Merkato Express"></div>' +
@@ -394,7 +396,7 @@
             ).join("");
             return '<div class="inline-actions"><select data-subscription-route-for="' + subId + '" aria-label="Change route for ' + esc(value(r, "passengerName", "passenger_name")) + '" style="min-width:190px;padding:7px;border:1px solid #d5deea;border-radius:8px">' +
               inactiveCurrent + choices +
-              '</select><button class="btn btn-primary" data-change-subscription-route="' + subId + '">Change</button></div>';
+              '</select><button class="btn btn-primary" data-change-subscription-route="' + subId + '" data-passenger-id="' + esc(value(r, "passengerId", "passenger_id")) + '">Change</button></div>';
           }},
           { label: "Owner vehicle / driver", render: r => esc(value(r, "vehiclePlate", "vehicle_plate")) + "<br><span class=\"muted\">" + esc(value(r, "driverName", "driver_name")) + "</span>" },
           { label: "Assign vehicle", render: r => {
@@ -621,7 +623,9 @@
     if (!window.confirm("Changing this passenger's route will reset the subscription to PENDING/UNPAID, clear the old QR pass and vehicle assignment, and require payment for the new route tariff. Continue?")) return;
     button.disabled = true;
     try {
-      const result = await api("/api/admin/subscriptions/" + encodeURIComponent(subId) + "/route", {
+      const passengerId = button.dataset.passengerId;
+      if (!passengerId) throw new Error("Passenger ID is missing from this subscription row. Refresh the admin page.");
+      const result = await api("/api/admin/passengers/" + encodeURIComponent(passengerId) + "/route", {
         method: "PATCH", body: JSON.stringify({ routeId: select.value })
       });
       toast(result.message || "Passenger route changed.");
@@ -725,6 +729,18 @@
     } catch (error) { toast(error.message, true); button.disabled = false; }
   }
 
+  async function saveGeofenceRadius(button) {
+    const input = $("#driver-geofence-radius");
+    const radiusMeters = Number(input?.value);
+    if (!Number.isInteger(radiusMeters) || radiusMeters < 25 || radiusMeters > 5000) return toast("Enter a whole number from 25 to 5000 metres.", true);
+    button.disabled = true;
+    try {
+      const result = await api("/api/admin/settings/geofence", { method: "PUT", body: JSON.stringify({ radiusMeters }) });
+      toast(result.message || "GPS radius saved.");
+      await renderView();
+    } catch (error) { toast(error.message, true); button.disabled = false; }
+  }
+
   async function changeComplaint(button) {
     button.disabled = true;
     try {
@@ -757,6 +773,8 @@
     finally { button.disabled = false; button.textContent = "Sign in to admin portal"; }
   }
   document.addEventListener("click", event => {
+    const saveGeofenceButton = event.target.closest("[data-save-geofence]");
+    if (saveGeofenceButton) { saveGeofenceRadius(saveGeofenceButton); return; }
     const navButton = event.target.closest("[data-view]");
     if (navButton) { state.view = navButton.dataset.view; renderView(); return; }
     const goButton = event.target.closest("[data-go]");

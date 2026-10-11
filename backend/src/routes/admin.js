@@ -718,4 +718,32 @@ router.patch('/subscriptions/:id/vehicle', async (req, res) => {
   }
 });
 
+
+// Administrator-configurable driver GPS arrival radius.
+router.get('/settings/geofence', async (req, res) => {
+  try {
+    await DB.prepare(`CREATE TABLE IF NOT EXISTS routepass_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`).run();
+    const row = await DB.prepare('SELECT setting_value FROM routepass_settings WHERE setting_key = ?').get('driver_geofence_radius_meters');
+    const radiusMeters = Math.min(5000, Math.max(25, Number.parseInt(row?.setting_value || process.env.ROUTEPASS_GEOFENCE_RADIUS_METERS || '200', 10) || 200));
+    return res.json({ success: true, radiusMeters, allowedRangeMeters: { min: 25, max: 5000 } });
+  } catch (err) {
+    console.error('[Admin] geofence settings read failed:', err);
+    return res.status(500).json({ success: false, error: 'Could not load GPS geofence settings.' });
+  }
+});
+
+router.put('/settings/geofence', async (req, res) => {
+  try {
+    const radiusMeters = Number(req.body.radiusMeters);
+    if (!Number.isInteger(radiusMeters) || radiusMeters < 25 || radiusMeters > 5000) return res.status(400).json({ success: false, error: 'GPS radius must be a whole number from 25 to 5000 metres.' });
+    await DB.prepare(`CREATE TABLE IF NOT EXISTS routepass_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`).run();
+    await DB.prepare(`INSERT INTO routepass_settings (setting_key, setting_value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = CURRENT_TIMESTAMP`).run('driver_geofence_radius_meters', String(radiusMeters));
+    await DB.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)').run('DRIVER_GEOFENCE_RADIUS_UPDATED', req.user.id, 'ADMIN', `Set driver departure GPS radius to ${radiusMeters} metres.`);
+    return res.json({ success: true, radiusMeters, message: `Driver GPS arrival radius set to ${radiusMeters} metres.` });
+  } catch (err) {
+    console.error('[Admin] geofence settings update failed:', err);
+    return res.status(500).json({ success: false, error: 'Could not save GPS geofence settings.' });
+  }
+});
+
 module.exports = router;

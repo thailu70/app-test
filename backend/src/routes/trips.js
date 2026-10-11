@@ -98,9 +98,12 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
     if (!firstStop || firstStop.latitude == null || firstStop.longitude == null) {
       return res.status(409).json({ success: false, error: 'The assigned route has no configured departure stop coordinates. Ask an administrator to configure it.' });
     }
+    await DB.prepare(`CREATE TABLE IF NOT EXISTS routepass_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`).run();
+    const radiusSetting = await DB.prepare('SELECT setting_value FROM routepass_settings WHERE setting_key = ?').get('driver_geofence_radius_meters');
+    const radiusMeters = Math.min(5000, Math.max(25, Number.parseInt(radiusSetting?.setting_value || process.env.ROUTEPASS_GEOFENCE_RADIUS_METERS || '200', 10) || 200));
     const distanceToDepartureMeters = distanceMeters(Number(latitude), Number(longitude), Number(firstStop.latitude), Number(firstStop.longitude));
-    if (distanceToDepartureMeters > 50) {
-      return res.status(403).json({ success: false, code: 'OUTSIDE_DEPARTURE_GEOFENCE', distanceMeters: Math.round(distanceToDepartureMeters), radiusMeters: 200, departureLocation: firstStop.stopName, error: 'You are outside the 200-metre departure area. Move to the assigned pickup location before confirming arrival.' });
+    if (distanceToDepartureMeters > radiusMeters) {
+      return res.status(403).json({ success: false, code: 'OUTSIDE_DEPARTURE_GEOFENCE', distanceMeters: Math.round(distanceToDepartureMeters), radiusMeters, departureLocation: firstStop.stopName, error: `You are ${Math.round(distanceToDepartureMeters)} metres from the departure stop; the configured limit is ${radiusMeters} metres.` });
     }
     const initialStop = firstStop.stopName || 'Terminal Hub';
     const tripId = `trip_${Date.now().toString(36)}_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
