@@ -665,7 +665,7 @@ router.patch('/subscriptions/:id/details', async (req, res) => {
     const changed = routeId !== current.routeId || pickupStopId !== current.pickupStopId ||
       destinationStopId !== current.destinationStopId || journeyType !== String(current.journey_type || 'ROUND_TRIP') ||
       outbound !== String(current.outbound_pickup_time || current.morningSchedule || '06:30') ||
-      returnTime !== (current.return_pickup_time || current.eveningSchedule || null) ||
+      returnTime !== (journeyType === 'ONE_WAY' ? null : (current.return_pickup_time || current.eveningSchedule || null)) ||
       Number(route.basePriceEtb) !== Number(current.priceEtb);
     await DB.transaction(async tx => {
       await tx.prepare(`
