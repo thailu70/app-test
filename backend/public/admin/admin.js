@@ -578,6 +578,77 @@
     } catch (error) { toast(error.message, true); button.disabled = false; }
   }
 
+  async function assignPassengerRouteRequest(button) {
+    const requestId = button.dataset.assignRouteRequest;
+    const select = $("[data-route-request-for]").find(item => item.dataset.routeRequestFor === requestId);
+    if (!select?.value) return toast("Choose an active route before assigning this request.", true);
+    if (!window.confirm("Assign the selected route to this passenger? The subscription will remain PENDING and UNPAID.")) return;
+    button.disabled = true;
+    try {
+      const result = await api("/api/admin/route-requests/" + encodeURIComponent(requestId) + "/assign", {
+        method: "PATCH", body: JSON.stringify({ routeId: select.value })
+      });
+      toast(result.message || "Passenger route request assigned.");
+      await renderView();
+    } catch (error) { toast(error.message, true); button.disabled = false; }
+  }
+
+  async function editSubscriptionDetails(button) {
+    const id = button.dataset.editSubscription;
+    const current = (state.cache.subscriptions || []).find(item => String(item.id) === String(id));
+    if (!current) return toast("Subscription data is stale. Refresh the page and try again.", true);
+    button.disabled = true;
+    try {
+      await loadLookups();
+      const activeRoutes = (state.cache.routes || []).filter(route => route.active !== false && route.active !== 0);
+      const routeList = activeRoutes.map(route => route.id + " — " + value(route, "name")).join("\n");
+      const routeInput = window.prompt("Enter an active route ID or exact route name:\n" + routeList, value(current, "routeId", "route_id"));
+      if (routeInput === null) return;
+      const routeKey = routeInput.trim().toLowerCase();
+      const route = activeRoutes.find(item => String(item.id).toLowerCase() === routeKey || String(item.name || "").trim().toLowerCase() === routeKey);
+      if (!route) return toast("Choose an active route ID or exact route name from the list.", true);
+      const details = await api("/api/routes/" + encodeURIComponent(route.id));
+      const stops = asArray(details, "stops");
+      if (stops.length < 2) return toast("This route needs at least two configured stops before it can be assigned.", true);
+      const stopList = stops.map(stop => stop.id + " — " + value(stop, "stopName", "stop_name")).join("\n");
+      const previousPickup = stops.find(stop => stop.id === value(current, "pickupStopId", "pickup_stop_id")) || stops[0];
+      const pickupInput = window.prompt("Enter pickup stop ID or exact stop name:\n" + stopList, value(previousPickup, "stopName", "stop_name"));
+      if (pickupInput === null) return;
+      const pickupKey = pickupInput.trim().toLowerCase();
+      const pickup = stops.find(stop => String(stop.id).toLowerCase() === pickupKey || String(value(stop, "stopName", "stop_name")).trim().toLowerCase() === pickupKey);
+      if (!pickup) return toast("Pickup must match a stop on the selected route.", true);
+      const previousDestination = stops.find(stop => stop.id === value(current, "destinationStopId", "destination_stop_id")) || stops[stops.length - 1];
+      const destinationInput = window.prompt("Enter destination stop ID or exact stop name:\n" + stopList, value(previousDestination, "stopName", "stop_name"));
+      if (destinationInput === null) return;
+      const destinationKey = destinationInput.trim().toLowerCase();
+      const destination = stops.find(stop => String(stop.id).toLowerCase() === destinationKey || String(value(stop, "stopName", "stop_name")).trim().toLowerCase() === destinationKey);
+      if (!destination || destination.id === pickup.id) return toast("Choose a destination stop different from pickup.", true);
+      const journeyType = String(window.prompt("Journey type: ONE_WAY or ROUND_TRIP", value(current, "journey_type") === "—" ? "ROUND_TRIP" : value(current, "journey_type")) || "").trim().toUpperCase();
+      if (journeyType !== "ONE_WAY" && journeyType !== "ROUND_TRIP") return toast("Choose ONE_WAY or ROUND_TRIP.", true);
+      const outboundPickupTime = window.prompt("Outbound pickup time (HH:mm):", value(current, "outbound_pickup_time", "morningSchedule", "morning_schedule") === "—" ? "06:30" : value(current, "outbound_pickup_time", "morningSchedule", "morning_schedule"));
+      if (outboundPickupTime === null) return;
+      let returnPickupTime = "";
+      if (journeyType === "ROUND_TRIP") {
+        returnPickupTime = window.prompt("Return pickup time (HH:mm):", value(current, "return_pickup_time", "eveningSchedule", "evening_schedule") === "—" ? "17:30" : value(current, "return_pickup_time", "eveningSchedule", "evening_schedule"));
+        if (returnPickupTime === null) return;
+      }
+      if (!window.confirm("Save these subscription details? Any changed route, stop, journey type, time, or tariff will reset the pass to PENDING/UNPAID so payment cannot carry over to a different service.")) return;
+      const result = await api("/api/admin/subscriptions/" + encodeURIComponent(id) + "/details", {
+        method: "PATCH",
+        body: JSON.stringify({
+          routeId: route.id, pickupStopId: pickup.id, destinationStopId: destination.id,
+          journeyType, outboundPickupTime: outboundPickupTime.trim(), returnPickupTime: returnPickupTime.trim()
+        })
+      });
+      toast(result.message || "Subscription details saved.");
+      await renderView();
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function assignSubscriptionVehicle(button) {
     const subId = button.dataset.assignVehicle;
     const select = $$("[data-vehicle-for]").find(item => item.dataset.vehicleFor === subId);
@@ -730,6 +801,10 @@
     if (approvalButton) { updateDriverApproval(approvalButton); return; }
     const assignRouteButton = event.target.closest("[data-assign-route]");
     if (assignRouteButton) { assignDriverRoute(assignRouteButton); return; }
+    const assignRouteRequestButton = event.target.closest("[data-assign-route-request]");
+    if (assignRouteRequestButton) { assignPassengerRouteRequest(assignRouteRequestButton); return; }
+    const editSubscriptionButton = event.target.closest("[data-edit-subscription]");
+    if (editSubscriptionButton) { editSubscriptionDetails(editSubscriptionButton); return; }
     const assignVehicleButton = event.target.closest("[data-assign-vehicle]");
     if (assignVehicleButton) { assignSubscriptionVehicle(assignVehicleButton); return; }
     const manualPaymentButton = event.target.closest("[data-manual-payment]");
