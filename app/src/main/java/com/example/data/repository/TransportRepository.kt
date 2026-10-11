@@ -459,10 +459,105 @@ class TransportRepository(
         return route
     }
 
+    suspend fun updateRouteDetails(route: RouteEntity, stopsList: List<RouteStopEntity>) {
+        require(stopsList.size == 2) { "A route must have exactly one departure point and one destination point." }
+        require(stopsList[0].stopName.isNotBlank() && stopsList[1].stopName.isNotBlank()) {
+            "Departure and destination points are required."
+        }
+        require(!stopsList[0].stopName.trim().equals(stopsList[1].stopName.trim(), ignoreCase = true)) {
+            "Departure and destination must be different places."
+        }
+        val response = apiService.updateRoute(route.id, mapOf(
+            "name" to route.name.trim(),
+            "nameAm" to route.nameAm.trim(),
+            "description" to route.description,
+            "morningDeparture" to route.morningDeparture,
+            "eveningDeparture" to route.eveningDeparture,
+            "distanceKm" to route.distanceKm,
+            "basePriceEtb" to route.basePriceEtb,
+            "active" to route.active,
+            "stops" to stopsList.mapIndexed { index, stop ->
+                mapOf(
+                    "id" to stop.id,
+                    "stopName" to stop.stopName.trim(),
+                    "stopNameAm" to stop.stopNameAm.trim(),
+                    "stopOrder" to (index + 1),
+                    "latitude" to stop.latitude,
+                    "longitude" to stop.longitude,
+                    "scheduledMorningTime" to route.morningDeparture,
+                    "scheduledEveningTime" to route.eveningDeparture,
+                    "maxCapacity" to stop.maxCapacity
+                )
+            }
+        ))
+        val body = response.body()
+        if (!response.isSuccessful || body?.get("success") != true) {
+            val message = body?.get("error")?.toString()
+                ?: response.errorBody()?.string()?.let { raw ->
+                    try { org.json.JSONObject(raw).optString("error") } catch (_: Exception) { null }
+                }
+            throw IllegalStateException(message ?: "The server could not update this route.")
+        }
+        refreshRoutesFromBackend()
+        logAction("ROUTE_UPDATED", "admin", "ADMIN", "Updated route ${route.name} (${route.id})")
+    }
+
     suspend fun deleteRoute(routeId: String) {
         dao.deleteStopsForRoute(routeId)
         dao.deleteRoute(routeId)
         logAction("ROUTE_DELETED", "admin", "ADMIN", "Deleted route $routeId")
+    }
+
+    suspend fun getAdminRouteRequests(): List<Map<String, Any?>> {
+        val response = apiService.getAdminRouteRequests("ALL")
+        val body = response.body()
+        if (!response.isSuccessful || body?.get("success") != true) {
+            throw IllegalStateException(body?.get("error")?.toString() ?: "Could not load passenger route requests.")
+        }
+        return (body["requests"] as? List<*>)?.mapNotNull { it as? Map<String, Any?> } ?: emptyList()
+    }
+
+    suspend fun assignAdminRouteRequest(requestId: String, routeId: String): String {
+        val response = apiService.assignAdminRouteRequest(requestId, mapOf("routeId" to routeId))
+        val body = response.body()
+        if (!response.isSuccessful || body?.get("success") != true) {
+            throw IllegalStateException(body?.get("error")?.toString() ?: "Could not assign passenger route request.")
+        }
+        refreshRoutesFromBackend()
+        return body["message"]?.toString() ?: "Passenger route request assigned."
+    }
+
+    suspend fun getAdminSubscriptionRows(): List<Map<String, Any?>> {
+        val response = apiService.getAdminSubscriptions()
+        val body = response.body()
+        if (!response.isSuccessful || body?.get("success") != true) {
+            throw IllegalStateException(body?.get("error")?.toString() ?: "Could not load subscriptions.")
+        }
+        return (body["subscriptions"] as? List<*>)?.mapNotNull { it as? Map<String, Any?> } ?: emptyList()
+    }
+
+    suspend fun updateAdminSubscriptionDetails(
+        subscriptionId: String,
+        routeId: String,
+        pickupStopId: String,
+        destinationStopId: String,
+        journeyType: String,
+        outboundPickupTime: String,
+        returnPickupTime: String
+    ): String {
+        val response = apiService.updateAdminSubscriptionDetails(subscriptionId, mapOf(
+            "routeId" to routeId,
+            "pickupStopId" to pickupStopId,
+            "destinationStopId" to destinationStopId,
+            "journeyType" to journeyType,
+            "outboundPickupTime" to outboundPickupTime,
+            "returnPickupTime" to returnPickupTime
+        ))
+        val body = response.body()
+        if (!response.isSuccessful || body?.get("success") != true) {
+            throw IllegalStateException(body?.get("error")?.toString() ?: "Could not update subscription details.")
+        }
+        return body["message"]?.toString() ?: "Subscription details updated."
     }
 
     // Server-authoritative driver-owned vehicle and live location
