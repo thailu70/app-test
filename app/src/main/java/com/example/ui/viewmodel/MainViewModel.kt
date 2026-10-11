@@ -786,6 +786,32 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         }
     }
 
+    fun completeTrip() {
+        viewModelScope.launch {
+            val trip = _driverTrip.value
+            if (!trip.isNavigating || trip.tripId.isBlank()) {
+                _driverActionMessage.value = "There is no active server trip to complete."
+                return@launch
+            }
+            try {
+                repository.endDriverTrip(trip.tripId)
+                val completedStates = trip.stopStates.toMutableMap()
+                completedStates[trip.currentStopIndex] = NavigationStepState.COMPLETED
+                _driverTrip.value = trip.copy(
+                    isNavigating = false,
+                    isArrivedAtStop = false,
+                    stopStates = completedStates,
+                    currentDistanceKm = 0.0,
+                    currentEtaMins = 0
+                )
+                _driverActionMessage.value = "Trip completed successfully. Passengers have been notified."
+                repository.logAction("DRIVER_NAVIGATION_COMPLETE", currentDriverId, "DRIVER", "Completed live trip ${trip.tripId}")
+            } catch (e: Exception) {
+                _driverActionMessage.value = e.message ?: "Could not complete the trip. Please try again."
+            }
+        }
+    }
+
     fun nextStop() {
         val stops = routeStops.value
         val currentIndex = _driverTrip.value.currentStopIndex
