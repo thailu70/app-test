@@ -43,26 +43,36 @@ function validMagic(bytes, type) {
 
 async function canReadMedia(user, row) {
   if (user.role === 'ADMIN' || row.owner_id === user.id) return true;
+
+  // Drivers can view only the profile photos of passengers on their own assigned route roster.
+  if (user.role === 'DRIVER' && row.asset_type === 'PROFILE_PHOTO') {
+    const rosterPassenger = await DB.prepare(`
+      SELECT 1
+      FROM subscriptions s
+      JOIN vehicles v ON v.driverId = ?
+        AND v.assignedRouteId = s.routeId
+        AND (s.vehicleId = v.id OR s.vehicleId IS NULL OR s.vehicleId = '')
+      JOIN users p ON p.id = s.passengerId AND p.role = 'PASSENGER'
+      WHERE s.passengerId = ?
+        AND s.subscriptionStatus = 'ACTIVE'
+        AND s.paymentStatus = 'PAID'
+        AND s.daysRemaining > 0
+      LIMIT 1
+    `).get(user.id, row.owner_id);
+    return Boolean(rosterPassenger);
+  }
+
   if (user.role !== 'PASSENGER') return false;
-  if (row.asset_type !== 'PROFILE_PHOTO') {
-    const assigned = await DB.prepare(`
-      SELECT 1 FROM subscriptions s
-      JOIN vehicles v ON v.id = s.vehicleId
-      WHERE s.passengerId = ? AND v.driverId = ? AND s.subscriptionStatus = 'ACTIVE'
-      LIMIT 1
-    `).get(user.id, row.owner_id);
-    if (assigned) return true;
-  }
-  if (row.asset_type === 'PROFILE_PHOTO') {
-    const assigned = await DB.prepare(`
-      SELECT 1 FROM subscriptions s
-      JOIN vehicles v ON v.id = s.vehicleId
-      WHERE s.passengerId = ? AND v.driverId = ? AND s.subscriptionStatus = 'ACTIVE'
-      LIMIT 1
-    `).get(user.id, row.owner_id);
-    return Boolean(assigned);
-  }
-  return false;
+  const assigned = await DB.prepare(`
+    SELECT 1 FROM subscriptions s
+    JOIN vehicles v ON v.id = s.vehicleId
+    WHERE s.passengerId = ? AND v.driverId = ?
+      AND s.subscriptionStatus = 'ACTIVE'
+      AND s.paymentStatus = 'PAID'
+      AND s.daysRemaining > 0
+    LIMIT 1
+  `).get(user.id, row.owner_id);
+  return Boolean(assigned);
 }
 
 // JSON base64 is used to avoid a new multipart dependency. Files are private by default.

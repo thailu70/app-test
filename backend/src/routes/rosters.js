@@ -5,6 +5,43 @@ const { authenticate, requireRole } = require('../middleware/auth');
 const router = express.Router();
 router.use(authenticate);
 
+// Passenger-only assignment endpoint: returns the passenger's assigned driver/vehicle,
+// not the driver's passenger roster.
+router.get('/my-assignment', async (req, res) => {
+  if (req.user.role !== 'PASSENGER') {
+    return res.status(403).json({ success: false, error: 'This endpoint is for passenger assignments only.' });
+  }
+  try {
+    const assignment = await DB.prepare(`
+      SELECT u.id AS driverId, u.fullName AS driverName, v.id AS vehicleId,
+        v.plateNumber, v.model, s.routeId, s.id AS subscriptionId
+      FROM subscriptions s
+      JOIN vehicles v ON v.assignedRouteId = s.routeId
+      JOIN users u ON u.id = v.driverId AND u.role = 'DRIVER' AND u.status = 'ACTIVE'
+      WHERE s.passengerId = ? AND s.vehicleId = v.id
+        AND s.subscriptionStatus = 'ACTIVE' AND s.paymentStatus = 'PAID'
+        AND s.daysRemaining > 0
+      ORDER BY v.updatedAt DESC LIMIT 1
+    `).get(req.user.id);
+    return res.json({
+      success: true,
+      assignment: assignment ? {
+        driver: {
+          id: assignment.driverId,
+          fullName: assignment.driverName,
+          photoUrl: '/api/profile-media/' + encodeURIComponent(assignment.driverId) + '/DRIVER_PROFILE_PHOTO'
+        },
+        vehicle: { id: assignment.vehicleId, plateNumber: assignment.plateNumber, model: assignment.model },
+        routeId: assignment.routeId,
+        subscriptionId: assignment.subscriptionId
+      } : null
+    });
+  } catch (err) {
+    console.error('[Rosters] passenger assignment query failed:', err);
+    return res.status(500).json({ success: false, error: 'Could not load passenger assignment.' });
+  }
+});
+
 // GET /api/rosters/my
 // Driver gets only passengers subscribed to the route of the driver's own active assignment.
 // Passenger gets the driver and vehicle for their active paid subscription.
