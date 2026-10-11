@@ -847,8 +847,14 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         }
     }
 
-    // QR Verification for Driver
+    // QR Verification for Driver. Never open the camera unless a server trip is active.
     fun openScanner() {
+        val trip = _driverTrip.value
+        if (!trip.isNavigating || trip.tripId.isBlank() || trip.vehicleId.isBlank()) {
+            _driverActionMessage.value = "Trip not started. Confirm arrival at the assigned departure point and wait for RoutePass to start the live trip before scanning passengers."
+            _isScannerOpen.value = false
+            return
+        }
         _scanResult.value = null
         _isScannerOpen.value = true
     }
