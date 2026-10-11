@@ -48,13 +48,15 @@ router.get('/my-assignment', async (req, res) => {
 router.get('/my', async (req, res) => {
   try {
     if (req.user.role === 'DRIVER') {
-      const vehicle = await DB.prepare('SELECT id, plateNumber, model, assignedRouteId, driverId FROM vehicles WHERE driverId = ? ORDER BY updatedAt DESC LIMIT 1').get(req.user.id);
+      const vehicle = await DB.prepare(`SELECT v.id, v.plateNumber, v.model, v.assignedRouteId, v.driverId, u.appliedRouteId AS driverAppliedRouteId FROM vehicles v LEFT JOIN users u ON u.id = v.driverId WHERE v.driverId = ? ORDER BY v.updatedAt DESC LIMIT 1`).get(req.user.id);
       if (!vehicle) return res.json({
         success: true, role: 'DRIVER', trip: null, passengers: [],
         rosterMessage: 'No vehicle is registered to this driver account yet. Ask the administrator to verify the driver-to-vehicle assignment.'
       });
       const trip = await DB.prepare("SELECT id, routeId, status, direction, startedAt FROM trips WHERE driverId = ? AND vehicleId = ? AND status = 'IN_PROGRESS' ORDER BY startTime DESC LIMIT 1").get(req.user.id, vehicle.id);
-      const routeId = trip?.routeId || vehicle.assignedRouteId;
+      // Prefer the active trip route, then the vehicle's admin assignment, then the driver's saved route assignment.
+      // The fallback handles records created through the driver-approval/route-assignment workflow.
+      const routeId = trip?.routeId || vehicle.assignedRouteId || vehicle.driverAppliedRouteId;
       if (!routeId) return res.json({
         success: true, role: 'DRIVER', trip: trip || null, passengers: [],
         vehicle: { id: vehicle.id, plateNumber: vehicle.plateNumber, model: vehicle.model },
@@ -79,7 +81,7 @@ router.get('/my', async (req, res) => {
         vehicle: { id: vehicle.id, plateNumber: vehicle.plateNumber, model: vehicle.model },
         rosterMessage: passengers.length
           ? 'Passenger roster loaded for the assigned route. Check subscription and payment status before boarding.'
-          : 'No passengers are registered on this vehicle route yet. Ask the administrator to assign a route and attach passenger subscriptions.',
+          : `No passengers matched route ${routeId} and vehicle ${vehicle.id}. Ask the administrator to verify that passenger subscriptions use this route and are not assigned to another vehicle.`,
         passengers: passengers.map(p => ({
           id: p.passengerId, fullName: p.passengerName, phone: p.passengerPhone,
           subscriptionId: p.subscriptionId, subscriptionStatus: p.subscriptionStatus,
