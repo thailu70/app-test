@@ -53,7 +53,17 @@ async function canReadMedia(user, row) {
       JOIN vehicles v ON v.driverId = ?
         AND (
           s.vehicleId = v.id
-          OR ((s.vehicleId IS NULL OR s.vehicleId = '') AND v.assignedRouteId = s.routeId)
+          OR (
+            (s.vehicleId IS NULL OR s.vehicleId = '')
+            AND (
+              v.assignedRouteId = s.routeId
+              OR EXISTS (
+                SELECT 1 FROM trips t
+                WHERE t.driverId = v.driverId AND t.vehicleId = v.id
+                  AND t.routeId = s.routeId AND t.status = 'IN_PROGRESS'
+              )
+            )
+          )
         )
       JOIN users p ON p.id = s.passengerId AND p.role = 'PASSENGER'
       WHERE s.passengerId = ?
