@@ -84,7 +84,17 @@ fun DriverTripScreen(
     var gpsStatus by remember { mutableStateOf("Waiting for GPS permission.") }
     var routeDirection by remember { mutableStateOf("OUTBOUND") }
     var showDepartureConfirmation by remember { mutableStateOf(false) }
+    var isStartingTrip by remember { mutableStateOf(false) }
     var showTripCompletionConfirmation by remember { mutableStateOf(false) }
+
+    LaunchedEffect(driverActionMessage, tripState.isNavigating) {
+        if (tripState.isNavigating) {
+            isStartingTrip = false
+            showDepartureConfirmation = false
+        } else if (!driverActionMessage.isNullOrBlank()) {
+            isStartingTrip = false
+        }
+    }
     val networkStatus by viewModel.networkStatus.collectAsState()
     val isScannerOpen by viewModel.isScannerOpen.collectAsState()
     val scanResult by viewModel.scanResult.collectAsState()
@@ -334,13 +344,31 @@ fun DriverTripScreen(
                 onDismissRequest = { showDepartureConfirmation = false },
                 title = { Text("Confirm vehicle arrival") },
                 text = {
-                    Text("Confirm that this vehicle has arrived at the administrator-assigned departure location for the selected route. RoutePass will verify your latest GPS fix against the GPS perimeter configured by the administrator before starting the trip and notifying passengers.")
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Confirm that this vehicle has arrived at the administrator-assigned departure location for the selected route. RoutePass will verify your latest GPS fix against the GPS perimeter configured by the administrator before starting the trip and notifying passengers.")
+                        if (!tripState.isNavigating && !driverActionMessage.isNullOrBlank() && !isStartingTrip) {
+                            Text(
+                                text = driverActionMessage.orEmpty(),
+                                color = StatusErrorRed,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        if (isStartingTrip) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                Text("Checking GPS and starting live trip…")
+                            }
+                        }
+                    }
                 },
                 confirmButton = {
-                    TextButton(onClick = {
-                        showDepartureConfirmation = false
-                        viewModel.startNavigation(routeDirection)
-                    }) { Text("CONFIRM ARRIVAL") }
+                    TextButton(
+                        enabled = !isStartingTrip,
+                        onClick = {
+                            isStartingTrip = true
+                            viewModel.startNavigation(routeDirection)
+                        }
+                    ) { Text(if (isStartingTrip) "CHECKING…" else "CONFIRM ARRIVAL") }
                 },
                 dismissButton = {
                     TextButton(onClick = { showDepartureConfirmation = false }) { Text("NOT YET") }
