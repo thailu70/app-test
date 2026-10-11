@@ -64,6 +64,24 @@ router.post('/register', authLimiter, async (req, res) => {
       });
     }
 
+    // Passenger registration must reference a route that is active on the server.
+    // This prevents stale/offline cached route IDs from creating subscriptions to retired routes.
+    let passengerRegistrationRoute = null;
+    if (normalizedRole === 'PASSENGER') {
+      const requestedRouteId = String(appliedRouteId || '').trim();
+      if (!requestedRouteId) {
+        return res.status(400).json({ success: false, error: 'Select an active route before registering.' });
+      }
+      passengerRegistrationRoute = await DB.prepare('SELECT * FROM routes WHERE id = ? AND active = TRUE').get(requestedRouteId);
+      if (!passengerRegistrationRoute) {
+        return res.status(409).json({
+          success: false,
+          code: 'ROUTE_INACTIVE_OR_NOT_FOUND',
+          error: 'This route is no longer available. Refresh the active route list and select another route.'
+        });
+      }
+    }
+
     // Drivers register their own account and the vehicle they own. The server creates
     // the vehicle with no route; only an administrator may assign an approved route.
     const vehicleCapacities = {
@@ -184,7 +202,7 @@ router.post('/register', authLimiter, async (req, res) => {
     // If passenger selected a route during signup, create a PENDING unpaid subscription.
     let initialSub = null;
     if (normalizedRole === 'PASSENGER' && appliedRouteId) {
-      const route = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(appliedRouteId);
+      const route = passengerRegistrationRoute;
       const subId = `sub_${userId}_${Date.now().toString(36)}`;
 
       await DB.prepare(`
