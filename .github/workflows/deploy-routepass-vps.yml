@@ -71,6 +71,23 @@ jobs:
           chmod 600 "$BACKUP"
           echo "Database backup created: $BACKUP"
 
+          # Back up persistent uploaded documents and application data before deployment.
+          MEDIA_BACKUP="$BACKUPS/routepass-app-data-pre-deploy-$(date +%Y%m%d-%H%M%S).tar.gz"
+          docker run --rm \
+            -v routepass_app_data:/routepass-data:ro \
+            -v "$BACKUPS:/backups" \
+            alpine:3.20 tar -czf "/backups/$(basename "$MEDIA_BACKUP")" -C /routepass-data .
+          test -s "$MEDIA_BACKUP" || { echo "Persistent app-data backup failed; refusing deployment"; exit 1; }
+          chmod 600 "$MEDIA_BACKUP"
+          echo "Persistent app-data backup created: $MEDIA_BACKUP"
+
+          # Back up current backend code for a fast file-level rollback. Exclude secrets.
+          CODE_BACKUP="$BACKUPS/routepass-backend-pre-deploy-$(date +%Y%m%d-%H%M%S).tar.gz"
+          tar -czf "$CODE_BACKUP" --exclude='./.env' -C "$LIVE" .
+          test -s "$CODE_BACKUP" || { echo "Backend code backup failed; refusing deployment"; exit 1; }
+          chmod 600 "$CODE_BACKUP"
+          echo "Backend code backup created: $CODE_BACKUP"
+
           git -C "$SOURCE" fetch origin "$BRANCH"
           git -C "$SOURCE" checkout "$BRANCH"
           git -C "$SOURCE" pull --ff-only origin "$BRANCH"
