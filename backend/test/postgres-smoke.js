@@ -66,15 +66,21 @@ async function run() {
       distanceKm: 2.5,
       basePriceEtb: 100,
       stops: [{
-        stopName: 'CI Stop',
-        stopNameAm: 'የፈተና ማቆሚያ',
+        stopName: 'CI Origin',
+        stopNameAm: 'የፈተና መነሻ',
         latitude: 9.01,
         longitude: 38.76,
+        maxCapacity: 12
+      }, {
+        stopName: 'CI Destination',
+        stopNameAm: 'የፈተና መድረሻ',
+        latitude: 9.02,
+        longitude: 38.77,
         maxCapacity: 12
       }]
     }, adminToken);
     assert.equal(result.status, 201, 'Route creation and awaited stop inserts must work');
-    assert.equal(result.data.stops.length, 1, 'Nested route stop must have been inserted');
+    assert.equal(result.data.stops.length, 2, 'Both route endpoint stops must have been inserted');
     const createdRouteId = result.data.route.id;
 
     result = await requestJson(baseUrl, '/api/auth/register', 'POST', {
