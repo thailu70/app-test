@@ -271,6 +271,9 @@ class TransportRepository(
             if (!response.isSuccessful || response.body()?.success != true) return
 
             val routeList = response.body()?.routes ?: emptyList()
+            // The server returns only active routes. Deactivate the local cache first so routes
+            // removed from this authoritative list cannot remain selectable in signup screens.
+            dao.deactivateAllRoutes()
             for (summary in routeList) {
                 // GET /api/routes/:id returns { success, route, stops }, not a bare RouteDto.
                 // Fetch this authoritative detail response so newly created/edited stop lists
