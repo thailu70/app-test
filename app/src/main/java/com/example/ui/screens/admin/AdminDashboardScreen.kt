@@ -43,20 +43,37 @@ fun AdminDashboardScreen(
     val auditLogs by viewModel.recentAuditLogs.collectAsState()
     val subscriptions by viewModel.allSubscriptions.collectAsState()
     val isCreateRouteOpen by viewModel.isCreateRouteDialogOpen.collectAsState()
+    val isEditRouteOpen by viewModel.isEditRouteDialogOpen.collectAsState()
+    val editingRoute by viewModel.editingRoute.collectAsState()
+    val editingRouteStops by viewModel.editingRouteStops.collectAsState()
+    val adminRouteRequests by viewModel.adminRouteRequests.collectAsState()
+    val adminSubscriptionRows by viewModel.adminSubscriptionRows.collectAsState()
+    val adminSubscriptionEditStops by viewModel.adminSubscriptionEditStops.collectAsState()
+    val adminOperationMessage by viewModel.adminOperationMessage.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var showExportDialog by remember { mutableStateOf(false) }
+    var editingSubscription by remember { mutableStateOf<Map<String, Any?>?>(null) }
 
     val tabs = listOf(
         "Overview",
         "Manage Routes",
+        "Passenger Requests",
+        "Subscriptions",
         "Fleet & Vehicles",
         "Telebirr Reconcile",
         "Attendance Logs",
         "Complaints",
         "Audit Trail"
     )
+
+    LaunchedEffect(selectedTab) {
+        when (selectedTab) {
+            2 -> viewModel.refreshAdminRouteRequests()
+            3 -> viewModel.refreshAdminSubscriptionRows()
+        }
+    }
 
     fun t(key: String) = AppStrings.get(key, lang)
 
@@ -130,6 +147,17 @@ fun AdminDashboardScreen(
             }
         }
 
+        if (!adminOperationMessage.isNullOrBlank()) {
+            item {
+                Text(
+                    text = adminOperationMessage.orEmpty(),
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                )
+            }
+        }
+
         when (selectedTab) {
             0 -> {
                 // Tab 0: KPI Overview & Charts
@@ -156,36 +184,55 @@ fun AdminDashboardScreen(
                     AdminRoutesManagementCard(
                         routes = routes,
                         onAddNewRoute = { viewModel.openCreateRouteDialog() },
+                        onEditRoute = { route -> viewModel.openEditRouteDialog(route) },
                         onDeleteRoute = { routeId -> viewModel.deleteRoute(routeId) }
                     )
                 }
             }
             2 -> {
-                // Tab 2: Fleet Management
+                item {
+                    AdminRouteRequestsCard(
+                        requests = adminRouteRequests,
+                        routes = routes,
+                        onRefresh = { viewModel.refreshAdminRouteRequests() },
+                        onAssign = { requestId, routeId -> viewModel.assignAdminRouteRequest(requestId, routeId) }
+                    )
+                }
+            }
+            3 -> {
+                item {
+                    AdminSubscriptionsCard(
+                        subscriptions = adminSubscriptionRows,
+                        onRefresh = { viewModel.refreshAdminSubscriptionRows() },
+                        onEdit = { row ->
+                            editingSubscription = row
+                            viewModel.loadAdminSubscriptionStops(row["routeId"]?.toString()
+                                ?: row["route_id"]?.toString().orEmpty())
+                        }
+                    )
+                }
+            }
+            4 -> {
                 item {
                     AdminFleetCard(vehicles = vehicles)
                 }
             }
-            3 -> {
-                // Tab 3: Telebirr Payments Reconciliation
+            5 -> {
                 item {
                     AdminTelebirrPaymentsCard(payments = payments)
                 }
             }
-            4 -> {
-                // Tab 4: Attendance & Check-in Scans
+            6 -> {
                 item {
                     AdminAttendanceLogsCard(checkIns = checkIns)
                 }
             }
-            5 -> {
-                // Tab 5: Complaints
+            7 -> {
                 item {
                     AdminComplaintsCard(complaints = complaints)
                 }
             }
-            6 -> {
-                // Tab 6: Audit Trail
+            8 -> {
                 item {
                     AdminAuditLogsCard(logs = auditLogs)
                 }
@@ -198,6 +245,29 @@ fun AdminDashboardScreen(
             onDismiss = { viewModel.closeCreateRouteDialog() },
             onCreate = { name, nameAm, desc, morning, evening, dist, price, stops ->
                 viewModel.createRoute(name, nameAm, desc, morning, evening, dist, price, stops)
+            }
+        )
+    }
+
+    if (isEditRouteOpen && editingRoute != null) {
+        EditRouteDialog(
+            route = editingRoute!!,
+            initialStops = editingRouteStops,
+            onDismiss = { viewModel.closeEditRouteDialog() },
+            onSave = { route, stops -> viewModel.updateRouteDetails(route, stops) }
+        )
+    }
+
+    if (editingSubscription != null) {
+        EditSubscriptionDialog(
+            subscription = editingSubscription!!,
+            routes = routes,
+            stops = adminSubscriptionEditStops,
+            onRouteSelected = { routeId -> viewModel.loadAdminSubscriptionStops(routeId) },
+            onDismiss = { editingSubscription = null },
+            onSave = { id, routeId, pickupId, destinationId, journey, outbound, returning ->
+                viewModel.updateAdminSubscriptionDetails(id, routeId, pickupId, destinationId, journey, outbound, returning)
+                editingSubscription = null
             }
         )
     }
