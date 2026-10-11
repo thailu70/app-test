@@ -266,13 +266,13 @@ class TransportRepository(
     suspend fun refreshRoutesFromBackend() {
         try {
             val response = apiService.getRoutes()
+            // A failed request must not deactivate cached routes; offline cache remains usable.
             if (!response.isSuccessful || response.body()?.success != true) return
 
             val routeList = response.body()?.routes ?: emptyList()
-            for (summary in routeList) {
-                // GET /api/routes/:id returns { success, route, stops }, not a bare RouteDto.
-                // Fetch this authoritative detail response so newly created/edited stop lists
-                // replace stale Room values instead of leaving the driver with demo stops.
+            // Fetch route details before changing the cache, so a successful empty list really
+            // means there are currently no active server routes, not a partial network failure.
+            val synchronizedRoutes = routeList.map { summary ->
                 val detailsResponse = try {
                     apiService.getRouteById(summary.id)
                 } catch (_: Exception) {
@@ -281,7 +281,13 @@ class TransportRepository(
                 val details = detailsResponse?.takeIf { it.isSuccessful }?.body()
                 val route = details?.route ?: summary
                 val stops = if (details?.success == true) details.stops else (summary.stops ?: emptyList())
+                Triple(route, stops, details?.success == true)
+            }
 
+            // /api/routes is the authoritative active-route catalogue. Mark old cached entries
+            // inactive first, then reactivate/upsert only routes returned by the current response.
+            dao.deactivateAllRoutes()
+            synchronizedRoutes.forEach { (route, stops, hasAuthoritativeStops) ->
                 dao.insertRoute(
                     RouteEntity(
                         id = route.id,
@@ -292,13 +298,12 @@ class TransportRepository(
                         eveningDeparture = route.eveningDeparture ?: "17:30",
                         distanceKm = route.distanceKm ?: 12.0,
                         basePriceEtb = route.basePriceEtb ?: 2500.0,
-                        active = route.active ?: true
+                        active = true
                     )
                 )
 
-                // The server is authoritative for stops. Remove obsolete cached stop rows
-                // before inserting the current ordered route stop list.
-                if (details?.success == true) dao.deleteStopsForRoute(route.id)
+                // The server is authoritative for stops. Replace cached stops when details load.
+                if (hasAuthoritativeStops) dao.deleteStopsForRoute(route.id)
                 stops.forEach { stop ->
                     dao.insertStop(
                         RouteStopEntity(
@@ -317,7 +322,7 @@ class TransportRepository(
                 }
             }
         } catch (e: Exception) {
-            // Keep last-known cache if the server is temporarily unavailable.
+            // Keep a cached offline view if the server is temporarily unavailable.
         }
     }
 
