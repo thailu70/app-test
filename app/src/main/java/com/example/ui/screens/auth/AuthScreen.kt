@@ -255,6 +255,7 @@ fun AuthScreen(
                     selectedTabIndex = when (portal) {
                         AppRole.PASSENGER -> 0
                         AppRole.DRIVER -> 1
+                        else -> 0
                     },
                     modifier = Modifier.clip(RoundedCornerShape(12.dp)),
                     containerColor = Slate200,
@@ -275,6 +276,7 @@ fun AuthScreen(
                                     when (role) {
                                         AppRole.PASSENGER -> if (lang == AppLanguage.AMHARIC) "ተሳፋሪ" else "Passenger"
                                         AppRole.DRIVER -> if (lang == AppLanguage.AMHARIC) "ሹፌር" else "Driver"
+                                        else -> if (lang == AppLanguage.AMHARIC) "ተሳፋሪ" else "Passenger"
                                     },
                                     fontWeight = if (portal == role) FontWeight.Bold else FontWeight.Normal,
                                     color = if (portal == role) TransportGreenPrimary else Slate700
