@@ -268,7 +268,7 @@ fun AuthScreen(
                                 if (portal != role) {
                                     viewModel.clearRegistrationMessage()
                                     selectedPortal = role
-                                    isRegisterMode = false
+                                    // Preserve Sign In vs Register mode while switching roles on this same page.
                                 }
                             },
                             text = {
