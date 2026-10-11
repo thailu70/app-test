@@ -42,6 +42,7 @@ router.post('/register', authLimiter, async (req, res) => {
       vehicleType = 'MINIBUS_14',
       appliedRouteId = '',
       appliedRouteName = '',
+      requestedRoute = '',
       otpProof = ''
     } = req.body;
 
@@ -67,17 +68,30 @@ router.post('/register', authLimiter, async (req, res) => {
     // Passenger registration must reference a route that is active on the server.
     // This prevents stale/offline cached route IDs from creating subscriptions to retired routes.
     let passengerRegistrationRoute = null;
+    let customRouteRequest = false;
+    const requestedRouteText = String(requestedRoute || '').trim().replace(/\s+/g, ' ').slice(0, 200);
+    let finalAppliedRouteId = '';
+    let finalAppliedRouteName = '';
     if (normalizedRole === 'PASSENGER') {
       const requestedRouteId = String(appliedRouteId || '').trim();
-      if (!requestedRouteId) {
-        return res.status(400).json({ success: false, error: 'Select an active route before registering.' });
-      }
-      passengerRegistrationRoute = await DB.prepare('SELECT * FROM routes WHERE id = ? AND active = TRUE').get(requestedRouteId);
-      if (!passengerRegistrationRoute) {
-        return res.status(409).json({
+      if (requestedRouteId) {
+        passengerRegistrationRoute = await DB.prepare('SELECT * FROM routes WHERE id = ? AND active = TRUE').get(requestedRouteId);
+        if (!passengerRegistrationRoute) {
+          return res.status(409).json({
+            success: false,
+            code: 'ROUTE_INACTIVE_OR_NOT_FOUND',
+            error: 'This route is no longer available. Refresh the active route list and select another route.'
+          });
+        }
+        finalAppliedRouteId = passengerRegistrationRoute.id;
+        finalAppliedRouteName = passengerRegistrationRoute.name;
+      } else if (requestedRouteText) {
+        customRouteRequest = true;
+        finalAppliedRouteName = requestedRouteText;
+      } else {
+        return res.status(400).json({
           success: false,
-          code: 'ROUTE_INACTIVE_OR_NOT_FOUND',
-          error: 'This route is no longer available. Refresh the active route list and select another route.'
+          error: 'Select an active route or enter the route you need so an administrator can review it.'
         });
       }
     }
@@ -156,6 +170,7 @@ router.post('/register', authLimiter, async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 12);
 
     const userId = `usr_${normalizedRole.toLowerCase().slice(0, 3)}_${crypto.randomUUID().slice(0, 8)}`;
+    const routeRequestId = customRouteRequest ? `rr_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}` : null;
     const finalEmail = email?.trim() || `${phone.trim()}@transport.et`;
 
     await DB.transaction(async (tx) => {
@@ -173,9 +188,16 @@ router.post('/register', authLimiter, async (req, res) => {
         normalizedRole === 'DRIVER' ? String(licenseNumber).trim() : (normalizedRole === 'ADMIN' ? String(licenseNumber).trim() : ''),
         normalizedRole === 'DRIVER' ? String(companyName || '').trim() : (normalizedRole === 'ADMIN' ? String(companyName || '').trim() : ''),
         driverVehiclePlate,
-        normalizedRole === 'PASSENGER' ? String(appliedRouteId || '').trim() : '',
-        normalizedRole === 'PASSENGER' ? String(appliedRouteName || '').trim() : ''
+        normalizedRole === 'PASSENGER' ? finalAppliedRouteId : '',
+        normalizedRole === 'PASSENGER' ? finalAppliedRouteName : ''
       );
+
+      if (customRouteRequest) {
+        await tx.prepare(`
+          INSERT INTO passenger_route_requests (id, passenger_id, requested_route, status)
+          VALUES (?, ?, ?, 'PENDING')
+        `).run(routeRequestId, userId, requestedRouteText);
+      }
 
       if (normalizedRole === 'DRIVER') {
         const vehicleId = `veh_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
@@ -201,7 +223,7 @@ router.post('/register', authLimiter, async (req, res) => {
     // CRITICAL: Registration does NOT activate a subscription!
     // If passenger selected a route during signup, create a PENDING unpaid subscription.
     let initialSub = null;
-    if (normalizedRole === 'PASSENGER' && appliedRouteId) {
+    if (normalizedRole === 'PASSENGER' && finalAppliedRouteId) {
       const route = passengerRegistrationRoute;
       const subId = `sub_${userId}_${Date.now().toString(36)}`;
 
@@ -245,15 +267,20 @@ router.post('/register', authLimiter, async (req, res) => {
         email: finalEmail,
         status: normalizedRole === 'DRIVER' ? 'PENDING' : 'ACTIVE',
         assignedVehiclePlate: driverVehiclePlate,
-        appliedRouteId: normalizedRole === 'PASSENGER' ? String(appliedRouteId || '').trim() : '',
-        appliedRouteName: normalizedRole === 'PASSENGER' ? String(appliedRouteName || '').trim() : ''
+        appliedRouteId: normalizedRole === 'PASSENGER' ? finalAppliedRouteId : '',
+        appliedRouteName: normalizedRole === 'PASSENGER' ? finalAppliedRouteName : ''
       },
       subscription: initialSub,
+      routeRequest: customRouteRequest
+        ? { id: routeRequestId, requestedRoute: requestedRouteText, status: 'PENDING' }
+        : null,
       message: normalizedRole === 'DRIVER'
         ? 'Thank you for registering. An administrator will review your licence and vehicle, approve your account, assign your route, and contact you when your account is ready.'
-        : (normalizedRole === 'PASSENGER' && appliedRouteId
-          ? 'Account created. Subscription is PENDING payment; ask an administrator for a manual test recharge during testing.'
-          : 'Registration successful.')
+        : (customRouteRequest
+          ? 'Registration successful. Your requested route is pending administrator review. No subscription or payment pass has been activated yet.'
+          : (normalizedRole === 'PASSENGER' && finalAppliedRouteId
+            ? 'Account created. Subscription is PENDING payment; complete payment after registration.'
+            : 'Registration successful.'))
     });
   } catch (err) {
     console.error('[RoutePass] request failed:', err);
