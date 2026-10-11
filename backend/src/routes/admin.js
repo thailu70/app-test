@@ -166,7 +166,14 @@ router.get('/passengers', async (req, res) => {
   try {
     const passengers = await DB.prepare(`
       SELECT u.id, u.fullName, u.phone, u.email, u.status, u.createdAt,
-             r.name AS routeName, s.subscriptionStatus, s.paymentStatus, s.endDate,
+             u.appliedRouteId, u.appliedRouteName,
+             s.id AS subscription_id, s.routeId AS routeId, r.name AS routeName,
+             s.subscriptionStatus, s.paymentStatus, s.endDate, s.startDate,
+             s.daysRemaining, s.priceEtb AS subscription_price_etb,
+             (SELECT pr.requested_route FROM passenger_route_requests pr
+              WHERE pr.passenger_id = u.id ORDER BY pr.created_at DESC LIMIT 1) AS requested_route,
+             (SELECT pr.status FROM passenger_route_requests pr
+              WHERE pr.passenger_id = u.id ORDER BY pr.created_at DESC LIMIT 1) AS route_request_status,
              v.plateNumber AS vehiclePlate, d.fullName AS driverName, d.id AS driverId
       FROM users u
       LEFT JOIN subscriptions s ON s.id = (
@@ -184,6 +191,82 @@ router.get('/passengers', async (req, res) => {
   } catch (err) {
     console.error('[Admin] passenger directory failed:', err);
     res.status(500).json({ success: false, error: 'Could not load passenger directory.' });
+  }
+});
+
+/**
+ * PATCH /api/admin/passengers/:id/route
+ * Assign/change route for any passenger, including accounts waiting on a custom-route request.
+ * A changed route invalidates the old QR pass and requires payment at the new route tariff.
+ */
+router.patch('/passengers/:id/route', async (req, res) => {
+  try {
+    const passengerId = String(req.params.id || '').trim();
+    const routeId = String(req.body.routeId || '').trim();
+    if (!routeId) return res.status(400).json({ success: false, error: 'Choose an active route.' });
+    const passenger = await DB.prepare("SELECT id FROM users WHERE id = ? AND role = 'PASSENGER'").get(passengerId);
+    if (!passenger) return res.status(404).json({ success: false, error: 'Passenger account not found.' });
+
+    const route = await DB.prepare('SELECT * FROM routes WHERE id = ? AND active = TRUE').get(routeId);
+    if (!route) return res.status(409).json({
+      success: false, code: 'ROUTE_INACTIVE_OR_NOT_FOUND',
+      error: 'That route is inactive or no longer exists. Choose an active route.'
+    });
+    const stops = await DB.prepare('SELECT id FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC').all(route.id);
+    if (stops.length < 2) return res.status(409).json({ success: false, error: 'The selected route needs a departure and destination stop.' });
+
+    const previous = await DB.prepare('SELECT * FROM subscriptions WHERE passengerId = ? ORDER BY updatedAt DESC LIMIT 1').get(passengerId);
+    const subscriptionId = previous?.id || `sub_${passengerId}_${Date.now().toString(36)}`;
+    const changedRoute = !previous || previous.routeId !== route.id;
+
+    await DB.transaction(async (tx) => {
+      if (previous && changedRoute) {
+        await tx.prepare(`
+          UPDATE subscriptions
+          SET routeId = ?, pickupStopId = ?, destinationStopId = ?,
+              morningSchedule = ?, eveningSchedule = ?, priceEtb = ?,
+              paymentStatus = 'UNPAID', subscriptionStatus = 'PENDING',
+              startDate = '', endDate = '', daysRemaining = 0,
+              qrToken = NULL, vehicleId = NULL, updatedAt = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(route.id, stops[0].id, stops[stops.length - 1].id,
+          route.morningDeparture || '06:30', route.eveningDeparture || '17:30',
+          Number(route.basePriceEtb || 2500), previous.id);
+      } else if (!previous) {
+        await tx.prepare(`
+          INSERT INTO subscriptions
+            (id, passengerId, routeId, pickupStopId, destinationStopId, morningSchedule,
+             eveningSchedule, startDate, endDate, priceEtb, paymentStatus, subscriptionStatus,
+             vehicleId, qrToken, daysRemaining)
+          VALUES (?, ?, ?, ?, ?, ?, ?, '', '', ?, 'UNPAID', 'PENDING', NULL, NULL, 0)
+        `).run(subscriptionId, passengerId, route.id, stops[0].id, stops[stops.length - 1].id,
+          route.morningDeparture || '06:30', route.eveningDeparture || '17:30', Number(route.basePriceEtb || 2500));
+      }
+
+      await tx.prepare("UPDATE users SET appliedRouteId = ?, appliedRouteName = ? WHERE id = ? AND role = 'PASSENGER'")
+        .run(route.id, route.name, passengerId);
+      await tx.prepare(`
+        UPDATE passenger_route_requests
+        SET status = 'APPROVED', reviewed_by = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = (SELECT id FROM passenger_route_requests WHERE passenger_id = ? ORDER BY created_at DESC LIMIT 1)
+      `).run(req.user.id, passengerId);
+      await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
+        .run(changedRoute ? 'PASSENGER_ROUTE_CHANGED' : 'PASSENGER_ROUTE_ASSIGNED',
+          req.user.id, 'ADMIN', `Assigned passenger ${passengerId} to active route ${route.name}; subscription ${subscriptionId}.`);
+    });
+
+    return res.json({
+      success: true, passengerId, subscriptionId,
+      route: { id: route.id, name: route.name, nameAm: route.nameAm },
+      paymentStatus: changedRoute ? 'UNPAID' : (previous?.paymentStatus || 'UNPAID'),
+      subscriptionStatus: changedRoute ? 'PENDING' : (previous?.subscriptionStatus || 'PENDING'),
+      message: changedRoute
+        ? 'Route assigned. Subscription is pending payment at the selected route tariff.'
+        : 'Passenger is already assigned to this route.'
+    });
+  } catch (err) {
+    console.error('[Admin] passenger route assignment failed:', err);
+    return res.status(500).json({ success: false, error: 'Could not assign the passenger route.' });
   }
 });
 

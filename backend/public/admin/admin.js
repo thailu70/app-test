@@ -326,28 +326,17 @@
           { label: "Capacity", keys: ["capacityLimit", "capacity_limit"] },
           { label: "Occupancy", render: r => esc(value(r, "currentOccupancy", "current_occupancy")) + " / " + esc(value(r, "capacityLimit", "capacity_limit")) },
           { label: "Driver", keys: ["driverName", "driver_name"] },
-          { label: "Route / change", render: r => {
-            const subId = esc(value(r, "id"));
-            const currentRouteId = String(value(r, "routeId", "route_id") || "");
-            const currentRouteName = String(value(r, "routeName", "route_name") || "Unassigned route");
-            const currentRouteIsActive = activeRoutes.some(route => String(value(route, "id")) === currentRouteId);
-            const inactiveCurrent = currentRouteId && !currentRouteIsActive
-              ? '<option value="' + esc(currentRouteId) + '" selected disabled>' + esc(currentRouteName) + ' (inactive)</option>'
-              : "";
-            const choices = activeRoutes.map(route =>
-              '<option value="' + esc(value(route, "id")) + '" ' + (String(value(route, "id")) === currentRouteId ? "selected" : "") + '>' +
-              esc(value(route, "name")) + ' · ETB ' + esc(value(route, "basePriceEtb", "base_price_etb")) + '</option>'
-            ).join("");
-            return '<div class="inline-actions"><select data-subscription-route-for="' + subId + '" aria-label="Change route for ' + esc(value(r, "passengerName", "passenger_name")) + '" style="min-width:190px;padding:7px;border:1px solid #d5deea;border-radius:8px">' +
-              inactiveCurrent + choices +
-              '</select><button class="btn btn-primary" data-change-subscription-route="' + subId + '">Change</button></div>';
-          }},
+          { label: "Route", keys: ["routeName", "route_name"] },
           { label: "Status", render: r => pill(value(r, "status")) }
         ], data));
   }
   async function renderPassengers() {
+    await loadLookups();
     const data = asArray(await api("/api/admin/passengers"), "passengers");
-    return pageHeader("Passenger directory", "Administrator-only view of registered passenger contact details, route/driver assignment and uploaded profile photos.") +
+    const activeRoutes = (state.cache.routes || []).filter(route =>
+      route.active !== false && route.active !== 0 && route.active !== "false" && route.active !== "0"
+    );
+    return pageHeader("Passenger directory", "Review custom route requests and assign or change each passenger's active route. Route changes reset an old pass to pending/unpaid until the new fare is paid.") +
       section("Registered passengers", data.length + " account(s)",
         table([
           { label: "Profile photo", render: r => '<button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="PROFILE_PHOTO">View photo</button>' },
@@ -355,7 +344,22 @@
           { label: "Phone", keys: ["phone"] },
           { label: "Email", keys: ["email"] },
           { label: "Account", render: r => pill(value(r, "status")) },
-          { label: "Route", keys: ["routeName", "route_name", "appliedRouteName"] },
+          { label: "Requested route / review", render: r => {
+            const requestText = value(r, "requested_route", "requestedRoute");
+            const requestStatus = value(r, "route_request_status", "routeRequestStatus");
+            if (requestText === "—") return '<span class="muted">No custom request</span>';
+            return '<strong>' + esc(requestText) + '</strong><br>' + pill(requestStatus);
+          }},
+          { label: "Route / assign", render: r => {
+            const passengerId = esc(value(r, "id"));
+            const currentRouteId = String(r.routeId || r.route_id || r.appliedRouteId || r.applied_route_id || "");
+            const options = '<option value="">Choose active route…</option>' + activeRoutes.map(route =>
+              '<option value="' + esc(value(route, "id")) + '" ' + (String(value(route, "id")) === currentRouteId ? "selected" : "") + '>' +
+              esc(value(route, "name")) + ' · ' + esc(money(value(route, "basePriceEtb", "base_price_etb"))) + '</option>'
+            ).join("");
+            return '<div class="inline-actions"><select data-current-route-id="' + esc(currentRouteId) + '" data-passenger-route-for="' + passengerId + '" aria-label="Assign route for ' + esc(value(r, "fullName", "full_name")) + '" style="min-width:190px;padding:7px;border:1px solid #d5deea;border-radius:8px">' + options + '</select>' +
+              '<button class="btn btn-primary" data-assign-passenger-route="' + passengerId + '">Assign / update</button></div>';
+          }},
           { label: "Assigned vehicle", keys: ["vehiclePlate", "vehicle_plate"] },
           { label: "Assigned driver", keys: ["driverName", "driver_name"] },
           { label: "Subscription", render: r => pill(value(r, "subscriptionStatus", "subscription_status")) },
@@ -376,7 +380,22 @@
         table([
           { label: "Passenger", render: r => "<strong>" + esc(value(r, "passengerName", "passenger_name")) + "</strong>" },
           { label: "Phone", keys: ["passengerPhone", "passenger_phone"] },
-          { label: "Route", keys: ["routeName", "route_name"] },
+          { label: "Route / change", render: r => {
+            const subId = esc(value(r, "id"));
+            const currentRouteId = String(value(r, "routeId", "route_id") || "");
+            const currentRouteName = String(value(r, "routeName", "route_name") || "Unassigned route");
+            const currentRouteIsActive = activeRoutes.some(route => String(value(route, "id")) === currentRouteId);
+            const inactiveCurrent = currentRouteId && !currentRouteIsActive
+              ? '<option value="' + esc(currentRouteId) + '" selected disabled>' + esc(currentRouteName) + ' (inactive)</option>'
+              : "";
+            const choices = activeRoutes.map(route =>
+              '<option value="' + esc(value(route, "id")) + '" ' + (String(value(route, "id")) === currentRouteId ? "selected" : "") + '>' +
+              esc(value(route, "name")) + ' · ' + esc(money(value(route, "basePriceEtb", "base_price_etb"))) + '</option>'
+            ).join("");
+            return '<div class="inline-actions"><select data-subscription-route-for="' + subId + '" aria-label="Change route for ' + esc(value(r, "passengerName", "passenger_name")) + '" style="min-width:190px;padding:7px;border:1px solid #d5deea;border-radius:8px">' +
+              inactiveCurrent + choices +
+              '</select><button class="btn btn-primary" data-change-subscription-route="' + subId + '">Change</button></div>';
+          }},
           { label: "Owner vehicle / driver", render: r => esc(value(r, "vehiclePlate", "vehicle_plate")) + "<br><span class=\"muted\">" + esc(value(r, "driverName", "driver_name")) + "</span>" },
           { label: "Assign vehicle", render: r => {
             const subId = esc(value(r, "id"));
@@ -579,6 +598,22 @@
     } catch (error) { toast(error.message, true); button.disabled = false; }
   }
 
+  async function assignPassengerRoute(button) {
+    const passengerId = button.dataset.assignPassengerRoute;
+    const select = $("[data-passenger-route-for]").find(item => item.dataset.passengerRouteFor === passengerId);
+    if (!select || !select.value) return toast("Choose an active route first.", true);
+    if (select.dataset.currentRouteId === select.value) return toast("Passenger is already assigned to that route.");
+    if (!window.confirm("Assign this active route? If changed, the old QR pass and vehicle assignment will be cleared and payment will be required again.")) return;
+    button.disabled = true;
+    try {
+      const result = await api("/api/admin/passengers/" + encodeURIComponent(passengerId) + "/route", {
+        method: "PATCH", body: JSON.stringify({ routeId: select.value })
+      });
+      toast(result.message || "Passenger route updated.");
+      await renderView();
+    } catch (error) { toast(error.message, true); button.disabled = false; }
+  }
+
   async function changeSubscriptionRoute(button) {
     const subId = button.dataset.changeSubscriptionRoute;
     const select = $("[data-subscription-route-for]").find(item => item.dataset.subscriptionRouteFor === subId);
@@ -734,6 +769,8 @@
     if (assignRouteButton) { assignDriverRoute(assignRouteButton); return; }
     const assignVehicleButton = event.target.closest("[data-assign-vehicle]");
     if (assignVehicleButton) { assignSubscriptionVehicle(assignVehicleButton); return; }
+    const assignPassengerRouteButton = event.target.closest("[data-assign-passenger-route]");
+    if (assignPassengerRouteButton) { assignPassengerRoute(assignPassengerRouteButton); return; }
     const changeSubscriptionRouteButton = event.target.closest("[data-change-subscription-route]");
     if (changeSubscriptionRouteButton) { changeSubscriptionRoute(changeSubscriptionRouteButton); return; }
     const manualPaymentButton = event.target.closest("[data-manual-payment]");
