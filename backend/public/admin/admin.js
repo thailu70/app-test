@@ -602,7 +602,7 @@
 
   async function assignPassengerRoute(button) {
     const passengerId = button.dataset.assignPassengerRoute;
-    const select = $("[data-passenger-route-for]").find(item => item.dataset.passengerRouteFor === passengerId);
+    const select = $$("[data-passenger-route-for]").find(item => item.dataset.passengerRouteFor === passengerId);
     if (!select || !select.value) return toast("Choose an active route first.", true);
     if (select.dataset.currentRouteId === select.value) return toast("Passenger is already assigned to that route.");
     if (!window.confirm("Assign this active route? If changed, the old QR pass and vehicle assignment will be cleared and payment will be required again.")) return;
@@ -619,7 +619,7 @@
   async function changeSubscriptionRoute(button) {
     const subId = button.dataset.changeSubscriptionRoute;
     const passengerId = button.dataset.passengerId;
-    const select = $("[data-subscription-route-for]").find(item => item.dataset.subscriptionRouteFor === subId);
+    const select = $$("[data-subscription-route-for]").find(item => item.dataset.subscriptionRouteFor === subId);
     if (!passengerId) return toast("Passenger ID is missing. Refresh the subscriptions list and try again.", true);
     if (!select || !select.value) return toast("Choose an active route first.", true);
     if (!window.confirm("Changing this passenger's route will reset the subscription to PENDING/UNPAID, clear the old QR pass and vehicle assignment, and require payment for the new route tariff. Continue?")) return;
