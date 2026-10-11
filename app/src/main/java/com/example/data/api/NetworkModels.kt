@@ -29,6 +29,11 @@ data class RegisterRequest(
     val appliedRouteId: String? = null,
     val appliedRouteName: String? = null,
     val requestedRoute: String? = null,
+    val requestedOrigin: String? = null,
+    val requestedDestination: String? = null,
+    val requestedJourneyType: String? = null,
+    val requestedOutboundPickupTime: String? = null,
+    val requestedReturnPickupTime: String? = null,
     val otpProof: String? = null
 )
 
