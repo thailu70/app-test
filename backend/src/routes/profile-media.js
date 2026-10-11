@@ -43,6 +43,28 @@ function validMagic(bytes, type) {
 
 async function canReadMedia(user, row) {
   if (user.role === 'ADMIN' || row.owner_id === user.id) return true;
+
+  // Drivers may view a passenger's photo only when that passenger is on their
+  // assigned vehicle or on their assigned route awaiting individual vehicle binding.
+  if (user.role === 'DRIVER' && row.asset_type === 'PROFILE_PHOTO') {
+    const rosterPassenger = await DB.prepare(`
+      SELECT 1
+      FROM subscriptions s
+      JOIN vehicles v ON v.driverId = ?
+        AND (
+          s.vehicleId = v.id
+          OR ((s.vehicleId IS NULL OR s.vehicleId = '') AND v.assignedRouteId = s.routeId)
+        )
+      JOIN users p ON p.id = s.passengerId AND p.role = 'PASSENGER'
+      WHERE s.passengerId = ?
+        AND s.subscriptionStatus = 'ACTIVE'
+        AND s.paymentStatus = 'PAID'
+        AND s.daysRemaining > 0
+      LIMIT 1
+    `).get(user.id, row.owner_id);
+    return Boolean(rosterPassenger);
+  }
+
   if (user.role !== 'PASSENGER') return false;
   if (row.asset_type !== 'PROFILE_PHOTO') {
     const assigned = await DB.prepare(`
