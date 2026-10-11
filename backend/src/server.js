@@ -451,6 +451,24 @@ async function startServer() {
   await DB.prepare("CREATE TABLE IF NOT EXISTS telebirr_payment_orders (merchant_order_id VARCHAR(100) PRIMARY KEY, idempotency_key VARCHAR(100) UNIQUE, prepay_id VARCHAR(200), checkout_url TEXT, passenger_id VARCHAR(64) NOT NULL REFERENCES users(id), subscription_id VARCHAR(64) NOT NULL REFERENCES subscriptions(id), route_id VARCHAR(64) NOT NULL REFERENCES routes(id), amount_etb NUMERIC(10,2) NOT NULL, status VARCHAR(20) NOT NULL DEFAULT 'PENDING', payment_order_id VARCHAR(200), transaction_id VARCHAR(200), last_query_at TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)").run();
   await DB.prepare('CREATE INDEX IF NOT EXISTS idx_telebirr_payment_orders_passenger ON telebirr_payment_orders(passenger_id, created_at)').run();
 
+  // Idempotent migration for existing VPS databases. This runs before the HTTP listener opens.
+  await DB.prepare(`CREATE TABLE IF NOT EXISTS passenger_route_requests (
+    id VARCHAR(64) PRIMARY KEY,
+    passenger_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    origin VARCHAR(120) NOT NULL,
+    destination VARCHAR(120) NOT NULL,
+    journey_type VARCHAR(20) NOT NULL DEFAULT 'ROUND_TRIP',
+    outbound_pickup_time VARCHAR(5) NOT NULL DEFAULT '06:30',
+    return_pickup_time VARCHAR(5),
+    request_text TEXT DEFAULT '',
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    assigned_route_id VARCHAR(64) REFERENCES routes(id) ON DELETE SET NULL,
+    assigned_by VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`).run();
+  await DB.prepare('CREATE INDEX IF NOT EXISTS idx_route_requests_status_created ON passenger_route_requests(status, created_at)').run();
+
   server.listen(PORT, HOST, () => {
     console.log('RoutePass API listening on the configured internal listener');
     console.log('REST API /api/health and /api/ready; WebSocket /ws');
