@@ -692,6 +692,9 @@ fun AdminSubscriptionsCard(
                 Text("No subscription records were returned by the server.", style = MaterialTheme.typography.bodyMedium, color = Slate600)
             }
             subscriptions.forEach { row ->
+                val journey = adminRowValue(row, "journey_type").ifBlank { "ROUND_TRIP" }.uppercase()
+                val outboundTime = adminRowValue(row, "outbound_pickup_time", "morningSchedule", "morning_schedule").ifBlank { "06:30" }
+                val returnText = if (journey == "ONE_WAY") "no return" else adminRowValue(row, "return_pickup_time", "eveningSchedule", "evening_schedule").ifBlank { "—" }
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
@@ -701,9 +704,7 @@ fun AdminSubscriptionsCard(
                         Text(adminRowValue(row, "passengerName", "passenger_name").ifBlank { adminRowValue(row, "passengerId", "passenger_id") }, fontWeight = FontWeight.Bold)
                         Text("Route: " + adminRowValue(row, "routeName", "route_name", "routeId", "route_id"), style = MaterialTheme.typography.bodySmall)
                         Text(
-                            adminRowValue(row, "journey_type").ifBlank { "ROUND_TRIP" } + " · " +
-                                adminRowValue(row, "outbound_pickup_time", "morningSchedule", "morning_schedule").ifBlank { "06:30" } +
-                                " / " + adminRowValue(row, "return_pickup_time", "eveningSchedule", "evening_schedule").ifBlank { "—" },
+                            "$journey · $outboundTime / $returnText",
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate600
                         )
