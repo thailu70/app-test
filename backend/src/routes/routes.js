@@ -219,6 +219,20 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
         }
       }
 
+      // The first stop is the outbound departure point; the final stop is the
+      // inbound departure point. Keep their departure schedule labels aligned
+      // with the route timetable even when an admin edits times without replacing stops.
+      const firstStop = await tx.prepare('SELECT id FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC LIMIT 1').get(req.params.id);
+      const lastStop = await tx.prepare('SELECT id FROM route_stops WHERE routeId = ? ORDER BY stopOrder DESC LIMIT 1').get(req.params.id);
+      if (firstStop) {
+        await tx.prepare('UPDATE route_stops SET scheduledMorningTime = ? WHERE id = ?')
+          .run(String(req.body.morningDeparture ?? current.morningDeparture ?? '06:30'), firstStop.id);
+      }
+      if (lastStop) {
+        await tx.prepare('UPDATE route_stops SET scheduledEveningTime = ? WHERE id = ?')
+          .run(String(req.body.eveningDeparture ?? current.eveningDeparture ?? '17:30'), lastStop.id);
+      }
+
       await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
         .run('ROUTE_UPDATED', req.user.id, 'ADMIN', `Updated route ${req.params.id}: ${name}`);
     });
