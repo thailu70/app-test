@@ -39,6 +39,9 @@ interface RoutePassApiService {
     @POST("api/routes")
     suspend fun createRoute(@Body route: Map<String, Any>): Response<GenericResponse>
 
+    @PUT("api/routes/{id}")
+    suspend fun updateRoute(@Path("id") routeId: String, @Body route: Map<String, Any>): Response<Map<String, Any>>
+
     // -------------------------------------------------------------
     // Commuter Subscriptions
     // -------------------------------------------------------------
@@ -160,6 +163,15 @@ interface RoutePassApiService {
 
     @GET("api/admin/subscriptions")
     suspend fun getAdminSubscriptions(): Response<Map<String, Any>>
+
+    @GET("api/admin/route-requests")
+    suspend fun getAdminRouteRequests(@Query("status") status: String = "ALL"): Response<Map<String, Any>>
+
+    @PATCH("api/admin/route-requests/{id}/assign")
+    suspend fun assignAdminRouteRequest(@Path("id") requestId: String, @Body request: Map<String, Any>): Response<Map<String, Any>>
+
+    @PATCH("api/admin/subscriptions/{id}/details")
+    suspend fun updateAdminSubscriptionDetails(@Path("id") subscriptionId: String, @Body request: Map<String, Any>): Response<Map<String, Any>>
 
     @GET("api/admin/payments")
     suspend fun getAdminPayments(): Response<Map<String, Any>>
