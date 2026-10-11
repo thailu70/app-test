@@ -53,7 +53,7 @@ router.get('/my', async (req, res) => {
         success: true, role: 'DRIVER', trip: null, passengers: [],
         rosterMessage: 'No vehicle is registered to this driver account yet. Ask the administrator to verify the driver-to-vehicle assignment.'
       });
-      const trip = await DB.prepare("SELECT id, routeId, status, direction, startedAt FROM trips WHERE driverId = ? AND vehicleId = ? AND status = 'IN_PROGRESS' ORDER BY startTime DESC LIMIT 1").get(req.user.id, vehicle.id);
+      const trip = await DB.prepare("SELECT id, routeId, status, direction FROM trips WHERE driverId = ? AND vehicleId = ? AND status = 'IN_PROGRESS' ORDER BY startTime DESC LIMIT 1").get(req.user.id, vehicle.id);
       // Prefer the active trip route, then the vehicle's admin assignment, then the driver's saved route assignment.
       // The fallback handles records created through the driver-approval/route-assignment workflow.
       const routeId = trip?.routeId || vehicle.assignedRouteId || vehicle.driverAppliedRouteId;
