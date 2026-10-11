@@ -322,7 +322,13 @@ router.patch('/route-requests/:id/assign', async (req, res) => {
       success: true,
       message: 'Route assigned. The passenger subscription remains pending and unpaid until payment is recorded.',
       request: { id: request.id, status: 'ASSIGNED', assignedRouteId: route.id, assignedRouteName: route.name },
-      subscription: { passengerId: request.passenger_id, routeId: route.id, pickupStopId: pickup.id, destinationStopId: destination.id, journeyType: request.journey_type, outboundPickupTime: pickupTime, returnPickupTime: returnTime, paymentStatus: 'UNPAID', subscriptionStatus: 'PENDING' }
+      subscription: {
+        passengerId: request.passenger_id, routeId: route.id,
+        pickupStopId: pickup.id, pickupStopName: pickup.stopName,
+        destinationStopId: destination.id, destinationStopName: destination.stopName,
+        journeyType: request.journey_type, outboundPickupTime: pickupTime,
+        returnPickupTime: returnTime, paymentStatus: 'UNPAID', subscriptionStatus: 'PENDING'
+      }
     });
   } catch (err) {
     console.error('[Admin] route request assignment failed:', err);
@@ -652,7 +658,8 @@ router.patch('/subscriptions/:id/details', async (req, res) => {
     const changed = routeId !== current.routeId || pickupStopId !== current.pickupStopId ||
       destinationStopId !== current.destinationStopId || journeyType !== String(current.journey_type || 'ROUND_TRIP') ||
       outbound !== String(current.outbound_pickup_time || current.morningSchedule || '06:30') ||
-      returnTime !== (current.return_pickup_time || current.eveningSchedule || null);
+      returnTime !== (current.return_pickup_time || current.eveningSchedule || null) ||
+      Number(route.basePriceEtb) !== Number(current.priceEtb);
     await DB.transaction(async tx => {
       await tx.prepare(`
         UPDATE subscriptions
