@@ -297,9 +297,22 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     private val _isNotificationTrayOpen = MutableStateFlow(false)
     val isNotificationTrayOpen: StateFlow<Boolean> = _isNotificationTrayOpen.asStateFlow()
 
-    // Create Route Dialog State
+    // Create/edit Route Dialog State
     private val _isCreateRouteDialogOpen = MutableStateFlow(false)
     val isCreateRouteDialogOpen: StateFlow<Boolean> = _isCreateRouteDialogOpen.asStateFlow()
+    private val _isEditRouteDialogOpen = MutableStateFlow(false)
+    val isEditRouteDialogOpen: StateFlow<Boolean> = _isEditRouteDialogOpen.asStateFlow()
+    private val _editingRoute = MutableStateFlow<RouteEntity?>(null)
+    val editingRoute: StateFlow<RouteEntity?> = _editingRoute.asStateFlow()
+    private val _editingRouteStops = MutableStateFlow<List<RouteStopEntity>>(emptyList())
+    val editingRouteStops: StateFlow<List<RouteStopEntity>> = _editingRouteStops.asStateFlow()
+
+    private val _adminRouteRequests = MutableStateFlow<List<Map<String, Any?>>>(emptyList())
+    val adminRouteRequests: StateFlow<List<Map<String, Any?>>> = _adminRouteRequests.asStateFlow()
+    private val _adminSubscriptionRows = MutableStateFlow<List<Map<String, Any?>>>(emptyList())
+    val adminSubscriptionRows: StateFlow<List<Map<String, Any?>>> = _adminSubscriptionRows.asStateFlow()
+    private val _adminOperationMessage = MutableStateFlow<String?>(null)
+    val adminOperationMessage: StateFlow<String?> = _adminOperationMessage.asStateFlow()
 
     // Dynamic passenger ID based on logged in user
     val currentPassengerId: String
@@ -737,6 +750,96 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
     fun closeCreateRouteDialog() {
         _isCreateRouteDialogOpen.value = false
+    }
+
+    fun openEditRouteDialog(route: RouteEntity) {
+        viewModelScope.launch {
+            try {
+                _editingRouteStops.value = repository.getStopsForRouteSync(route.id)
+                _editingRoute.value = route
+                _isEditRouteDialogOpen.value = true
+                _adminOperationMessage.value = null
+            } catch (e: Exception) {
+                _adminOperationMessage.value = e.message ?: "Could not load route details."
+            }
+        }
+    }
+
+    fun closeEditRouteDialog() {
+        _isEditRouteDialogOpen.value = false
+        _editingRoute.value = null
+        _editingRouteStops.value = emptyList()
+    }
+
+    fun updateRouteDetails(route: RouteEntity, stops: List<RouteStopEntity>) {
+        viewModelScope.launch {
+            _adminOperationMessage.value = null
+            try {
+                repository.updateRouteDetails(route, stops)
+                closeEditRouteDialog()
+                _adminOperationMessage.value = "Route updated successfully."
+            } catch (e: Exception) {
+                _adminOperationMessage.value = e.message ?: "Could not update route."
+            }
+        }
+    }
+
+    fun refreshAdminRouteRequests() {
+        viewModelScope.launch {
+            try {
+                _adminRouteRequests.value = repository.getAdminRouteRequests()
+                _adminOperationMessage.value = null
+            } catch (e: Exception) {
+                _adminOperationMessage.value = e.message ?: "Could not load passenger route requests."
+            }
+        }
+    }
+
+    fun assignAdminRouteRequest(requestId: String, routeId: String) {
+        viewModelScope.launch {
+            _adminOperationMessage.value = null
+            try {
+                _adminOperationMessage.value = repository.assignAdminRouteRequest(requestId, routeId)
+                refreshAdminRouteRequests()
+                refreshAdminSubscriptionRows()
+            } catch (e: Exception) {
+                _adminOperationMessage.value = e.message ?: "Could not assign passenger route request."
+            }
+        }
+    }
+
+    fun refreshAdminSubscriptionRows() {
+        viewModelScope.launch {
+            try {
+                _adminSubscriptionRows.value = repository.getAdminSubscriptionRows()
+                _adminOperationMessage.value = null
+            } catch (e: Exception) {
+                _adminOperationMessage.value = e.message ?: "Could not load subscription records."
+            }
+        }
+    }
+
+    fun updateAdminSubscriptionDetails(
+        subscriptionId: String,
+        routeId: String,
+        pickupStopId: String,
+        destinationStopId: String,
+        journeyType: String,
+        outboundPickupTime: String,
+        returnPickupTime: String
+    ) {
+        viewModelScope.launch {
+            _adminOperationMessage.value = null
+            try {
+                _adminOperationMessage.value = repository.updateAdminSubscriptionDetails(
+                    subscriptionId, routeId, pickupStopId, destinationStopId,
+                    journeyType, outboundPickupTime, returnPickupTime
+                )
+                refreshAdminSubscriptionRows()
+            } catch (e: Exception) {
+                _adminOperationMessage.value = e.message ?: "Could not update subscription details."
+            }
+        }
     }
 
     fun createRoute(
