@@ -28,6 +28,34 @@ class TransportRepository(
     suspend fun getUserById(userId: String): UserEntity? = dao.getUserById(userId)
     suspend fun insertUser(user: UserEntity) = dao.insertUser(user)
 
+    // Re-read the server-owned route assignment for a logged-in passenger whose custom
+    // route request is pending. Preserve the local credential field; it is never returned by /me.
+    suspend fun refreshCurrentUserFromBackend(current: UserEntity): UserEntity? {
+        val response = apiService.getCurrentUser()
+        val body = response.body()
+        if (!response.isSuccessful || body?.success != true) return null
+        val dto = body.user ?: return null
+        val initials = dto.fullName.split(" ")
+            .mapNotNull { it.firstOrNull()?.uppercase() }
+            .take(2).joinToString("")
+        val updated = current.copy(
+            id = dto.id,
+            role = dto.role,
+            fullName = dto.fullName,
+            phone = dto.phone,
+            email = dto.email ?: "${dto.phone}@transport.et",
+            status = dto.status ?: "ACTIVE",
+            licenseNumber = dto.licenseNumber ?: "",
+            avatarInitials = initials.ifBlank { "ET" },
+            companyName = dto.companyName ?: "",
+            assignedVehiclePlate = dto.assignedVehiclePlate ?: "",
+            appliedRouteId = dto.appliedRouteId ?: "",
+            appliedRouteName = dto.appliedRouteName ?: ""
+        )
+        dao.insertUser(updated)
+        return updated
+    }
+
     var lastAuthError: String? = null
         private set
 

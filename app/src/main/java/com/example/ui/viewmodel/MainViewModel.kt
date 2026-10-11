@@ -84,6 +84,18 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
             while (true) {
                 try {
                     repository.refreshSubscriptionFromBackend(passengerId)
+                    // Custom route requests remain pending until the admin assigns a route.
+                    // Refresh the server-owned user route field while this passenger is waiting.
+                    val waitingUser = _currentUser.value?.takeIf {
+                        it.id == passengerId && it.role == "PASSENGER" && it.appliedRouteId.isBlank()
+                    }
+                    if (waitingUser != null) {
+                        val refreshedUser = repository.refreshCurrentUserFromBackend(waitingUser)
+                        if (refreshedUser != null && refreshedUser.appliedRouteId.isNotBlank()) {
+                            _currentUser.value = refreshedUser
+                            refreshPassengerAssignment()
+                        }
+                    }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
