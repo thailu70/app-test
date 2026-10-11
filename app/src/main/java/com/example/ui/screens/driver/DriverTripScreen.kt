@@ -281,7 +281,7 @@ fun DriverTripScreen(
                         }
                     }
                     Text(
-                        "Scheduled departure: ${if (routeDirection == "INBOUND") "evening" else "morning"} schedule. Arrive at the assigned first stop on time; trip start requires GPS within 50 metres and your confirmation.",
+                        "Scheduled departure: ${if (routeDirection == "INBOUND") "evening" else "morning"} schedule. Arrive at the assigned first stop on time; trip start requires GPS within 200 metres and your confirmation.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Slate600
                     )
@@ -330,7 +330,7 @@ fun DriverTripScreen(
                 onDismissRequest = { showDepartureConfirmation = false },
                 title = { Text("Confirm vehicle arrival") },
                 text = {
-                    Text("Confirm that this vehicle has arrived at the administrator-assigned departure location for the selected route. RoutePass will verify that your latest GPS fix is within 50 metres before starting the trip and notifying passengers.")
+                    Text("Confirm that this vehicle has arrived at the administrator-assigned departure location for the selected route. RoutePass will verify that your latest GPS fix is within 200 metres before starting the trip and notifying passengers.")
                 },
                 confirmButton = {
                     TextButton(onClick = {

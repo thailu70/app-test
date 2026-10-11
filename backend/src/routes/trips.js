@@ -93,14 +93,14 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
     }
 
     // The first stop for OUTBOUND, or final stop for INBOUND, is the admin-configured departure geofence. A driver must explicitly
-    // confirm arrival while their submitted GPS fix is within 50 metres of that stop.
+    // confirm arrival while their submitted GPS fix is within 200 metres of that stop.
     const firstStop = await DB.prepare(`SELECT stopName, latitude, longitude FROM route_stops WHERE routeId = ? ORDER BY stopOrder ${String(direction).toUpperCase() === 'INBOUND' ? 'DESC' : 'ASC'} LIMIT 1`).get(routeId);
     if (!firstStop || firstStop.latitude == null || firstStop.longitude == null) {
       return res.status(409).json({ success: false, error: 'The assigned route has no configured departure stop coordinates. Ask an administrator to configure it.' });
     }
     const distanceToDepartureMeters = distanceMeters(Number(latitude), Number(longitude), Number(firstStop.latitude), Number(firstStop.longitude));
     if (distanceToDepartureMeters > 50) {
-      return res.status(403).json({ success: false, code: 'OUTSIDE_DEPARTURE_GEOFENCE', distanceMeters: Math.round(distanceToDepartureMeters), radiusMeters: 50, departureLocation: firstStop.stopName, error: 'You are outside the 50-metre departure area. Move to the assigned pickup location before confirming arrival.' });
+      return res.status(403).json({ success: false, code: 'OUTSIDE_DEPARTURE_GEOFENCE', distanceMeters: Math.round(distanceToDepartureMeters), radiusMeters: 200, departureLocation: firstStop.stopName, error: 'You are outside the 200-metre departure area. Move to the assigned pickup location before confirming arrival.' });
     }
     const initialStop = firstStop.stopName || 'Terminal Hub';
     const tripId = `trip_${Date.now().toString(36)}_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
@@ -152,7 +152,7 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Arrival confirmed within 50 metres. Passengers have been notified that the vehicle is ready for boarding.',
+      message: 'Arrival confirmed within 200 metres. Passengers have been notified that the vehicle is ready for boarding.',
       trip: {
         id: tripId,
         driverId,
