@@ -20,6 +20,27 @@ function resolveAdminSecret() {
 
 const ADMIN_REGISTRATION_SECRET = resolveAdminSecret();
 
+function validPickupTime(value) {
+  const match = /^(\d{2}):(\d{2})$/.exec(String(value || '').trim());
+  return Boolean(match && Number(match[1]) <= 23 && Number(match[2]) <= 59);
+}
+
+// Supports structured registration fields and older clients sending formatted route text.
+function parsePassengerRouteRequest(body) {
+  const text = String(body.requestedRoute || body.appliedRouteName || '').trim();
+  const formatted = text.match(/^Requested route:\s*(.+?)\s*[→➜]\s*(.+?)\s*\|\s*Journey:\s*(One-way|Round-trip)\s*\|\s*Outbound pickup:\s*(\d{2}:\d{2})(?:\s*\|\s*Return pickup:\s*(\d{2}:\d{2}))?/i);
+  const simple = !formatted ? text.match(/^(?:requested route:\s*)?(.+?)\s*(?:→|➜|->|\bto\b)\s*(.+)$/i) : null;
+  const origin = String(body.requestedOrigin || (formatted ? formatted[1] : simple ? simple[1] : '')).trim();
+  const destination = String(body.requestedDestination || (formatted ? formatted[2] : simple ? simple[2] : '')).trim();
+  const parsedJourney = formatted && /one-way/i.test(formatted[3]) ? 'ONE_WAY' : 'ROUND_TRIP';
+  const journeyType = String(body.requestedJourneyType || parsedJourney).trim().toUpperCase();
+  const outboundPickupTime = String(body.requestedOutboundPickupTime || (formatted && formatted[4]) || '06:30').trim();
+  const returnPickupTime = journeyType === 'ROUND_TRIP'
+    ? String(body.requestedReturnPickupTime || (formatted && formatted[5]) || '17:30').trim()
+    : '';
+  return { origin, destination, journeyType, outboundPickupTime, returnPickupTime, requestText: text };
+}
+
 /**
  * POST /api/auth/register
  * Register a new user (PASSENGER, DRIVER, or ADMIN).
@@ -42,6 +63,12 @@ router.post('/register', authLimiter, async (req, res) => {
       vehicleType = 'MINIBUS_14',
       appliedRouteId = '',
       appliedRouteName = '',
+      requestedRoute = '',
+      requestedOrigin = '',
+      requestedDestination = '',
+      requestedJourneyType = 'ROUND_TRIP',
+      requestedOutboundPickupTime = '06:30',
+      requestedReturnPickupTime = '',
       otpProof = ''
     } = req.body;
 
@@ -57,11 +84,34 @@ router.post('/register', authLimiter, async (req, res) => {
     }
 
     const normalizedRole = role.toUpperCase();
+    const cleanAppliedRouteId = String(appliedRouteId || '').trim();
+    const routeRequest = normalizedRole === 'PASSENGER' && !cleanAppliedRouteId
+      ? parsePassengerRouteRequest({
+          requestedRoute, appliedRouteName, requestedOrigin, requestedDestination,
+          requestedJourneyType, requestedOutboundPickupTime, requestedReturnPickupTime
+        })
+      : null;
     if (!['PASSENGER', 'DRIVER', 'ADMIN'].includes(normalizedRole)) {
       return res.status(400).json({
         success: false,
         error: "Invalid role. Must be 'PASSENGER', 'DRIVER', or 'ADMIN'."
       });
+    }
+
+    if (routeRequest) {
+      if (!routeRequest.requestText || !routeRequest.origin || !routeRequest.destination) {
+        return res.status(400).json({
+          success: false,
+          error: 'A passenger route request must include a pickup location and destination.'
+        });
+      }
+      if (!['ONE_WAY', 'ROUND_TRIP'].includes(routeRequest.journeyType)) {
+        return res.status(400).json({ success: false, error: 'Journey type must be ONE_WAY or ROUND_TRIP.' });
+      }
+      if (!validPickupTime(routeRequest.outboundPickupTime) ||
+          (routeRequest.journeyType === 'ROUND_TRIP' && !validPickupTime(routeRequest.returnPickupTime))) {
+        return res.status(400).json({ success: false, error: 'Enter pickup times in valid 24-hour HH:mm format.' });
+      }
     }
 
     // Drivers register their own account and the vehicle they own. The server creates
@@ -155,9 +205,22 @@ router.post('/register', authLimiter, async (req, res) => {
         normalizedRole === 'DRIVER' ? String(licenseNumber).trim() : (normalizedRole === 'ADMIN' ? String(licenseNumber).trim() : ''),
         normalizedRole === 'DRIVER' ? String(companyName || '').trim() : (normalizedRole === 'ADMIN' ? String(companyName || '').trim() : ''),
         driverVehiclePlate,
-        normalizedRole === 'PASSENGER' ? String(appliedRouteId || '').trim() : '',
-        normalizedRole === 'PASSENGER' ? String(appliedRouteName || '').trim() : ''
+        normalizedRole === 'PASSENGER' ? cleanAppliedRouteId : '',
+        normalizedRole === 'PASSENGER' ? String(appliedRouteName || requestedRoute || '').trim() : ''
       );
+
+      if (routeRequest) {
+        const requestId = `rr_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+        await tx.prepare(`
+          INSERT INTO passenger_route_requests
+            (id, passenger_id, origin, destination, journey_type, outbound_pickup_time, return_pickup_time, request_text, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
+        `).run(
+          requestId, userId, routeRequest.origin, routeRequest.destination,
+          routeRequest.journeyType, routeRequest.outboundPickupTime,
+          routeRequest.returnPickupTime || null, routeRequest.requestText
+        );
+      }
 
       if (normalizedRole === 'DRIVER') {
         const vehicleId = `veh_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
@@ -227,15 +290,23 @@ router.post('/register', authLimiter, async (req, res) => {
         email: finalEmail,
         status: normalizedRole === 'DRIVER' ? 'PENDING' : 'ACTIVE',
         assignedVehiclePlate: driverVehiclePlate,
-        appliedRouteId: normalizedRole === 'PASSENGER' ? String(appliedRouteId || '').trim() : '',
-        appliedRouteName: normalizedRole === 'PASSENGER' ? String(appliedRouteName || '').trim() : ''
+        appliedRouteId: normalizedRole === 'PASSENGER' ? cleanAppliedRouteId : '',
+        appliedRouteName: normalizedRole === 'PASSENGER' ? String(appliedRouteName || requestedRoute || '').trim() : ''
       },
+      routeRequest: routeRequest ? {
+        origin: routeRequest.origin,
+        destination: routeRequest.destination,
+        journeyType: routeRequest.journeyType,
+        outboundPickupTime: routeRequest.outboundPickupTime,
+        returnPickupTime: routeRequest.returnPickupTime || null,
+        status: 'PENDING'
+      } : null,
       subscription: initialSub,
       message: normalizedRole === 'DRIVER'
         ? 'Thank you for registering. An administrator will review your licence and vehicle, approve your account, assign your route, and contact you when your account is ready.'
-        : (normalizedRole === 'PASSENGER' && appliedRouteId
+        : (normalizedRole === 'PASSENGER' && cleanAppliedRouteId
           ? 'Account created. Subscription is PENDING payment; ask an administrator for a manual test recharge during testing.'
-          : 'Registration successful.')
+          : (routeRequest ? 'Registration successful. Your route request has been saved for administrator review.' : 'Registration successful.'))
     });
   } catch (err) {
     console.error('[RoutePass] request failed:', err);
