@@ -187,7 +187,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     _rosterPassengerPhotos.update { it + (passengerId to bytes) }
                 }
             } catch (_: Exception) {
-                // Missing/unavailable photos use the initials placeholder in the roster.
+                // Retry on the next roster refresh after transient network failure or a later photo upload.
+                rosterPhotoRequests.remove(passengerId)
             }
         }
     }
@@ -512,6 +513,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
         appliedRouteName: String = "",
+        requestedRoute: String = "",
         otpProof: String = ""
     ) {
         viewModelScope.launch {
@@ -521,8 +523,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 _authError.value = "Full Name and Phone Number are required."
                 return@launch
             }
-            if (role == AppRole.PASSENGER && appliedRouteId.isBlank()) {
-                _authError.value = "Please select the route you want to subscribe to."
+            if (role == AppRole.PASSENGER && appliedRouteId.isBlank() && requestedRoute.isBlank()) {
+                _authError.value = "Select an available route or enter the route you need."
                 return@launch
             }
             if (role == AppRole.DRIVER &&
@@ -551,6 +553,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     vehicleType = vehicleType,
                     appliedRouteId = appliedRouteId,
                     appliedRouteName = appliedRouteName,
+                    requestedRoute = requestedRoute,
                     otpProof = otpProof
                 )
                 if (role == AppRole.DRIVER) {

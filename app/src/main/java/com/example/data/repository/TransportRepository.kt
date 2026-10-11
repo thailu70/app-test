@@ -163,6 +163,7 @@ class TransportRepository(
         vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
         appliedRouteName: String = "",
+        requestedRoute: String = "",
         otpProof: String = ""
     ): UserEntity {
         val normalizedRole = role.trim().uppercase()
@@ -182,6 +183,7 @@ class TransportRepository(
             vehicleType = vehicleType.ifBlank { null },
             appliedRouteId = appliedRouteId.ifBlank { null },
             appliedRouteName = appliedRouteName.ifBlank { null },
+            requestedRoute = requestedRoute.trim().ifBlank { null },
             otpProof = otpProof.ifBlank { null }
         )
 

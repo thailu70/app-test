@@ -112,14 +112,6 @@ fun PassengerDashboardScreen(
         contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
     ) {
         item {
-            RoutePassHeroHeader(
-                title = "Your everyday, upgraded.",
-                subtitle = "Your pass, your driver and your journey — beautifully connected.",
-                icon = Icons.Default.QrCode
-            )
-        }
-
-        item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(22.dp),
@@ -182,6 +174,14 @@ fun PassengerDashboardScreen(
                     }
                 }
             }
+        }
+
+        item {
+            RoutePassHeroHeader(
+                title = "Your everyday, upgraded.",
+                subtitle = "Your pass, your driver and your journey — beautifully connected.",
+                icon = Icons.Default.QrCode
+            )
         }
 
         // 1. Subscription Overview Card

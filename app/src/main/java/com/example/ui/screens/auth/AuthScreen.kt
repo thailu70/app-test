@@ -67,17 +67,10 @@ fun AuthScreen(
     var vehicleTypeMenuExpanded by remember { mutableStateOf(false) }
     var adminSecret by remember { mutableStateOf("") }
 
-    // Applied Route Selection for Passenger and Driver
-    var selectedRouteId by remember { mutableStateOf("route_bole_merkato") }
-    var selectedRouteName by remember { mutableStateOf("Bole → Merkato") }
-
-    // Automatically synchronize default route if available
-    LaunchedEffect(availableRoutes) {
-        if (selectedRouteId.isBlank() && availableRoutes.isNotEmpty()) {
-            selectedRouteId = availableRoutes.first().id
-            selectedRouteName = availableRoutes.first().name
-        }
-    }
+    // Passenger may select an active route or enter a route request for admin review.
+    var selectedRouteId by remember { mutableStateOf("") }
+    var selectedRouteName by remember { mutableStateOf("") }
+    var requestedRoute by remember { mutableStateOf("") }
 
     // Never pre-fill the login form with shared/demo credentials.
     LaunchedEffect(selectedPortal, isRegisterMode) {
@@ -88,6 +81,9 @@ fun AuthScreen(
         confirmPassword = ""
         registrationValidationMessage = null
         if (isRegisterMode) fullName = ""
+        requestedRoute = ""
+        selectedRouteId = ""
+        selectedRouteName = ""
     }
 
     LaunchedEffect(registrationMessage) {
@@ -564,6 +560,7 @@ fun AuthScreen(
                                                     .clickable {
                                                         selectedRouteId = route.id
                                                         selectedRouteName = route.name
+                                                        requestedRoute = ""
                                                     }
                                                     .testTag("route_option_${route.id}")
                                             ) {
@@ -614,6 +611,25 @@ fun AuthScreen(
                                     }
                                 }
                             }
+                        }
+
+                        if (isRegisterMode && portal == AppRole.PASSENGER) {
+                            OutlinedTextField(
+                                value = requestedRoute,
+                                onValueChange = {
+                                    requestedRoute = it.take(200)
+                                    if (it.isNotBlank()) {
+                                        selectedRouteId = ""
+                                        selectedRouteName = ""
+                                    }
+                                },
+                                label = { Text("Route not listed? Enter your requested route") },
+                                placeholder = { Text("Example: CMC to Bole, near my home and workplace") },
+                                supportingText = { Text("Your request stays PENDING until an administrator reviews it and assigns an available route.") },
+                                minLines = 2,
+                                maxLines = 3,
+                                modifier = Modifier.fillMaxWidth().testTag("custom_route_request_input")
+                            )
                         }
 
                         OutlinedTextField(
@@ -673,7 +689,7 @@ fun AuthScreen(
                                             phone.isBlank() -> "Enter your mobile number first."
                                             password.length < 10 -> "Use a password with at least 10 characters before requesting OTP."
                                             password != confirmPassword -> "The two passwords do not match."
-                                            portal == AppRole.PASSENGER && selectedRouteId.isBlank() -> "Select your subscription route first."
+                                            portal == AppRole.PASSENGER && selectedRouteId.isBlank() && requestedRoute.isBlank() -> "Select an available route or enter the route you need."
                                             portal == AppRole.DRIVER && (licenseNumber.isBlank() || vehiclePlate.isBlank() || vehicleModel.isBlank()) -> "Complete your driver licence and vehicle details first."
                                             else -> null
                                         }
@@ -769,8 +785,9 @@ fun AuthScreen(
                                             assignedVehiclePlate = vehiclePlate,
                                             vehicleModel = vehicleModel,
                                             vehicleType = vehicleType,
-                                            appliedRouteId = selectedRouteId,
-                                            appliedRouteName = selectedRouteName,
+                                            appliedRouteId = if (requestedRoute.isBlank()) selectedRouteId else "",
+                                            appliedRouteName = if (requestedRoute.isBlank()) selectedRouteName else "",
+                                            requestedRoute = requestedRoute.trim(),
                                             adminSecret = adminSecret,
                                              otpProof = otpProof.orEmpty()
                                         )
