@@ -76,18 +76,30 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
       const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Addis_Ababa', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
       const hour = Number(parts.find(part => part.type === 'hour')?.value);
       const minute = Number(parts.find(part => part.type === 'minute')?.value);
+      const currentEthiopiaTime = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
       const nowMinutes = hour * 60 + minute;
       const scheduleMinutes = Number(match[1]) * 60 + Number(match[2]);
       let difference = nowMinutes - scheduleMinutes;
       if (difference > 720) difference -= 1440;
       if (difference < -720) difference += 1440;
-      const earlyWindow = Math.max(0, Number.parseInt(process.env.ROUTEPASS_DEPARTURE_EARLY_WINDOW_MINUTES || '30', 10));
-      const lateWindow = Math.max(0, Number.parseInt(process.env.ROUTEPASS_DEPARTURE_LATE_WINDOW_MINUTES || '60', 10));
+      const configuredEarlyWindow = Number.parseInt(process.env.ROUTEPASS_DEPARTURE_EARLY_WINDOW_MINUTES ?? '30', 10);
+      const configuredLateWindow = Number.parseInt(process.env.ROUTEPASS_DEPARTURE_LATE_WINDOW_MINUTES ?? '60', 10);
+      const earlyWindow = Number.isFinite(configuredEarlyWindow) ? Math.max(0, configuredEarlyWindow) : 30;
+      const lateWindow = Number.isFinite(configuredLateWindow) ? Math.max(0, configuredLateWindow) : 60;
       if (difference < -earlyWindow || difference > lateWindow) {
+        const windowReason = difference < -earlyWindow
+          ? `This route opens for trip start ${earlyWindow} minutes before departure.`
+          : `The permitted late-start window is ${lateWindow} minutes after departure.`;
         return res.status(403).json({
-          success: false, code: 'OUTSIDE_DEPARTURE_TIME_WINDOW', scheduledDeparture: scheduledTime,
+          success: false,
+          code: 'OUTSIDE_DEPARTURE_TIME_WINDOW',
+          scheduledDeparture: scheduledTime,
+          currentEthiopiaTime,
+          differenceMinutes: difference,
+          earlyWindowMinutes: earlyWindow,
+          lateWindowMinutes: lateWindow,
           direction: String(direction).toUpperCase(),
-          error: `This route is scheduled to depart at ${scheduledTime} Ethiopia time. Arrive at the assigned departure location within the permitted departure window.`
+          error: `Scheduled departure: ${scheduledTime} Ethiopia time. Server Ethiopia time: ${currentEthiopiaTime}. ${windowReason} Check the route schedule and server departure-window settings.`
         });
       }
     }
