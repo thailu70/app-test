@@ -266,11 +266,18 @@ router.patch('/route-requests/:id/assign', async (req, res) => {
     if (!Array.isArray(stops) || stops.length < 2) {
       return res.status(409).json({ success: false, error: 'The selected route needs at least two configured stops before assignment.' });
     }
-    const originMatch = stops.find(s => String(s.stopName || '').trim().toLowerCase() === String(request.origin || '').trim().toLowerCase());
-    const destinationMatch = stops.find(s => String(s.stopName || '').trim().toLowerCase() === String(request.destination || '').trim().toLowerCase());
-    const pickup = originMatch || stops[0];
-    const destination = destinationMatch || stops[stops.length - 1];
-    if (!pickup || !destination || pickup.id === destination.id) {
+    const normalizeStopName = value => String(value || '').trim().toLowerCase().replace(/[\\s_-]+/g, '');
+    const originKey = normalizeStopName(request.origin);
+    const destinationKey = normalizeStopName(request.destination);
+    const pickup = stops.find(s => normalizeStopName(s.stopName) === originKey);
+    const destination = stops.find(s => normalizeStopName(s.stopName) === destinationKey);
+    if (!pickup || !destination) {
+      return res.status(409).json({
+        success: false,
+        error: 'The selected route does not contain the passenger’s requested origin and destination. Edit or create an active route with matching endpoint names before assigning this request.'
+      });
+    }
+    if (pickup.id === destination.id) {
       return res.status(409).json({ success: false, error: 'Route pickup and destination must be different stops.' });
     }
     const existing = await DB.prepare('SELECT id FROM subscriptions WHERE passengerId = ? ORDER BY updatedAt DESC LIMIT 1').get(request.passenger_id);
