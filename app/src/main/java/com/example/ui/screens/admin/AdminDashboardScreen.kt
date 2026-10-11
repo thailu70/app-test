@@ -903,10 +903,10 @@ fun EditSubscriptionDialog(
                         TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
                         Button(
                             onClick = {
+                                val timesValid = outbound.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$")) &&
+                                    (journeyType == "ONE_WAY" || returning.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$")))
                                 if (id.isNotBlank() && routeId.isNotBlank() && pickupStopId.isNotBlank() &&
-                                    destinationStopId.isNotBlank() && pickupStopId != destinationStopId &&
-                                    outbound.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$")) &&
-                                    (journeyType == "ONE_WAY" || returning.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$"))) {
+                                    destinationStopId.isNotBlank() && pickupStopId != destinationStopId && timesValid) {
                                     onSave(id, routeId, pickupStopId, destinationStopId, journeyType, outbound.trim(), if (journeyType == "ONE_WAY") "" else returning.trim())
                                 }
                             },
