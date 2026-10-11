@@ -99,6 +99,25 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Pending custom passenger route requests are structured data, not just display text.
+CREATE TABLE IF NOT EXISTS passenger_route_requests (
+    id VARCHAR(64) PRIMARY KEY,
+    passenger_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    origin VARCHAR(120) NOT NULL,
+    destination VARCHAR(120) NOT NULL,
+    journey_type VARCHAR(20) NOT NULL DEFAULT 'ROUND_TRIP' CHECK (journey_type IN ('ONE_WAY', 'ROUND_TRIP')),
+    outbound_pickup_time VARCHAR(5) NOT NULL DEFAULT '06:30',
+    return_pickup_time VARCHAR(5),
+    request_text TEXT DEFAULT '',
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'ASSIGNED', 'REJECTED')),
+    assigned_route_id VARCHAR(64) REFERENCES routes(id) ON DELETE SET NULL,
+    assigned_by VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_route_requests_status_created
+    ON passenger_route_requests(status, created_at);
+
 -- 6. Trips Table (Real backend driver trips)
 CREATE TABLE IF NOT EXISTS trips (
     id VARCHAR(64) PRIMARY KEY,
