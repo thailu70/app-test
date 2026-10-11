@@ -182,15 +182,18 @@ fun PassengerDashboardScreen(
             }
         }
 
-        // 1. Subscription Overview Card
-        item {
-            SubscriptionStatusCard(
-                subscription = subscription,
-                userAppliedRoute = currentUser?.appliedRouteName,
-                lang = lang,
-                onRenewClick = { viewModel.openTelebirrDialog() },
-                onCancelClick = { viewModel.cancelSubscription() }
-            )
+        // 1. Do not show a stale subscription's assigned route while this passenger's
+        // own requested route is still awaiting administrator assignment.
+        if (!currentUser?.appliedRouteId.isNullOrBlank()) {
+            item {
+                SubscriptionStatusCard(
+                    subscription = subscription,
+                    userAppliedRoute = currentUser?.appliedRouteName,
+                    lang = lang,
+                    onRenewClick = { viewModel.openTelebirrDialog() },
+                    onCancelClick = { viewModel.cancelSubscription() }
+                )
+            }
         }
 
         // 2. Dynamic Boarding QR Code Card
