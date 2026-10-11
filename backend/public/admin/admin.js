@@ -326,7 +326,22 @@
           { label: "Capacity", keys: ["capacityLimit", "capacity_limit"] },
           { label: "Occupancy", render: r => esc(value(r, "currentOccupancy", "current_occupancy")) + " / " + esc(value(r, "capacityLimit", "capacity_limit")) },
           { label: "Driver", keys: ["driverName", "driver_name"] },
-          { label: "Route", keys: ["routeName", "route_name"] },
+          { label: "Route / change", render: r => {
+            const subId = esc(value(r, "id"));
+            const currentRouteId = String(value(r, "routeId", "route_id") || "");
+            const currentRouteName = String(value(r, "routeName", "route_name") || "Unassigned route");
+            const currentRouteIsActive = activeRoutes.some(route => String(value(route, "id")) === currentRouteId);
+            const inactiveCurrent = currentRouteId && !currentRouteIsActive
+              ? '<option value="' + esc(currentRouteId) + '" selected disabled>' + esc(currentRouteName) + ' (inactive)</option>'
+              : "";
+            const choices = activeRoutes.map(route =>
+              '<option value="' + esc(value(route, "id")) + '" ' + (String(value(route, "id")) === currentRouteId ? "selected" : "") + '>' +
+              esc(value(route, "name")) + ' · ETB ' + esc(value(route, "basePriceEtb", "base_price_etb")) + '</option>'
+            ).join("");
+            return '<div class="inline-actions"><select data-subscription-route-for="' + subId + '" aria-label="Change route for ' + esc(value(r, "passengerName", "passenger_name")) + '" style="min-width:190px;padding:7px;border:1px solid #d5deea;border-radius:8px">' +
+              inactiveCurrent + choices +
+              '</select><button class="btn btn-primary" data-change-subscription-route="' + subId + '">Change</button></div>';
+          }},
           { label: "Status", render: r => pill(value(r, "status")) }
         ], data));
   }
@@ -353,7 +368,10 @@
     await loadLookups();
     const data = asArray(await api("/api/admin/subscriptions"), "subscriptions");
     const eligibleVehicles = state.cache.vehicles || [];
-    return pageHeader("Subscriptions & passenger assignments", "Assign vehicles, record verified offline payments, and use the separate test-only recharge only in staging.") +
+    const activeRoutes = (state.cache.routes || []).filter(route =>
+      route.active !== false && route.active !== 0 && route.active !== "false" && route.active !== "0"
+    );
+    return pageHeader("Subscriptions & passenger assignments", "Change passenger routes, assign vehicles and record verified offline payments. A route change resets the pass to pending/unpaid until payment is recorded.") +
       section("Passenger subscriptions", data.length + " record(s)",
         table([
           { label: "Passenger", render: r => "<strong>" + esc(value(r, "passengerName", "passenger_name")) + "</strong>" },
@@ -561,6 +579,21 @@
     } catch (error) { toast(error.message, true); button.disabled = false; }
   }
 
+  async function changeSubscriptionRoute(button) {
+    const subId = button.dataset.changeSubscriptionRoute;
+    const select = $("[data-subscription-route-for]").find(item => item.dataset.subscriptionRouteFor === subId);
+    if (!select || !select.value) return toast("Choose an active route first.", true);
+    if (!window.confirm("Changing this passenger's route will reset the subscription to PENDING/UNPAID, clear the old QR pass and vehicle assignment, and require payment for the new route tariff. Continue?")) return;
+    button.disabled = true;
+    try {
+      const result = await api("/api/admin/subscriptions/" + encodeURIComponent(subId) + "/route", {
+        method: "PATCH", body: JSON.stringify({ routeId: select.value })
+      });
+      toast(result.message || "Passenger route changed.");
+      await renderView();
+    } catch (error) { toast(error.message, true); button.disabled = false; }
+  }
+
   async function recordManualPayment(button) {
     const id = button.dataset.manualPayment;
     const amountEtb = Number(window.prompt("Amount received in ETB (must equal the subscription price):", ""));
@@ -701,6 +734,8 @@
     if (assignRouteButton) { assignDriverRoute(assignRouteButton); return; }
     const assignVehicleButton = event.target.closest("[data-assign-vehicle]");
     if (assignVehicleButton) { assignSubscriptionVehicle(assignVehicleButton); return; }
+    const changeSubscriptionRouteButton = event.target.closest("[data-change-subscription-route]");
+    if (changeSubscriptionRouteButton) { changeSubscriptionRoute(changeSubscriptionRouteButton); return; }
     const manualPaymentButton = event.target.closest("[data-manual-payment]");
     if (manualPaymentButton) { recordManualPayment(manualPaymentButton); return; }
     const rechargeButton = event.target.closest("[data-recharge]");
