@@ -92,17 +92,16 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
       }
     }
 
-    // The first stop for OUTBOUND, or final stop for INBOUND, is the admin-configured departure geofence. A driver must explicitly
-    // confirm arrival while their submitted GPS fix is within the configured (maximum 50 metre) radius of that stop.
+    // The first stop for OUTBOUND, or final stop for INBOUND, is the admin-configured departure geofence.
+    // Respect the administrator's configured radius; use 50 metres only as a fallback when no valid setting exists.
     const firstStop = await DB.prepare(`SELECT stopName, latitude, longitude FROM route_stops WHERE routeId = ? ORDER BY stopOrder ${String(direction).toUpperCase() === 'INBOUND' ? 'DESC' : 'ASC'} LIMIT 1`).get(routeId);
     if (!firstStop || firstStop.latitude == null || firstStop.longitude == null) {
       return res.status(409).json({ success: false, error: 'The assigned route has no configured departure stop coordinates. Ask an administrator to configure it.' });
     }
     await DB.prepare(`CREATE TABLE IF NOT EXISTS routepass_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`).run();
     const radiusSetting = await DB.prepare('SELECT setting_value FROM routepass_settings WHERE setting_key = ?').get('driver_geofence_radius_meters');
-    // RoutePass requirement: driver arrival confirmation must be within 50 metres.
-    // Existing larger DB/environment settings are clamped so they cannot weaken this requirement.
-    const radiusMeters = Math.min(50, Math.max(25, Number.parseInt(radiusSetting?.setting_value || process.env.ROUTEPASS_GEOFENCE_RADIUS_METERS || '50', 10) || 50));
+    const configuredRadius = Number.parseInt(radiusSetting?.setting_value ?? process.env.ROUTEPASS_GEOFENCE_RADIUS_METERS ?? '50', 10);
+    const radiusMeters = Number.isFinite(configuredRadius) && configuredRadius > 0 ? configuredRadius : 50;
     const distanceToDepartureMeters = distanceMeters(Number(latitude), Number(longitude), Number(firstStop.latitude), Number(firstStop.longitude));
     if (distanceToDepartureMeters > radiusMeters) {
       return res.status(403).json({ success: false, code: 'OUTSIDE_DEPARTURE_GEOFENCE', distanceMeters: Math.round(distanceToDepartureMeters), radiusMeters, departureLocation: firstStop.stopName, error: `You are ${Math.round(distanceToDepartureMeters)} metres from the departure stop; the configured limit is ${radiusMeters} metres.` });
