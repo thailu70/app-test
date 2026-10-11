@@ -758,6 +758,13 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         viewModelScope.launch {
             try {
                 _editingRouteStops.value = repository.getStopsForRouteSync(route.id)
+                if (_editingRouteStops.value.size < 2) {
+                    repository.refreshRoutesFromBackend()
+                    _editingRouteStops.value = repository.getStopsForRouteSync(route.id)
+                }
+                if (_editingRouteStops.value.size < 2) {
+                    throw IllegalStateException("Could not load the route's ordered stops from the server.")
+                }
                 _editingRoute.value = route
                 _isEditRouteDialogOpen.value = true
                 _adminOperationMessage.value = null
