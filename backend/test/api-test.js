@@ -168,7 +168,7 @@ async function runTests() {
       throw new Error('Deactivated route was still discoverable publicly.');
     }
     const adminRoutes = await makeRequest('GET', '/api/admin/routes', null, adminToken);
-    if (!adminRoutes.data.routes.some(route => route.id === regressionRouteId && route.active === false)) {
+    if (!adminRoutes.data.routes.some(route => route.id === regressionRouteId && (route.active === false || route.active === 0 || route.active === '0'))) {
       throw new Error('Deactivated route history was not retained for administration.');
     }
     console.log('✓ Route regression verified: multi-stop routes work and deactivation preserves history');
