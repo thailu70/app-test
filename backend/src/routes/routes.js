@@ -168,6 +168,8 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
     }
     const serviceType = String(req.body.serviceType ?? current.serviceType ?? 'TWO_WAY').toUpperCase();
     if (!['ONE_WAY', 'TWO_WAY'].includes(serviceType)) return res.status(400).json({ success: false, error: 'serviceType must be ONE_WAY or TWO_WAY.' });
+    const routeActive = req.body.active === undefined ? Boolean(current.active) : Boolean(req.body.active);
+    const storedActive = DB.isPostgres ? routeActive : Number(routeActive);
 
     await DB.transaction(async (tx) => {
       await tx.prepare(`
@@ -183,7 +185,7 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
         Number(req.body.distanceKm ?? current.distanceKm ?? 10),
         Number(req.body.basePriceEtb ?? current.basePriceEtb ?? 2500),
         serviceType,
-        req.body.active === undefined ? current.active : (req.body.active ? true : false),
+        storedActive,
         req.params.id
       );
 
