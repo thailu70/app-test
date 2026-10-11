@@ -77,6 +77,15 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
       const hour = Number(parts.find(part => part.type === 'hour')?.value);
       const minute = Number(parts.find(part => part.type === 'minute')?.value);
       const currentEthiopiaTime = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+      const formatTime12Hour = (time) => {
+        const timeMatch = /^(\\d{2}):(\\d{2})$/.exec(String(time));
+        if (!timeMatch) return String(time);
+        const hour24 = Number(timeMatch[1]);
+        const suffix = hour24 >= 12 ? 'PM' : 'AM';
+        return `${hour24 % 12 || 12}:${timeMatch[2]} ${suffix}`;
+      };
+      const scheduledTimeDisplay = formatTime12Hour(scheduledTime);
+      const currentEthiopiaTimeDisplay = formatTime12Hour(currentEthiopiaTime);
       const nowMinutes = hour * 60 + minute;
       const scheduleMinutes = Number(match[1]) * 60 + Number(match[2]);
       let difference = nowMinutes - scheduleMinutes;
@@ -99,7 +108,7 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
           earlyWindowMinutes: earlyWindow,
           lateWindowMinutes: lateWindow,
           direction: String(direction).toUpperCase(),
-          error: `Scheduled departure: ${scheduledTime} Ethiopia time. Server Ethiopia time: ${currentEthiopiaTime}. ${windowReason} Check the route schedule and server departure-window settings.`
+          error: `Scheduled departure: ${scheduledTimeDisplay} Ethiopia time. Server Ethiopia time: ${currentEthiopiaTimeDisplay}. ${windowReason} Check the route schedule and server departure-window settings.`
         });
       }
     }
