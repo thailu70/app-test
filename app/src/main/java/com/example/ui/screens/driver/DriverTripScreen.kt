@@ -84,6 +84,7 @@ fun DriverTripScreen(
     var gpsStatus by remember { mutableStateOf("Waiting for GPS permission.") }
     var routeDirection by remember { mutableStateOf("OUTBOUND") }
     var showDepartureConfirmation by remember { mutableStateOf(false) }
+    var showTripCompletionConfirmation by remember { mutableStateOf(false) }
     val networkStatus by viewModel.networkStatus.collectAsState()
     val isScannerOpen by viewModel.isScannerOpen.collectAsState()
     val scanResult by viewModel.scanResult.collectAsState()
@@ -294,11 +295,13 @@ fun DriverTripScreen(
                     tripState = tripState,
                     currentStop = stops.getOrNull(tripState.currentStopIndex),
                     lang = lang,
+                    isFinalStop = stops.isNotEmpty() && tripState.currentStopIndex >= stops.lastIndex,
                     onStartNavigation = { showDepartureConfirmation = true },
                     onArrived = { viewModel.arriveAtCurrentStop() },
                     onScanQr = { viewModel.openScanner() },
                     onSkip = { viewModel.skipCurrentStop() },
-                    onNextStop = { viewModel.nextStop() }
+                    onNextStop = { viewModel.nextStop() },
+                    onCompleteTrip = { showTripCompletionConfirmation = true }
                 )
             }
 
@@ -340,6 +343,23 @@ fun DriverTripScreen(
                 },
                 dismissButton = {
                     TextButton(onClick = { showDepartureConfirmation = false }) { Text("NOT YET") }
+                }
+            )
+        }
+
+        if (showTripCompletionConfirmation) {
+            AlertDialog(
+                onDismissRequest = { showTripCompletionConfirmation = false },
+                title = { Text("Complete trip?") },
+                text = { Text("This marks the assigned trip as completed and notifies passengers. Only continue if you have reached the final stop for this direction.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showTripCompletionConfirmation = false
+                        viewModel.completeTrip()
+                    }) { Text("COMPLETE TRIP") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showTripCompletionConfirmation = false }) { Text("CANCEL") }
                 }
             )
         }
@@ -659,11 +679,13 @@ fun DriverNavigationHudCard(
     tripState: DriverTripState,
     currentStop: RouteStopEntity?,
     lang: AppLanguage,
+    isFinalStop: Boolean = false,
     onStartNavigation: () -> Unit,
     onArrived: () -> Unit,
     onScanQr: () -> Unit,
     onSkip: () -> Unit,
-    onNextStop: () -> Unit
+    onNextStop: () -> Unit,
+    onCompleteTrip: () -> Unit
 ) {
     fun t(key: String) = AppStrings.get(key, lang)
 
@@ -766,9 +788,20 @@ fun DriverNavigationHudCard(
                 }
             }
 
-            // Big Hands-Free / Driver-Safe Action Buttons
+            // Start is shown only when there is no active trip. Active trips use arrival, scan, next-stop and completion actions.
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (!tripState.isArrivedAtStop) {
+                if (!tripState.isNavigating) {
+                    Button(
+                        onClick = onStartNavigation,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = TransportGreenPrimary),
+                        modifier = Modifier.fillMaxWidth().height(56.dp).testTag("driver_start_trip_button")
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("START TRIP", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
+                } else if (!tripState.isArrivedAtStop) {
                     Button(
                         onClick = onArrived,
                         shape = RoundedCornerShape(14.dp),
@@ -823,17 +856,23 @@ fun DriverNavigationHudCard(
                         }
 
                         Button(
-                            onClick = onNextStop,
+                            onClick = if (isFinalStop) onCompleteTrip else onNextStop,
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = TransportGreenDark),
+                            colors = ButtonDefaults.buttonColors(containerColor = if (isFinalStop) StatusActiveGreen else TransportGreenDark),
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp)
-                                .testTag("driver_next_stop_button")
+                                .testTag(if (isFinalStop) "driver_complete_trip_button" else "driver_next_stop_button")
                         ) {
-                            Text(text = t("next_stop"), fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.width(4.dp))
-                            Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+                            if (isFinalStop) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("COMPLETE TRIP", fontWeight = FontWeight.Bold)
+                            } else {
+                                Text(text = t("next_stop"), fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.width(4.dp))
+                                Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+                            }
                         }
                     }
                 }
