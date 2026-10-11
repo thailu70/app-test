@@ -91,10 +91,11 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
       let difference = nowMinutes - scheduleMinutes;
       if (difference > 720) difference -= 1440;
       if (difference < -720) difference += 1440;
-      const configuredEarlyWindow = Number.parseInt(process.env.ROUTEPASS_DEPARTURE_EARLY_WINDOW_MINUTES ?? '30', 10);
-      const configuredLateWindow = Number.parseInt(process.env.ROUTEPASS_DEPARTURE_LATE_WINDOW_MINUTES ?? '60', 10);
-      const earlyWindow = Number.isFinite(configuredEarlyWindow) ? Math.max(0, configuredEarlyWindow) : 30;
-      const lateWindow = Number.isFinite(configuredLateWindow) ? Math.max(0, configuredLateWindow) : 60;
+      const configuredEarlyWindow = Number.parseInt(process.env.ROUTEPASS_DEPARTURE_EARLY_WINDOW_MINUTES ?? '15', 10);
+      const configuredLateWindow = Number.parseInt(process.env.ROUTEPASS_DEPARTURE_LATE_WINDOW_MINUTES ?? '15', 10);
+      // Admin/server settings may extend the window, but cannot reduce it below 15 minutes.
+      const earlyWindow = Number.isFinite(configuredEarlyWindow) ? Math.max(15, configuredEarlyWindow) : 15;
+      const lateWindow = Number.isFinite(configuredLateWindow) ? Math.max(15, configuredLateWindow) : 15;
       if (difference < -earlyWindow || difference > lateWindow) {
         const windowReason = difference < -earlyWindow
           ? `This route opens for trip start ${earlyWindow} minutes before departure.`
