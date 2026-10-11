@@ -5,6 +5,7 @@ on:
     branches:
       - audit/production-readiness-2026-10-09
       - feature/routepass-otp-geofence-payments
+      - feature/routepass-portal-switch-settings
     paths:
       - ".github/workflows/routepass-android-build.yml"
       - "app/**"
