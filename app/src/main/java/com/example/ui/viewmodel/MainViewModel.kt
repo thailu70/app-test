@@ -849,7 +849,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
             val tripState = _driverTrip.value
             if (!tripState.isNavigating || tripState.tripId.isBlank() || tripState.vehicleId.isBlank()) {
                 _scanResult.value = QrValidationResult.Invalid(
-                    "reason_qr_corrupted",
+                    "reason_trip_not_started",
                     "Start a live trip on your own assigned vehicle before scanning passenger passes."
                 )
                 return@launch
