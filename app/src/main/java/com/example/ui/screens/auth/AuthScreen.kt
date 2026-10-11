@@ -45,7 +45,8 @@ fun AuthScreen(
     val otpProof by viewModel.otpProof.collectAsState()
     val otpMessage by viewModel.otpMessage.collectAsState()
     val testPassengerRegistrationBypass by viewModel.testPassengerRegistrationBypass.collectAsState()
-    val availableRoutes by viewModel.activeRoutes.collectAsState()
+    val availableRoutes by viewModel.signupRoutes.collectAsState()
+    val routesRefreshing by viewModel.signupRoutesRefreshing.collectAsState()
 
     // Passenger and driver share one sign-in/registration screen; switch roles without leaving the form.
     var selectedPortal by remember { mutableStateOf<AppRole?>(AppRole.PASSENGER) }
@@ -84,6 +85,9 @@ fun AuthScreen(
         requestedRoute = ""
         selectedRouteId = ""
         selectedRouteName = ""
+        if (isRegisterMode && selectedPortal == AppRole.PASSENGER) {
+            viewModel.refreshSignupRoutes()
+        }
     }
 
     LaunchedEffect(registrationMessage) {
@@ -528,8 +532,21 @@ fun AuthScreen(
                                         color = Slate600
                                     )
 
+                                    if (routesRefreshing) {
+                                        Text(
+                                            text = if (lang == AppLanguage.AMHARIC) "የነቁ መስመሮችን በመጫን ላይ..." else "Loading active routes from server...",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Slate600
+                                        )
+                                    } else if (availableRoutes.isEmpty()) {
+                                        Text(
+                                            text = if (lang == AppLanguage.AMHARIC) "ንቁ መስመር አልተገኘም። እባክዎ ቆይተው ይሞክሩ።" else "No active routes are available. Please try again later.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Slate600
+                                        )
+                                    }
                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        availableRoutes.forEach { route ->
+                                        availableRoutes.filter { it.active }.forEach { route ->
                                             val isSelected = selectedRouteId == route.id
                                             Surface(
                                                 color = if (isSelected) Color(0xFFD1FAE5) else Color.White,
