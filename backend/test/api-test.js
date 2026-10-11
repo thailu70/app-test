@@ -219,7 +219,27 @@ async function runTests() {
         editedCustomSubscription.data.paymentStatus !== 'UNPAID') {
       throw new Error('Admin subscription editing endpoint failed: ' + JSON.stringify(editedCustomSubscription.data));
     }
-    console.log('✓ Structured passenger route requests, admin assignment, and safe subscription edits verified');
+    const editedOneWaySubscription = await makeRequest('PATCH',
+      '/api/admin/subscriptions/' + encodeURIComponent(customSubscription.id) + '/details',
+      {
+        routeId: 'route_bole_merkato',
+        pickupStopId: customSubscription.pickupStopId || customSubscription.pickup_stop_id,
+        destinationStopId: customSubscription.destinationStopId || customSubscription.destination_stop_id,
+        journeyType: 'ONE_WAY',
+        outboundPickupTime: '07:25',
+        returnPickupTime: ''
+      }, adminToken);
+    if (editedOneWaySubscription.status !== 200 || editedOneWaySubscription.data.success !== true ||
+        editedOneWaySubscription.data.paymentStatus !== 'UNPAID') {
+      throw new Error('Admin could not switch a subscription to one-way: ' + JSON.stringify(editedOneWaySubscription.data));
+    }
+    const verifyOneWayRows = await makeRequest('GET', '/api/admin/subscriptions', null, adminToken);
+    const oneWaySubscription = (verifyOneWayRows.data.subscriptions || []).find(s => s.id === customSubscription.id);
+    if (!oneWaySubscription || oneWaySubscription.journey_type !== 'ONE_WAY' ||
+        oneWaySubscription.outbound_pickup_time !== '07:25' || oneWaySubscription.return_pickup_time !== null) {
+      throw new Error('One-way journey/time fields did not persist: ' + JSON.stringify(oneWaySubscription));
+    }
+    console.log('✓ Structured passenger route requests, admin assignment, subscription edits, and one-way persistence verified');
 
     // 6. Telebirr Payment with Idempotency activates subscription and issues signed QR
     const testIdempotencyKey = 'IDEM-TEST-' + Date.now();
@@ -246,6 +266,39 @@ async function runTests() {
       throw new Error('Idempotency failed: Expected idempotentReplay flag');
     }
     console.log('✓ [10/13] Telebirr payment idempotency verified: Duplicate payment prevented');
+
+    // Passenger profile photos must be visible in the assigned driver's roster, not in a passenger roster.
+    const tinyPngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jN5kAAAAASUVORK5CYII=';
+    const uploadedPassengerPhoto = await makeRequest('POST', '/api/profile-media/upload', {
+      assetType: 'PROFILE_PHOTO',
+      fileName: 'test-passenger.png',
+      contentType: 'image/png',
+      dataBase64: tinyPngBase64
+    }, newPasToken);
+    if (uploadedPassengerPhoto.status !== 201 || uploadedPassengerPhoto.data.success !== true) {
+      throw new Error('Passenger profile photo upload failed: ' + JSON.stringify(uploadedPassengerPhoto.data));
+    }
+    const driverRoster = await makeRequest('GET', '/api/rosters/my', null, driverToken);
+    const rosterRows = driverRoster.data.passengers || [];
+    if (driverRoster.status !== 200 || driverRoster.data.role !== 'DRIVER' ||
+        !rosterRows.some(p => p.id === newPasReg.data.user.id && p.photoUrl)) {
+      throw new Error('Driver roster did not return the active paid passenger and photo reference: ' + JSON.stringify(driverRoster.data));
+    }
+    const driverPhotoRead = await makeRequest(
+      'GET',
+      '/api/profile-media/' + encodeURIComponent(newPasReg.data.user.id) + '/PROFILE_PHOTO',
+      null,
+      driverToken
+    );
+    if (driverPhotoRead.status !== 200 || !driverPhotoRead.raw) {
+      throw new Error('Driver could not retrieve an authorized roster passenger photo (HTTP ' + driverPhotoRead.status + ').');
+    }
+    const passengerRoster = await makeRequest('GET', '/api/rosters/my', null, newPasToken);
+    if (passengerRoster.status !== 200 || passengerRoster.data.role !== 'PASSENGER' ||
+        Array.isArray(passengerRoster.data.passengers)) {
+      throw new Error('Passenger endpoint unexpectedly returned a passenger roster: ' + JSON.stringify(passengerRoster.data));
+    }
+    console.log('✓ Driver roster can load assigned passenger photos; passenger portal receives no other-passenger roster');
 
     // 7. Driver starts trip and updates stop arrival
     const startTripRes = await makeRequest('POST', '/api/trips/start', {
