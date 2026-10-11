@@ -92,7 +92,17 @@ fun DriverTripScreen(
     val mediaUploadMessage by viewModel.mediaUploadMessage.collectAsState()
     val driverPhotoBytes by viewModel.assignedDriverPhotoBytes.collectAsState()
     val driverPhotoBitmap = remember(driverPhotoBytes) { driverPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
-    LaunchedEffect(currentUser?.id) { if (currentUser != null) viewModel.refreshMyRoster() }
+    // Keep the driver's roster and QR attendance in sync while this screen is open.
+    // The manual Refresh roster button remains available for immediate refresh.
+    LaunchedEffect(currentUser?.id) {
+        if (currentUser != null) {
+            viewModel.refreshMyRoster()
+            while (true) {
+                kotlinx.coroutines.delay(20000)
+                viewModel.refreshMyRoster()
+            }
+        }
+    }
     val rosterPassengers = myRoster?.get("passengers") as? List<*> ?: emptyList<Any>()
 
     fun t(key: String) = AppStrings.get(key, lang)
