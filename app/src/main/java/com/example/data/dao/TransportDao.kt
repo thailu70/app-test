@@ -43,6 +43,11 @@ interface TransportDao {
     @Query("SELECT * FROM routes WHERE active = 1")
     fun getAllActiveRoutes(): Flow<List<RouteEntity>>
 
+    // The VPS /api/routes endpoint returns only active routes. Before upserting that
+    // authoritative list, hide any previously cached routes that are no longer returned.
+    @Query("UPDATE routes SET active = 0")
+    suspend fun deactivateAllRoutes()
+
     @Query("SELECT * FROM routes WHERE id = :routeId LIMIT 1")
     suspend fun getRouteById(routeId: String): RouteEntity?
 
