@@ -581,6 +581,11 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         appliedRouteId: String = "",
         appliedRouteName: String = "",
         requestedRoute: String = "",
+        requestedOrigin: String = "",
+        requestedDestination: String = "",
+        requestedJourneyType: String = "ROUND_TRIP",
+        requestedOutboundPickupTime: String = "06:30",
+        requestedReturnPickupTime: String = "17:30",
         otpProof: String = ""
     ) {
         viewModelScope.launch {
@@ -621,6 +626,11 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     appliedRouteId = appliedRouteId,
                     appliedRouteName = appliedRouteName,
                     requestedRoute = requestedRoute,
+                    requestedOrigin = requestedOrigin,
+                    requestedDestination = requestedDestination,
+                    requestedJourneyType = requestedJourneyType,
+                    requestedOutboundPickupTime = requestedOutboundPickupTime,
+                    requestedReturnPickupTime = requestedReturnPickupTime,
                     otpProof = otpProof
                 )
                 if (role == AppRole.DRIVER) {
