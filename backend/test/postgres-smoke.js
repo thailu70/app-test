@@ -86,6 +86,45 @@ async function run() {
     assert.equal(result.data.stops.length, 2, 'Both endpoint stops must have been inserted in order');
     const createdRouteId = result.data.route.id;
 
+    // Exercise the structured passenger request flow on PostgreSQL, not just SQLite.
+    const routeRequestPhone = '+251900000104';
+    result = await requestJson(baseUrl, '/api/auth/register', 'POST', {
+      fullName: 'CI Route Request Passenger',
+      phone: routeRequestPhone,
+      password: 'CI_Route_Request_Password#2026',
+      role: 'PASSENGER',
+      requestedRoute: 'Requested route: CI Start → CI Destination | Journey: Round-trip | Outbound pickup: 07:10 | Return pickup: 18:15',
+      requestedOrigin: 'CI Start',
+      requestedDestination: 'CI Destination',
+      requestedJourneyType: 'ROUND_TRIP',
+      requestedOutboundPickupTime: '07:10',
+      requestedReturnPickupTime: '18:15'
+    });
+    assert.equal(result.status, 201, 'Passenger route request must register against PostgreSQL');
+    const routeRequestPassenger = result.data.user;
+    assert.equal(result.data.routeRequest.status, 'PENDING');
+
+    result = await requestJson(baseUrl, '/api/admin/route-requests?status=PENDING', 'GET', null, adminToken);
+    assert.equal(result.status, 200, 'Administrator route request list must work against PostgreSQL');
+    const routeRequestRow = (result.data.requests || []).find(request =>
+      request.passenger_id === routeRequestPassenger.id || request.passengerId === routeRequestPassenger.id
+    );
+    assert.ok(routeRequestRow, 'PostgreSQL must persist and list the structured passenger route request');
+    assert.equal(routeRequestRow.origin, 'CI Start');
+    assert.equal(routeRequestRow.destination, 'CI Destination');
+    assert.equal(routeRequestRow.journey_type, 'ROUND_TRIP');
+    assert.equal(routeRequestRow.outbound_pickup_time, '07:10');
+    assert.equal(routeRequestRow.return_pickup_time, '18:15');
+
+    result = await requestJson(baseUrl, '/api/admin/route-requests/' + encodeURIComponent(routeRequestRow.id) + '/assign', 'PATCH', {
+      routeId: createdRouteId
+    }, adminToken);
+    assert.equal(result.status, 200, 'Administrator must be able to assign a matching route request in PostgreSQL');
+    assert.equal(result.data.subscription.paymentStatus, 'UNPAID');
+    assert.equal(result.data.subscription.subscriptionStatus, 'PENDING');
+    assert.equal(result.data.subscription.outboundPickupTime, '07:10');
+    assert.equal(result.data.subscription.returnPickupTime, '18:15');
+
     result = await requestJson(baseUrl, '/api/auth/register', 'POST', {
       fullName: 'CI Passenger',
       phone: '+251900000102',
