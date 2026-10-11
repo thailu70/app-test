@@ -27,6 +27,25 @@
     return "—";
   }
   function asArray(response, key) { return Array.isArray(response?.[key]) ? response[key] : []; }
+  function formatTime12Hour(value) {
+    const match = /^(\\d{1,2}):(\\d{2})$/.exec(String(value ?? "").trim());
+    if (!match) return String(value ?? "—");
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return String(value);
+    const suffix = hour >= 12 ? "PM" : "AM";
+    return (hour % 12 || 12) + ":" + String(minute).padStart(2, "0") + " " + suffix;
+  }
+  function parseTime12Hour(value) {
+    const text = String(value ?? "").trim().toUpperCase();
+    const match = /^(\\d{1,2}):(\\d{2})\\s*(AM|PM)$/.exec(text);
+    if (!match) return null;
+    let hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return null;
+    hour = (hour % 12) + (match[3] === "PM" ? 12 : 0);
+    return String(hour).padStart(2, "0") + ":" + String(minute).padStart(2, "0");
+  }
   function money(number) {
     const parsed = Number(number);
     return Number.isFinite(parsed) ? "ETB " + parsed.toLocaleString("en-ET", { maximumFractionDigits: 2 }) : "ETB 0";
@@ -308,8 +327,8 @@
         table([
           { label: "Route", render: r => "<strong>" + esc(value(r, "name")) + "</strong><br><span class=\"muted\">" + esc(value(r, "nameAm", "name_am")) + "</span>" },
           { label: "Service type", keys: ["serviceType", "service_type"] },
-          { label: "Morning", keys: ["morningDeparture", "morning_departure"] },
-          { label: "Evening", keys: ["eveningDeparture", "evening_departure"] },
+          { label: "Morning", render: r => esc(formatTime12Hour(value(r, "morningDeparture", "morning_departure"))) },
+          { label: "Evening", render: r => esc(formatTime12Hour(value(r, "eveningDeparture", "evening_departure"))) },
           { label: "Distance", render: r => esc(value(r, "distanceKm", "distance_km")) + " km" },
           { label: "Monthly tariff", render: r => esc(money(value(r, "basePriceEtb", "base_price_etb"))) },
           { label: "Status", render: r => pill(value(r, "active") === false || value(r, "active") === 0 ? "INACTIVE" : "ACTIVE") },
@@ -687,9 +706,9 @@
       if (nameAm === null) return;
       const description = window.prompt("Description:", value(route, "description") === "—" ? "" : value(route, "description"));
       if (description === null) return;
-      const morningDeparture = window.prompt("Morning departure (HH:MM):", value(route, "morningDeparture", "morning_departure"));
+      const morningDeparture = window.prompt("Morning departure (e.g. 6:30 AM or 12:15 PM):", formatTime12Hour(value(route, "morningDeparture", "morning_departure")));
       if (morningDeparture === null) return;
-      const eveningDeparture = window.prompt("Evening departure (HH:MM):", value(route, "eveningDeparture", "evening_departure"));
+      const eveningDeparture = window.prompt("Evening departure (e.g. 5:30 PM or 12:15 AM):", formatTime12Hour(value(route, "eveningDeparture", "evening_departure")));
       if (eveningDeparture === null) return;
       const serviceType = window.prompt("Route service type: ONE_WAY or TWO_WAY", value(route, "serviceType", "service_type") === "—" ? "TWO_WAY" : value(route, "serviceType", "service_type"));
       if (serviceType === null || !["ONE_WAY", "TWO_WAY"].includes(serviceType.trim().toUpperCase())) return toast("Choose ONE_WAY or TWO_WAY.", true);
@@ -703,7 +722,7 @@
       const stops = parseStopsText(editedStopsText);
       await api("/api/routes/" + encodeURIComponent(id), {
         method: "PUT",
-        body: JSON.stringify({ ...route, name, nameAm, description, morningDeparture, eveningDeparture, serviceType: serviceType.trim().toUpperCase(), basePriceEtb, stops })
+        body: JSON.stringify({ ...route, name, nameAm, description, morningDeparture: morningDeparture24, eveningDeparture: eveningDeparture24, serviceType: serviceType.trim().toUpperCase(), basePriceEtb, stops })
       });
       toast("Route and stops updated.");
       await renderView();
