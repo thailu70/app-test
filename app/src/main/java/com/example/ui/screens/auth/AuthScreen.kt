@@ -806,6 +806,11 @@ fun AuthScreen(
                                             appliedRouteId = if (manualRouteMode) "" else selectedRouteId,
                                             appliedRouteName = if (manualRouteMode) requestedRouteText.trim() else selectedRouteName,
                                             requestedRoute = if (manualRouteMode) requestedRouteText.trim() else "",
+                                            requestedOrigin = if (manualRouteMode) requestedOrigin.trim() else "",
+                                            requestedDestination = if (manualRouteMode) requestedDestination.trim() else "",
+                                            requestedJourneyType = if (manualRouteMode) journeyType else "ROUND_TRIP",
+                                            requestedOutboundPickupTime = if (manualRouteMode) outboundPickupTime.trim() else "",
+                                            requestedReturnPickupTime = if (manualRouteMode && journeyType == "ROUND_TRIP") returnPickupTime.trim() else "",
                                             adminSecret = adminSecret,
                                             otpProof = otpProof.orEmpty()
                                         )
