@@ -75,12 +75,12 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
       });
     }
 
-    if (!Array.isArray(stops) || stops.length !== 2 ||
-        !String(stops[0]?.stopName || '').trim() || !String(stops[1]?.stopName || '').trim() ||
-        String(stops[0].stopName).trim().toLowerCase() === String(stops[1].stopName).trim().toLowerCase()) {
+    if (!Array.isArray(stops) || stops.length < 2 ||
+        stops.some(stop => !String(stop?.stopName || '').trim()) ||
+        String(stops[0].stopName).trim().toLowerCase() === String(stops[stops.length - 1].stopName).trim().toLowerCase()) {
       return res.status(400).json({
         success: false,
-        error: 'A route must have exactly two different endpoints: one departure point and one destination point.'
+        error: 'A route must contain at least two ordered stops with different departure and destination points.'
       });
     }
 
