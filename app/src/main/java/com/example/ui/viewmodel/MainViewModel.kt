@@ -185,6 +185,9 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 val bytes = repository.getProfileMedia(passengerId, "PROFILE_PHOTO")
                 if (bytes != null && bytes.isNotEmpty()) {
                     _rosterPassengerPhotos.update { it + (passengerId to bytes) }
+                } else {
+                    // A missing photo or HTTP error must be retryable after upload/assignment changes.
+                    rosterPhotoRequests.remove(passengerId)
                 }
             } catch (_: Exception) {
                 // Retry on the next roster refresh after transient network failure or a later photo upload.

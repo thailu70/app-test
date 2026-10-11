@@ -47,8 +47,8 @@ fun AuthScreen(
     val testPassengerRegistrationBypass by viewModel.testPassengerRegistrationBypass.collectAsState()
     val availableRoutes by viewModel.allRoutes.collectAsState()
 
-    // Dedicated Independent Portal Gateway (null = selecting portal; non-null = inside specific portal)
-    var selectedPortal by remember { mutableStateOf<AppRole?>(null) }
+    // Passenger and driver share one sign-in/registration screen; switch roles without leaving the form.
+    var selectedPortal by remember { mutableStateOf<AppRole?>(AppRole.PASSENGER) }
     var isRegisterMode by remember { mutableStateOf(false) }
 
     // Form fields
@@ -94,10 +94,10 @@ fun AuthScreen(
         }
     }
 
-    // Handle back button when inside a portal to safely return to Portal Gateway
-    BackHandler(enabled = selectedPortal != null) {
+    // Back returns to the default passenger form instead of a separate portal-selection page.
+    BackHandler(enabled = selectedPortal != AppRole.PASSENGER) {
         viewModel.clearRegistrationMessage()
-        selectedPortal = null
+        selectedPortal = AppRole.PASSENGER
         isRegisterMode = false
     }
 
@@ -242,64 +242,47 @@ fun AuthScreen(
         else {
             val portal = selectedPortal!!
 
-            // Portal Active Header with Back to Portals button
+            // Role switcher: passenger, driver, and admin stay on the same sign-in/registration page.
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Text(
+                    if (lang == AppLanguage.AMHARIC) "የመግቢያ አይነት ይምረጡ" else "Continue as",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Slate700,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                TabRow(
+                    selectedTabIndex = when (portal) {
+                        AppRole.PASSENGER -> 0
+                        AppRole.DRIVER -> 1
+                        AppRole.ADMIN -> 2
+                    },
+                    modifier = Modifier.clip(RoundedCornerShape(12.dp)),
+                    containerColor = Slate200,
+                    indicator = {}
                 ) {
-                    OutlinedButton(
-                        onClick = {
-                            selectedPortal = null
-                            isRegisterMode = false
-                        },
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Slate700),
-                        modifier = Modifier.testTag("back_to_portals_button")
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = if (lang == AppLanguage.AMHARIC) "ፖርታል ቀይር" else "Change Portal",
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    }
-
-                    Surface(
-                        color = when (portal) {
-                            AppRole.PASSENGER -> TransportGreenPrimary.copy(alpha = 0.15f)
-                            AppRole.DRIVER -> Color(0xFFF59E0B).copy(alpha = 0.15f)
-                            AppRole.ADMIN -> TelebirrBlue.copy(alpha = 0.15f)
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            when (portal) {
-                                AppRole.PASSENGER -> TransportGreenPrimary
-                                AppRole.DRIVER -> Color(0xFFB45309)
-                                AppRole.ADMIN -> TelebirrBlue
-                            }
-                        )
-                    ) {
-                        Text(
-                            text = when (portal) {
-                                AppRole.PASSENGER -> "PASSENGER PORTAL"
-                                AppRole.DRIVER -> "TRANSPORTER CONSOLE"
-                                AppRole.ADMIN -> "OPERATOR CENTER"
+                    listOf(AppRole.PASSENGER, AppRole.DRIVER, AppRole.ADMIN).forEachIndexed { index, role ->
+                        Tab(
+                            selected = portal == role,
+                            onClick = {
+                                if (portal != role) {
+                                    viewModel.clearRegistrationMessage()
+                                    selectedPortal = role
+                                    isRegisterMode = false
+                                }
                             },
-                            color = when (portal) {
-                                AppRole.PASSENGER -> TransportGreenDark
-                                AppRole.DRIVER -> Color(0xFFB45309)
-                                AppRole.ADMIN -> TelebirrBlue
+                            text = {
+                                Text(
+                                    when (role) {
+                                        AppRole.PASSENGER -> if (lang == AppLanguage.AMHARIC) "ተሳፋሪ" else "Passenger"
+                                        AppRole.DRIVER -> if (lang == AppLanguage.AMHARIC) "ሹፌር" else "Driver"
+                                        AppRole.ADMIN -> if (lang == AppLanguage.AMHARIC) "አስተዳዳሪ" else "Admin"
+                                    },
+                                    fontWeight = if (portal == role) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (portal == role) TransportGreenPrimary else Slate700
+                                )
                             },
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.ExtraBold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            modifier = Modifier.testTag("auth_role_tab_$index")
                         )
                     }
                 }

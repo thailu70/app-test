@@ -61,16 +61,16 @@ router.get('/my', async (req, res) => {
         rosterMessage: 'Your vehicle has no administrator-assigned route yet. Ask the administrator to assign the route before passengers can appear.'
       });
       const passengers = await DB.prepare(`
-        SELECT u.id AS passengerId, u.fullName AS passengerName, s.id AS subscriptionId,
-          s.subscriptionStatus, s.paymentStatus, s.daysRemaining,
+        SELECT u.id AS passengerId, u.fullName AS passengerName, u.phone AS passengerPhone,
+          s.id AS subscriptionId, s.subscriptionStatus, s.paymentStatus, s.daysRemaining,
           c.status AS attendanceStatus, c.timestamp AS scannedAt
         FROM subscriptions s
         JOIN users u ON u.id = s.passengerId
         LEFT JOIN checkin_records c ON c.passengerId = s.passengerId AND c.tripId = ?
           AND c.status = 'BOARDED'
         WHERE (s.vehicleId = ? OR s.vehicleId IS NULL OR s.vehicleId = '')
-          AND s.routeId = ? AND s.subscriptionStatus = 'ACTIVE' AND s.paymentStatus = 'PAID'
-          AND s.daysRemaining > 0 AND u.role = 'PASSENGER'
+          AND s.routeId = ? AND COALESCE(UPPER(s.subscriptionStatus), '') NOT IN ('CANCELLED', 'EXPIRED')
+          AND u.role = 'PASSENGER'
         ORDER BY u.fullName ASC
       `).all(trip?.id || '', vehicle.id, routeId);
       return res.json({
@@ -78,10 +78,10 @@ router.get('/my', async (req, res) => {
         trip: trip ? { id: trip.id, routeId: trip.routeId, status: trip.status, direction: trip.direction } : null,
         vehicle: { id: vehicle.id, plateNumber: vehicle.plateNumber, model: vehicle.model },
         rosterMessage: passengers.length
-          ? 'Assigned active passenger roster loaded.'
-          : 'No active paid passengers are assigned to this vehicle yet. The administrator must assign each active subscription to this vehicle.',
+          ? 'Passenger roster loaded for the assigned route. Check subscription and payment status before boarding.'
+          : 'No passengers are registered on this vehicle route yet. Ask the administrator to assign a route and attach passenger subscriptions.',
         passengers: passengers.map(p => ({
-          id: p.passengerId, fullName: p.passengerName,
+          id: p.passengerId, fullName: p.passengerName, phone: p.passengerPhone,
           subscriptionId: p.subscriptionId, subscriptionStatus: p.subscriptionStatus,
           paymentStatus: p.paymentStatus, daysRemaining: p.daysRemaining,
           attendance: p.attendanceStatus === 'BOARDED' ? 'PRESENT' : 'NOT_SCANNED',

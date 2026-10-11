@@ -66,9 +66,6 @@ async function canReadMedia(user, row) {
         )
       JOIN users p ON p.id = s.passengerId AND p.role = 'PASSENGER'
       WHERE s.passengerId = ?
-        AND s.subscriptionStatus = 'ACTIVE'
-        AND s.paymentStatus = 'PAID'
-        AND s.daysRemaining > 0
       LIMIT 1
     `).get(user.id, row.owner_id);
     return Boolean(rosterPassenger);

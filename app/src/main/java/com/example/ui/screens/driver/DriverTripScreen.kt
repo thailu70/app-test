@@ -213,11 +213,30 @@ fun DriverTripScreen(
                                 }
                                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                     Text(passengerName, fontWeight = FontWeight.SemiBold)
+                                    val passengerPhone = passenger["phone"]?.toString().orEmpty()
+                                    if (passengerPhone.isNotBlank()) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Icon(Icons.Default.Phone, contentDescription = "Passenger phone number", modifier = Modifier.size(14.dp), tint = Slate600)
+                                            Text(passengerPhone, style = MaterialTheme.typography.bodySmall, color = Slate700)
+                                        }
+                                    } else {
+                                        Text("Phone number not available", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                                    }
+                                    val subscriptionStatus = passenger["subscriptionStatus"]?.toString().orEmpty()
+                                    val paymentStatus = passenger["paymentStatus"]?.toString().orEmpty()
                                     Text(
                                         if (isPresent) "Boarded · PRESENT" else "Awaiting QR scan · NOT SCANNED",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = if (isPresent) StatusActiveGreen else Slate600
                                     )
+                                    if (!subscriptionStatus.equals("ACTIVE", ignoreCase = true) ||
+                                        !paymentStatus.equals("PAID", ignoreCase = true)) {
+                                        Text(
+                                            "Subscription: " + subscriptionStatus.ifBlank { "UNKNOWN" } + " · Payment: " + paymentStatus.ifBlank { "UNKNOWN" },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = StatusWarningOrange
+                                        )
+                                    }
                                 }
                                 Surface(
                                     color = if (isPresent) StatusActiveGreen.copy(alpha = 0.12f) else Slate200,
