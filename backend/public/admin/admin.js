@@ -623,9 +623,9 @@
     if (!window.confirm("Changing this passenger's route will reset the subscription to PENDING/UNPAID, clear the old QR pass and vehicle assignment, and require payment for the new route tariff. Continue?")) return;
     button.disabled = true;
     try {
-      const passengerId = button.dataset.passengerId;
-      if (!passengerId) throw new Error("Passenger ID is missing from this subscription row. Refresh the admin page.");
-      const result = await api("/api/admin/passengers/" + encodeURIComponent(passengerId) + "/route", {
+      // This row represents a specific subscription, so update that exact subscription.
+      // The backend also synchronizes the passenger account's applied route and invalidates the old pass.
+      const result = await api("/api/admin/subscriptions/" + encodeURIComponent(subId) + "/route", {
         method: "PATCH", body: JSON.stringify({ routeId: select.value })
       });
       toast(result.message || "Passenger route changed.");
