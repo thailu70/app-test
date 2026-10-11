@@ -8,6 +8,7 @@
     overview: ["Overview", "A live snapshot of RoutePass service operations."],
     drivers: ["Drivers & routes", "Review driver-owned vehicles and assign approved operating routes."],
     passengers: ["Passengers", "View registered passenger profiles, subscription assignments and profile photos."],
+    "route-requests": ["Passenger route requests", "Review each passenger's requested origin, destination, journey type and pickup times; assign an active route."],
     routes: ["Manage routes", "Create, edit, activate and deactivate RoutePass transit routes."],
     vehicles: ["Vehicles", "Fleet availability and current assignments."],
     subscriptions: ["Subscriptions", "Passenger subscription records and payment state."],
@@ -285,6 +286,33 @@
         ], data));
   }
 
+  async function renderRouteRequests() {
+    await loadLookups();
+    const result = await api("/api/admin/route-requests?status=ALL");
+    const requests = asArray(result, "requests");
+    const activeRoutes = (state.cache.routes || []).filter(r => r.active !== false && r.active !== 0);
+    return pageHeader("Passenger route requests", "Review requested pickup and destination locations before assigning a real operating route. Assigning a route does not activate or pay for a subscription.") +
+      section("Route requests", requests.length + " request(s)",
+        table([
+          { label: "Passenger", render: r => "<strong>" + esc(value(r, "passengerName", "passenger_name")) + "</strong><br><span class=\"muted\">" + esc(value(r, "passengerPhone", "passenger_phone")) + "</span>" },
+          { label: "Requested origin", keys: ["origin"] },
+          { label: "Requested destination", keys: ["destination"] },
+          { label: "Journey", keys: ["journey_type"] },
+          { label: "Outbound pickup", keys: ["outbound_pickup_time"] },
+          { label: "Return pickup", render: r => esc(value(r, "return_pickup_time")) },
+          { label: "Request status", render: r => pill(value(r, "status")) },
+          { label: "Assigned route", render: r => esc(value(r, "assignedRouteName", "assigned_route_name")) },
+          { label: "Action", render: r => {
+            if (String(r.status || "").toUpperCase() !== "PENDING") return '<span class="muted">No action required</span>';
+            const id = esc(value(r, "id"));
+            const options = '<option value="">Choose route…</option>' + activeRoutes.map(route =>
+              '<option value="' + esc(route.id) + '">' + esc(value(route, "name")) + '</option>'
+            ).join("");
+            return '<div class="inline-actions"><select data-route-request-for="' + id + '" aria-label="Route to assign for request ' + id + '" style="min-width:180px;padding:7px;border:1px solid #d5deea;border-radius:8px">' + options + '</select><button class="btn btn-primary" data-assign-route-request="' + id + '">Assign route</button></div>';
+          }}
+        ], requests, "No passenger route requests have been submitted yet."));
+  }
+
   async function renderRoutes() {
     const result = await api("/api/admin/routes");
     const routes = asArray(result, "routes");
@@ -352,6 +380,7 @@
   async function renderSubscriptions() {
     await loadLookups();
     const data = asArray(await api("/api/admin/subscriptions"), "subscriptions");
+    state.cache.subscriptions = data;
     const eligibleVehicles = state.cache.vehicles || [];
     return pageHeader("Subscriptions & passenger assignments", "Assign vehicles, record verified offline payments, and use the separate test-only recharge only in staging.") +
       section("Passenger subscriptions", data.length + " record(s)",
@@ -377,6 +406,7 @@
           { label: "Payment", render: r => pill(value(r, "paymentStatus", "payment_status")) },
           { label: "Subscription", render: r => pill(value(r, "subscriptionStatus", "subscription_status")) },
           { label: "End date", keys: ["endDate", "end_date"] },
+          { label: "Route / schedule", render: r => '<button class="btn btn-secondary" data-edit-subscription="' + esc(value(r, "id")) + '">Edit details</button><br><span class="muted">' + esc(value(r, "journey_type")) + ' · ' + esc(value(r, "outbound_pickup_time", "morningSchedule", "morning_schedule")) + ' / ' + esc(value(r, "return_pickup_time", "eveningSchedule", "evening_schedule")) + '</span>' },
           { label: "Payment entry", render: r => '<div class="inline-actions"><button class="btn btn-primary" data-manual-payment="' + esc(value(r, "id")) + '">Record payment</button><button class="btn btn-secondary" data-recharge="' + esc(value(r, "id")) + '">Test only</button></div>' }
         ], data));
   }
@@ -450,6 +480,7 @@
       switch (state.view) {
         case "drivers": html = await renderDrivers(); break;
         case "passengers": html = await renderPassengers(); break;
+        case "route-requests": html = await renderRouteRequests(); break;
         case "routes": html = await renderRoutes(); break;
         case "vehicles": html = await renderVehicles(); break;
         case "subscriptions": html = await renderSubscriptions(); break;
