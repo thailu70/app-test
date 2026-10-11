@@ -266,7 +266,7 @@ router.patch('/route-requests/:id/assign', async (req, res) => {
     if (!Array.isArray(stops) || stops.length < 2) {
       return res.status(409).json({ success: false, error: 'The selected route needs at least two configured stops before assignment.' });
     }
-    const normalizeStopName = value => String(value || '').trim().toLowerCase().replace(/[\\s_-]+/g, '');
+    const normalizeStopName = value => String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
     const originKey = normalizeStopName(request.origin);
     const destinationKey = normalizeStopName(request.destination);
     const pickup = stops.find(s => normalizeStopName(s.stopName) === originKey);
