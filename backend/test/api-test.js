@@ -162,6 +162,65 @@ async function runTests() {
     }
     console.log('✓ [8/13] Subscription status check correctly prompts:', initialStatus.data.message);
 
+    // Structured custom route request: registration -> admin review -> assignment -> editable subscription.
+    const customRoutePhone = '+2519' + Math.floor(10000000 + Math.random() * 90000000);
+    const customRouteText = 'Requested route: Bole Atlas → Merkato | Journey: Round-trip | Outbound pickup: 07:10 | Return pickup: 18:15';
+    const customRouteReg = await makeRequest('POST', '/api/auth/register', {
+      fullName: 'Route Request Test',
+      phone: customRoutePhone,
+      password: 'RoutePassTest#2026',
+      role: 'PASSENGER',
+      appliedRouteName: customRouteText,
+      requestedRoute: customRouteText,
+      requestedOrigin: 'Bole Atlas',
+      requestedDestination: 'Merkato',
+      requestedJourneyType: 'ROUND_TRIP',
+      requestedOutboundPickupTime: '07:10',
+      requestedReturnPickupTime: '18:15'
+    });
+    if (customRouteReg.status !== 201 || customRouteReg.data.success !== true) {
+      throw new Error('Structured passenger route request registration failed: ' + JSON.stringify(customRouteReg.data));
+    }
+    const pendingCustomRequests = await makeRequest('GET', '/api/admin/route-requests?status=PENDING', null, adminToken);
+    const customRequest = (pendingCustomRequests.data.requests || []).find(r => r.passengerPhone === customRoutePhone || r.passenger_phone === customRoutePhone);
+    if (pendingCustomRequests.status !== 200 || !customRequest ||
+        customRequest.origin !== 'Bole Atlas' || customRequest.destination !== 'Merkato' ||
+        customRequest.journey_type !== 'ROUND_TRIP' || customRequest.outbound_pickup_time !== '07:10' ||
+        customRequest.return_pickup_time !== '18:15') {
+      throw new Error('Structured route-request fields were not saved: ' + JSON.stringify(pendingCustomRequests.data));
+    }
+    const assignedCustomRequest = await makeRequest('PATCH', '/api/admin/route-requests/' + encodeURIComponent(customRequest.id) + '/assign', {
+      routeId: 'route_bole_merkato'
+    }, adminToken);
+    if (assignedCustomRequest.status !== 200 || assignedCustomRequest.data.success !== true ||
+        assignedCustomRequest.data.subscription?.paymentStatus !== 'UNPAID' ||
+        assignedCustomRequest.data.subscription?.subscriptionStatus !== 'PENDING') {
+      throw new Error('Route request assignment must keep the subscription unpaid/pending: ' + JSON.stringify(assignedCustomRequest.data));
+    }
+    const assignedRouteSubs = await makeRequest('GET', '/api/admin/subscriptions', null, adminToken);
+    const customSubscription = (assignedRouteSubs.data.subscriptions || []).find(s =>
+      s.passengerId === customRouteReg.data.user.id || s.passenger_id === customRouteReg.data.user.id
+    );
+    if (!customSubscription || customSubscription.journey_type !== 'ROUND_TRIP' ||
+        customSubscription.outbound_pickup_time !== '07:10' || customSubscription.return_pickup_time !== '18:15') {
+      throw new Error('Assigned subscription did not preserve journey and pickup times: ' + JSON.stringify(customSubscription));
+    }
+    const editedCustomSubscription = await makeRequest('PATCH',
+      '/api/admin/subscriptions/' + encodeURIComponent(customSubscription.id) + '/details',
+      {
+        routeId: 'route_bole_merkato',
+        pickupStopId: customSubscription.pickupStopId || customSubscription.pickup_stop_id,
+        destinationStopId: customSubscription.destinationStopId || customSubscription.destination_stop_id,
+        journeyType: 'ROUND_TRIP',
+        outboundPickupTime: '07:20',
+        returnPickupTime: '18:25'
+      }, adminToken);
+    if (editedCustomSubscription.status !== 200 || editedCustomSubscription.data.success !== true ||
+        editedCustomSubscription.data.paymentStatus !== 'UNPAID') {
+      throw new Error('Admin subscription editing endpoint failed: ' + JSON.stringify(editedCustomSubscription.data));
+    }
+    console.log('✓ Structured passenger route requests, admin assignment, and safe subscription edits verified');
+
     // 6. Telebirr Payment with Idempotency activates subscription and issues signed QR
     const testIdempotencyKey = 'IDEM-TEST-' + Date.now();
     const telebirrPayment1 = await makeRequest('POST', '/api/subscriptions/telebirr/pay', {
