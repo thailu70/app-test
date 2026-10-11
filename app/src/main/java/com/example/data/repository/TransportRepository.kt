@@ -460,11 +460,11 @@ class TransportRepository(
     }
 
     suspend fun updateRouteDetails(route: RouteEntity, stopsList: List<RouteStopEntity>) {
-        require(stopsList.size == 2) { "A route must have exactly one departure point and one destination point." }
-        require(stopsList[0].stopName.isNotBlank() && stopsList[1].stopName.isNotBlank()) {
-            "Departure and destination points are required."
+        require(stopsList.size >= 2) { "A route must have at least a departure point and a destination point." }
+        require(stopsList.all { it.stopName.isNotBlank() }) {
+            "Every route stop must have a name."
         }
-        require(!stopsList[0].stopName.trim().equals(stopsList[1].stopName.trim(), ignoreCase = true)) {
+        require(!stopsList.first().stopName.trim().equals(stopsList.last().stopName.trim(), ignoreCase = true)) {
             "Departure and destination must be different places."
         }
         val response = apiService.updateRoute(route.id, mapOf(
