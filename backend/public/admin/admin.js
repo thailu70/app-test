@@ -618,14 +618,16 @@
 
   async function changeSubscriptionRoute(button) {
     const subId = button.dataset.changeSubscriptionRoute;
+    const passengerId = button.dataset.passengerId;
     const select = $("[data-subscription-route-for]").find(item => item.dataset.subscriptionRouteFor === subId);
+    if (!passengerId) return toast("Passenger ID is missing. Refresh the subscriptions list and try again.", true);
     if (!select || !select.value) return toast("Choose an active route first.", true);
     if (!window.confirm("Changing this passenger's route will reset the subscription to PENDING/UNPAID, clear the old QR pass and vehicle assignment, and require payment for the new route tariff. Continue?")) return;
     button.disabled = true;
     try {
-      // This row represents a specific subscription, so update that exact subscription.
-      // The backend also synchronizes the passenger account's applied route and invalidates the old pass.
-      const result = await api("/api/admin/subscriptions/" + encodeURIComponent(subId) + "/route", {
+      // The backend route-change endpoint is keyed by passenger ID, not subscription ID.
+      // It updates the passenger's latest subscription, syncs their account route, and invalidates the old pass.
+      const result = await api("/api/admin/passengers/" + encodeURIComponent(passengerId) + "/route", {
         method: "PATCH", body: JSON.stringify({ routeId: select.value })
       });
       toast(result.message || "Passenger route changed.");
