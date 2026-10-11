@@ -282,7 +282,7 @@ fun DriverTripScreen(
                         }
                     }
                     Text(
-                        "Scheduled departure: ${if (routeDirection == "INBOUND") "evening" else "morning"} schedule. Arrive at the assigned first stop on time; trip start requires GPS within 200 metres and your confirmation.",
+                        "Scheduled departure: ${if (routeDirection == "INBOUND") "evening" else "morning"} schedule. Arrive at the assigned first stop on time; trip start requires GPS within 50 metres and your confirmation.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Slate600
                     )
@@ -321,6 +321,7 @@ fun DriverTripScreen(
                     stop = stop,
                     isCurrent = index == tripState.currentStopIndex,
                     stepState = tripState.stopStates[index] ?: if (index < tripState.currentStopIndex) NavigationStepState.COMPLETED else NavigationStepState.EN_ROUTE,
+                    canScan = tripState.isNavigating && tripState.tripId.isNotBlank(),
                     onScanClick = {
                         viewModel.openScanner()
                     }
@@ -333,7 +334,7 @@ fun DriverTripScreen(
                 onDismissRequest = { showDepartureConfirmation = false },
                 title = { Text("Confirm vehicle arrival") },
                 text = {
-                    Text("Confirm that this vehicle has arrived at the administrator-assigned departure location for the selected route. RoutePass will verify that your latest GPS fix is within 200 metres before starting the trip and notifying passengers.")
+                    Text("Confirm that this vehicle has arrived at the administrator-assigned departure location for the selected route. RoutePass will verify that your latest GPS fix is within 50 metres before starting the trip and notifying passengers.")
                 },
                 confirmButton = {
                     TextButton(onClick = {
@@ -744,7 +745,7 @@ fun DriverNavigationHudCard(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Scheduled Pickup: ${currentStop?.scheduledMorningTime ?: "06:30 AM"}",
+                    text = "Scheduled route departure: ${tripState.departureTime}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Slate600
                 )
@@ -887,6 +888,7 @@ fun StopSequenceRow(
     stop: RouteStopEntity,
     isCurrent: Boolean,
     stepState: NavigationStepState,
+    canScan: Boolean = false,
     onScanClick: () -> Unit
 ) {
     Card(
@@ -950,6 +952,7 @@ fun StopSequenceRow(
             if (isCurrent) {
                 Button(
                     onClick = onScanClick,
+                    enabled = canScan,
                     shape = RoundedCornerShape(8.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
@@ -957,7 +960,7 @@ fun StopSequenceRow(
                 ) {
                     Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text(text = "Scan", style = MaterialTheme.typography.labelMedium)
+                    Text(text = if (canScan) "Scan" else "Start trip first", style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
