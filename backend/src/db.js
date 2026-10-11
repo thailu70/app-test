@@ -562,6 +562,14 @@ initSqliteSchema();
 if (sqliteDb) {
   try { sqliteDb.exec("ALTER TABLE routes ADD COLUMN serviceType TEXT NOT NULL DEFAULT 'TWO_WAY' CHECK (serviceType IN ('ONE_WAY', 'TWO_WAY'))"); }
   catch (err) { if (!/duplicate column name/i.test(String(err.message))) throw err; }
+  for (const statement of [
+    "ALTER TABLE subscriptions ADD COLUMN journey_type TEXT NOT NULL DEFAULT 'ROUND_TRIP'",
+    "ALTER TABLE subscriptions ADD COLUMN outbound_pickup_time TEXT NOT NULL DEFAULT '06:30'",
+    "ALTER TABLE subscriptions ADD COLUMN return_pickup_time TEXT"
+  ]) {
+    try { sqliteDb.exec(statement); }
+    catch (err) { if (!/duplicate column name/i.test(String(err.message))) throw err; }
+  }
 }
 seedSqliteData();
 
