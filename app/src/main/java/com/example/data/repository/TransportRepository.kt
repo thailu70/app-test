@@ -265,10 +265,10 @@ class TransportRepository(
     /**
      * Synchronize routes from VPS Backend into Room cache
      */
-    suspend fun refreshRoutesFromBackend() {
+    suspend fun refreshRoutesFromBackend(): Boolean {
         try {
             val response = apiService.getRoutes()
-            if (!response.isSuccessful || response.body()?.success != true) return
+            if (!response.isSuccessful || response.body()?.success != true) return false
 
             val routeList = response.body()?.routes ?: emptyList()
             // The server returns only active routes. Deactivate the local cache first so routes
@@ -321,8 +321,10 @@ class TransportRepository(
                     )
                 }
             }
+            return true
         } catch (e: Exception) {
-            // Keep last-known cache if the server is temporarily unavailable.
+            // A signup must not treat the offline cache as authoritative when active routes cannot be refreshed.
+            return false
         }
     }
 
