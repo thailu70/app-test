@@ -390,6 +390,28 @@ function initSqliteSchema() {
       FOREIGN KEY (passengerId) REFERENCES users (id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS passenger_route_requests (
+      id TEXT PRIMARY KEY,
+      passenger_id TEXT NOT NULL,
+      origin TEXT NOT NULL,
+      destination TEXT NOT NULL,
+      journey_type TEXT NOT NULL DEFAULT 'ROUND_TRIP',
+      outbound_pickup_time TEXT NOT NULL DEFAULT '06:30',
+      return_pickup_time TEXT,
+      request_text TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      assigned_route_id TEXT,
+      assigned_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (passenger_id) REFERENCES users (id) ON DELETE CASCADE,
+      FOREIGN KEY (assigned_route_id) REFERENCES routes (id) ON DELETE SET NULL,
+      FOREIGN KEY (assigned_by) REFERENCES users (id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_route_requests_status_created
+      ON passenger_route_requests (status, created_at);
+
     CREATE TABLE IF NOT EXISTS trips (
       id TEXT PRIMARY KEY,
       driverId TEXT NOT NULL,
