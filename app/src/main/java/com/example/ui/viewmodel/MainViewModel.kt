@@ -288,6 +288,29 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         if (id.isBlank()) flowOf(emptyList()) else repository.getComplaintsForPassenger(id)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Signup must show only routes refreshed successfully from the VPS, never stale Room cache entries.
+    private val _signupRoutes = MutableStateFlow<List<RouteEntity>>(emptyList())
+    val signupRoutes: StateFlow<List<RouteEntity>> = _signupRoutes.asStateFlow()
+    private val _signupRoutesRefreshing = MutableStateFlow(false)
+    val signupRoutesRefreshing: StateFlow<Boolean> = _signupRoutesRefreshing.asStateFlow()
+
+    fun refreshSignupRoutes() {
+        _signupRoutes.value = emptyList()
+        _signupRoutesRefreshing.value = true
+        viewModelScope.launch {
+            try {
+                val synced = repository.refreshRoutesFromBackend()
+                _signupRoutes.value = if (synced) {
+                    repository.activeRoutes.firstOrNull().orEmpty().filter { it.active }
+                } else {
+                    emptyList()
+                }
+            } finally {
+                _signupRoutesRefreshing.value = false
+            }
+        }
+    }
+
     // All System Data Flows
     val allRoutes: StateFlow<List<RouteEntity>> = repository.allRoutes
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
