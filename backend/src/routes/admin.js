@@ -277,8 +277,13 @@ router.patch('/route-requests/:id/assign', async (req, res) => {
         error: 'The selected route does not contain the passenger’s requested origin and destination. Edit or create an active route with matching endpoint names before assigning this request.'
       });
     }
-    if (pickup.id === destination.id) {
+    const pickupIndex = stops.findIndex(s => s.id === pickup.id);
+    const destinationIndex = stops.findIndex(s => s.id === destination.id);
+    if (pickupIndex === destinationIndex) {
       return res.status(409).json({ success: false, error: 'Route pickup and destination must be different stops.' });
+    }
+    if (pickupIndex > destinationIndex) {
+      return res.status(409).json({ success: false, error: 'The selected route places the requested origin after the destination. Update the ordered route stops before assigning this request.' });
     }
     const existing = await DB.prepare('SELECT id FROM subscriptions WHERE passengerId = ? ORDER BY updatedAt DESC LIMIT 1').get(request.passenger_id);
     const pickupTime = request.outbound_pickup_time || '06:30';
