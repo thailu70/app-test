@@ -70,7 +70,30 @@ fun AuthScreen(
     var selectedRouteId by remember { mutableStateOf("") }
     var selectedRouteName by remember { mutableStateOf("") }
     var requestedRouteText by remember { mutableStateOf("") }
-    var manualRouteRequest by remember { mutableStateOf(false) }
+    var requestedOrigin by remember { mutableStateOf("") }
+    var requestedDestination by remember { mutableStateOf("") }
+    var journeyType by remember { mutableStateOf("ROUND_TRIP") }
+    var outboundPickupTime by remember { mutableStateOf("06:30") }
+    var returnPickupTime by remember { mutableStateOf("17:30") }
+    var manualRouteRequest by remember { mutableStateOf(true) }
+
+    fun updateRouteRequest() {
+        val journey = if (journeyType == "ONE_WAY") "One-way" else "Round-trip"
+        requestedRouteText = buildString {
+            append("Requested route: ")
+            append(requestedOrigin.trim())
+            append(" → ")
+            append(requestedDestination.trim())
+            append(" | Journey: ")
+            append(journey)
+            append(" | Outbound pickup: ")
+            append(outboundPickupTime.trim())
+            if (journeyType == "ROUND_TRIP") {
+                append(" | Return pickup: ")
+                append(returnPickupTime.trim())
+            }
+        }
+    }
 
     LaunchedEffect(availableRoutes, manualRouteRequest) {
         if (!manualRouteRequest) {
@@ -94,7 +117,12 @@ fun AuthScreen(
         confirmPassword = ""
         registrationValidationMessage = null
         requestedRouteText = ""
-        manualRouteRequest = false
+        requestedOrigin = ""
+        requestedDestination = ""
+        journeyType = "ROUND_TRIP"
+        outboundPickupTime = "06:30"
+        returnPickupTime = "17:30"
+        manualRouteRequest = selectedPortal == AppRole.PASSENGER
         if (isRegisterMode) fullName = ""
         if (isRegisterMode && selectedPortal == AppRole.PASSENGER) {
             viewModel.refreshRoutesFromBackend()
@@ -481,18 +509,62 @@ fun AuthScreen(
                                         }
                                     }
                                     if (manualRouteMode) {
+                                        Text(
+                                            "Request your exact journey. Route assignment must not replace these preferences without your confirmation.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Slate700
+                                        )
                                         OutlinedTextField(
-                                            value = requestedRouteText,
-                                            onValueChange = {
-                                                requestedRouteText = it.take(200)
-                                                registrationValidationMessage = null
-                                            },
-                                            label = { Text("Enter your required route (origin → destination)") },
-                                            placeholder = { Text("Example: Summit → Bole Medhanialem") },
-                                            supportingText = { Text("Your request stays pending until an administrator assigns an active route.") },
-                                            minLines = 2,
-                                            maxLines = 3,
-                                            modifier = Modifier.fillMaxWidth().testTag("auth_requested_route_input")
+                                            value = requestedOrigin,
+                                            onValueChange = { requestedOrigin = it.take(120); updateRouteRequest(); registrationValidationMessage = null },
+                                            label = { Text("Pickup location / origin *") },
+                                            placeholder = { Text("e.g. Alem Gena") },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth().testTag("auth_requested_origin_input")
+                                        )
+                                        OutlinedTextField(
+                                            value = requestedDestination,
+                                            onValueChange = { requestedDestination = it.take(120); updateRouteRequest(); registrationValidationMessage = null },
+                                            label = { Text("Destination *") },
+                                            placeholder = { Text("e.g. Sefera") },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth().testTag("auth_requested_destination_input")
+                                        )
+                                        Text("Journey type *", fontWeight = FontWeight.SemiBold, color = Slate900)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                            FilterChip(
+                                                selected = journeyType == "ONE_WAY",
+                                                onClick = { journeyType = "ONE_WAY"; updateRouteRequest() },
+                                                label = { Text("One-way") }
+                                            )
+                                            FilterChip(
+                                                selected = journeyType == "ROUND_TRIP",
+                                                onClick = { journeyType = "ROUND_TRIP"; updateRouteRequest() },
+                                                label = { Text("Round-trip") }
+                                            )
+                                        }
+                                        OutlinedTextField(
+                                            value = outboundPickupTime,
+                                            onValueChange = { outboundPickupTime = it.take(5); updateRouteRequest() },
+                                            label = { Text("Outbound pickup time (HH:mm) *") },
+                                            placeholder = { Text("06:30") },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth().testTag("auth_outbound_pickup_time")
+                                        )
+                                        if (journeyType == "ROUND_TRIP") {
+                                            OutlinedTextField(
+                                                value = returnPickupTime,
+                                                onValueChange = { returnPickupTime = it.take(5); updateRouteRequest() },
+                                                label = { Text("Return pickup time (HH:mm) *") },
+                                                placeholder = { Text("17:30") },
+                                                singleLine = true,
+                                                modifier = Modifier.fillMaxWidth().testTag("auth_return_pickup_time")
+                                            )
+                                        }
+                                        Text(
+                                            "Your requested locations and times remain pending until an administrator confirms a suitable route.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color(0xFF92400E)
                                         )
                                     }
 
@@ -631,8 +703,8 @@ fun AuthScreen(
                                             password.length < 10 -> "Use a password with at least 10 characters before requesting OTP."
                                             password != confirmPassword -> "The two passwords do not match."
                                             portal == AppRole.PASSENGER &&
-                                                (if (manualRouteMode) requestedRouteText.isBlank() else selectedRouteId.isBlank()) ->
-                                                "Select an active route or enter the route you need."
+                                                (if (manualRouteMode) requestedOrigin.isBlank() || requestedDestination.isBlank() || outboundPickupTime.isBlank() || (journeyType == "ROUND_TRIP" && returnPickupTime.isBlank()) else selectedRouteId.isBlank()) ->
+                                                "Enter your pickup, destination and required pickup times."
                                             portal == AppRole.DRIVER && (licenseNumber.isBlank() || vehiclePlate.isBlank() || vehicleModel.isBlank()) -> "Complete your driver licence and vehicle details first."
                                             else -> null
                                         }
