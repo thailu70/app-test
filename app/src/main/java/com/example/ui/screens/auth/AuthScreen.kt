@@ -45,7 +45,7 @@ fun AuthScreen(
     val otpProof by viewModel.otpProof.collectAsState()
     val otpMessage by viewModel.otpMessage.collectAsState()
     val testPassengerRegistrationBypass by viewModel.testPassengerRegistrationBypass.collectAsState()
-    val availableRoutes by viewModel.allRoutes.collectAsState()
+    val availableRoutes by viewModel.activeRoutes.collectAsState()
 
     // Passenger and driver share one sign-in/registration screen; switch roles without leaving the form.
     var selectedPortal by remember { mutableStateOf<AppRole?>(AppRole.PASSENGER) }
