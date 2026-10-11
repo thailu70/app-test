@@ -1,6 +1,5 @@
 package com.example.ui.screens.auth
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -47,8 +46,8 @@ fun AuthScreen(
     val testPassengerRegistrationBypass by viewModel.testPassengerRegistrationBypass.collectAsState()
     val availableRoutes by viewModel.allRoutes.collectAsState()
 
-    // Dedicated Independent Portal Gateway (null = selecting portal; non-null = inside specific portal)
-    var selectedPortal by remember { mutableStateOf<AppRole?>(null) }
+    // The login screen defaults to Passenger and can switch to Admin. Driver access remains available separately.
+    var selectedPortal by remember { mutableStateOf(AppRole.PASSENGER) }
     var isRegisterMode by remember { mutableStateOf(false) }
 
     // Form fields
@@ -98,13 +97,6 @@ fun AuthScreen(
         }
     }
 
-    // Handle back button when inside a portal to safely return to Portal Gateway
-    BackHandler(enabled = selectedPortal != null) {
-        viewModel.clearRegistrationMessage()
-        selectedPortal = null
-        isRegisterMode = false
-    }
-
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -141,9 +133,9 @@ fun AuthScreen(
                 )
                 Text(
                     text = if (lang == AppLanguage.AMHARIC)
-                        "የተቀናጀ የኢትዮጵያ የትራንስፖርት መግቢያ • ገለልተኛ ፖርታሎች"
+                        "የኢትዮጵያ የትራንስፖርት መግቢያ • ይግቡ ወይም ይመዝገቡ"
                     else
-                        "Ethiopian Scheduled Transit • Isolated Independent Portals",
+                        "Ethiopian Scheduled Transit • Sign in or create an account",
                     style = MaterialTheme.typography.bodySmall,
                     color = Slate600,
                     textAlign = TextAlign.Center
@@ -151,163 +143,63 @@ fun AuthScreen(
             }
         }
 
-        // =========================================================================
-        // CASE 1: PORTAL SELECTION GATEWAY (No role tabs mixed together)
-        // =========================================================================
-        if (selectedPortal == null) {
-            item {
-                Surface(
-                    color = Slate100,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Shield,
-                            contentDescription = null,
-                            tint = TransportGreenPrimary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Column {
-                            Text(
-                                text = if (lang == AppLanguage.AMHARIC)
-                                    "ገለልተኛ የተጠቃሚ ፖርታል ይምረጡ"
-                                else
-                                    "Select Isolated Access Portal",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Slate900
-                            )
-                            Text(
-                                text = if (lang == AppLanguage.AMHARIC)
-                                    "ተሳፋሪ፣ አጓጓዥ እና አስተዳዳሪ ራሳቸውን የቻሉ ገለልተኛ መግቢያ አላቸው።"
-                                else
-                                    "Passengers, Transporters, and Admins operate independently with zero cross-role access.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Slate600
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Portal Card 1: Passenger Portal
-            item {
-                PortalOptionCard(
-                    title = if (lang == AppLanguage.AMHARIC) "የተሳፋሪ ፖርታል" else "Commuter Passenger Portal",
-                    subtitle = if (lang == AppLanguage.AMHARIC)
-                        "ወርሃዊ የጉዞ ምዝገባ፣ የቴሌብር ክፍያ እና የQR መሳፈሪያ ኮድ"
-                    else
-                        "Route subscriptions, monthly Telebirr payments, and dynamic QR boarding passes",
-                    badge = "PASSENGER ACCESS",
-                    icon = Icons.Default.Person,
-                    accentColor = TransportGreenPrimary,
-                    buttonText = if (lang == AppLanguage.AMHARIC) "የተሳፋሪ ፖርታል ክፈት →" else "Open Passenger Portal →",
-                    testTag = "open_passenger_portal_button",
-                    onClick = {
-                        viewModel.clearRegistrationMessage()
-                        selectedPortal = AppRole.PASSENGER
-                        isRegisterMode = false
-                    }
+        // Account type selector shown directly on the sign-in / registration page.
+        item {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = if (lang == AppLanguage.AMHARIC) "የመለያ አይነት ይምረጡ" else "Choose account type",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
                 )
-            }
-
-            // Portal Card 2: Transporter / Driver Console
-            item {
-                PortalOptionCard(
-                    title = if (lang == AppLanguage.AMHARIC) "የአጓጓዥ እና ሹፌር ኮንሶል" else "Transporter & Driver Console",
-                    subtitle = if (lang == AppLanguage.AMHARIC)
-                        "የተሽከርካሪ የመንገደኛ ገደብ (24/14/8)፣ የመንገደኞች ክትትል እና የጉዞ መሪ"
-                    else
-                        "Fleet trip navigation, stop check-in attendance, and vehicle capacity enforcement",
-                    badge = "TRANSPORTER ACCESS",
-                    icon = Icons.Default.DirectionsBus,
-                    accentColor = Color(0xFFB45309),
-                    buttonText = if (lang == AppLanguage.AMHARIC) "የአጓጓዥ ኮንሶል ክፈት →" else "Open Transporter Console →",
-                    testTag = "open_transporter_portal_button",
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterChip(
+                        selected = selectedPortal == AppRole.PASSENGER,
+                        onClick = {
+                            viewModel.clearRegistrationMessage()
+                            selectedPortal = AppRole.PASSENGER
+                            isRegisterMode = false
+                        },
+                        label = { Text(if (lang == AppLanguage.AMHARIC) "ተሳፋሪ" else "Passenger") },
+                        modifier = Modifier.weight(1f).testTag("auth_role_passenger_switch")
+                    )
+                    FilterChip(
+                        selected = selectedPortal == AppRole.ADMIN,
+                        onClick = {
+                            viewModel.clearRegistrationMessage()
+                            selectedPortal = AppRole.ADMIN
+                            isRegisterMode = false
+                        },
+                        label = { Text(if (lang == AppLanguage.AMHARIC) "አስተዳዳሪ" else "Admin") },
+                        modifier = Modifier.weight(1f).testTag("auth_role_admin_switch")
+                    )
+                }
+                TextButton(
                     onClick = {
                         viewModel.clearRegistrationMessage()
                         selectedPortal = AppRole.DRIVER
                         isRegisterMode = false
-                    }
-                )
-            }
-
-
-        }
-
-        // =========================================================================
-        // CASE 2: DEDICATED INDEPENDENT PORTAL (Completely isolated)
-        // =========================================================================
-        else {
-            val portal = selectedPortal!!
-
-            // Portal Active Header with Back to Portals button
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    },
+                    modifier = Modifier.testTag("auth_driver_access_button")
                 ) {
-                    OutlinedButton(
-                        onClick = {
-                            selectedPortal = null
-                            isRegisterMode = false
-                        },
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Slate700),
-                        modifier = Modifier.testTag("back_to_portals_button")
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = if (lang == AppLanguage.AMHARIC) "ፖርታል ቀይር" else "Change Portal",
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    }
-
-                    Surface(
-                        color = when (portal) {
-                            AppRole.PASSENGER -> TransportGreenPrimary.copy(alpha = 0.15f)
-                            AppRole.DRIVER -> Color(0xFFF59E0B).copy(alpha = 0.15f)
-                            AppRole.ADMIN -> TelebirrBlue.copy(alpha = 0.15f)
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            when (portal) {
-                                AppRole.PASSENGER -> TransportGreenPrimary
-                                AppRole.DRIVER -> Color(0xFFB45309)
-                                AppRole.ADMIN -> TelebirrBlue
-                            }
-                        )
-                    ) {
-                        Text(
-                            text = when (portal) {
-                                AppRole.PASSENGER -> "PASSENGER PORTAL"
-                                AppRole.DRIVER -> "TRANSPORTER CONSOLE"
-                                AppRole.ADMIN -> "OPERATOR CENTER"
-                            },
-                            color = when (portal) {
-                                AppRole.PASSENGER -> TransportGreenDark
-                                AppRole.DRIVER -> Color(0xFFB45309)
-                                AppRole.ADMIN -> TelebirrBlue
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.ExtraBold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
+                    Icon(Icons.Default.DirectionsBus, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (lang == AppLanguage.AMHARIC) "የሹፌር መግቢያ" else "Driver / transporter access")
                 }
             }
+        }
+
+        val portal = selectedPortal
+
+
 
             // Mode Switcher: Sign In vs Register (Inside this isolated portal)
             item {
@@ -801,8 +693,6 @@ fun AuthScreen(
                     }
                 }
             }
-
-        }
     }
 }
 
