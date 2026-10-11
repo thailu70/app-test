@@ -138,6 +138,41 @@ async function runTests() {
     }
     console.log('✓ Admin passenger directory, fleet tracking and safe default test configuration verified');
 
+    // Regression: admin route creation must accept intermediate stops, and deletion must preserve history.
+    const routeSuffix = Date.now().toString(36);
+    const routeCreate = await makeRequest('POST', '/api/routes', {
+      name: 'Regression Multi-stop ' + routeSuffix,
+      nameAm: 'የሙከራ ባለብዙ ማቆሚያ',
+      description: 'Automated regression test',
+      morningDeparture: '06:30',
+      eveningDeparture: '17:30',
+      distanceKm: 12,
+      basePriceEtb: 1500,
+      serviceType: 'TWO_WAY',
+      stops: [
+        { stopName: 'Regression Pickup ' + routeSuffix, stopNameAm: 'መነሻ', latitude: 9.01, longitude: 38.75 },
+        { stopName: 'Regression Midpoint ' + routeSuffix, stopNameAm: 'መካከለኛ', latitude: 9.02, longitude: 38.76 },
+        { stopName: 'Regression Destination ' + routeSuffix, stopNameAm: 'መድረሻ', latitude: 9.03, longitude: 38.77 }
+      ]
+    }, adminToken);
+    if (routeCreate.status !== 201 || routeCreate.data.stops?.length !== 3) {
+      throw new Error('Multi-stop route creation regression: ' + JSON.stringify(routeCreate.data));
+    }
+    const regressionRouteId = routeCreate.data.route.id;
+    const routeDeactivate = await makeRequest('DELETE', '/api/routes/' + encodeURIComponent(regressionRouteId), null, adminToken);
+    if (routeDeactivate.status !== 200 || routeDeactivate.data.deactivated !== true) {
+      throw new Error('Route deactivation regression: ' + JSON.stringify(routeDeactivate.data));
+    }
+    const publicRoutes = await makeRequest('GET', '/api/routes');
+    if (publicRoutes.status !== 200 || publicRoutes.data.routes.some(route => route.id === regressionRouteId)) {
+      throw new Error('Deactivated route was still discoverable publicly.');
+    }
+    const adminRoutes = await makeRequest('GET', '/api/admin/routes', null, adminToken);
+    if (!adminRoutes.data.routes.some(route => route.id === regressionRouteId && route.active === false)) {
+      throw new Error('Deactivated route history was not retained for administration.');
+    }
+    console.log('✓ Route regression verified: multi-stop routes work and deactivation preserves history');
+
     // 5. Registration does NOT activate subscription
     const testPassengerPhone = '+2519' + Math.floor(10000000 + Math.random() * 90000000);
     const newPasReg = await makeRequest('POST', '/api/auth/register', {
