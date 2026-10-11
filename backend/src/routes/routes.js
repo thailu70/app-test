@@ -75,13 +75,24 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
       });
     }
 
-    if (!Array.isArray(stops) || stops.length !== 2 ||
-        !String(stops[0]?.stopName || '').trim() || !String(stops[1]?.stopName || '').trim() ||
-        String(stops[0].stopName).trim().toLowerCase() === String(stops[1].stopName).trim().toLowerCase()) {
+    if (!Array.isArray(stops) || stops.length < 2 ||
+        stops.some(stop => !String(stop?.stopName || '').trim()) ||
+        String(stops[0].stopName).trim().toLowerCase() === String(stops[stops.length - 1].stopName).trim().toLowerCase()) {
       return res.status(400).json({
         success: false,
-        error: 'A route must have exactly two different endpoints: one departure point and one destination point.'
+        error: 'A route must have at least two named stops, with different departure and destination endpoints.'
       });
+    }
+    for (const [index, stop] of stops.entries()) {
+      if ((stop.latitude !== undefined && stop.latitude !== null && (!Number.isFinite(Number(stop.latitude)) || Number(stop.latitude) < -90 || Number(stop.latitude) > 90)) ||
+          (stop.longitude !== undefined && stop.longitude !== null && (!Number.isFinite(Number(stop.longitude)) || Number(stop.longitude) < -180 || Number(stop.longitude) > 180))) {
+        return res.status(400).json({ success: false, error: 'Stop ' + (index + 1) + ' has invalid coordinates.' });
+      }
+    }
+    const distance = Number(distanceKm);
+    const price = Number(basePriceEtb);
+    if (!Number.isFinite(distance) || distance <= 0 || !Number.isFinite(price) || price < 0) {
+      return res.status(400).json({ success: false, error: 'Distance must be positive and tariff must be a non-negative number.' });
     }
 
     const routeId = `route_${crypto.randomUUID().slice(0, 8)}`;
@@ -96,8 +107,8 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
       description.trim(),
       morningDeparture,
       eveningDeparture,
-      parseFloat(distanceKm) || 10.0,
-      parseFloat(basePriceEtb) || 2500.0,
+      distance,
+      price,
       String(serviceType).toUpperCase()
     );
 
@@ -116,8 +127,8 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
           s.stopName || `Stop ${idx + 1}`,
           s.stopNameAm || `ማቆሚያ ${idx + 1}`,
           idx + 1,
-          s.latitude || (9.01 + idx * 0.005),
-          s.longitude || (38.75 + idx * 0.005),
+          s.latitude ?? (9.01 + idx * 0.005),
+          s.longitude ?? (38.75 + idx * 0.005),
           s.scheduledMorningTime || morningDeparture,
           s.scheduledEveningTime || eveningDeparture,
           s.maxCapacity || 20
@@ -159,12 +170,11 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
     const nameAm = String(req.body.nameAm ?? current.nameAm).trim();
     if (!name || !nameAm) return res.status(400).json({ success: false, error: 'Route names in English and Amharic are required.' });
     if (req.body.stops !== undefined && (
-      !Array.isArray(req.body.stops) || req.body.stops.length !== 2 ||
-      !String(req.body.stops[0]?.stopName || '').trim() ||
-      !String(req.body.stops[1]?.stopName || '').trim() ||
-      String(req.body.stops[0].stopName).trim().toLowerCase() === String(req.body.stops[1].stopName).trim().toLowerCase()
+      !Array.isArray(req.body.stops) || req.body.stops.length < 2 ||
+      req.body.stops.some(stop => !String(stop?.stopName || '').trim()) ||
+      String(req.body.stops[0].stopName).trim().toLowerCase() === String(req.body.stops[req.body.stops.length - 1].stopName).trim().toLowerCase()
     )) {
-      return res.status(400).json({ success: false, error: 'A route must have exactly two different endpoints: one departure point and one destination point.' });
+      return res.status(400).json({ success: false, error: 'A route must have at least two named stops, with different departure and destination endpoints.' });
     }
     const serviceType = String(req.body.serviceType ?? current.serviceType ?? 'TWO_WAY').toUpperCase();
     if (!['ONE_WAY', 'TWO_WAY'].includes(serviceType)) return res.status(400).json({ success: false, error: 'serviceType must be ONE_WAY or TWO_WAY.' });
@@ -233,17 +243,18 @@ router.delete('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
       return res.status(404).json({ success: false, error: 'Route not found' });
     }
 
-    await DB.prepare('DELETE FROM route_stops WHERE routeId = ?').run(req.params.id);
-    await DB.prepare('DELETE FROM routes WHERE id = ?').run(req.params.id);
-
-    await DB.prepare(`
-      INSERT INTO audit_logs (action, userId, role, details)
-      VALUES ('ROUTE_DELETED', ?, 'ADMIN', ?)
-    `).run(req.user.id, `Deleted route: ${route.name} (${req.params.id})`);
+    // Preserve route/stops for existing subscriptions, trip history, and reporting.
+    // Operational removal is a soft delete: inactive routes are excluded from public discovery.
+    await DB.transaction(async (tx) => {
+      await tx.prepare('UPDATE routes SET active = FALSE WHERE id = ?').run(req.params.id);
+      await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
+        .run('ROUTE_DEACTIVATED', req.user.id, 'ADMIN', `Deactivated route: ${route.name} (${req.params.id}); history preserved.`);
+    });
 
     res.json({
       success: true,
-      message: `Route '${route.name}' deleted successfully.`
+      deactivated: true,
+      message: `Route '${route.name}' was deactivated. Historical records were preserved.`
     });
   } catch (err) {
     console.error('[RoutePass] request failed:', err);
