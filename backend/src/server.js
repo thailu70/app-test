@@ -452,6 +452,11 @@ async function startServer() {
   await DB.prepare('CREATE INDEX IF NOT EXISTS idx_telebirr_payment_orders_passenger ON telebirr_payment_orders(passenger_id, created_at)').run();
 
   // Idempotent migration for existing VPS databases. This runs before the HTTP listener opens.
+  if (process.env.DATABASE_URL) {
+    await DB.prepare("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS journey_type VARCHAR(20) NOT NULL DEFAULT 'ROUND_TRIP'").run();
+    await DB.prepare("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS outbound_pickup_time VARCHAR(5) NOT NULL DEFAULT '06:30'").run();
+    await DB.prepare("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS return_pickup_time VARCHAR(5)").run();
+  }
   await DB.prepare(`CREATE TABLE IF NOT EXISTS passenger_route_requests (
     id VARCHAR(64) PRIMARY KEY,
     passenger_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
