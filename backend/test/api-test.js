@@ -164,7 +164,7 @@ async function runTests() {
 
     // Structured custom route request: registration -> admin review -> assignment -> editable subscription.
     const customRoutePhone = '+2519' + Math.floor(10000000 + Math.random() * 90000000);
-    const customRouteText = 'Requested route: Bole Atlas → Merkato | Journey: Round-trip | Outbound pickup: 07:10 | Return pickup: 18:15';
+    const customRouteText = 'Requested route: Bole Atlas → Merkato Bus Terminal | Journey: Round-trip | Outbound pickup: 07:10 | Return pickup: 18:15';
     const customRouteReg = await makeRequest('POST', '/api/auth/register', {
       fullName: 'Route Request Test',
       phone: customRoutePhone,
@@ -173,7 +173,7 @@ async function runTests() {
       appliedRouteName: customRouteText,
       requestedRoute: customRouteText,
       requestedOrigin: 'Bole Atlas',
-      requestedDestination: 'Merkato',
+      requestedDestination: 'Merkato Bus Terminal',
       requestedJourneyType: 'ROUND_TRIP',
       requestedOutboundPickupTime: '07:10',
       requestedReturnPickupTime: '18:15'
@@ -184,7 +184,7 @@ async function runTests() {
     const pendingCustomRequests = await makeRequest('GET', '/api/admin/route-requests?status=PENDING', null, adminToken);
     const customRequest = (pendingCustomRequests.data.requests || []).find(r => r.passengerPhone === customRoutePhone || r.passenger_phone === customRoutePhone);
     if (pendingCustomRequests.status !== 200 || !customRequest ||
-        customRequest.origin !== 'Bole Atlas' || customRequest.destination !== 'Merkato' ||
+        customRequest.origin !== 'Bole Atlas' || customRequest.destination !== 'Merkato Bus Terminal' ||
         customRequest.journey_type !== 'ROUND_TRIP' || customRequest.outbound_pickup_time !== '07:10' ||
         customRequest.return_pickup_time !== '18:15') {
       throw new Error('Structured route-request fields were not saved: ' + JSON.stringify(pendingCustomRequests.data));
