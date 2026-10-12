@@ -167,7 +167,6 @@ fun MainTransportApp(viewModel: MainViewModel) {
                             Triple("Passenger Roster & Attendance", Icons.Default.Groups, "roster"),
                             Triple("Vehicle & Documents", Icons.Default.Description, "documents"),
                             Triple("Live GPS & Map", Icons.Default.LocationOn, "map"),
-                            Triple("Departure Direction", Icons.Default.CompareArrows, "direction")
                         )
                         AppRole.ADMIN -> listOf(Triple("Admin Web Portal", Icons.Default.AdminPanelSettings, "admin"))
                     }
