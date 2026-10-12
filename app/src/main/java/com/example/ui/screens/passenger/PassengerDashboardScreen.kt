@@ -408,7 +408,7 @@ fun SubscriptionStatusCard(
                         if (isSubscribed)
                             listOf(TransportGreenDark, Slate900)
                         else
-                            listOf(Color(0xFF3B1510), Slate900)
+                            listOf(Color(0xFF20354A), Slate900)
                     )
                 )
                 .padding(20.dp)
@@ -459,7 +459,11 @@ fun SubscriptionStatusCard(
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
-                                text = if (isSubscribed) "ACTIVE ✓" else "NOT SUBSCRIBED ✕",
+                                text = when {
+                                    isSubscribed -> "ACTIVE ✓"
+                                    !isRouteAssigned -> "PENDING ASSIGNMENT"
+                                    else -> "PENDING ACTIVATION"
+                                },
                                 color = Color.White,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold
@@ -595,7 +599,7 @@ fun SubscriptionStatusCard(
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
-                            color = if (isSubscribed) StatusActiveGreen else StatusErrorRed
+                            color = if (isSubscribed) StatusActiveGreen else StatusWarningOrange
                         )
                     }
                 }
