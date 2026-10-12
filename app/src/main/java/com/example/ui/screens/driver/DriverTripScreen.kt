@@ -328,10 +328,10 @@ fun DriverTripScreen(
             }
 
             // Admin-assigned route supports both commute directions.
-            if (activeSection == "direction") {
+            if (activeSection == "cockpit") {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    Text("Choose scheduled direction", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                    Text("Departure direction", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         Button(onClick = { routeDirection = "OUTBOUND" }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = if (routeDirection == "OUTBOUND") TransportGreenPrimary else Slate600)) {
                             Text("Home → Work / School")
