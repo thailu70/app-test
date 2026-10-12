@@ -518,8 +518,8 @@ class TransportRepository(
                         id = subDto.id,
                         passengerId = passengerId,
                         routeId = subDto.routeId,
-                        pickupStopId = "stop_atlas",
-                        destinationStopId = "stop_merkato",
+                        pickupStopId = subDto.pickupStopId ?: "",
+                        destinationStopId = subDto.destinationStopId ?: "",
                         morningSchedule = subDto.morningSchedule ?: "06:30",
                         eveningSchedule = subDto.eveningSchedule ?: "17:30",
                         startDate = subDto.startDate ?: "",
@@ -529,7 +529,11 @@ class TransportRepository(
                         subscriptionStatus = subDto.status ?: "PENDING",
                         vehicleId = subDto.vehicleId ?: "",
                         qrToken = subDto.qrToken ?: "",
-                        daysRemaining = subDto.daysRemaining
+                        daysRemaining = subDto.daysRemaining,
+                        requestedRoute = subDto.requestedRoute ?: "",
+                        pickupStopName = subDto.pickupStopName ?: "",
+                        destinationStopName = subDto.destinationStopName ?: "",
+                        serviceType = subDto.serviceType ?: "TWO_WAY"
                     )
                     dao.insertSubscription(entity)
                 }
