@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.example.core.localization.AppLanguage
@@ -70,6 +71,9 @@ fun MainTransportApp(viewModel: MainViewModel) {
     val passengerNotifs by viewModel.passengerNotifications.collectAsState()
     val transporterNotifs by viewModel.transporterNotifications.collectAsState()
     val allNotifs by viewModel.allNotifications.collectAsState()
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val drawerScope = rememberCoroutineScope()
+    var drawerNotice by remember { mutableStateOf<String?>(null) }
 
     fun t(key: String) = AppStrings.get(key, currentLang)
 
@@ -81,11 +85,84 @@ fun MainTransportApp(viewModel: MainViewModel) {
 
     if (!isAuthenticated) {
         // Independent Authentication Screen (Passenger, Driver/Transporter, Operator/Admin)
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            drawerContent = {
+                ModalDrawerSheet(
+                    modifier = Modifier.width(300.dp),
+                    drawerContainerColor = Color.White
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 34.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Surface(shape = CircleShape, color = Color(0xFFFCEEEB), modifier = Modifier.size(64.dp)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(currentUser?.avatarInitials ?: "A", color = Color(0xFFC75C42), fontSize = 28.sp, fontWeight = FontWeight.Medium)
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(currentUser?.fullName ?: "RoutePass Passenger", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF171717))
+                                Text(currentUser?.phone ?: "", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF777777))
+                            }
+                        }
+                    }
+                    HorizontalDivider(color = Color(0xFFE7E7E7), thickness = 1.dp)
+                    Spacer(Modifier.height(18.dp))
+                    val drawerItems = listOf(
+                        "Home" to Icons.Default.Home,
+                        "Bookings" to Icons.Default.BookmarkBorder,
+                        "Transactions" to Icons.Default.CreditCard,
+                        "Favorite Routes" to Icons.Default.FavoriteBorder,
+                        "Suggest Route" to Icons.Default.DirectionsBus,
+                        "Route Preferences" to Icons.Default.Tune,
+                        "FAQ" to Icons.Default.HelpOutline,
+                        "Feedback" to Icons.Default.Feedback
+                    )
+                    drawerItems.forEach { (label, itemIcon) ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().height(72.dp).clickable {
+                                drawerScope.launch { drawerState.close() }
+                                if (label != "Home") drawerNotice = label
+                            }.padding(horizontal = 22.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(18.dp)
+                        ) {
+                            Surface(shape = CircleShape, color = Color(0xFFF0F0F0), modifier = Modifier.size(46.dp)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(itemIcon, contentDescription = null, tint = Color(0xFFC75C42), modifier = Modifier.size(24.dp))
+                                }
+                            }
+                            Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Color(0xFF111111))
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color(0xFF999999), modifier = Modifier.size(22.dp))
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().height(76.dp).clickable {
+                            drawerScope.launch { drawerState.close() }
+                            viewModel.logout()
+                        }.padding(horizontal = 22.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(18.dp)
+                    ) {
+                        Icon(Icons.Default.Logout, contentDescription = null, tint = Color(0xFFC75C42), modifier = Modifier.size(28.dp))
+                        Text("Logout", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Color(0xFF111111))
+                    }
+                }
+            }
+        ) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             contentWindowInsets = WindowInsets.safeDrawing,
             topBar = {
                 TopAppBar(
+                    navigationIcon = {
+                        IconButton(onClick = { drawerScope.launch { drawerState.open() } }, modifier = Modifier.testTag("open_navigation_drawer")) {
+                            Icon(Icons.Default.Menu, contentDescription = "Open navigation menu")
+                        }
+                    },
                     title = {
                         Text(
                             text = t("app_title"),
@@ -272,6 +349,25 @@ fun MainTransportApp(viewModel: MainViewModel) {
                     }
                 }
             }
+        }
+        }
+
+        if (drawerNotice != null) {
+            AlertDialog(
+                onDismissRequest = { drawerNotice = null },
+                title = { Text(drawerNotice!!) },
+                text = { Text(when (drawerNotice) {
+                    "Bookings" -> "Your route and subscription details are shown on the Home screen."
+                    "Transactions" -> "Payment records and receipts are available in your subscription and payment section."
+                    "Favorite Routes" -> "Favorite-route management will be connected to your route preferences."
+                    "Suggest Route" -> "You can request a route during passenger registration. Admin approval is required."
+                    "Route Preferences" -> "Your current route, pickup and destination preferences are managed with your subscription."
+                    "FAQ" -> "RoutePass support information will be added here."
+                    "Feedback" -> "Use the support and complaint section on the Home screen to send feedback."
+                    else -> "RoutePass"
+                }) },
+                confirmButton = { TextButton(onClick = { drawerNotice = null }) { Text("OK") } }
+            )
         }
 
         // Notification Tray Dialog
