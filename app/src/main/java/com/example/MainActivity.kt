@@ -76,6 +76,20 @@ fun MainTransportApp(viewModel: MainViewModel) {
     var drawerNotice by remember { mutableStateOf<String?>(null) }
     var requestedDashboardSection by remember { mutableStateOf<String?>(null) }
 
+    // Always open the correct home section when a user signs in or switches roles.
+    // Do not retain a previously selected drawer section (which may render no content).
+    LaunchedEffect(isAuthenticated, currentRole) {
+        if (isAuthenticated) {
+            requestedDashboardSection = when (currentRole) {
+                AppRole.DRIVER -> "cockpit"
+                AppRole.PASSENGER -> "journey"
+                AppRole.ADMIN -> null
+            }
+        } else {
+            requestedDashboardSection = null
+        }
+    }
+
     fun t(key: String) = AppStrings.get(key, currentLang)
 
     val relevantNotifications = when (currentRole) {
