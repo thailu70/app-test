@@ -1,9 +1,11 @@
 package com.example.ui.screens.passenger
 
 import android.net.Uri
+import android.graphics.BitmapFactory
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,9 +23,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -34,6 +36,8 @@ import androidx.compose.ui.window.Dialog
 import com.example.core.localization.AppLanguage
 import com.example.core.localization.AppStrings
 import com.example.data.entity.PaymentTransactionEntity
+import com.example.ui.components.RoutePassHeroHeader
+import com.example.ui.components.PrivateMediaUploadButton
 import com.example.ui.components.QrCodeCanvas
 import com.example.ui.components.MiniVehicleMap
 import com.example.ui.theme.*
@@ -42,95 +46,204 @@ import com.example.ui.viewmodel.MainViewModel
 @Composable
 fun PassengerDashboardScreen(
     viewModel: MainViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    requestedSection: String? = null,
 ) {
     val lang by viewModel.currentLanguage.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val routes by viewModel.allRoutes.collectAsState()
-    val telebirrCheckoutUrl by viewModel.telebirrCheckoutUrl.collectAsState()
-    val uriHandler = LocalUriHandler.current
     val trackedVehicle by viewModel.trackedVehicle.collectAsState()
     val trackingMessage by viewModel.trackingMessage.collectAsState()
     val subscription by viewModel.activeSubscription.collectAsState()
     val payments by viewModel.passengerPayments.collectAsState()
     val checkIns by viewModel.passengerCheckIns.collectAsState()
     val complaints by viewModel.passengerComplaints.collectAsState()
-    val isTelebirrOpen by viewModel.isTelebirrDialogOpen.collectAsState()
-    val isProcessingPayment by viewModel.isProcessingPayment.collectAsState()
-    val paymentMessage by viewModel.paymentMessage.collectAsState()
     val selectedReceipt by viewModel.selectedReceipt.collectAsState()
     val isComplaintOpen by viewModel.isComplaintDialogOpen.collectAsState()
+    val myRoster by viewModel.myRoster.collectAsState()
+    val mediaUploadMessage by viewModel.mediaUploadMessage.collectAsState()
+    val driverPhotoBytes by viewModel.assignedDriverPhotoBytes.collectAsState()
+    val driverPhotoBitmap = remember(driverPhotoBytes) { driverPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
+    val passengerRouteStops by viewModel.passengerRouteStops.collectAsState()
+
+    LaunchedEffect(currentUser?.id) {
+        if (currentUser != null) {
+            viewModel.refreshMyRoster()
+            while (true) {
+                kotlinx.coroutines.delay(30_000)
+                viewModel.refreshMyRoster(refreshPhotos = false)
+            }
+        }
+    }
+    val assignment = myRoster?.get("assignment") as? Map<*, *>
+    val assignedDriver = assignment?.get("driver") as? Map<*, *>
 
     fun t(key: String): String = AppStrings.get(key, lang)
 
     val selectedRoute = routes.find { it.id == currentUser?.appliedRouteId }
-    val checkoutAmount = selectedRoute?.basePriceEtb ?: subscription?.priceEtb ?: 2500.0
-    val checkoutRouteName = selectedRoute?.name
-        ?: currentUser?.appliedRouteName?.takeIf { it.isNotBlank() }
-        ?: "Monthly commuter pass"
+    // Do not expose a tariff or allow checkout until an administrator assigns an official route.
+    val hasAdminAssignedRoute = !currentUser?.appliedRouteId.isNullOrBlank() && selectedRoute != null
+    val checkoutAmount = if (hasAdminAssignedRoute) selectedRoute?.basePriceEtb ?: subscription?.priceEtb ?: 0.0 else 0.0
+    val assignedVehicle = (assignment?.get("vehicle") as? Map<*, *>) ?: (myRoster?.get("vehicle") as? Map<*, *>)
+    val driverName = assignedDriver?.get("fullName")?.toString()?.takeIf { it.isNotBlank() } ?: "Driver not assigned yet"
+    val driverPhone = assignedDriver?.get("phone")?.toString()?.takeIf { it.isNotBlank() }
+    val vehicleModel = assignedVehicle?.get("model")?.toString()?.takeIf { it.isNotBlank() }
+        ?: assignedVehicle?.get("vehicleName")?.toString()?.takeIf { it.isNotBlank() }
+    val vehicleClass = (assignedVehicle?.get("vehicleType") ?: assignedVehicle?.get("type"))?.toString()?.takeIf { it.isNotBlank() }?.replace('_', ' ')
+    val vehicleName = listOfNotNull(
+        vehicleModel,
+        vehicleClass?.takeIf { !it.equals(vehicleModel, ignoreCase = true) }
+    ).joinToString(" · ").takeIf { it.isNotBlank() }
+    val vehiclePlate = assignedVehicle?.get("plateNumber")?.toString()?.takeIf { it.isNotBlank() }
+        ?: assignedVehicle?.get("plate")?.toString()?.takeIf { it.isNotBlank() }
 
-    LaunchedEffect(telebirrCheckoutUrl) {
-        val url = telebirrCheckoutUrl ?: return@LaunchedEffect
-        val uri = Uri.parse(url)
-        val allowedHost = uri.host == "developerportal.ethiotelebirr.et" ||
-            uri.host == "superapp.ethiomobilemoney.et"
-        val validCheckout = uri.scheme == "https" && uri.port == 38443 &&
-            uri.path == "/payment/web/paygate" && allowedHost
-        if (validCheckout) {
-            try {
-                uriHandler.openUri(url)
-            } catch (_: Exception) {
-                viewModel.reportTelebirrCheckoutOpenError()
-            }
-        } else {
-            viewModel.reportTelebirrCheckoutOpenError()
-        }
-        viewModel.consumeTelebirrCheckoutUrl()
-    }
-
+    val activeSection = requestedSection ?: "journey"
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFFF7FAF9), Color(0xFFEAF3F1))))
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
+        contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp)
     ) {
-        // 1. Subscription Overview Card
+        // Hero is the first major content card, matching the reference design.
+        if (activeSection == "journey") {
+        item {
+            RoutePassHeroHeader(
+                title = "Your everyday, upgraded.",
+                subtitle = "Your pass, your driver and your journey — beautifully connected.",
+                icon = Icons.Default.QrCode
+            )
+        }
+        }
+
+        // 1. Primary journey and schedule
+        if (activeSection == "journey") {
         item {
             SubscriptionStatusCard(
                 subscription = subscription,
                 userAppliedRoute = currentUser?.appliedRouteName,
+                assignedVehicleName = vehicleName,
+                assignedVehiclePlate = vehiclePlate,
+                routeStops = passengerRouteStops,
+                isRouteAssigned = hasAdminAssignedRoute,
                 lang = lang,
-                onRenewClick = { viewModel.openTelebirrDialog() },
+                onRenewClick = { },
                 onCancelClick = { viewModel.cancelSubscription() }
             )
         }
+        }
 
-        // 2. Dynamic Boarding QR Code Card
+        // 2. Boarding pass and QR
+        if (activeSection == "qr") {
         item {
             PassengerQrCard(
                 isSubscribed = subscription != null && subscription?.subscriptionStatus == "ACTIVE",
                 token = subscription?.qrToken ?: "",
                 status = subscription?.subscriptionStatus ?: "NOT_SUBSCRIBED",
                 lang = lang,
-                onSubscribeClick = { viewModel.openTelebirrDialog() }
+                isRouteAssigned = hasAdminAssignedRoute,
+                onSubscribeClick = { }
             )
         }
+        }
 
-        // 3. Server-reported driver location. No demo coordinates are shown as live.
+        // Driver details follow the passenger’s route and boarding pass. The passenger never sees the passenger roster.
+        if (activeSection == "driver") {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("passenger_assigned_driver_card"),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color(0xFF0B8A70), modifier = Modifier.size(22.dp))
+                        Text("Your driver", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF173B35))
+                        Spacer(Modifier.weight(1f))
+                        val isDriverAndVehicleAssigned = assignedDriver != null && assignedVehicle != null
+                        Surface(
+                            color = if (isDriverAndVehicleAssigned) Color(0xFFE0F5E9) else Color(0xFFFFF1D6),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                if (isDriverAndVehicleAssigned) "ASSIGNED" else "PENDING",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                color = if (isDriverAndVehicleAssigned) Color(0xFF16734B) else Color(0xFF8A5A00),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        if (driverPhotoBitmap != null) {
+                            Image(
+                                bitmap = driverPhotoBitmap!!.asImageBitmap(),
+                                contentDescription = "Assigned driver photo",
+                                modifier = Modifier.size(88.dp).clip(CircleShape).border(2.dp, Color(0xFFE1EBE7), CircleShape)
+                            )
+                        } else {
+                            Surface(modifier = Modifier.size(88.dp), shape = CircleShape, color = Color(0xFFEAF2EF)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF668078), modifier = Modifier.size(42.dp))
+                                }
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text(driverName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF182F2A))
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Icon(Icons.Default.Verified, contentDescription = null, tint = Color(0xFF0D9B68), modifier = Modifier.size(16.dp))
+                                Text(if (driverPhotoBitmap != null) "Verified driver profile" else "Driver profile", style = MaterialTheme.typography.bodySmall, color = Color(0xFF71817C))
+                            }
+                            if (driverPhone != null) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Icon(Icons.Default.Call, contentDescription = null, tint = Color(0xFF70837D), modifier = Modifier.size(17.dp))
+                                    Text(driverPhone, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF253C36))
+                                }
+                            }
+                        }
+                    }
+                    if (vehicleName != null || vehiclePlate != null) {
+                        HorizontalDivider(color = Color(0xFFE8EFEC))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFF0B8A70), modifier = Modifier.size(20.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(vehicleName ?: "Assigned vehicle", fontWeight = FontWeight.SemiBold, color = Color(0xFF253C36))
+                                vehiclePlate?.let { Text("Plate: $it", style = MaterialTheme.typography.bodySmall, color = Color(0xFF71817C)) }
+                            }
+                        }
+                    }
+                    mediaUploadMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF55716A)) }
+                }
+            }
+        }
+        }
+
+        // 4. Server-reported driver location. No demo coordinates are shown as live.
+        if (activeSection == "map") {
         item {
             MiniVehicleMap(vehicle = trackedVehicle, modifier = Modifier.testTag("passenger_live_vehicle_map"), serverMessage = trackingMessage)
         }
+        }
 
-        // 4. Passenger Financial Account & Balance
+        // 5. Payment overview
+        if (activeSection == "payments") {
         item {
             FinancialBalanceCard(
                 lang = lang,
-                onPayClick = { viewModel.openTelebirrDialog() }
+                amountEtb = checkoutAmount,
+                isRouteAssigned = hasAdminAssignedRoute,
+                onPayClick = { }
             )
         }
+        }
 
-        // 5. Telebirr Payment History
+        // 6. Payment records and receipts
+        if (activeSection == "payments") {
         item {
             PaymentHistoryCard(
                 payments = payments,
@@ -138,13 +251,17 @@ fun PassengerDashboardScreen(
                 onReceiptClick = { viewModel.openReceipt(it) }
             )
         }
+        }
 
-        // 6. Trip Attendance History
+        // 7. Trip history
+        if (activeSection == "history") {
         item {
             TripAttendanceCard(checkIns = checkIns, lang = lang)
         }
+        }
 
-        // 7. Complaints & Support
+        // 8. Support and feedback
+        if (activeSection == "support") {
         item {
             ComplaintsCard(
                 complaints = complaints,
@@ -152,19 +269,7 @@ fun PassengerDashboardScreen(
                 onSubmitClick = { viewModel.openComplaintDialog() }
             )
         }
-    }
-
-    // Telebirr Payment Dialog
-    if (isTelebirrOpen) {
-        TelebirrCheckoutDialog(
-            amountEtb = checkoutAmount,
-            routeName = checkoutRouteName,
-            isProcessing = isProcessingPayment,
-            statusMessage = paymentMessage,
-            lang = lang,
-            onDismiss = { viewModel.closeTelebirrDialog() },
-            onConfirm = { viewModel.processTelebirrPayment() }
-        )
+        }
     }
 
     // Receipt Dialog
@@ -190,6 +295,11 @@ fun PassengerDashboardScreen(
 fun SubscriptionStatusCard(
     subscription: com.example.data.entity.SubscriptionEntity?,
     userAppliedRoute: String?,
+    assignedDriverName: String? = null,
+    assignedVehicleName: String? = null,
+    assignedVehiclePlate: String? = null,
+    routeStops: List<com.example.data.entity.RouteStopEntity> = emptyList(),
+    isRouteAssigned: Boolean = true,
     lang: AppLanguage,
     onRenewClick: () -> Unit,
     onCancelClick: () -> Unit = {}
@@ -197,11 +307,48 @@ fun SubscriptionStatusCard(
     fun t(key: String) = AppStrings.get(key, lang)
 
     val isSubscribed = subscription != null && subscription.subscriptionStatus == "ACTIVE"
-    val routeDisplayName = if (!userAppliedRoute.isNullOrBlank()) userAppliedRoute else "Bole → Merkato"
+    fun parseRequestedEndpoints(value: String): Pair<String, String>? {
+        val separators = listOf(
+            Regex("\\s+(?:to|→|->)\\s+", RegexOption.IGNORE_CASE),
+        )
+        for (separator in separators) {
+            val parts = separator.split(value.trim(), limit = 2)
+            if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) {
+                return parts[0].trim() to parts[1].trim()
+            }
+        }
+        return null
+    }
+    fun formatScheduleTime(value: String?): String {
+        val parts = value?.take(5)?.split(":") ?: return "Time not set"
+        if (parts.size != 2) return value ?: "Time not set"
+        val hour = parts[0].toIntOrNull() ?: return value
+        val minute = parts[1].toIntOrNull() ?: return value
+        if (hour !in 0..23 || minute !in 0..59) return value
+        val suffix = if (hour < 12) "AM" else "PM"
+        val hour12 = if (hour % 12 == 0) 12 else hour % 12
+        return "$hour12:${minute.toString().padStart(2, '0')} $suffix"
+    }
+    val requestedEndpoints = parseRequestedEndpoints(subscription?.requestedRoute.orEmpty())
+    val pickupStopFromRoute = routeStops.firstOrNull { it.id == subscription?.pickupStopId }
+    val destinationStopFromRoute = routeStops.firstOrNull { it.id == subscription?.destinationStopId }
+    val pickupName = subscription?.pickupStopName?.takeIf { it.isNotBlank() }
+        ?: pickupStopFromRoute?.stopName?.takeIf { it.isNotBlank() }
+        ?: requestedEndpoints?.first
+        ?: "Pickup not assigned — contact admin"
+    val destinationName = subscription?.destinationStopName?.takeIf { it.isNotBlank() }
+        ?: destinationStopFromRoute?.stopName?.takeIf { it.isNotBlank() }
+        ?: requestedEndpoints?.second
+        ?: "Destination not assigned — contact admin"
+    val hasRealEndpoints = !pickupName.startsWith("Pickup not assigned") && !destinationName.startsWith("Destination not assigned")
+    val routeDisplayName = if (hasRealEndpoints) "$pickupName - $destinationName"
+        else subscription?.requestedRoute?.takeIf { it.isNotBlank() }
+            ?: userAppliedRoute?.takeIf { it.isNotBlank() }
+            ?: "Monthly commuter pass"
+    val morningTime = formatScheduleTime(subscription?.morningSchedule)
+    val eveningTime = formatScheduleTime(subscription?.eveningSchedule)
     val days = if (isSubscribed) (subscription?.daysRemaining ?: 30) else 0
-    val priceVal = (subscription?.priceEtb ?: if (routeDisplayName.contains("CMC")) 3000.0 else if (routeDisplayName.contains("Saris")) 2800.0 else 2500.0).toInt()
-    val pickupName = if (routeDisplayName.contains("CMC")) "CMC Station" else if (routeDisplayName.contains("Saris")) "Saris Abo" else "Bole Atlas"
-    val destinationName = if (routeDisplayName.contains("CMC")) "Bole Medhanialem" else if (routeDisplayName.contains("Kazanchis")) "Kazanchis UNECA" else "Merkato"
+    val priceVal = subscription?.priceEtb?.toInt()
 
     Card(
         modifier = Modifier
@@ -219,7 +366,7 @@ fun SubscriptionStatusCard(
                         if (isSubscribed)
                             listOf(TransportGreenDark, Slate900)
                         else
-                            listOf(Color(0xFF3B1510), Slate900)
+                            listOf(Color(0xFF20354A), Slate900)
                     )
                 )
                 .padding(20.dp)
@@ -239,18 +386,23 @@ fun SubscriptionStatusCard(
                             color = Color.White
                         )
                         Text(
-                            text = if (isSubscribed) "Toyota Coaster • Plate: AA-12345" else "Selected Transit Route",
+                            text = listOfNotNull(assignedVehicleName, assignedVehiclePlate?.let { "Plate: $it" })
+                                .joinToString(" • ")
+                                .ifBlank {
+                                    if (isSubscribed) "Vehicle assignment pending"
+                                    else "Vehicle assignment pending · subscription not active"
+                                },
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate400
                         )
                     }
 
                     Surface(
-                        color = if (isSubscribed) StatusActiveGreen.copy(alpha = 0.2f) else StatusErrorRed.copy(alpha = 0.2f),
+                        color = if (isSubscribed) StatusActiveGreen.copy(alpha = 0.2f) else StatusWarningOrange.copy(alpha = 0.2f),
                         shape = RoundedCornerShape(12.dp),
                         border = androidx.compose.foundation.BorderStroke(
                             1.dp,
-                            if (isSubscribed) StatusActiveGreen else StatusErrorRed
+                            if (isSubscribed) StatusActiveGreen else StatusWarningOrange
                         )
                     ) {
                         Row(
@@ -261,11 +413,15 @@ fun SubscriptionStatusCard(
                             Icon(
                                 imageVector = if (isSubscribed) Icons.Default.CheckCircle else Icons.Default.Cancel,
                                 contentDescription = null,
-                                tint = if (isSubscribed) StatusActiveGreen else StatusErrorRed,
+                                tint = if (isSubscribed) StatusActiveGreen else StatusWarningOrange,
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
-                                text = if (isSubscribed) "ACTIVE ✓" else "NOT SUBSCRIBED ✕",
+                                text = when {
+                                    isSubscribed -> "ACTIVE ✓"
+                                    !isRouteAssigned -> "PENDING ASSIGNMENT"
+                                    else -> "PENDING ACTIVATION"
+                                },
                                 color = Color.White,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold
@@ -295,18 +451,18 @@ fun SubscriptionStatusCard(
                             Column {
                                 Text(
                                     text = if (lang == AppLanguage.AMHARIC)
-                                        "ይህ ተሳፋሪ እስካሁን አልተመዘገበም!"
+                                        "ምዝገባ ማረጋገጫ እየጠበቀ ነው።"
                                     else
-                                        "Passenger is not subscribed yet!",
+                                        "Subscription awaiting administrator confirmation",
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFFFDE68A)
                                 )
                                 Text(
                                     text = if (lang == AppLanguage.AMHARIC)
-                                        "እባክዎ ለተመረጠው የጉዞ መስመር ($routeDisplayName) ክፍያ ፈጽመው ይመዝገቡ። ከዚያ በኋላ ደንበኝነቱ ንቁ (Active) ይሆናል።"
+                                        "መስመር ወይም ምዝገባዎ ማረጋገጫ እየጠበቀ ነው። ለአሁኑ የምዝገባና የክፍያ ማረጋገጫ በRoutePass አስተዳዳሪ ይከናወናል።"
                                     else
-                                        "The passenger is not subscribed. Please pay and subscribe for the selected route ($routeDisplayName). After payment, your monthly subscription will be ACTIVE.",
+                                        "Your route or subscription is awaiting confirmation. RoutePass administrators manage subscription activation and payment confirmation for now.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Color.White
                                 )
@@ -317,28 +473,48 @@ fun SubscriptionStatusCard(
 
                 HorizontalDivider(color = Slate700)
 
-                // Route pickup & destination details
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(text = t("pickup"), style = MaterialTheme.typography.labelMedium, color = Slate400)
-                        Text(text = pickupName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
-                        Text(text = "06:30 AM Pickup", style = MaterialTheme.typography.labelSmall, color = TransportGold)
-                    }
-                    Icon(
-                        Icons.Default.ArrowForward,
-                        contentDescription = null,
-                        tint = Slate400,
-                        modifier = Modifier
-                            .align(Alignment.CenterVertically)
-                            .padding(horizontal = 8.dp)
+                // Passenger's requested endpoints define the route title. Return service reverses the same endpoints.
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Morning • Home → Work / School",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TransportGold,
+                        fontWeight = FontWeight.Bold
                     )
-                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                        Text(text = t("destination"), style = MaterialTheme.typography.labelMedium, color = Slate400)
-                        Text(text = destinationName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
-                        Text(text = "17:30 PM Return", style = MaterialTheme.typography.labelSmall, color = TransportGold)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(text = t("pickup"), style = MaterialTheme.typography.labelMedium, color = Slate400)
+                            Text(text = pickupName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Text(text = "$morningTime Pickup", style = MaterialTheme.typography.labelSmall, color = TransportGold)
+                        }
+                        Icon(Icons.Default.ArrowForward, contentDescription = null, tint = Slate400,
+                            modifier = Modifier.align(Alignment.CenterVertically).padding(horizontal = 8.dp))
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                            Text(text = t("destination"), style = MaterialTheme.typography.labelMedium, color = Slate400)
+                            Text(text = destinationName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
+                        }
+                    }
+                    if (!subscription?.serviceType.equals("ONE_WAY", ignoreCase = true)) {
+                        HorizontalDivider(color = Slate700.copy(alpha = 0.7f))
+                        Text(
+                            text = "Return • Work / School → Home",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = TransportGold,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = t("pickup"), style = MaterialTheme.typography.labelMedium, color = Slate400)
+                                Text(text = destinationName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
+                                Text(text = "$eveningTime Return", style = MaterialTheme.typography.labelSmall, color = TransportGold)
+                            }
+                            Icon(Icons.Default.ArrowForward, contentDescription = null, tint = Slate400,
+                                modifier = Modifier.align(Alignment.CenterVertically).padding(horizontal = 8.dp))
+                            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                                Text(text = t("destination"), style = MaterialTheme.typography.labelMedium, color = Slate400)
+                                Text(text = pickupName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            }
+                        }
                     }
                 }
 
@@ -352,9 +528,9 @@ fun SubscriptionStatusCard(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column {
-                        Text(text = t("driver_label"), style = MaterialTheme.typography.labelSmall, color = Slate400)
+                        Text(text = "Service", style = MaterialTheme.typography.labelSmall, color = Slate400)
                         Text(
-                            text = if (isSubscribed) "Abebe Alemu" else "Pending Payment",
+                            text = if (subscription?.serviceType.equals("ONE_WAY", ignoreCase = true)) "One way" else "Round trip",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -372,64 +548,38 @@ fun SubscriptionStatusCard(
                     Column {
                         Text(text = t("payment"), style = MaterialTheme.typography.labelSmall, color = Slate400)
                         Text(
-                            text = if (isSubscribed) "PAID (ETB $priceVal)" else "UNPAID (ETB $priceVal)",
+                            text = if (!isRouteAssigned) {
+                                if (lang == AppLanguage.AMHARIC) "መስመር እየተመደበ ነው" else "PENDING ROUTE ASSIGNMENT"
+                            } else if (isSubscribed) {
+                                if (priceVal != null) "PAID (ETB $priceVal)" else "PAID · AMOUNT NOT SET"
+                            } else {
+                                if (priceVal != null) "PENDING (ETB $priceVal)" else "PAYMENT PENDING ADMIN CONFIRMATION"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
-                            color = if (isSubscribed) StatusActiveGreen else StatusErrorRed
+                            color = if (isSubscribed) StatusActiveGreen else StatusWarningOrange
                         )
                     }
                 }
 
-                // Action button: Pay & Subscribe vs Renew
-                if (!isSubscribed) {
-                    Button(
-                        onClick = onRenewClick,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("pay_and_subscribe_button"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue)
-                    ) {
-                        Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = Color.White)
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = if (lang == AppLanguage.AMHARIC)
-                                "በቴሌብር ይክፈሉ እና ይመዝገቡ (ETB $priceVal)"
-                            else
-                                "Pay & Subscribe with Telebirr (ETB $priceVal)",
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
-                } else {
+                Surface(
+                    color = Color(0xFFE8F5EE),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        OutlinedButton(
-                            onClick = onRenewClick,
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("renew_subscription_button"),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, TelebirrBlue)
-                        ) {
-                            Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = TelebirrBlue)
-                            Spacer(Modifier.width(6.dp))
-                            Text(text = t("renew_subscription"), fontWeight = FontWeight.SemiBold)
-                        }
-
-                        TextButton(
-                            onClick = onCancelClick,
-                            modifier = Modifier.testTag("cancel_sub_button")
-                        ) {
-                            Text(
-                                text = "Cancel Pass",
-                                color = Slate400,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
+                        Icon(Icons.Default.Info, contentDescription = null, tint = TransportGreenPrimary)
+                        Text(
+                            text = if (lang == AppLanguage.AMHARIC)
+                                "የክፍያ ማረጋገጫና የወርሃዊ ምዝገባ ማደስ ለጊዜው በአስተዳዳሪ ይከናወናል።"
+                            else
+                                "Subscription activation and renewals are managed by the RoutePass administrator for now.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF245443)
+                        )
                     }
                 }
             }
@@ -443,6 +593,7 @@ fun PassengerQrCard(
     token: String,
     status: String,
     lang: AppLanguage,
+    isRouteAssigned: Boolean = true,
     onSubscribeClick: () -> Unit = {}
 ) {
     fun t(key: String) = AppStrings.get(key, lang)
@@ -586,28 +737,24 @@ fun PassengerQrCard(
 
                         Text(
                             text = if (lang == AppLanguage.AMHARIC)
-                                "የዲጂታል መሳፈሪያ QR ኮድ ለማግኘት እባክዎ አስቀድመው ለተመረጠው መስመር በቴሌብር ክፍያ ፈጽመው ይመዝገቡ።"
+                                "የመሳፈሪያ QR ኮድ እንዲነቃ አስተዳዳሪው ምዝገባዎንና ክፍያዎን ማረጋገጥ አለበት።"
                             else
-                                "The dynamic QR boarding pass is locked because you do not have an active monthly subscription. Pay with Telebirr to activate your pass.",
+                                if (isRouteAssigned) "Your boarding pass will activate after the RoutePass administrator confirms your subscription and payment."
+                                else "Your route is awaiting administrator assignment. The price and payment option will appear after your route is assigned.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate600,
                             textAlign = TextAlign.Center
                         )
 
-                        Button(
-                            onClick = onSubscribeClick,
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue),
-                            modifier = Modifier.padding(top = 4.dp)
-                        ) {
-                            Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = Color.White)
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = if (lang == AppLanguage.AMHARIC) "በቴሌብር ይክፈሉ" else "Pay & Subscribe via Telebirr",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        Text(
+                            text = if (lang == AppLanguage.AMHARIC)
+                                "ለምዝገባና ለክፍያ ማረጋገጫ RoutePass አስተዳዳሪን ያነጋግሩ።"
+                            else
+                                "Contact the RoutePass administrator to confirm your subscription and activate your boarding pass.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Slate600,
+                            textAlign = TextAlign.Center
+                        )
                     }
                 }
             }
@@ -737,6 +884,8 @@ private fun StopPoint(name: String, isActive: Boolean, isCurrent: Boolean) {
 @Composable
 fun FinancialBalanceCard(
     lang: AppLanguage,
+    amountEtb: Double,
+    isRouteAssigned: Boolean = true,
     onPayClick: () -> Unit
 ) {
     fun t(key: String) = AppStrings.get(key, lang)
@@ -778,11 +927,16 @@ fun FinancialBalanceCard(
             ) {
                 Column {
                     Text(text = t("current_balance"), style = MaterialTheme.typography.labelSmall, color = Slate600)
-                    Text(text = "ETB 0.00", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(text = if (lang == AppLanguage.AMHARIC) "በአስተዳዳሪ ይረጋገጣል" else "Admin verified", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(text = t("monthly_fee"), style = MaterialTheme.typography.labelSmall, color = Slate600)
-                    Text(text = "ETB ${String.format(java.util.Locale.US, "%,.2f", amountEtb)}", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = if (isRouteAssigned) "ETB ${String.format(java.util.Locale.US, "%,.2f", amountEtb)}"
+                        else if (lang == AppLanguage.AMHARIC) "በመጠባበቅ ላይ" else "Pending assignment",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
 
@@ -795,18 +949,17 @@ fun FinancialBalanceCard(
             ) {
                 Column {
                     Text(text = t("next_payment"), style = MaterialTheme.typography.labelSmall, color = Slate600)
-                    Text(text = "01 Nov 2026", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text(text = if (lang == AppLanguage.AMHARIC) "በአስተዳዳሪ ይመዘገባል" else "Managed by administrator", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                 }
-                Button(
-                    onClick = onPayClick,
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue),
-                    modifier = Modifier.testTag("telebirr_pay_quick_button")
-                ) {
-                    Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(text = t("pay_telebirr"), style = MaterialTheme.typography.labelMedium)
-                }
+                Text(
+                    text = if (lang == AppLanguage.AMHARIC)
+                        "ክፍያ እና ባላንስ ማሻሻያ ለጊዜው በRoutePass አስተዳዳሪ ይከናወናል።"
+                    else
+                        "Payments and balance updates are handled by the RoutePass administrator for now.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Slate600,
+                    modifier = Modifier.widthIn(max = 220.dp)
+                )
             }
         }
     }

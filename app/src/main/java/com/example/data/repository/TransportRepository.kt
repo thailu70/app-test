@@ -87,6 +87,63 @@ class TransportRepository(
         }
     }
 
+    suspend fun isPassengerRegistrationTestBypassEnabled(): Boolean {
+        return try {
+            val response = apiService.getPublicConfig()
+            response.isSuccessful && response.body()?.success == true &&
+                response.body()?.testMode == true && response.body()?.passengerOtpRequired == false
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    suspend fun requestRegistrationOtp(phone: String): String {
+        val response = apiService.requestOtp(OtpRequest(phone.trim()))
+        val body = response.body()
+        if (!response.isSuccessful || body?.success != true || body.challengeId.isNullOrBlank()) {
+            throw IllegalStateException(body?.error ?: "Could not send SMS verification code.")
+        }
+        return body.challengeId
+    }
+
+    suspend fun verifyRegistrationOtp(challengeId: String, code: String): String {
+        val response = apiService.verifyOtp(OtpVerifyRequest(challengeId, code.trim()))
+        val body = response.body()
+        if (!response.isSuccessful || body?.success != true || body.otpProof.isNullOrBlank()) {
+            throw IllegalStateException(body?.error ?: "Invalid or expired verification code.")
+        }
+        return body.otpProof
+    }
+
+    suspend fun uploadProfileMedia(assetType: String, fileName: String, contentType: String, dataBase64: String): Map<String, Any> {
+        val response = apiService.uploadProfileMedia(mapOf(
+            "assetType" to assetType,
+            "fileName" to fileName,
+            "contentType" to contentType,
+            "dataBase64" to dataBase64
+        ))
+        val body = response.body()
+        if (!response.isSuccessful || body?.get("success") != true) {
+            throw IllegalStateException(body?.get("error")?.toString() ?: "File upload failed.")
+        }
+        return body
+    }
+
+    suspend fun getProfileMedia(ownerId: String, assetType: String): ByteArray? {
+        val response = apiService.getProfileMedia(ownerId, assetType)
+        if (!response.isSuccessful) return null
+        return response.body()?.bytes()
+    }
+
+    suspend fun getMyRoster(): Map<String, Any> {
+        val response = apiService.getMyRoster()
+        val body = response.body()
+        if (!response.isSuccessful || body?.get("success") != true) {
+            throw IllegalStateException(body?.get("error")?.toString() ?: "Could not load roster.")
+        }
+        return body
+    }
+
     /**
      * Register a new user via VPS Backend.
      * Server is the strict SOURCE OF TRUTH.
@@ -105,7 +162,9 @@ class TransportRepository(
         vehicleModel: String = "",
         vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
-        appliedRouteName: String = ""
+        appliedRouteName: String = "",
+        requestedRoute: String = "",
+        otpProof: String = ""
     ): UserEntity {
         val normalizedRole = role.trim().uppercase()
         val cleanPhone = phone.trim()
@@ -123,7 +182,9 @@ class TransportRepository(
             vehicleModel = vehicleModel.ifBlank { null },
             vehicleType = vehicleType.ifBlank { null },
             appliedRouteId = appliedRouteId.ifBlank { null },
-            appliedRouteName = appliedRouteName.ifBlank { null }
+            appliedRouteName = appliedRouteName.ifBlank { null },
+            requestedRoute = requestedRoute.trim().ifBlank { null },
+            otpProof = otpProof.ifBlank { null }
         )
 
         val response = try {
@@ -164,10 +225,10 @@ class TransportRepository(
                     id = subDto.id,
                     passengerId = user.id,
                     routeId = subDto.routeId,
-                    pickupStopId = "stop_atlas",
-                    destinationStopId = "stop_merkato",
-                    morningSchedule = "06:30",
-                    eveningSchedule = "17:30",
+                    pickupStopId = subDto.pickupStopId ?: "",
+                    destinationStopId = subDto.destinationStopId ?: "",
+                    morningSchedule = subDto.morningSchedule ?: "06:30",
+                    eveningSchedule = subDto.eveningSchedule ?: "17:30",
                     startDate = "",
                     endDate = "",
                     priceEtb = subDto.priceEtb ?: 2500.0,
@@ -175,7 +236,11 @@ class TransportRepository(
                     subscriptionStatus = subDto.status ?: "PENDING",
                     vehicleId = "",
                     qrToken = subDto.qrToken ?: "",
-                    daysRemaining = subDto.daysRemaining
+                    daysRemaining = subDto.daysRemaining,
+                    requestedRoute = subDto.requestedRoute ?: "",
+                    pickupStopName = subDto.pickupStopName ?: "",
+                    destinationStopName = subDto.destinationStopName ?: "",
+                    serviceType = subDto.serviceType ?: "TWO_WAY"
                 )
                 dao.insertSubscription(sub)
             }
@@ -204,12 +269,15 @@ class TransportRepository(
     /**
      * Synchronize routes from VPS Backend into Room cache
      */
-    suspend fun refreshRoutesFromBackend() {
+    suspend fun refreshRoutesFromBackend(): Boolean {
         try {
             val response = apiService.getRoutes()
-            if (!response.isSuccessful || response.body()?.success != true) return
+            if (!response.isSuccessful || response.body()?.success != true) return false
 
             val routeList = response.body()?.routes ?: emptyList()
+            // The server returns only active routes. Deactivate the local cache first so routes
+            // removed from this authoritative list cannot remain selectable in signup screens.
+            dao.deactivateAllRoutes()
             for (summary in routeList) {
                 // GET /api/routes/:id returns { success, route, stops }, not a bare RouteDto.
                 // Fetch this authoritative detail response so newly created/edited stop lists
@@ -257,8 +325,10 @@ class TransportRepository(
                     )
                 }
             }
+            return true
         } catch (e: Exception) {
-            // Keep last-known cache if the server is temporarily unavailable.
+            // A signup must not treat the offline cache as authoritative when active routes cannot be refreshed.
+            return false
         }
     }
 
@@ -272,6 +342,15 @@ class TransportRepository(
         basePriceEtb: Double,
         stopsList: List<Pair<String, String>> = emptyList()
     ): RouteEntity {
+        require(stopsList.size == 2) { "A route must have exactly one departure point and one destination point." }
+        require(stopsList[0].first.isNotBlank() && stopsList[1].first.isNotBlank()) {
+            "Departure and destination points are required."
+        }
+        require(!stopsList[0].first.trim().equals(stopsList[1].first.trim(), ignoreCase = true)) {
+            "Departure and destination must be different places."
+        }
+
+        val endpoints = listOf(stopsList.first(), stopsList.last())
         val routeId = "route_" + UUID.randomUUID().toString().take(8)
         val route = RouteEntity(
             id = routeId,
@@ -284,36 +363,49 @@ class TransportRepository(
             basePriceEtb = basePriceEtb,
             active = true
         )
-        dao.insertRoute(route)
-
-        stopsList.forEachIndexed { index, pair ->
-            val stop = RouteStopEntity(
-                id = "stop_" + UUID.randomUUID().toString().take(6),
-                routeId = routeId,
-                stopName = pair.first,
-                stopNameAm = pair.second,
-                stopOrder = index + 1,
-                latitude = 9.01 + (index * 0.005),
-                longitude = 38.75 + (index * 0.005),
-                scheduledMorningTime = morningDeparture,
-                scheduledEveningTime = eveningDeparture,
-                maxCapacity = 20
-            )
-            dao.insertStop(stop)
-        }
 
         try {
-            apiService.createRoute(mapOf(
+            val response = apiService.createRoute(mapOf(
                 "name" to name,
                 "nameAm" to nameAm,
                 "description" to description,
                 "morningDeparture" to morningDeparture,
                 "eveningDeparture" to eveningDeparture,
                 "distanceKm" to distanceKm,
-                "basePriceEtb" to basePriceEtb
+                "basePriceEtb" to basePriceEtb,
+                "stops" to endpoints.mapIndexed { index, pair ->
+                    mapOf(
+                        "stopName" to pair.first,
+                        "stopNameAm" to pair.second,
+                        "stopOrder" to index + 1,
+                        "scheduledMorningTime" to morningDeparture,
+                        "scheduledEveningTime" to eveningDeparture
+                    )
+                }
             ))
+            if (!response.isSuccessful || response.body()?.success != true) {
+                throw IllegalStateException(response.body()?.error ?: "The server could not create this route.")
+            }
         } catch (e: Exception) {
-            // Offline
+            throw IllegalStateException(e.message ?: "Could not create route on the server.", e)
+        }
+
+        dao.insertRoute(route)
+        endpoints.forEachIndexed { index, pair ->
+            dao.insertStop(
+                RouteStopEntity(
+                    id = "stop_" + UUID.randomUUID().toString().take(6),
+                    routeId = routeId,
+                    stopName = pair.first,
+                    stopNameAm = pair.second,
+                    stopOrder = index + 1,
+                    latitude = 9.01 + (index * 0.005),
+                    longitude = 38.75 + (index * 0.005),
+                    scheduledMorningTime = morningDeparture,
+                    scheduledEveningTime = eveningDeparture,
+                    maxCapacity = 20
+                )
+            )
         }
 
         logAction("ROUTE_CREATED", "admin", "ADMIN", "Created route $name (ETB $basePriceEtb)")
@@ -352,8 +444,8 @@ class TransportRepository(
         }
     }
 
-    suspend fun startDriverTrip(routeId: String, vehicleId: String): TripDto {
-        val response = apiService.startTrip(StartTripRequest(routeId = routeId, vehicleId = vehicleId))
+    suspend fun startDriverTrip(routeId: String, vehicleId: String, latitude: Double, longitude: Double, direction: String = "OUTBOUND"): TripDto {
+        val response = apiService.startTrip(StartTripRequest(routeId = routeId, vehicleId = vehicleId, latitude = latitude, longitude = longitude, direction = direction, arrivalConfirmed = true))
         if (response.isSuccessful && response.body()?.success == true && response.body()?.trip != null) {
             return response.body()!!.trip!!
         }
@@ -362,6 +454,17 @@ class TransportRepository(
             if (!errorBody.isNullOrBlank()) org.json.JSONObject(errorBody).optString("error") else null
         } catch (_: Exception) { null }
         throw IllegalStateException(message ?: response.body()?.error ?: "Could not start trip. Check your route assignment.")
+    }
+
+    suspend fun endDriverTrip(tripId: String) {
+        val response = apiService.endTrip(tripId)
+        if (!response.isSuccessful || response.body()?.success != true) {
+            val errorBody = response.errorBody()?.string()
+            val message = try {
+                if (!errorBody.isNullOrBlank()) org.json.JSONObject(errorBody).optString("error") else null
+            } catch (_: Exception) { null }
+            throw IllegalStateException(message ?: response.body()?.message ?: "Could not complete trip on the server.")
+        }
     }
 
     // Vehicles & Fleet Management
@@ -419,8 +522,8 @@ class TransportRepository(
                         id = subDto.id,
                         passengerId = passengerId,
                         routeId = subDto.routeId,
-                        pickupStopId = "stop_atlas",
-                        destinationStopId = "stop_merkato",
+                        pickupStopId = subDto.pickupStopId ?: "",
+                        destinationStopId = subDto.destinationStopId ?: "",
                         morningSchedule = subDto.morningSchedule ?: "06:30",
                         eveningSchedule = subDto.eveningSchedule ?: "17:30",
                         startDate = subDto.startDate ?: "",
@@ -430,7 +533,11 @@ class TransportRepository(
                         subscriptionStatus = subDto.status ?: "PENDING",
                         vehicleId = subDto.vehicleId ?: "",
                         qrToken = subDto.qrToken ?: "",
-                        daysRemaining = subDto.daysRemaining
+                        daysRemaining = subDto.daysRemaining,
+                        requestedRoute = subDto.requestedRoute ?: "",
+                        pickupStopName = subDto.pickupStopName ?: "",
+                        destinationStopName = subDto.destinationStopName ?: "",
+                        serviceType = subDto.serviceType ?: "TWO_WAY"
                     )
                     dao.insertSubscription(entity)
                 }
@@ -644,8 +751,8 @@ class TransportRepository(
             id = subId,
             passengerId = passengerId,
             routeId = routeId,
-            pickupStopId = pickupStopId.ifBlank { "stop_atlas" },
-            destinationStopId = destinationStopId.ifBlank { "stop_merkato" },
+            pickupStopId = pickupStopId,
+            destinationStopId = destinationStopId,
             morningSchedule = morningSchedule.ifBlank { "06:30" },
             eveningSchedule = eveningSchedule.ifBlank { "17:30" },
             startDate = SimpleDateFormat("dd MMM yyyy", Locale.US).format(Date()),

@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.example.core.localization.AppLanguage
 import com.example.core.localization.AppStrings
 import com.example.data.database.TransportDatabase
@@ -70,6 +71,24 @@ fun MainTransportApp(viewModel: MainViewModel) {
     val passengerNotifs by viewModel.passengerNotifications.collectAsState()
     val transporterNotifs by viewModel.transporterNotifications.collectAsState()
     val allNotifs by viewModel.allNotifications.collectAsState()
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val drawerScope = rememberCoroutineScope()
+    var drawerNotice by remember { mutableStateOf<String?>(null) }
+    var requestedDashboardSection by remember { mutableStateOf<String?>(null) }
+
+    // Always open the correct home section when a user signs in or switches roles.
+    // Do not retain a previously selected drawer section (which may render no content).
+    LaunchedEffect(isAuthenticated, currentRole) {
+        if (isAuthenticated) {
+            requestedDashboardSection = when (currentRole) {
+                AppRole.DRIVER -> "cockpit"
+                AppRole.PASSENGER -> "journey"
+                AppRole.ADMIN -> null
+            }
+        } else {
+            requestedDashboardSection = null
+        }
+    }
 
     fun t(key: String) = AppStrings.get(key, currentLang)
 
@@ -113,11 +132,90 @@ fun MainTransportApp(viewModel: MainViewModel) {
         }
     } else {
         // Authenticated System Experience
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            drawerContent = {
+                ModalDrawerSheet(modifier = Modifier.width(300.dp), drawerContainerColor = Color.White) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 34.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Surface(shape = CircleShape, color = Color(0xFFE0F5E9), modifier = Modifier.size(64.dp)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(currentUser?.avatarInitials ?: "A", color = Color(0xFF0D683E), fontSize = 28.sp, fontWeight = FontWeight.Medium)
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(currentUser?.fullName ?: "RoutePass Passenger", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF171717))
+                                Text(currentUser?.phone ?: "", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF777777))
+                            }
+                        }
+                    }
+                    HorizontalDivider(color = Color(0xFFE7E7E7), thickness = 1.dp)
+                    Spacer(Modifier.height(18.dp))
+                    val drawerItems = when (currentRole) {
+                        AppRole.PASSENGER -> listOf(
+                            Triple("My Journey & Schedule", Icons.Default.Home, "journey"),
+                            Triple("My Boarding QR", Icons.Default.QrCode, "qr"),
+                            Triple("Assigned Driver & Vehicle", Icons.Default.DirectionsCar, "driver"),
+                            Triple("Live Vehicle Location", Icons.Default.LocationOn, "map"),
+                            Triple("Payments & Receipts", Icons.Default.CreditCard, "payments"),
+                            Triple("Trip History", Icons.Default.History, "history"),
+                            Triple("Help & Feedback", Icons.Default.SupportAgent, "support"),
+                            Triple("Suggest a Route", Icons.Default.DirectionsBus, "suggest")
+                        )
+                        AppRole.DRIVER -> listOf(
+                            Triple("Drivers Cockpit", Icons.Default.Dashboard, "cockpit"),
+                            Triple("Passenger Roster & Attendance", Icons.Default.Groups, "roster"),
+                            Triple("Vehicle & Documents", Icons.Default.Description, "documents"),
+                            Triple("Live GPS & Map", Icons.Default.LocationOn, "map"),
+                        )
+                        AppRole.ADMIN -> listOf(Triple("Admin Web Portal", Icons.Default.AdminPanelSettings, "admin"))
+                    }
+                    drawerItems.forEach { (label, itemIcon, section) ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().height(64.dp).clickable {
+                                drawerScope.launch { drawerState.close() }
+                                when (section) {
+                                    "suggest", "admin" -> drawerNotice = label
+                                    else -> requestedDashboardSection = section
+                                }
+                            }.padding(horizontal = 22.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(18.dp)
+                        ) {
+                            Surface(shape = CircleShape, color = Color(0xFFF0F0F0), modifier = Modifier.size(44.dp)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(itemIcon, contentDescription = null, tint = Color(0xFF0D683E), modifier = Modifier.size(23.dp))
+                                }
+                            }
+                            Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Color(0xFF111111))
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color(0xFF999999), modifier = Modifier.size(22.dp))
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().height(76.dp).clickable {
+                            drawerScope.launch { drawerState.close() }
+                            viewModel.logout()
+                        }.padding(horizontal = 22.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(18.dp)
+                    ) {
+                        Icon(Icons.Default.Logout, contentDescription = null, tint = Color(0xFF0D683E), modifier = Modifier.size(28.dp))
+                        Text("Logout", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Color(0xFF111111))
+                    }
+                }
+            }
+        ) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             contentWindowInsets = WindowInsets.safeDrawing,
             topBar = {
                 TopAppBar(
+                    navigationIcon = {
+                        IconButton(onClick = { drawerScope.launch { drawerState.open() } }, modifier = Modifier.testTag("open_navigation_drawer")) {
+                            Icon(Icons.Default.Menu, contentDescription = "Open navigation menu")
+                        }
+                    },
                     title = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -250,10 +348,10 @@ fun MainTransportApp(viewModel: MainViewModel) {
             ) {
                 when (currentRole) {
                     AppRole.PASSENGER -> {
-                        PassengerDashboardScreen(viewModel = viewModel)
+                        PassengerDashboardScreen(viewModel = viewModel, requestedSection = requestedDashboardSection)
                     }
                     AppRole.DRIVER -> {
-                        DriverTripScreen(viewModel = viewModel)
+                        DriverTripScreen(viewModel = viewModel, requestedSection = requestedDashboardSection)
                     }
                     AppRole.ADMIN -> {
                         Column(
@@ -272,6 +370,27 @@ fun MainTransportApp(viewModel: MainViewModel) {
                     }
                 }
             }
+        }
+        }
+
+        if (drawerNotice != null) {
+            AlertDialog(
+                onDismissRequest = { drawerNotice = null },
+                title = { Text(drawerNotice!!) },
+                text = { Text(when (drawerNotice) {
+                    "Bookings" -> "Your route and subscription details are shown on the Home screen."
+                    "Transactions" -> "Payment records and receipts are available in your subscription and payment section."
+                    "Favorite Routes" -> "Favorite-route management will be connected to your route preferences."
+                    "Suggest Route" -> "You can request a route during passenger registration. Admin approval is required."
+                    "Route Preferences" -> "Your current route, pickup and destination preferences are managed with your subscription."
+                    "FAQ" -> "RoutePass support information will be added here."
+                    "Feedback" -> "Use the support and complaint section on the Home screen to send feedback."
+                    "Suggest a Route" -> "Submit your requested pickup and destination during passenger registration. Route changes and new route requests require administrator review before they become active."
+                    "Admin Web Portal" -> "RoutePass administration is managed in the web portal: https://routepass.duckdns.org/admin/."
+                    else -> "RoutePass"
+                }) },
+                confirmButton = { TextButton(onClick = { drawerNotice = null }) { Text("OK") } }
+            )
         }
 
         // Notification Tray Dialog

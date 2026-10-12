@@ -47,6 +47,18 @@ async function run() {
     const adminToken = result.data.token;
     assert.ok(adminToken, 'Admin JWT must be returned');
 
+    result = await requestJson(baseUrl, '/api/admin/passengers', 'GET', null, adminToken);
+    assert.equal(result.status, 200, 'Admin passenger directory query must work against PostgreSQL');
+    assert.ok(Array.isArray(result.data.passengers), 'Passenger directory must be an array');
+
+    result = await requestJson(baseUrl, '/api/admin/tracking', 'GET', null, adminToken);
+    assert.equal(result.status, 200, 'Admin live-tracking query must work against PostgreSQL');
+    assert.ok(Array.isArray(result.data.vehicles), 'Admin tracking vehicles must be an array');
+
+    result = await requestJson(baseUrl, '/api/config/public');
+    assert.equal(result.status, 200, 'Public config endpoint must be available');
+    assert.equal(result.data.testMode, false, 'Test mode must remain disabled by default');
+
     result = await requestJson(baseUrl, '/api/routes', 'POST', {
       name: 'CI Sample Route',
       nameAm: 'የፈተና መስመር',
@@ -54,15 +66,21 @@ async function run() {
       distanceKm: 2.5,
       basePriceEtb: 100,
       stops: [{
-        stopName: 'CI Stop',
-        stopNameAm: 'የፈተና ማቆሚያ',
+        stopName: 'CI Origin',
+        stopNameAm: 'የፈተና መነሻ',
         latitude: 9.01,
         longitude: 38.76,
+        maxCapacity: 12
+      }, {
+        stopName: 'CI Destination',
+        stopNameAm: 'የፈተና መድረሻ',
+        latitude: 9.02,
+        longitude: 38.77,
         maxCapacity: 12
       }]
     }, adminToken);
     assert.equal(result.status, 201, 'Route creation and awaited stop inserts must work');
-    assert.equal(result.data.stops.length, 1, 'Nested route stop must have been inserted');
+    assert.equal(result.data.stops.length, 2, 'Both route endpoint stops must have been inserted');
     const createdRouteId = result.data.route.id;
 
     result = await requestJson(baseUrl, '/api/auth/register', 'POST', {
@@ -141,7 +159,11 @@ async function run() {
 
     result = await requestJson(baseUrl, '/api/trips/start', 'POST', {
       routeId: 'route_bole_merkato',
-      vehicleId: driverVehicleId
+      vehicleId: driverVehicleId,
+      direction: 'OUTBOUND',
+      latitude: 8.995,
+      longitude: 38.788,
+      arrivalConfirmed: true
     }, driverToken);
     assert.equal(result.status, 200, 'Approved driver with an assigned route must be able to start trip');
     assert.equal(result.data.trip.status, 'IN_PROGRESS');

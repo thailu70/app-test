@@ -67,9 +67,31 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), async (req, res
   try {
     const passengerId = req.user.id;
     const sub = await DB.prepare(`
-      SELECT s.*, r.name as routeName, r.nameAm as routeNameAm, r.basePriceEtb, r.morningDeparture, r.eveningDeparture
+      SELECT s.*, r.name as routeName, r.nameAm as routeNameAm, r.basePriceEtb,
+             r.morningDeparture, r.eveningDeparture, r.serviceType,
+             COALESCE(pickup.stopName, (
+               SELECT rs.stopName FROM route_stops rs
+               WHERE rs.routeId = s.routeId ORDER BY rs.stopOrder ASC LIMIT 1
+             ), '') AS pickupStopName,
+             COALESCE(destination.stopName, (
+               SELECT rs.stopName FROM route_stops rs
+               WHERE rs.routeId = s.routeId ORDER BY rs.stopOrder DESC LIMIT 1
+             ), '') AS destinationStopName,
+             COALESCE(pickup.id, (
+               SELECT rs.id FROM route_stops rs
+               WHERE rs.routeId = s.routeId ORDER BY rs.stopOrder ASC LIMIT 1
+             ), s.pickupStopId, '') AS resolvedPickupStopId,
+             COALESCE(destination.id, (
+               SELECT rs.id FROM route_stops rs
+               WHERE rs.routeId = s.routeId ORDER BY rs.stopOrder DESC LIMIT 1
+             ), s.destinationStopId, '') AS resolvedDestinationStopId,
+             (SELECT pr.requested_route FROM passenger_route_requests pr
+              WHERE pr.passenger_id = s.passengerId
+              ORDER BY pr.created_at DESC LIMIT 1) AS requestedRoute
       FROM subscriptions s
       LEFT JOIN routes r ON s.routeId = r.id
+      LEFT JOIN route_stops pickup ON pickup.id = s.pickupStopId AND pickup.routeId = s.routeId
+      LEFT JOIN route_stops destination ON destination.id = s.destinationStopId AND destination.routeId = s.routeId
       WHERE s.passengerId = ?
       ORDER BY s.updatedAt DESC LIMIT 1
     `).get(passengerId);
@@ -88,6 +110,14 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), async (req, res
           routeId: sub.routeId,
           routeName: sub.routeName,
           routeNameAm: sub.routeNameAm,
+          requestedRoute: sub.requestedRoute || '',
+          pickupStopName: sub.pickupStopName || '',
+          destinationStopName: sub.destinationStopName || '',
+          serviceType: sub.serviceType || 'TWO_WAY',
+          pickupStopId: sub.resolvedPickupStopId || sub.pickupStopId || '',
+          destinationStopId: sub.resolvedDestinationStopId || sub.destinationStopId || '',
+          morningSchedule: sub.morningSchedule || sub.morningDeparture || '06:30',
+          eveningSchedule: sub.eveningSchedule || sub.eveningDeparture || '17:30',
           status: sub.subscriptionStatus,
           paymentStatus: sub.paymentStatus,
           priceEtb: sub.priceEtb,
@@ -108,6 +138,12 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), async (req, res
         routeId: sub.routeId,
         routeName: sub.routeName,
         routeNameAm: sub.routeNameAm,
+        requestedRoute: sub.requestedRoute || '',
+        pickupStopName: sub.pickupStopName || '',
+        destinationStopName: sub.destinationStopName || '',
+        serviceType: sub.serviceType || 'TWO_WAY',
+        pickupStopId: sub.resolvedPickupStopId || sub.pickupStopId || '',
+        destinationStopId: sub.resolvedDestinationStopId || sub.destinationStopId || '',
         status: sub.subscriptionStatus,
         paymentStatus: sub.paymentStatus,
         priceEtb: sub.priceEtb,
@@ -418,15 +454,23 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
     if (existingSub) {
       await DB.prepare(`
         UPDATE subscriptions
-        SET routeId = ?, priceEtb = ?, paymentStatus = 'PAID', subscriptionStatus = 'ACTIVE',
+        SET routeId = ?, pickupStopId = COALESCE(
+              (SELECT rs.id FROM route_stops rs WHERE rs.id = subscriptions.pickupStopId AND rs.routeId = ?),
+              (SELECT rs.id FROM route_stops rs WHERE rs.routeId = ? ORDER BY rs.stopOrder ASC LIMIT 1)
+            ), destinationStopId = COALESCE(
+              (SELECT rs.id FROM route_stops rs WHERE rs.id = subscriptions.destinationStopId AND rs.routeId = ?),
+              (SELECT rs.id FROM route_stops rs WHERE rs.routeId = ? ORDER BY rs.stopOrder DESC LIMIT 1)
+            ), priceEtb = ?, paymentStatus = 'PAID', subscriptionStatus = 'ACTIVE',
             startDate = ?, endDate = ?, daysRemaining = 30, qrToken = ?, updatedAt = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(targetRouteId, price, startDate, endDate, signedQrToken, existingSub.id);
+      `).run(targetRouteId, targetRouteId, targetRouteId, targetRouteId, targetRouteId, price, startDate, endDate, signedQrToken, existingSub.id);
     } else {
       await DB.prepare(`
         INSERT INTO subscriptions (id, passengerId, routeId, pickupStopId, destinationStopId, morningSchedule, eveningSchedule, startDate, endDate, priceEtb, paymentStatus, subscriptionStatus, daysRemaining, qrToken)
-        VALUES (?, ?, ?, 'stop_atlas', 'stop_merkato', ?, ?, ?, ?, ?, 'PAID', 'ACTIVE', 30, ?)
-      `).run(subId, passengerId, targetRouteId, route.morningDeparture, route.eveningDeparture, startDate, endDate, price, signedQrToken);
+        VALUES (?, ?, ?, (SELECT rs.id FROM route_stops rs WHERE rs.routeId = ? ORDER BY rs.stopOrder ASC LIMIT 1),
+                (SELECT rs.id FROM route_stops rs WHERE rs.routeId = ? ORDER BY rs.stopOrder DESC LIMIT 1),
+                ?, ?, ?, ?, ?, 'PAID', 'ACTIVE', 30, ?)
+      `).run(subId, passengerId, targetRouteId, targetRouteId, targetRouteId, route.morningDeparture, route.eveningDeparture, startDate, endDate, price, signedQrToken);
     }
 
     // Insert notification

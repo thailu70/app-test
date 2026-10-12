@@ -86,7 +86,11 @@ data class SubscriptionEntity(
     val subscriptionStatus: String, // "ACTIVE", "EXPIRING", "EXPIRED", "CANCELLED"
     val vehicleId: String,
     val qrToken: String,
-    val daysRemaining: Int = 26
+    val daysRemaining: Int = 26,
+    val requestedRoute: String = "",
+    val pickupStopName: String = "",
+    val destinationStopName: String = "",
+    val serviceType: String = "TWO_WAY"
 )
 
 @Entity(tableName = "payment_transactions")

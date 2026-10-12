@@ -33,8 +33,10 @@ CREATE TABLE IF NOT EXISTS routes (
     distance_km NUMERIC(5,2) DEFAULT 12.0,
     base_price_etb NUMERIC(10,2) DEFAULT 2500.0,
     active BOOLEAN DEFAULT TRUE,
+    service_type VARCHAR(20) NOT NULL DEFAULT 'TWO_WAY' CHECK (service_type IN ('ONE_WAY', 'TWO_WAY')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS service_type VARCHAR(20) NOT NULL DEFAULT 'TWO_WAY' CHECK (service_type IN ('ONE_WAY', 'TWO_WAY'));
 
 -- 3. Route Stops
 CREATE TABLE IF NOT EXISTS route_stops (
@@ -187,7 +189,20 @@ CREATE TABLE IF NOT EXISTS notifications (
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 11. Security Audit Logs
+-- 11. Passenger route requests, pending until an administrator assigns an active route.
+CREATE TABLE IF NOT EXISTS passenger_route_requests (
+    id VARCHAR(64) PRIMARY KEY,
+    passenger_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    requested_route VARCHAR(200) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')),
+    reviewed_by VARCHAR(64),
+    admin_notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_passenger_route_requests_passenger ON passenger_route_requests(passenger_id, created_at DESC);
+
+-- 12. Security Audit Logs
 CREATE TABLE IF NOT EXISTS audit_logs (
     id SERIAL PRIMARY KEY,
     action VARCHAR(50) NOT NULL,

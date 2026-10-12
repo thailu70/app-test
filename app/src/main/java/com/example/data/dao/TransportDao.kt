@@ -40,6 +40,10 @@ interface TransportDao {
     @Query("SELECT * FROM routes")
     fun getAllRoutes(): Flow<List<RouteEntity>>
 
+    // Mark cached routes unavailable before syncing the authoritative active-route list.
+    @Query("UPDATE routes SET active = 0")
+    suspend fun deactivateAllRoutes()
+
     @Query("SELECT * FROM routes WHERE active = 1")
     fun getAllActiveRoutes(): Flow<List<RouteEntity>>
 

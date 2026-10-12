@@ -90,6 +90,7 @@ object AppStrings {
         "reason_wrong_route" to "Wrong route",
         "reason_wrong_vehicle" to "Wrong vehicle",
         "reason_invalid_qr" to "Invalid QR / signature",
+        "reason_trip_not_started" to "Trip not started",
         "reason_already_checked" to "Already checked in today",
         "reason_capacity_full" to "VEHICLE AT MAXIMUM CAPACITY! Passenger limit reached for this vehicle type.",
 
@@ -188,6 +189,7 @@ object AppStrings {
         "reason_wrong_route" to "የተሳሳተ መስመር ነው",
         "reason_wrong_vehicle" to "የተሳሳተ መኪና ነው",
         "reason_invalid_qr" to "የተሳሳተ የQR ኮድ",
+        "reason_trip_not_started" to "ጉዞው ገና አልተጀመረም",
         "reason_already_checked" to "ተሳፋሪው ቀደም ሲል ተመዝግቧል",
         "reason_capacity_full" to "የተሽከርካሪው የመንገደኞች ገደብ ሞልቷል! ለዚህ ተሽከርካሪ ዓይነት ተጨማሪ መንገደኛ መጫን አይቻልም።",
 

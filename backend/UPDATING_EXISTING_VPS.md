@@ -9,8 +9,8 @@ SSH to your VPS as the administrator/root account, then run:
 ```bash
 cd /opt/routepass-source
 git fetch origin
-git checkout audit/production-readiness-2026-10-09
-git pull --ff-only origin audit/production-readiness-2026-10-09
+git checkout feature/routepass-otp-geofence-payments
+git pull --ff-only origin feature/routepass-otp-geofence-payments
 ```
 
 If the pull refuses because the local checkout has uncommitted changes, stop and inspect those changes rather than forcing the pull.
@@ -21,6 +21,8 @@ If the pull refuses because the local checkout has uncommitted changes, stop and
 install -m 0644 backend/Dockerfile /var/www/routepass/Dockerfile
 install -m 0644 backend/docker-compose.yml /var/www/routepass/docker-compose.yml
 install -m 0644 backend/docker-compose.traefik.yml /var/www/routepass/docker-compose.traefik.yml
+# Preserve uploaded files across API image rebuilds using a named Docker volume.
+# The compose file adds routepass_app_data; do not remove existing volumes.
 install -m 0644 backend/init-db.sql /var/www/routepass/init-db.sql
 
 cp -R backend/src/. /var/www/routepass/src/
@@ -35,23 +37,27 @@ chmod 600 /var/www/routepass/.env
 
 Do not replace or publish `/var/www/routepass/.env`. It contains production database and signing secrets.
 
-## 3. Enable manual subscription recharge only while testing
+## 3. Enable passenger registration without OTP and manual test recharge only while testing
 
-The admin portal includes **Recharge 30 days (test)**. This is a test-only activation, not a Telebirr transaction. It writes provider `ADMIN_TEST`, emits an audit log, signs a QR pass and is excluded from the real-revenue total. The backend requires an explicit environment flag; manual recharge is disabled by default.
+For this controlled test, `ROUTEPASS_TEST_MODE=true` lets passenger registration skip OTP; driver registration still requires OTP. The admin's **Recharge 30 days (test)** action is separately gated by `ALLOW_MANUAL_TEST_RECHARGE=true`. Test recharge records provider `ADMIN_TEST`, creates an audited signed QR pass, and is not a real Telebirr payment.
 
-Because you are testing, run the following on the VPS to enable it temporarily:
+On the VPS, set both flags without printing the rest of `.env`:
 
 ```bash
 cd /var/www/routepass
-if grep -q '^ALLOW_MANUAL_TEST_RECHARGE=' .env; then
-  sed -i 's/^ALLOW_MANUAL_TEST_RECHARGE=.*/ALLOW_MANUAL_TEST_RECHARGE=true/' .env
-else
-  printf '\nALLOW_MANUAL_TEST_RECHARGE=true\n' >> .env
-fi
+for key in ALLOW_MANUAL_TEST_RECHARGE ROUTEPASS_TEST_MODE; do
+  if grep -q "^${key}=" .env; then
+    sed -i "s/^${key}=.*/${key}=true/" .env
+  else
+    printf '\n%s=true\n' "$key" >> .env
+  fi
+done
 chmod 600 .env
 ```
 
-**Before allowing real public subscriptions or treating any payment report as financial data, turn it back off** by using the same command with `false` instead of `true`, then rebuild only the API as shown below. Never expose or paste the `.env` contents into chat.
+After setting the flags, copy the updated Compose file and rebuild only the API as in the next steps. The Android app reads `GET /api/config/public` to hide passenger OTP controls only when the server confirms test mode.
+
+**Before public launch, turn both flags off** (`ALLOW_MANUAL_TEST_RECHARGE=false` and `ROUTEPASS_TEST_MODE=false`), then rebuild only the API. Never expose or paste the `.env` contents into chat.
 
 ## 4. Rebuild only the RoutePass API
 
@@ -92,3 +98,22 @@ Download `app-debug.apk` from the successful RoutePass Android Actions run, tran
 The app now includes the H5 C2B hosted-checkout flow, but it stays fail-closed until the merchant's Telebirr settings are configured on the VPS and sandbox tests pass. The hosted flow creates a pending payment order, signs the H5 request server-side, opens the provider checkout, and activates a subscription only after the server independently confirms the order with Telebirr's query API. The browser return URL is not treated as proof of payment. See `TELEBIRR_H5_SETUP.md` for setup requirements.
 
 Offline QR/boarding synchronization remains disabled. Do not process real money or advertise the app as production-ready until you have tested token issuance, hosted checkout, signed callbacks, order reconciliation, and subscription activation with Telebirr's approved sandbox credentials; then repeat acceptance testing after merchant production approval.
+
+## 8. Passenger photos and driver documents (feature branch)
+
+This feature branch adds `POST /api/profile-media/upload` and `GET /api/profile-media/:ownerId/:assetType`. Files are written to `ROUTEPASS_PRIVATE_MEDIA_DIR` (default `/app/data/private-media`) and are not served from the public admin directory. The Compose configuration mounts the persistent named volume `routepass_app_data` at `/app/data`; PostgreSQL remains in its separate existing volume.
+
+After copying the files above, verify the rendered Compose config before rebuilding:
+
+```bash
+cd /var/www/routepass
+docker compose -p routepass -f docker-compose.yml -f docker-compose.traefik.yml config --quiet
+docker volume inspect routepass_app_data >/dev/null 2>&1 || echo "The new private-media volume will be created on first up."
+docker compose -p routepass -f docker-compose.yml -f docker-compose.traefik.yml up -d --build api
+docker compose -p routepass -f docker-compose.yml -f docker-compose.traefik.yml ps
+curl -fsS https://routepass.duckdns.org/api/ready
+```
+
+Do not run `docker compose down -v`. Verify the container is healthy before testing uploads. Only upload a non-sensitive test image first, then confirm it remains accessible after an API container recreation. Driver licence and trade licence documents are sensitive personal data: restrict VPS access, back up the media volume securely, and define retention/deletion procedures before public launch.
+
+The driver roster depends on the administrator assigning each eligible passenger subscription to the specific vehicle via `subscription.vehicleId`. The API endpoint exists in this branch, but an admin UI workflow still needs completion before relying on it operationally. Run CI and manual staging checks before merging this draft PR.

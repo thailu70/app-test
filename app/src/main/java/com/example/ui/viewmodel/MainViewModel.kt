@@ -43,6 +43,7 @@ data class DriverTripState(
     val vehicleId: String = "",
     val routeId: String = "",
     val routeName: String = "",
+    val direction: String = "OUTBOUND",
     val vehiclePlate: String = "",
     val vehicleType: String = "MINIBUS_14",
     val vehicleCapacity: Int = 14,
@@ -58,6 +59,15 @@ data class DriverTripState(
 )
 
 class MainViewModel(private val repository: TransportRepository) : ViewModel() {
+
+    private val _testPassengerRegistrationBypass = MutableStateFlow(false)
+    val testPassengerRegistrationBypass: StateFlow<Boolean> = _testPassengerRegistrationBypass.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _testPassengerRegistrationBypass.value = repository.isPassengerRegistrationTestBypassEnabled()
+        }
+    }
 
     // Language
     private val _currentLanguage = MutableStateFlow(AppLanguage.ENGLISH)
@@ -105,8 +115,143 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
     fun clearRegistrationMessage() { _registrationMessage.value = null }
 
+    private val _otpChallengeId = MutableStateFlow<String?>(null)
+    val otpChallengeId: StateFlow<String?> = _otpChallengeId.asStateFlow()
+    private val _otpProof = MutableStateFlow<String?>(null)
+    val otpProof: StateFlow<String?> = _otpProof.asStateFlow()
+    private val _otpMessage = MutableStateFlow<String?>(null)
+    val otpMessage: StateFlow<String?> = _otpMessage.asStateFlow()
+
+    fun clearRegistrationOtp() {
+        _otpChallengeId.value = null
+        _otpProof.value = null
+        _otpMessage.value = null
+    }
+
+    fun requestRegistrationOtp(phone: String) {
+        viewModelScope.launch {
+            _authError.value = null
+            _otpProof.value = null
+            _otpChallengeId.value = null
+            try {
+                _otpChallengeId.value = repository.requestRegistrationOtp(phone)
+                _otpMessage.value = "Verification code sent by SMS. It expires in 5 minutes."
+            } catch (e: Exception) {
+                _otpMessage.value = null
+                _authError.value = e.message ?: "Could not send verification code."
+            }
+        }
+    }
+
+    fun verifyRegistrationOtp(code: String) {
+        viewModelScope.launch {
+            _authError.value = null
+            val challenge = _otpChallengeId.value
+            if (challenge.isNullOrBlank()) {
+                _authError.value = "Request a verification code first."
+                return@launch
+            }
+            try {
+                _otpProof.value = repository.verifyRegistrationOtp(challenge, code)
+                _otpMessage.value = "Mobile number verified. You can complete registration."
+            } catch (e: Exception) {
+                _otpProof.value = null
+                _authError.value = e.message ?: "Could not verify code."
+            }
+        }
+    }
+
+
     private val _networkStatus = MutableStateFlow(NetworkStatus.ONLINE)
     val networkStatus: StateFlow<NetworkStatus> = _networkStatus.asStateFlow()
+
+    private val _myRoster = MutableStateFlow<Map<String, Any>?>(null)
+    val myRoster: StateFlow<Map<String, Any>?> = _myRoster.asStateFlow()
+    private val _assignedDriverPhotoBytes = MutableStateFlow<ByteArray?>(null)
+    val assignedDriverPhotoBytes: StateFlow<ByteArray?> = _assignedDriverPhotoBytes.asStateFlow()
+    private val _passengerProfilePhotoBytes = MutableStateFlow<ByteArray?>(null)
+    val passengerProfilePhotoBytes: StateFlow<ByteArray?> = _passengerProfilePhotoBytes.asStateFlow()
+    private val _rosterPassengerPhotos = MutableStateFlow<Map<String, ByteArray>>(emptyMap())
+    val rosterPassengerPhotos: StateFlow<Map<String, ByteArray>> = _rosterPassengerPhotos.asStateFlow()
+    private val rosterPhotoRequests = mutableSetOf<String>()
+
+    private suspend fun loadRosterPassengerPhotos(roster: Map<String, Any>) {
+        if (_currentUser.value?.role != "DRIVER") return
+        val passengers = roster["passengers"] as? List<*> ?: emptyList<Any>()
+        for (entry in passengers) {
+            val passenger = entry as? Map<*, *> ?: continue
+            val passengerId = passenger["id"]?.toString()?.takeIf { it.isNotBlank() } ?: continue
+            if (_rosterPassengerPhotos.value.containsKey(passengerId) || !rosterPhotoRequests.add(passengerId)) continue
+            try {
+                val bytes = repository.getProfileMedia(passengerId, "PROFILE_PHOTO")
+                if (bytes != null && bytes.isNotEmpty()) {
+                    _rosterPassengerPhotos.update { it + (passengerId to bytes) }
+                } else {
+                    // A missing photo or HTTP error must be retryable after upload/assignment changes.
+                    rosterPhotoRequests.remove(passengerId)
+                }
+            } catch (_: Exception) {
+                // Retry on the next roster refresh after transient network failure or a later photo upload.
+                rosterPhotoRequests.remove(passengerId)
+            }
+        }
+    }
+    private val _mediaUploadMessage = MutableStateFlow<String?>(null)
+    val mediaUploadMessage: StateFlow<String?> = _mediaUploadMessage.asStateFlow()
+
+    fun refreshMyRoster(refreshPhotos: Boolean = true) {
+        viewModelScope.launch {
+            try {
+                val previousRoster = _myRoster.value
+                val previousAssignment = previousRoster?.get("assignment") as? Map<*, *>
+                val previousDriver = previousAssignment?.get("driver") as? Map<*, *>
+                val roster = repository.getMyRoster()
+                val assignment = roster["assignment"] as? Map<*, *>
+                val driver = assignment?.get("driver") as? Map<*, *>
+                val previousDriverId = previousDriver?.get("id")?.toString()
+                val currentDriverId = driver?.get("id")?.toString()
+                val assignmentChanged = previousDriverId != currentDriverId
+                _myRoster.value = roster
+
+                if (refreshPhotos || assignmentChanged) {
+                    loadRosterPassengerPhotos(roster)
+                    val signedInUser = _currentUser.value
+                    val photoOwnerId = if (signedInUser?.role == "DRIVER") signedInUser.id else currentDriverId
+                    _assignedDriverPhotoBytes.value = if (!photoOwnerId.isNullOrBlank()) {
+                        repository.getProfileMedia(photoOwnerId, "DRIVER_PROFILE_PHOTO")
+                    } else {
+                        null
+                    }
+                    if (refreshPhotos && signedInUser?.role == "PASSENGER") {
+                        _passengerProfilePhotoBytes.value = repository.getProfileMedia(signedInUser.id, "PROFILE_PHOTO")
+                    }
+                }
+            } catch (e: Exception) {
+                _mediaUploadMessage.value = e.message ?: "Could not load roster."
+            }
+        }
+    }
+
+    fun reportMediaUploadError(message: String) { _mediaUploadMessage.value = message }
+
+    fun uploadProfileMedia(assetType: String, fileName: String, contentType: String, dataBase64: String) {
+        viewModelScope.launch {
+            _mediaUploadMessage.value = "Uploading $assetType..."
+            try {
+                repository.uploadProfileMedia(assetType, fileName, contentType, dataBase64)
+                if (assetType == "PROFILE_PHOTO") {
+                    val userId = _currentUser.value?.id
+                    if (!userId.isNullOrBlank()) {
+                        _passengerProfilePhotoBytes.value = repository.getProfileMedia(userId, "PROFILE_PHOTO")
+                    }
+                }
+                _mediaUploadMessage.value = "$assetType uploaded successfully."
+                refreshMyRoster()
+            } catch (e: Exception) {
+                _mediaUploadMessage.value = e.message ?: "File upload failed."
+            }
+        }
+    }
 
     // Notification Tray State
     private val _isNotificationTrayOpen = MutableStateFlow(false)
@@ -136,11 +281,29 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         }
     }
 
+    private val _signupRouteStops = MutableStateFlow<List<RouteStopEntity>>(emptyList())
+    val signupRouteStops: StateFlow<List<RouteStopEntity>> = _signupRouteStops.asStateFlow()
+
+    fun loadSignupRouteStops(routeId: String) {
+        viewModelScope.launch {
+            _signupRouteStops.value = if (routeId.isBlank()) emptyList() else try {
+                repository.getStopsForRouteSync(routeId).sortedBy { it.stopOrder }
+            } catch (_: Exception) { emptyList() }
+        }
+    }
+
     // Passenger Flows
     val activeSubscription: StateFlow<SubscriptionEntity?> = _currentUser.flatMapLatest { user ->
         val id = user?.id ?: ""
         if (id.isBlank()) flowOf(null) else repository.getSubscriptionForPassenger(id)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val passengerRouteStops: StateFlow<List<RouteStopEntity>> = activeSubscription
+        .flatMapLatest { sub ->
+            if (sub == null || sub.routeId.isBlank()) flowOf(emptyList())
+            else repository.getStopsForRoute(sub.routeId)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val passengerPayments: StateFlow<List<PaymentTransactionEntity>> = _currentUser.flatMapLatest { user ->
         val id = user?.id ?: ""
@@ -156,6 +319,29 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         val id = user?.id ?: ""
         if (id.isBlank()) flowOf(emptyList()) else repository.getComplaintsForPassenger(id)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Signup must show only routes refreshed successfully from the VPS, never stale Room cache entries.
+    private val _signupRoutes = MutableStateFlow<List<RouteEntity>>(emptyList())
+    val signupRoutes: StateFlow<List<RouteEntity>> = _signupRoutes.asStateFlow()
+    private val _signupRoutesRefreshing = MutableStateFlow(false)
+    val signupRoutesRefreshing: StateFlow<Boolean> = _signupRoutesRefreshing.asStateFlow()
+
+    fun refreshSignupRoutes() {
+        _signupRoutes.value = emptyList()
+        _signupRoutesRefreshing.value = true
+        viewModelScope.launch {
+            try {
+                val synced = repository.refreshRoutesFromBackend()
+                _signupRoutes.value = if (synced) {
+                    repository.activeRoutes.firstOrNull().orEmpty().filter { it.active }
+                } else {
+                    emptyList()
+                }
+            } finally {
+                _signupRoutesRefreshing.value = false
+            }
+        }
+    }
 
     // All System Data Flows
     val allRoutes: StateFlow<List<RouteEntity>> = repository.allRoutes
@@ -186,13 +372,22 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Driver Trip State
+    private var latestGpsLatitude: Double? = null
+    private var latestGpsLongitude: Double? = null
+
     private val _driverTrip = MutableStateFlow(DriverTripState())
     val driverTrip: StateFlow<DriverTripState> = _driverTrip.asStateFlow()
 
+    // Inbound (work/school → home) must traverse the same assigned stops in reverse order.
     val routeStops: StateFlow<List<RouteStopEntity>> = _driverTrip
-        .map { it.routeId }
+        .map { it.routeId to it.direction }
         .distinctUntilChanged()
-        .flatMapLatest { routeId -> if (routeId.isBlank()) flowOf(emptyList()) else repository.getStopsForRoute(routeId) }
+        .flatMapLatest { (routeId, direction) ->
+            if (routeId.isBlank()) flowOf(emptyList())
+            else repository.getStopsForRoute(routeId).map { stops ->
+                if (direction.equals("INBOUND", ignoreCase = true)) stops.asReversed() else stops
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _driverActionMessage = MutableStateFlow<String?>(null)
@@ -226,7 +421,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                         _trackingMessage.value = "Tracking refresh failed: ${error.message ?: "server unavailable"}"
                         emit(null)
                     }
-                    delay(5000)
+                    delay(3000)
                 }
             }
         }
@@ -381,7 +576,9 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         vehicleModel: String = "",
         vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
-        appliedRouteName: String = ""
+        appliedRouteName: String = "",
+        requestedRoute: String = "",
+        otpProof: String = ""
     ) {
         viewModelScope.launch {
             _authError.value = null
@@ -390,8 +587,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 _authError.value = "Full Name and Phone Number are required."
                 return@launch
             }
-            if (role == AppRole.PASSENGER && appliedRouteId.isBlank()) {
-                _authError.value = "Please select the route you want to subscribe to."
+            if (role == AppRole.PASSENGER && appliedRouteId.isBlank() && requestedRoute.isBlank()) {
+                _authError.value = "Select an available route or enter the route you need."
                 return@launch
             }
             if (role == AppRole.DRIVER &&
@@ -419,7 +616,9 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     vehicleModel = vehicleModel,
                     vehicleType = vehicleType,
                     appliedRouteId = appliedRouteId,
-                    appliedRouteName = appliedRouteName
+                    appliedRouteName = appliedRouteName,
+                    requestedRoute = requestedRoute,
+                    otpProof = otpProof
                 )
                 if (role == AppRole.DRIVER) {
                     _registrationMessage.value = "Thank you for registering. We will review your licence and vehicle, authorize your account, assign your route, and connect appropriate passenger subscriptions to your vehicle. We will contact you when it is ready. You can sign in after approval."
@@ -551,7 +750,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     }
 
     // Start a server-authoritative trip using the driver's own registered vehicle and admin-assigned route.
-    fun startNavigation() {
+    fun startNavigation(direction: String = "OUTBOUND") {
         viewModelScope.launch {
             _driverActionMessage.value = null
             try {
@@ -560,17 +759,20 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     ?: throw IllegalStateException("Your owned vehicle is not registered. Sign out and register it again.")
                 val routeId = vehicle.assignedRouteId?.takeIf { it.isNotBlank() }
                     ?: throw IllegalStateException("Your vehicle has not been assigned a route yet. Contact the RoutePass administrator.")
-                val trip = repository.startDriverTrip(routeId, vehicle.id)
+                val latitude = latestGpsLatitude ?: throw IllegalStateException("Waiting for a fresh GPS fix. Enable location and wait before confirming departure.")
+                val longitude = latestGpsLongitude ?: throw IllegalStateException("Waiting for a fresh GPS fix. Enable location and wait before confirming departure.")
+                val trip = repository.startDriverTrip(routeId, vehicle.id, latitude, longitude, direction)
                 val stops = repository.getStopsForRouteSync(routeId)
                 _driverTrip.value = DriverTripState(
                     tripId = trip.id,
                     vehicleId = vehicle.id,
                     routeId = routeId,
                     routeName = trip.routeName ?: vehicle.routeName.orEmpty(),
+                    direction = direction.uppercase(),
                     vehiclePlate = trip.plateNumber ?: vehicle.plateNumber,
                     vehicleType = trip.vehicleType ?: vehicle.vehicleType,
                     vehicleCapacity = trip.capacityLimit ?: vehicle.capacityLimit,
-                    departureTime = vehicle.morningDeparture ?: "06:30",
+                    departureTime = if (direction == "INBOUND") "17:30" else vehicle.morningDeparture ?: "06:30",
                     currentStopIndex = 0,
                     isNavigating = true,
                     isArrivedAtStop = false,
@@ -592,6 +794,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         currentStop: String = "",
         onResult: ((Boolean, String) -> Unit)? = null
     ) {
+        latestGpsLatitude = latitude
+        latestGpsLongitude = longitude
         viewModelScope.launch {
             try {
                 repository.submitDriverLocation(latitude, longitude, speed, currentStop)
@@ -607,6 +811,10 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     }
 
     fun arriveAtCurrentStop() {
+        if (routeStops.value.getOrNull(_driverTrip.value.currentStopIndex) == null) {
+            _driverActionMessage.value = "No stop is configured for this assigned route. Contact the RoutePass administrator."
+            return
+        }
         _driverTrip.update {
             it.copy(
                 isArrivedAtStop = true,
@@ -617,12 +825,42 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         viewModelScope.launch {
             val stops = routeStops.value
             val currentStop = stops.getOrNull(_driverTrip.value.currentStopIndex)
-            repository.logAction("DRIVER_ARRIVED_STOP", currentDriverId, "DRIVER", "Arrived at stop ${currentStop?.stopName ?: "Atlas"}")
+            repository.logAction("DRIVER_ARRIVED_STOP", currentDriverId, "DRIVER", "Arrived at stop ${currentStop?.stopName ?: "Unassigned stop"}")
+        }
+    }
+
+    fun completeTrip() {
+        viewModelScope.launch {
+            val trip = _driverTrip.value
+            if (!trip.isNavigating || trip.tripId.isBlank()) {
+                _driverActionMessage.value = "There is no active server trip to complete."
+                return@launch
+            }
+            try {
+                repository.endDriverTrip(trip.tripId)
+                val completedStates = trip.stopStates.toMutableMap()
+                completedStates[trip.currentStopIndex] = NavigationStepState.COMPLETED
+                _driverTrip.value = trip.copy(
+                    isNavigating = false,
+                    isArrivedAtStop = false,
+                    stopStates = completedStates,
+                    currentDistanceKm = 0.0,
+                    currentEtaMins = 0
+                )
+                _driverActionMessage.value = "Trip completed successfully. Passengers have been notified."
+                repository.logAction("DRIVER_NAVIGATION_COMPLETE", currentDriverId, "DRIVER", "Completed live trip ${trip.tripId}")
+            } catch (e: Exception) {
+                _driverActionMessage.value = e.message ?: "Could not complete the trip. Please try again."
+            }
         }
     }
 
     fun nextStop() {
         val stops = routeStops.value
+        if (stops.isEmpty()) {
+            _driverActionMessage.value = "No stops are configured for this assigned route."
+            return
+        }
         val currentIndex = _driverTrip.value.currentStopIndex
         val updatedStates = _driverTrip.value.stopStates.toMutableMap()
         updatedStates[currentIndex] = NavigationStepState.COMPLETED
@@ -633,8 +871,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
             it.copy(
                 currentStopIndex = nextIndex,
                 isArrivedAtStop = false,
-                currentDistanceKm = if (nextIndex < stops.size - 1) 2.1 else 0.8,
-                currentEtaMins = if (nextIndex < stops.size - 1) 6 else 3,
+                currentDistanceKm = 0.0,
+                currentEtaMins = 0,
                 stopStates = updatedStates
             )
         }
@@ -642,6 +880,10 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
     fun skipCurrentStop() {
         val stops = routeStops.value
+        if (stops.isEmpty()) {
+            _driverActionMessage.value = "No stops are configured for this assigned route."
+            return
+        }
         val currentIndex = _driverTrip.value.currentStopIndex
         val updatedStates = _driverTrip.value.stopStates.toMutableMap()
         updatedStates[currentIndex] = NavigationStepState.SKIPPED
@@ -656,8 +898,19 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         }
     }
 
-    // QR Verification for Driver
+    // QR Verification for Driver. Never open the camera unless a server trip is active.
     fun openScanner() {
+        val trip = _driverTrip.value
+        if (routeStops.value.getOrNull(trip.currentStopIndex) == null) {
+            _driverActionMessage.value = "No assigned stop is available for this trip. Contact the RoutePass administrator before scanning passengers."
+            _isScannerOpen.value = false
+            return
+        }
+        if (!trip.isNavigating || trip.tripId.isBlank() || trip.vehicleId.isBlank()) {
+            _driverActionMessage.value = "Trip not started. Confirm arrival at the assigned departure point and wait for RoutePass to start the live trip before scanning passengers."
+            _isScannerOpen.value = false
+            return
+        }
         _scanResult.value = null
         _isScannerOpen.value = true
     }
@@ -680,11 +933,18 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     fun verifyQrToken(rawToken: String) {
         viewModelScope.launch {
             val stops = routeStops.value
-            val currentStop = stops.getOrNull(_driverTrip.value.currentStopIndex)?.stopName ?: "Bole Atlas"
             val tripState = _driverTrip.value
+            val currentStop = stops.getOrNull(tripState.currentStopIndex)?.stopName
+            if (currentStop.isNullOrBlank()) {
+                _scanResult.value = QrValidationResult.Invalid(
+                    "reason_stop_not_assigned",
+                    "No assigned stop is available for this trip. Contact the RoutePass administrator."
+                )
+                return@launch
+            }
             if (!tripState.isNavigating || tripState.tripId.isBlank() || tripState.vehicleId.isBlank()) {
                 _scanResult.value = QrValidationResult.Invalid(
-                    "reason_qr_corrupted",
+                    "reason_trip_not_started",
                     "Start a live trip on your own assigned vehicle before scanning passenger passes."
                 )
                 return@launch
@@ -704,6 +964,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
             if (result is QrValidationResult.Valid) {
                 _driverTrip.update { it.copy(checkedInCount = it.checkedInCount + 1) }
+                refreshMyRoster()
             }
         }
     }

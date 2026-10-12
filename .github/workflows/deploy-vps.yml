@@ -1,0 +1,140 @@
+name: RoutePass VPS Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_production:
+        description: "Type DEPLOY to authorize updating the live RoutePass API"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: routepass-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ inputs.confirm_production == 'DEPLOY' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check out the selected source branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/routepass-otp-geofence-payments
+
+      - name: Configure SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$VPS_SSH_KEY"
+          test -n "$VPS_HOST_KEY"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/routepass_deploy
+          chmod 600 ~/.ssh/routepass_deploy
+          printf '%s\n' "$VPS_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Back up database and deploy API safely
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$VPS_HOST"
+          test -n "$VPS_USER"
+          ssh -i ~/.ssh/routepass_deploy -o IdentitiesOnly=yes -o BatchMode=yes "$VPS_USER@$VPS_HOST" 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+
+          SOURCE_DIR=/opt/routepass-source
+          APP_DIR=/var/www/routepass
+          BRANCH=feature/routepass-otp-geofence-payments
+          COMPOSE=(docker compose -p routepass -f docker-compose.yml -f docker-compose.traefik.yml)
+
+          test -d "$SOURCE_DIR/.git"
+          test -f "$APP_DIR/.env"
+          test -f "$APP_DIR/docker-compose.yml"
+          test -f "$APP_DIR/docker-compose.traefik.yml"
+          docker inspect routepass_postgres >/dev/null
+          docker inspect routepass_api >/dev/null
+
+          cd "$SOURCE_DIR"
+          git fetch origin "$BRANCH"
+          git checkout "$BRANCH"
+          git pull --ff-only origin "$BRANCH"
+
+          BACKUP_DIR=/root/routepass-backups
+          install -d -m 700 "$BACKUP_DIR"
+          BACKUP_FILE="$BACKUP_DIR/routepass-predeploy-$(date +%Y%m%d-%H%M%S).sql"
+          docker exec routepass_postgres sh -lc 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > "$BACKUP_FILE"
+          test -s "$BACKUP_FILE"
+          grep -q 'CREATE TABLE' "$BACKUP_FILE"
+          chmod 600 "$BACKUP_FILE"
+          echo "Database backup verified: $BACKUP_FILE"
+
+          test -f backend/Dockerfile
+          test -f backend/package.json
+          test -f backend/package-lock.json
+          test -d backend/src
+          test -f backend/public/admin/admin.js
+
+          STAGE_DIR="$(mktemp -d /var/www/routepass-deploy.XXXXXX)"
+          cp -a "$APP_DIR/src" "$STAGE_DIR/src"
+          cp -a "$APP_DIR/public/admin" "$STAGE_DIR/admin"
+          cp -a "$APP_DIR/Dockerfile" "$STAGE_DIR/Dockerfile" 2>/dev/null || true
+          rollback() {
+            status=$?
+            if [ "$status" -ne 0 ]; then
+              echo "Deployment failed; restoring previous API source files."
+              rm -rf "$APP_DIR/src"
+              cp -a "$STAGE_DIR/src" "$APP_DIR/src"
+              rm -rf "$APP_DIR/public/admin"
+              cp -a "$STAGE_DIR/admin" "$APP_DIR/public/admin"
+              cd "$APP_DIR"
+              "${COMPOSE[@]}" up -d --build --no-deps api || true
+            fi
+            rm -rf "$STAGE_DIR"
+            exit "$status"
+          }
+          trap rollback EXIT
+
+          cp -a backend/src/. "$APP_DIR/src/"
+          cp -a backend/public/admin/. "$APP_DIR/public/admin/"
+          install -m 0644 backend/Dockerfile "$APP_DIR/Dockerfile"
+          install -m 0644 backend/package.json "$APP_DIR/package.json"
+          install -m 0644 backend/package-lock.json "$APP_DIR/package-lock.json"
+          chmod 600 "$APP_DIR/.env"
+
+          cd "$APP_DIR"
+          "${COMPOSE[@]}" config --quiet
+          "${COMPOSE[@]}" up -d --build --no-deps api
+
+          ready=0
+          for attempt in $(seq 1 45); do
+            if "${COMPOSE[@]}" exec -T api curl -fsS --connect-timeout 2 --max-time 4 http://127.0.0.1:3000/api/ready >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            "${COMPOSE[@]}" ps
+            "${COMPOSE[@]}" logs --tail=80 api
+            exit 1
+          fi
+          curl -fsS --connect-timeout 3 --max-time 10 https://routepass.duckdns.org/api/ready
+          echo
+          "${COMPOSE[@]}" ps
+          trap - EXIT
+          rm -rf "$STAGE_DIR"
+          echo "RoutePass API deployment completed and readiness checks passed."
+          REMOTE
+
+      - name: Remove temporary SSH key
+        if: always()
+        run: rm -f ~/.ssh/routepass_deploy

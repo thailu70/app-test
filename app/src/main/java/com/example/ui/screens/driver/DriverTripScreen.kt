@@ -2,6 +2,7 @@ package com.example.ui.screens.driver
 
 import android.Manifest
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
@@ -28,7 +29,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -44,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -52,10 +56,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import java.text.SimpleDateFormat
+import java.util.Locale
 import com.example.core.localization.AppLanguage
 import com.example.core.localization.AppStrings
 import com.example.core.qr.QrValidationResult
 import com.example.data.entity.RouteStopEntity
+import com.example.ui.components.RoutePassHeroHeader
+import com.example.ui.components.PrivateMediaUploadButton
 import com.example.ui.components.MiniVehicleMap
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DriverTripState
@@ -63,10 +71,20 @@ import com.example.ui.viewmodel.MainViewModel
 import com.example.ui.viewmodel.NavigationStepState
 import com.example.ui.viewmodel.NetworkStatus
 
+private fun formatRouteTime12Hour(value: String): String {
+    return try {
+        val parsed = SimpleDateFormat("HH:mm", Locale.US).apply { isLenient = false }.parse(value)
+        if (parsed == null) value else SimpleDateFormat("h:mm a", Locale.US).format(parsed)
+    } catch (_: Exception) {
+        value
+    }
+}
+
 @Composable
 fun DriverTripScreen(
     viewModel: MainViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    requestedSection: String? = null,
 ) {
     val lang by viewModel.currentLanguage.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
@@ -76,18 +94,62 @@ fun DriverTripScreen(
     val trackingMessage by viewModel.trackingMessage.collectAsState()
     val driverActionMessage by viewModel.driverActionMessage.collectAsState()
     var gpsStatus by remember { mutableStateOf("Waiting for GPS permission.") }
+    var routeDirection by remember { mutableStateOf("OUTBOUND") }
+    // Preview the selected direction before starting; live trips already receive direction-ordered stops from the ViewModel.
+    val displayStops = remember(stops, routeDirection, tripState.isNavigating) {
+        if (!tripState.isNavigating && routeDirection.equals("INBOUND", ignoreCase = true)) stops.asReversed() else stops
+    }
+    var showDepartureConfirmation by remember { mutableStateOf(false) }
+    var isStartingTrip by remember { mutableStateOf(false) }
+    var showTripCompletionConfirmation by remember { mutableStateOf(false) }
+
+    LaunchedEffect(driverActionMessage, tripState.isNavigating) {
+        if (tripState.isNavigating) {
+            isStartingTrip = false
+            showDepartureConfirmation = false
+        } else if (!driverActionMessage.isNullOrBlank()) {
+            isStartingTrip = false
+        }
+    }
     val networkStatus by viewModel.networkStatus.collectAsState()
     val isScannerOpen by viewModel.isScannerOpen.collectAsState()
     val scanResult by viewModel.scanResult.collectAsState()
+    val myRoster by viewModel.myRoster.collectAsState()
+    val rosterPassengerPhotos by viewModel.rosterPassengerPhotos.collectAsState()
+    val mediaUploadMessage by viewModel.mediaUploadMessage.collectAsState()
+    val driverPhotoBytes by viewModel.assignedDriverPhotoBytes.collectAsState()
+    val driverPhotoBitmap = remember(driverPhotoBytes) { driverPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
+    LaunchedEffect(currentUser?.id) {
+        if (currentUser != null) {
+            viewModel.refreshMyRoster()
+            while (true) {
+                kotlinx.coroutines.delay(30_000)
+                viewModel.refreshMyRoster(refreshPhotos = false)
+            }
+        }
+    }
+    val rosterPassengers = myRoster?.get("passengers") as? List<*> ?: emptyList<Any>()
+    val assignment = myRoster?.get("assignment") as? Map<*, *>
+    val assignedVehicle = (assignment?.get("vehicle") as? Map<*, *>) ?: (myRoster?.get("vehicle") as? Map<*, *>)
+    val assignedVehicleModel = assignedVehicle?.get("model")?.toString()?.takeIf { it.isNotBlank() }
+        ?: assignedVehicle?.get("vehicleName")?.toString()?.takeIf { it.isNotBlank() }
+    val assignedVehicleClass = (assignedVehicle?.get("vehicleType") ?: assignedVehicle?.get("type"))?.toString()?.takeIf { it.isNotBlank() }?.replace('_', ' ')
+    val vehicleDisplayName = listOfNotNull(
+        assignedVehicleModel,
+        assignedVehicleClass?.takeIf { !it.equals(assignedVehicleModel, ignoreCase = true) }
+    ).joinToString(" · ").takeIf { it.isNotBlank() }
+    val assignedVehiclePlate = assignedVehicle?.get("plateNumber")?.toString()?.takeIf { it.isNotBlank() }
+        ?: assignedVehicle?.get("plate")?.toString()?.takeIf { it.isNotBlank() }
 
     fun t(key: String) = AppStrings.get(key, lang)
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(modifier = modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFFF7FAF9), Color(0xFFEAF3F1))))) {
         DriverLocationReporter(
             viewModel = viewModel,
-            currentStop = stops.getOrNull(tripState.currentStopIndex)?.stopName.orEmpty(),
+            currentStop = displayStops.getOrNull(tripState.currentStopIndex)?.stopName.orEmpty(),
             onStatusChanged = { gpsStatus = it }
         )
+        val activeSection = requestedSection ?: "cockpit"
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -95,11 +157,24 @@ fun DriverTripScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = 48.dp)
         ) {
+            if (activeSection == "cockpit") {
+            item {
+                RoutePassHeroHeader(
+                    title = "Drivers cockpit",
+                    subtitle = "Manage your assigned trip, navigate stops, and confirm passenger boarding.",
+                    icon = Icons.Default.DirectionsBus
+                )
+            }
+            }
+
             // 1. Driver Console Cockpit Card
+            if (activeSection == "cockpit") {
             item {
                 DriverCockpitHeaderCard(
                     driverName = currentUser?.fullName ?: "Driver",
-                    vehiclePlate = currentUser?.assignedVehiclePlate?.ifBlank { tripState.vehiclePlate } ?: tripState.vehiclePlate,
+                    vehiclePlate = assignedVehiclePlate,
+                    vehicleDisplayName = vehicleDisplayName,
+                    vehicleClass = assignedVehicleClass,
                     routeName = currentUser?.appliedRouteName?.ifBlank { tripState.routeName } ?: tripState.routeName,
                     tripState = tripState,
                     networkStatus = networkStatus,
@@ -108,8 +183,139 @@ fun DriverTripScreen(
                     onSetVehicleType = { type, cap -> viewModel.setVehicleType(type, cap) }
                 )
             }
+            }
+
+            if (activeSection == "documents") {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (driverPhotoBitmap != null) {
+                                Image(
+                                    bitmap = driverPhotoBitmap.asImageBitmap(),
+                                    contentDescription = "Driver profile photo",
+                                    modifier = Modifier.size(76.dp).clip(CircleShape)
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier.size(76.dp).clip(CircleShape).background(Slate200),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(currentUser?.fullName?.split(" ")?.mapNotNull { it.firstOrNull() }?.take(2)?.joinToString("") ?: "DR",
+                                        fontWeight = FontWeight.Bold, color = Slate700)
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Driver profile", fontWeight = FontWeight.Bold)
+                                Text(if (driverPhotoBitmap != null) "Profile photo loaded" else "Upload your photo below; it will appear here after refresh.",
+                                    style = MaterialTheme.typography.bodySmall, color = Slate600)
+                            }
+                        }
+                        Text("Driver and vehicle documents", fontWeight = FontWeight.Bold)
+                        Text("Upload clear, current documents. Each file must be 5 MB or smaller.")
+                        PrivateMediaUploadButton(viewModel, "DRIVER_PROFILE_PHOTO", "Upload driver profile photo", imagesOnly = true)
+                        PrivateMediaUploadButton(viewModel, "DRIVER_LICENSE", "Upload driver's licence")
+                        PrivateMediaUploadButton(viewModel, "VEHICLE_PHOTO", "Upload vehicle photo", imagesOnly = true)
+                        PrivateMediaUploadButton(viewModel, "TRADE_LICENSE", "Upload trade licence")
+                        mediaUploadMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    }
+                }
+            }
+            }
+
+            if (activeSection == "roster") {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Passenger roster & attendance", fontWeight = FontWeight.Bold)
+                        Text("Attendance changes to PRESENT after a successful QR scan for this active trip.")
+                        Text("Passengers: ${rosterPassengers.size}", style = MaterialTheme.typography.bodySmall)
+                        val rosterMessage = myRoster?.get("rosterMessage")?.toString()
+                        if (!rosterMessage.isNullOrBlank()) {
+                            Text(rosterMessage, style = MaterialTheme.typography.bodySmall, color = if (rosterPassengers.isEmpty()) StatusWarningOrange else Slate600)
+                        }
+                        rosterPassengers.forEach { row ->
+                            val passenger = row as? Map<*, *> ?: return@forEach
+                            Divider()
+                            val passengerId = passenger["id"]?.toString().orEmpty()
+                            val passengerName = passenger["fullName"]?.toString() ?: "Passenger"
+                            val passengerPhotoBytes = rosterPassengerPhotos[passengerId]
+                            val passengerPhotoBitmap = remember(passengerPhotoBytes) {
+                                passengerPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+                            }
+                            val isPresent = passenger["attendance"]?.toString() == "PRESENT"
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (passengerPhotoBitmap != null) {
+                                    Image(
+                                        bitmap = passengerPhotoBitmap.asImageBitmap(),
+                                        contentDescription = "$passengerName profile photo",
+                                        modifier = Modifier.size(54.dp).clip(CircleShape)
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier.size(54.dp).clip(CircleShape).background(Slate200),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            passengerName.split(" ").mapNotNull { it.firstOrNull() }.take(2).joinToString("").ifBlank { "P" },
+                                            color = Slate700,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text(passengerName, fontWeight = FontWeight.SemiBold)
+                                    val passengerPhone = passenger["phone"]?.toString().orEmpty()
+                                    if (passengerPhone.isNotBlank()) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Icon(Icons.Default.Phone, contentDescription = "Passenger phone number", modifier = Modifier.size(14.dp), tint = Slate600)
+                                            Text(passengerPhone, style = MaterialTheme.typography.bodySmall, color = Slate700)
+                                        }
+                                    } else {
+                                        Text("Phone number not available", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                                    }
+                                    val subscriptionStatus = passenger["subscriptionStatus"]?.toString().orEmpty()
+                                    val paymentStatus = passenger["paymentStatus"]?.toString().orEmpty()
+                                    Text(
+                                        if (isPresent) "Boarded · PRESENT" else "Awaiting QR scan · NOT SCANNED",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (isPresent) StatusActiveGreen else Slate600
+                                    )
+                                    if (!subscriptionStatus.equals("ACTIVE", ignoreCase = true) ||
+                                        !paymentStatus.equals("PAID", ignoreCase = true)) {
+                                        Text(
+                                            "Subscription: " + subscriptionStatus.ifBlank { "UNKNOWN" } + " · Payment: " + paymentStatus.ifBlank { "UNKNOWN" },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = StatusWarningOrange
+                                        )
+                                    }
+                                }
+                                Surface(
+                                    color = if (isPresent) StatusActiveGreen.copy(alpha = 0.12f) else Slate200,
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Text(
+                                        if (isPresent) "Present" else "Not scanned",
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isPresent) StatusActiveGreen else Slate700
+                                    )
+                                }
+                            }
+                        }
+                        if (rosterPassengers.isEmpty()) Text("No active paid passengers found for the assigned route.")
+                        Button(onClick = { viewModel.refreshMyRoster() }) { Text("Refresh roster") }
+                    }
+                }
+            }
+            }
 
             // 2. Actual vehicle position, reported by this driver's phone.
+            if (activeSection == "map") {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     MiniVehicleMap(vehicle = trackedVehicle, modifier = Modifier.testTag("driver_live_vehicle_map"), mapHeight = 190, serverMessage = trackingMessage)
@@ -119,22 +325,50 @@ fun DriverTripScreen(
                     }
                 }
             }
+            }
+
+            // Admin-assigned route supports both commute directions.
+            if (activeSection == "cockpit") {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Text("Departure direction", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Button(onClick = { routeDirection = "OUTBOUND" }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = if (routeDirection == "OUTBOUND") TransportGreenPrimary else Slate600)) {
+                            Text("Home → Work / School")
+                        }
+                        Button(onClick = { routeDirection = "INBOUND" }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = if (routeDirection == "INBOUND") TransportGreenPrimary else Slate600)) {
+                            Text("Work / School → Home")
+                        }
+                    }
+                    Text(
+                        "Scheduled departure: ${if (routeDirection == "INBOUND") "evening" else "morning"} schedule. Arrive at the assigned departure stop within the administrator-configured GPS perimeter and confirm arrival.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Slate600
+                    )
+                }
+            }
+            }
 
             // 3. High-Visibility Big Navigation HUD
+            if (activeSection == "cockpit") {
             item {
                 DriverNavigationHudCard(
                     tripState = tripState,
-                    currentStop = stops.getOrNull(tripState.currentStopIndex),
+                    currentStop = displayStops.getOrNull(tripState.currentStopIndex),
                     lang = lang,
-                    onStartNavigation = { viewModel.startNavigation() },
+                    isFinalStop = displayStops.isNotEmpty() && tripState.currentStopIndex >= displayStops.lastIndex,
+                    onStartNavigation = { showDepartureConfirmation = true },
                     onArrived = { viewModel.arriveAtCurrentStop() },
                     onScanQr = { viewModel.openScanner() },
                     onSkip = { viewModel.skipCurrentStop() },
-                    onNextStop = { viewModel.nextStop() }
+                    onNextStop = { viewModel.nextStop() },
+                    onCompleteTrip = { showTripCompletionConfirmation = true }
                 )
+            }
             }
 
             // 4. Stop Sequence & Passenger Attendance
+            if (activeSection == "cockpit") {
             item {
                 Text(
                     text = t("pickup_sequence"),
@@ -143,25 +377,83 @@ fun DriverTripScreen(
                     color = MaterialTheme.colorScheme.onBackground
                 )
             }
+            }
 
-            itemsIndexed(stops) { index, stop ->
+            if (activeSection == "cockpit") {
+            itemsIndexed(displayStops) { index, stop ->
                 StopSequenceRow(
                     index = index,
                     stop = stop,
                     isCurrent = index == tripState.currentStopIndex,
                     stepState = tripState.stopStates[index] ?: if (index < tripState.currentStopIndex) NavigationStepState.COMPLETED else NavigationStepState.EN_ROUTE,
+                    canScan = tripState.isNavigating && tripState.tripId.isNotBlank(),
                     onScanClick = {
                         viewModel.openScanner()
                     }
                 )
             }
+            }
+        }
+
+        if (showDepartureConfirmation) {
+            AlertDialog(
+                onDismissRequest = { showDepartureConfirmation = false },
+                title = { Text("Confirm vehicle arrival") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Confirm that this vehicle has arrived at the administrator-assigned departure location for the selected route. RoutePass will verify your latest GPS fix against the GPS perimeter configured by the administrator before starting the trip and notifying passengers.")
+                        if (!tripState.isNavigating && !driverActionMessage.isNullOrBlank() && !isStartingTrip) {
+                            Text(
+                                text = driverActionMessage.orEmpty(),
+                                color = StatusErrorRed,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        if (isStartingTrip) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                Text("Checking GPS and starting live trip…")
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = !isStartingTrip,
+                        onClick = {
+                            isStartingTrip = true
+                            viewModel.startNavigation(routeDirection)
+                        }
+                    ) { Text(if (isStartingTrip) "CHECKING…" else "CONFIRM ARRIVAL") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDepartureConfirmation = false }) { Text("NOT YET") }
+                }
+            )
+        }
+
+        if (showTripCompletionConfirmation) {
+            AlertDialog(
+                onDismissRequest = { showTripCompletionConfirmation = false },
+                title = { Text("Complete trip?") },
+                text = { Text("This marks the assigned trip as completed and notifies passengers. Only continue if you have reached the final stop for this direction.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showTripCompletionConfirmation = false
+                        viewModel.completeTrip()
+                    }) { Text("COMPLETE TRIP") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showTripCompletionConfirmation = false }) { Text("CANCEL") }
+                }
+            )
         }
 
         // Camera-backed scanner dialog; each decoded QR is checked by the VPS.
         if (isScannerOpen) {
             DriverQrScannerDialog(
                 scanResult = scanResult,
-                currentStop = stops.getOrNull(tripState.currentStopIndex)?.stopName ?: "Bole Atlas",
+                currentStop = displayStops.getOrNull(tripState.currentStopIndex)?.stopName ?: "No pickup stop assigned",
                 tripState = tripState,
                 onScanToken = { token -> viewModel.verifyQrToken(token) },
                 onDismissResult = { viewModel.dismissScanResult() },
@@ -235,7 +527,7 @@ private fun DriverLocationReporter(
             } else {
                 providers.forEach { provider ->
                     try {
-                        locationManager.requestLocationUpdates(provider, 5000L, 5f, listener, Looper.getMainLooper())
+                        locationManager.requestLocationUpdates(provider, 2500L, 3f, listener, Looper.getMainLooper())
                         locationManager.getLastKnownLocation(provider)?.let(listener::onLocationChanged)
                     } catch (_: SecurityException) {
                         onStatusChanged("Location access was denied. Re-enable permission in Android settings.")
@@ -254,7 +546,9 @@ private fun DriverLocationReporter(
 @Composable
 fun DriverCockpitHeaderCard(
     driverName: String,
-    vehiclePlate: String,
+    vehiclePlate: String? = null,
+    vehicleDisplayName: String? = null,
+    vehicleClass: String? = null,
     routeName: String,
     tripState: DriverTripState,
     networkStatus: NetworkStatus,
@@ -271,8 +565,9 @@ fun DriverCockpitHeaderCard(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("driver_cockpit_card"),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Slate900)
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Slate900),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
     ) {
         Column(
             modifier = Modifier
@@ -293,9 +588,12 @@ fun DriverCockpitHeaderCard(
                         color = Color.White
                     )
                     Text(
-                        text = "${tripState.vehicleType} • Plate: $vehiclePlate",
+                        text = listOfNotNull(
+                            vehicleDisplayName,
+                            vehiclePlate?.let { "Plate: $it" }
+                        ).joinToString(" • ").ifBlank { "Vehicle assignment pending" },
                         style = MaterialTheme.typography.bodySmall,
-                        color = TransportGold
+                        color = if (vehicleDisplayName != null || vehiclePlate != null) Color(0xFFB8F2DD) else TransportGold
                     )
                 }
 
@@ -369,7 +667,7 @@ fun DriverCockpitHeaderCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = tripState.vehicleType.replace('_', ' '),
+                        text = vehicleClass ?: vehicleDisplayName ?: "Vehicle class not available",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White,
                         fontWeight = FontWeight.Bold
@@ -397,8 +695,23 @@ fun DriverCockpitHeaderCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(text = t("todays_trips"), style = MaterialTheme.typography.labelSmall, color = Slate400)
-                    Text(text = "Scheduled trip (${tripState.departureTime})", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = TransportGold)
-                    Text(text = routeName, style = MaterialTheme.typography.bodySmall, color = Color.White)
+                    Text(
+                        text = "Departure ${formatRouteTime12Hour(tripState.departureTime)}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFB8F2DD)
+                    )
+                    Text(text = routeName.ifBlank { "Route assignment pending" }, style = MaterialTheme.typography.bodySmall, color = Color.White)
+                    Text(
+                        text = when {
+                            !tripState.isNavigating -> "NEXT ACTION · Confirm arrival at assigned departure stop"
+                            tripState.isArrivedAtStop -> "NEXT ACTION · Scan passenger boarding QR codes"
+                            else -> "NEXT ACTION · Proceed to the current assigned stop"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = TransportGold
+                    )
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
@@ -418,7 +731,7 @@ fun DriverCockpitHeaderCard(
                         else
                             "${tripState.vehicleCapacity - tripState.checkedInCount} seats available",
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (isFull) StatusErrorRed else TransportGold,
+                        color = if (isFull) StatusErrorRed else StatusActiveGreen,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -471,11 +784,13 @@ fun DriverNavigationHudCard(
     tripState: DriverTripState,
     currentStop: RouteStopEntity?,
     lang: AppLanguage,
+    isFinalStop: Boolean = false,
     onStartNavigation: () -> Unit,
     onArrived: () -> Unit,
     onScanQr: () -> Unit,
     onSkip: () -> Unit,
-    onNextStop: () -> Unit
+    onNextStop: () -> Unit,
+    onCompleteTrip: () -> Unit
 ) {
     fun t(key: String) = AppStrings.get(key, lang)
 
@@ -503,7 +818,7 @@ fun DriverNavigationHudCard(
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
-                        text = "NEXT PICKUP STOP #${tripState.currentStopIndex + 1}",
+                        text = currentStop?.let { "NEXT PICKUP STOP #${tripState.currentStopIndex + 1}" } ?: "ASSIGNED STOP PENDING",
                         color = TransportGreenPrimary,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
@@ -512,11 +827,19 @@ fun DriverNavigationHudCard(
                 }
 
                 Surface(
-                    color = if (tripState.isArrivedAtStop) StatusActiveGreen else TransportGold,
+                    color = when {
+                        !tripState.isNavigating -> StatusInfoBlue
+                        tripState.isArrivedAtStop -> StatusActiveGreen
+                        else -> TransportGold
+                    },
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
-                        text = if (tripState.isArrivedAtStop) "ARRIVED AT STOP" else "EN ROUTE",
+                        text = when {
+                            !tripState.isNavigating -> "SCHEDULED"
+                            tripState.isArrivedAtStop -> "ARRIVED AT STOP"
+                            else -> "EN ROUTE"
+                        },
                         color = if (tripState.isArrivedAtStop) Color.White else Slate900,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.ExtraBold,
@@ -528,13 +851,13 @@ fun DriverNavigationHudCard(
             // Target Stop Name & Scheduled Time
             Column {
                 Text(
-                    text = currentStop?.stopName ?: "Bole Atlas",
+                    text = currentStop?.stopName ?: if (tripState.isNavigating) "No pickup stop assigned" else "Assigned departure point",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Scheduled Pickup: ${currentStop?.scheduledMorningTime ?: "06:30 AM"}",
+                    text = "Scheduled route departure: ${formatRouteTime12Hour(tripState.departureTime)}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Slate600
                 )
@@ -552,7 +875,7 @@ fun DriverNavigationHudCard(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(text = "DISTANCE", style = MaterialTheme.typography.labelSmall, color = Slate600)
                     Text(
-                        text = if (tripState.isArrivedAtStop) "0.0 km" else "${tripState.currentDistanceKm} km",
+                        text = if (currentStop == null) "—" else if (tripState.isArrivedAtStop) "0.0 km" else if (tripState.currentDistanceKm > 0.0) "${tripState.currentDistanceKm} km" else "—",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = TransportGreenPrimary
@@ -561,7 +884,7 @@ fun DriverNavigationHudCard(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(text = "ETA", style = MaterialTheme.typography.labelSmall, color = Slate600)
                     Text(
-                        text = if (tripState.isArrivedAtStop) "0 min" else "${tripState.currentEtaMins} min",
+                        text = if (currentStop == null) "—" else if (tripState.isArrivedAtStop) "0 min" else if (tripState.currentEtaMins > 0) "${tripState.currentEtaMins} min" else "—",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFFB45309)
@@ -570,7 +893,7 @@ fun DriverNavigationHudCard(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(text = "GROUP PASSENGERS", style = MaterialTheme.typography.labelSmall, color = Slate600)
                     Text(
-                        text = "${currentStop?.maxCapacity ?: 4} Persons",
+                        text = currentStop?.maxCapacity?.let { "$it Persons" } ?: "—",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = Slate900
@@ -578,11 +901,27 @@ fun DriverNavigationHudCard(
                 }
             }
 
-            // Big Hands-Free / Driver-Safe Action Buttons
+            // Start is shown only when there is no active trip. Active trips use arrival, scan, next-stop and completion actions.
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (!tripState.isArrivedAtStop) {
+                if (!tripState.isNavigating) {
+                    Button(
+                        onClick = onStartNavigation,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = TransportGreenPrimary),
+                        modifier = Modifier.fillMaxWidth().height(56.dp).testTag("driver_start_trip_button")
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            if (currentStop == null) "CONFIRM ASSIGNED DEPARTURE" else "CONFIRM ARRIVAL & START",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else if (!tripState.isArrivedAtStop) {
                     Button(
                         onClick = onArrived,
+                        enabled = currentStop != null,
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = TransportGreenPrimary),
                         modifier = Modifier
@@ -602,6 +941,7 @@ fun DriverNavigationHudCard(
                     // When arrived: Big Scan QR button + Next Stop
                     Button(
                         onClick = onScanQr,
+                        enabled = currentStop != null,
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue),
                         modifier = Modifier
@@ -629,6 +969,7 @@ fun DriverNavigationHudCard(
                                 .weight(1f)
                                 .height(48.dp)
                                 .testTag("driver_skip_button"),
+                            enabled = currentStop != null,
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusExpiredRed)
                         ) {
                             Text(text = t("skip_noshow"), fontWeight = FontWeight.Bold)
@@ -636,6 +977,7 @@ fun DriverNavigationHudCard(
 
                         Button(
                             onClick = onNextStop,
+                            enabled = !isFinalStop,
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = TransportGreenDark),
                             modifier = Modifier
@@ -647,6 +989,21 @@ fun DriverNavigationHudCard(
                             Spacer(Modifier.width(4.dp))
                             Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
                         }
+                    }
+
+                    // Trip completion remains available at every active stop, not only the final stop.
+                    Button(
+                        onClick = onCompleteTrip,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = StatusActiveGreen),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .testTag("driver_complete_trip_button")
+                    ) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("COMPLETE TRIP", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -660,6 +1017,7 @@ fun StopSequenceRow(
     stop: RouteStopEntity,
     isCurrent: Boolean,
     stepState: NavigationStepState,
+    canScan: Boolean = false,
     onScanClick: () -> Unit
 ) {
     Card(
@@ -723,6 +1081,7 @@ fun StopSequenceRow(
             if (isCurrent) {
                 Button(
                     onClick = onScanClick,
+                    enabled = canScan,
                     shape = RoundedCornerShape(8.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
@@ -730,7 +1089,7 @@ fun StopSequenceRow(
                 ) {
                     Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text(text = "Scan", style = MaterialTheme.typography.labelMedium)
+                    Text(text = if (canScan) "Scan" else "Start trip first", style = MaterialTheme.typography.labelMedium)
                 }
             }
         }

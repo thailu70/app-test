@@ -1,5 +1,6 @@
 package com.example.data.api
 
+import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.*
 
@@ -8,11 +9,20 @@ interface RoutePassApiService {
     // -------------------------------------------------------------
     // Authentication
     // -------------------------------------------------------------
+    @GET("api/config/public")
+    suspend fun getPublicConfig(): Response<PublicConfigResponse>
+
     @POST("api/auth/login")
     suspend fun login(@Body request: LoginRequest): Response<AuthResponse>
 
     @POST("api/auth/register")
     suspend fun register(@Body request: RegisterRequest): Response<AuthResponse>
+
+    @POST("api/auth/otp/request")
+    suspend fun requestOtp(@Body request: OtpRequest): Response<OtpRequestResponse>
+
+    @POST("api/auth/otp/verify")
+    suspend fun verifyOtp(@Body request: OtpVerifyRequest): Response<OtpVerifyResponse>
 
     @GET("api/auth/me")
     suspend fun getCurrentUser(): Response<AuthResponse>
@@ -108,6 +118,18 @@ interface RoutePassApiService {
 
     @GET("api/checkins/trip/{tripId}")
     suspend fun getCheckinsForTrip(@Path("tripId") tripId: String): Response<Map<String, Any>>
+
+    // -------------------------------------------------------------
+    // Profile photos, transporter documents, and roster attendance
+    // -------------------------------------------------------------
+    @POST("api/profile-media/upload")
+    suspend fun uploadProfileMedia(@Body request: Map<String, String>): Response<Map<String, Any>>
+
+    @GET("api/rosters/my")
+    suspend fun getMyRoster(): Response<Map<String, Any>>
+
+    @GET("api/profile-media/{ownerId}/{assetType}")
+    suspend fun getProfileMedia(@Path("ownerId") ownerId: String, @Path("assetType") assetType: String): Response<ResponseBody>
 
     // -------------------------------------------------------------
     // Operational Notifications

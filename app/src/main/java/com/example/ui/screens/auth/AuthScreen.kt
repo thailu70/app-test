@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.localization.AppLanguage
 import com.example.data.entity.RouteEntity
+import com.example.data.entity.RouteStopEntity
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.AppRole
 import com.example.ui.viewmodel.MainViewModel
@@ -41,11 +43,18 @@ fun AuthScreen(
     val lang by viewModel.currentLanguage.collectAsState()
     val authError by viewModel.authError.collectAsState()
     val registrationMessage by viewModel.registrationMessage.collectAsState()
-    val availableRoutes by viewModel.allRoutes.collectAsState()
+    val otpChallengeId by viewModel.otpChallengeId.collectAsState()
+    val otpProof by viewModel.otpProof.collectAsState()
+    val otpMessage by viewModel.otpMessage.collectAsState()
+    val testPassengerRegistrationBypass by viewModel.testPassengerRegistrationBypass.collectAsState()
+    val availableRoutes by viewModel.signupRoutes.collectAsState()
+    val routesRefreshing by viewModel.signupRoutesRefreshing.collectAsState()
 
-    // Dedicated Independent Portal Gateway (null = selecting portal; non-null = inside specific portal)
-    var selectedPortal by remember { mutableStateOf<AppRole?>(null) }
+    // Passenger and driver share one sign-in/registration screen; switch roles without leaving the form.
+    var selectedPortal by remember { mutableStateOf<AppRole?>(AppRole.PASSENGER) }
     var isRegisterMode by remember { mutableStateOf(false) }
+    var rememberMe by remember { mutableStateOf(true) }
+    var showForgotPasswordDialog by remember { mutableStateOf(false) }
 
     // Form fields
     var fullName by remember { mutableStateOf("") }
@@ -53,6 +62,7 @@ fun AuthScreen(
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
+    var otpCode by remember { mutableStateOf("") }
     var registrationValidationMessage by remember { mutableStateOf<String?>(null) }
     var licenseNumber by remember { mutableStateOf("") }
     var companyName by remember { mutableStateOf("") }
@@ -62,25 +72,37 @@ fun AuthScreen(
     var vehicleTypeMenuExpanded by remember { mutableStateOf(false) }
     var adminSecret by remember { mutableStateOf("") }
 
-    // Applied Route Selection for Passenger and Driver
-    var selectedRouteId by remember { mutableStateOf("route_bole_merkato") }
-    var selectedRouteName by remember { mutableStateOf("Bole → Merkato") }
-
-    // Automatically synchronize default route if available
-    LaunchedEffect(availableRoutes) {
-        if (selectedRouteId.isBlank() && availableRoutes.isNotEmpty()) {
-            selectedRouteId = availableRoutes.first().id
-            selectedRouteName = availableRoutes.first().name
-        }
-    }
+    // Passenger may select an active route or enter a route request for admin review.
+    var selectedRouteId by remember { mutableStateOf("") }
+    var selectedRouteName by remember { mutableStateOf("") }
+    var requestedRoute by remember { mutableStateOf("") }
+    val signupRouteStops by viewModel.signupRouteStops.collectAsState()
+    var pickupStopId by remember { mutableStateOf("") }
+    var destinationStopId by remember { mutableStateOf("") }
+    var stopMenu by remember { mutableStateOf("") }
+    var serviceType by remember { mutableStateOf("ONE_WAY") }
+    var travelUntil by remember { mutableStateOf("") }
+    var shift by remember { mutableStateOf("Morning") }
+    var pickupTime by remember { mutableStateOf("06:30") }
 
     // Never pre-fill the login form with shared/demo credentials.
     LaunchedEffect(selectedPortal, isRegisterMode) {
+        viewModel.clearRegistrationOtp()
+        otpCode = ""
         phone = ""
         password = ""
         confirmPassword = ""
         registrationValidationMessage = null
         if (isRegisterMode) fullName = ""
+        requestedRoute = ""
+        selectedRouteId = ""
+        selectedRouteName = ""
+        pickupStopId = ""
+        destinationStopId = ""
+        viewModel.loadSignupRouteStops("")
+        if (isRegisterMode && selectedPortal == AppRole.PASSENGER) {
+            viewModel.refreshSignupRoutes()
+        }
     }
 
     LaunchedEffect(registrationMessage) {
@@ -91,20 +113,21 @@ fun AuthScreen(
         }
     }
 
-    // Handle back button when inside a portal to safely return to Portal Gateway
-    BackHandler(enabled = selectedPortal != null) {
+    // Back returns to the default passenger form instead of a separate portal-selection page.
+    BackHandler(enabled = selectedPortal != AppRole.PASSENGER) {
         viewModel.clearRegistrationMessage()
-        selectedPortal = null
+        selectedPortal = AppRole.PASSENGER
         isRegisterMode = false
     }
 
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFFEAF8F7), Color(0xFFF5FBF4), Color(0xFFE4F5E9))))
             .padding(horizontal = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(top = 24.dp, bottom = 48.dp)
+        contentPadding = PaddingValues(top = 28.dp, bottom = 48.dp)
     ) {
         // App Identity Header
         item {
@@ -115,14 +138,15 @@ fun AuthScreen(
                 Surface(
                     color = TransportGreenPrimary,
                     shape = CircleShape,
-                    modifier = Modifier.size(64.dp)
+                    shadowElevation = 10.dp,
+                    modifier = Modifier.size(82.dp).border(4.dp, Color.White.copy(alpha = 0.95f), CircleShape)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             Icons.Default.DirectionsBus,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(44.dp)
                         )
                     }
                 }
@@ -239,64 +263,47 @@ fun AuthScreen(
         else {
             val portal = selectedPortal!!
 
-            // Portal Active Header with Back to Portals button
+            // Role switcher: passenger, driver, and admin stay on the same sign-in/registration page.
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Text(
+                    if (lang == AppLanguage.AMHARIC) "የመግቢያ አይነት ይምረጡ" else "Continue as",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Slate700,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                TabRow(
+                    selectedTabIndex = when (portal) {
+                        AppRole.PASSENGER -> 0
+                        AppRole.DRIVER -> 1
+                        else -> 0
+                    },
+                    modifier = Modifier.clip(RoundedCornerShape(12.dp)),
+                    containerColor = Slate200,
+                    indicator = {}
                 ) {
-                    OutlinedButton(
-                        onClick = {
-                            selectedPortal = null
-                            isRegisterMode = false
-                        },
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Slate700),
-                        modifier = Modifier.testTag("back_to_portals_button")
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = if (lang == AppLanguage.AMHARIC) "ፖርታል ቀይር" else "Change Portal",
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    }
-
-                    Surface(
-                        color = when (portal) {
-                            AppRole.PASSENGER -> TransportGreenPrimary.copy(alpha = 0.15f)
-                            AppRole.DRIVER -> Color(0xFFF59E0B).copy(alpha = 0.15f)
-                            AppRole.ADMIN -> TelebirrBlue.copy(alpha = 0.15f)
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            when (portal) {
-                                AppRole.PASSENGER -> TransportGreenPrimary
-                                AppRole.DRIVER -> Color(0xFFB45309)
-                                AppRole.ADMIN -> TelebirrBlue
-                            }
-                        )
-                    ) {
-                        Text(
-                            text = when (portal) {
-                                AppRole.PASSENGER -> "PASSENGER PORTAL"
-                                AppRole.DRIVER -> "TRANSPORTER CONSOLE"
-                                AppRole.ADMIN -> "OPERATOR CENTER"
+                    listOf(AppRole.PASSENGER, AppRole.DRIVER).forEachIndexed { index, role ->
+                        Tab(
+                            selected = portal == role,
+                            onClick = {
+                                if (portal != role) {
+                                    viewModel.clearRegistrationMessage()
+                                    selectedPortal = role
+                                    // Preserve Sign In vs Register mode while switching roles on this same page.
+                                }
                             },
-                            color = when (portal) {
-                                AppRole.PASSENGER -> TransportGreenDark
-                                AppRole.DRIVER -> Color(0xFFB45309)
-                                AppRole.ADMIN -> TelebirrBlue
+                            text = {
+                                Text(
+                                    when (role) {
+                                        AppRole.PASSENGER -> if (lang == AppLanguage.AMHARIC) "ተሳፋሪ" else "Passenger"
+                                        AppRole.DRIVER -> if (lang == AppLanguage.AMHARIC) "ሹፌር" else "Driver"
+                                        else -> if (lang == AppLanguage.AMHARIC) "ተሳፋሪ" else "Passenger"
+                                    },
+                                    fontWeight = if (portal == role) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (portal == role) TransportGreenPrimary else Slate700
+                                )
                             },
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.ExtraBold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            modifier = Modifier.testTag("auth_role_tab_$index")
                         )
                     }
                 }
@@ -348,9 +355,9 @@ fun AuthScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("auth_form_card"),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+                    shape = RoundedCornerShape(26.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.97f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
                 ) {
                     Column(
                         modifier = Modifier.padding(20.dp),
@@ -542,8 +549,21 @@ fun AuthScreen(
                                         color = Slate600
                                     )
 
+                                    if (routesRefreshing) {
+                                        Text(
+                                            text = if (lang == AppLanguage.AMHARIC) "የነቁ መስመሮችን በመጫን ላይ..." else "Loading active routes from server...",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Slate600
+                                        )
+                                    } else if (availableRoutes.isEmpty()) {
+                                        Text(
+                                            text = if (lang == AppLanguage.AMHARIC) "ንቁ መስመር አልተገኘም። እባክዎ ቆይተው ይሞክሩ።" else "No active routes are available. Please try again later.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Slate600
+                                        )
+                                    }
                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        availableRoutes.forEach { route ->
+                                        availableRoutes.filter { it.active }.forEach { route ->
                                             val isSelected = selectedRouteId == route.id
                                             Surface(
                                                 color = if (isSelected) Color(0xFFD1FAE5) else Color.White,
@@ -557,6 +577,10 @@ fun AuthScreen(
                                                     .clickable {
                                                         selectedRouteId = route.id
                                                         selectedRouteName = route.name
+                                                        requestedRoute = ""
+                                                        pickupStopId = ""
+                                                        destinationStopId = ""
+                                                        viewModel.loadSignupRouteStops(route.id)
                                                     }
                                                     .testTag("route_option_${route.id}")
                                             ) {
@@ -605,8 +629,92 @@ fun AuthScreen(
                                             }
                                         }
                                     }
+
+                                    if (selectedRouteId.isNotBlank() && signupRouteStops.isNotEmpty()) {
+                                        Spacer(Modifier.height(8.dp))
+                                        Text("JOURNEY DETAILS", fontWeight = FontWeight.ExtraBold, color = Slate900)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                            listOf("ONE_WAY" to "One Way", "TWO_WAY" to "Round Trip").forEach { (value, label) ->
+                                                val selected = serviceType == value
+                                                OutlinedButton(
+                                                    onClick = { serviceType = value },
+                                                    modifier = Modifier.weight(1f),
+                                                    colors = ButtonDefaults.outlinedButtonColors(containerColor = if (selected) Color(0xFF383536) else Color.White, contentColor = if (selected) Color.White else Slate900),
+                                                    shape = RoundedCornerShape(14.dp)
+                                                ) { Text(label, fontWeight = FontWeight.SemiBold) }
+                                            }
+                                        }
+                                        RouteStopSelector("Pickup", signupRouteStops, pickupStopId, stopMenu == "pickup", { stopMenu = if (stopMenu == "pickup") "" else "pickup" }, { stopMenu = "" }, { pickupStopId = it; stopMenu = "" })
+                                        RouteStopSelector("Destination", signupRouteStops, destinationStopId, stopMenu == "destination", { stopMenu = if (stopMenu == "destination") "" else "destination" }, { stopMenu = "" }, { destinationStopId = it; stopMenu = "" })
+                                        OutlinedTextField(
+                                            value = travelUntil,
+                                            onValueChange = { travelUntil = it.take(10) },
+                                            label = { Text("Travels until (YYYY-MM-DD)") },
+                                            placeholder = { Text("YYYY-MM-DD") },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth().testTag("passenger_travel_until")
+                                        )
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                            var shiftMenuExpanded by remember { mutableStateOf(false) }
+                                            var timeMenuExpanded by remember { mutableStateOf(false) }
+                                            Column(Modifier.weight(1f)) {
+                                                Text("Shift", fontWeight = FontWeight.SemiBold, color = Slate900)
+                                                Box {
+                                                    OutlinedButton(onClick = { shiftMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                                                        Text(shift, maxLines = 1)
+                                                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                                    }
+                                                    DropdownMenu(expanded = shiftMenuExpanded, onDismissRequest = { shiftMenuExpanded = false }) {
+                                                        listOf("Morning", "Evening").forEach { value ->
+                                                            DropdownMenuItem(text = { Text(value) }, onClick = { shift = value; shiftMenuExpanded = false; pickupTime = if (value == "Morning") "06:30" else "17:30" })
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Column(Modifier.weight(1f)) {
+                                                Text("Pickup time", fontWeight = FontWeight.SemiBold, color = Slate900)
+                                                Box {
+                                                    OutlinedButton(onClick = { timeMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                                                        Text(pickupTime, maxLines = 1)
+                                                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                                    }
+                                                    DropdownMenu(expanded = timeMenuExpanded, onDismissRequest = { timeMenuExpanded = false }) {
+                                                        (if (shift == "Morning") listOf("06:00", "06:30", "07:00", "07:30", "08:00") else listOf("16:30", "17:00", "17:30", "18:00", "18:30")).forEach { value ->
+                                                            DropdownMenuItem(text = { Text(value) }, onClick = { pickupTime = value; timeMenuExpanded = false })
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Surface(color = Color(0xFFF4F4F4), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Text("Monthly commuter pass", fontWeight = FontWeight.Bold, color = Slate900)
+                                                Text("ETB ${availableRoutes.firstOrNull { it.id == selectedRouteId }?.basePriceEtb?.toInt() ?: 0} / month", fontWeight = FontWeight.ExtraBold, color = TransportGreenPrimary, style = MaterialTheme.typography.titleMedium)
+                                                Text("Vehicle type and final assignment are confirmed by the RoutePass administrator.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                                            }
+                                        }
+                                    }
                                 }
                             }
+                        }
+
+                        if (isRegisterMode && portal == AppRole.PASSENGER) {
+                            OutlinedTextField(
+                                value = requestedRoute,
+                                onValueChange = {
+                                    requestedRoute = it.take(200)
+                                    if (it.isNotBlank()) {
+                                        selectedRouteId = ""
+                                        selectedRouteName = ""
+                                    }
+                                },
+                                label = { Text("Route not listed? Enter your requested route") },
+                                placeholder = { Text("Example: CMC to Bole, near my home and workplace") },
+                                supportingText = { Text("Your request stays PENDING until an administrator reviews it and assigns an available route.") },
+                                minLines = 2,
+                                maxLines = 3,
+                                modifier = Modifier.fillMaxWidth().testTag("custom_route_request_input")
+                            )
                         }
 
                         OutlinedTextField(
@@ -620,6 +728,8 @@ fun AuthScreen(
                                 .fillMaxWidth()
                                 .testTag("auth_phone_input")
                         )
+
+
 
                         OutlinedTextField(
                             value = password,
@@ -636,6 +746,33 @@ fun AuthScreen(
                                 .testTag("auth_password_input")
                         )
 
+                        if (!isRegisterMode) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = rememberMe,
+                                        onCheckedChange = { rememberMe = it },
+                                        colors = CheckboxDefaults.colors(checkedColor = TransportGreenPrimary)
+                                    )
+                                    Text("Remember Me", color = Slate900, style = MaterialTheme.typography.bodyMedium)
+                                }
+                                Text(
+                                    text = "Forgot Password?",
+                                    color = TransportGreenPrimary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier
+                                        .clickable { showForgotPasswordDialog = true }
+                                        .padding(vertical = 8.dp)
+                                        .testTag("forgot_password_button")
+                                )
+                            }
+                        }
+
                         if (isRegisterMode) {
                             OutlinedTextField(
                                 value = confirmPassword,
@@ -651,6 +788,61 @@ fun AuthScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("auth_confirm_password_input")
+                            )
+                        }
+
+                        if (isRegisterMode && portal != AppRole.ADMIN && !(portal == AppRole.PASSENGER && testPassengerRegistrationBypass)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                Text("Step 2: Verify mobile number to complete registration", fontWeight = FontWeight.Bold, color = Slate900)
+                                Button(
+                                    onClick = {
+                                        val requiredDataError = when {
+                                            fullName.isBlank() -> "Enter your full name before requesting OTP."
+                                            phone.isBlank() -> "Enter your mobile number first."
+                                            password.length < 10 -> "Use a password with at least 10 characters before requesting OTP."
+                                            password != confirmPassword -> "The two passwords do not match."
+                                            portal == AppRole.PASSENGER && selectedRouteId.isBlank() && requestedRoute.isBlank() -> "Select an available route or enter the route you need."
+                                            portal == AppRole.PASSENGER && selectedRouteId.isNotBlank() && signupRouteStops.isNotEmpty() && (pickupStopId.isBlank() || destinationStopId.isBlank()) -> "Choose both pickup and destination stops."
+                                            portal == AppRole.PASSENGER && pickupStopId.isNotBlank() && pickupStopId == destinationStopId -> "Pickup and destination must be different stops."
+                                            portal == AppRole.DRIVER && (licenseNumber.isBlank() || vehiclePlate.isBlank() || vehicleModel.isBlank()) -> "Complete your driver licence and vehicle details first."
+                                            else -> null
+                                        }
+                                        if (requiredDataError != null) registrationValidationMessage = requiredDataError
+                                        else {
+                                            registrationValidationMessage = null
+                                            otpCode = ""
+                                            viewModel.requestRegistrationOtp(phone)
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(if (otpChallengeId.isNullOrBlank()) "SEND SMS VERIFICATION CODE" else "RESEND SMS CODE")
+                                }
+                                if (!otpChallengeId.isNullOrBlank()) {
+                                    OutlinedTextField(
+                                        value = otpCode,
+                                        onValueChange = { otpCode = it.filter(Char::isDigit).take(6) },
+                                        label = { Text("6-digit SMS verification code") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    Button(
+                                        onClick = { viewModel.verifyRegistrationOtp(otpCode) },
+                                        enabled = otpCode.length == 6 && otpProof.isNullOrBlank(),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) { Text(if (otpProof.isNullOrBlank()) "VERIFY MOBILE NUMBER" else "MOBILE NUMBER VERIFIED") }
+                                }
+                                otpMessage?.let { Text(it, color = if (otpProof.isNullOrBlank()) Slate700 else TransportGreenPrimary, style = MaterialTheme.typography.bodySmall) }
+                            }
+                        }
+
+                        if (isRegisterMode && portal == AppRole.PASSENGER && testPassengerRegistrationBypass) {
+                            Text(
+                                text = "TEST MODE: Passenger registration skips SMS OTP. Disable server test mode before public launch.",
+                                color = Color(0xFFB45309),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
 
@@ -689,12 +881,20 @@ fun AuthScreen(
                                     val validationMessage = when {
                                         password.length < 10 -> "Use a password with at least 10 characters."
                                         password != confirmPassword -> "The two passwords do not match. Please re-enter them."
+                                        portal == AppRole.PASSENGER && selectedRouteId.isBlank() && requestedRoute.isBlank() -> "Select an available route or enter the route you need."
+                                        portal == AppRole.PASSENGER && selectedRouteId.isNotBlank() && signupRouteStops.isNotEmpty() && (pickupStopId.isBlank() || destinationStopId.isBlank()) -> "Choose both pickup and destination stops."
+                                        portal == AppRole.PASSENGER && pickupStopId.isNotBlank() && pickupStopId == destinationStopId -> "Pickup and destination must be different stops."
+                                        portal == AppRole.PASSENGER && selectedRouteId.isNotBlank() && travelUntil.isNotBlank() && !travelUntil.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) -> "Enter the travel end date as YYYY-MM-DD."
+                                        portal != AppRole.ADMIN && !(portal == AppRole.PASSENGER && testPassengerRegistrationBypass) && otpProof.isNullOrBlank() -> "Verify your mobile number by SMS before registering."
                                         else -> null
                                     }
                                     if (validationMessage != null) {
                                         registrationValidationMessage = validationMessage
                                     } else {
                                         registrationValidationMessage = null
+                                        val routePreferences = if (portal == AppRole.PASSENGER && selectedRouteId.isNotBlank() && pickupStopId.isNotBlank() && destinationStopId.isNotBlank()) {
+                                            "Route: $selectedRouteName | Pickup: ${signupRouteStops.firstOrNull { it.id == pickupStopId }?.stopName.orEmpty()} | Destination: ${signupRouteStops.firstOrNull { it.id == destinationStopId }?.stopName.orEmpty()} | Service: $serviceType | Travel until: $travelUntil | Shift: $shift | Pickup time: $pickupTime"
+                                        } else requestedRoute.trim()
                                         viewModel.register(
                                             fullName = fullName,
                                             phone = phone,
@@ -706,9 +906,11 @@ fun AuthScreen(
                                             assignedVehiclePlate = vehiclePlate,
                                             vehicleModel = vehicleModel,
                                             vehicleType = vehicleType,
-                                            appliedRouteId = selectedRouteId,
-                                            appliedRouteName = selectedRouteName,
-                                            adminSecret = adminSecret
+                                            appliedRouteId = if (requestedRoute.isBlank()) selectedRouteId else "",
+                                            appliedRouteName = if (requestedRoute.isBlank()) selectedRouteName else "",
+                                            requestedRoute = routePreferences,
+                                            adminSecret = adminSecret,
+                                             otpProof = otpProof.orEmpty()
                                         )
                                     }
                                 } else {
@@ -739,6 +941,19 @@ fun AuthScreen(
             }
 
         }
+    }
+
+    if (showForgotPasswordDialog) {
+        AlertDialog(
+            onDismissRequest = { showForgotPasswordDialog = false },
+            title = { Text("Forgot Password?") },
+            text = { Text("Password recovery by SMS is not yet connected. Please contact the RoutePass administrator to reset your account password.") },
+            confirmButton = {
+                TextButton(onClick = { showForgotPasswordDialog = false }) {
+                    Text("OK", color = TransportGreenPrimary)
+                }
+            }
+        )
     }
 }
 
@@ -827,6 +1042,33 @@ fun PortalOptionCard(
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteStopSelector(
+    label: String,
+    stops: List<RouteStopEntity>,
+    selectedStopId: String,
+    expanded: Boolean,
+    onExpand: () -> Unit,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit
+) {
+    val selectedName = stops.firstOrNull { it.id == selectedStopId }?.stopName ?: label
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.fillMaxWidth()) {
+        Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Slate900)
+        Box {
+            OutlinedButton(onClick = onExpand, modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp), shape = RoundedCornerShape(12.dp)) {
+                Text(selectedName, modifier = Modifier.weight(1f), textAlign = TextAlign.Start, color = if (selectedStopId.isBlank()) Slate400 else Slate900)
+                Icon(Icons.Default.ArrowDropDown, contentDescription = "Choose $label")
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+                stops.sortedBy { it.stopOrder }.forEach { stop ->
+                    DropdownMenuItem(text = { Text(stop.stopName) }, onClick = { onSelect(stop.id) }, leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) })
+                }
             }
         }
     }

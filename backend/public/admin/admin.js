@@ -7,6 +7,7 @@
   const labels = {
     overview: ["Overview", "A live snapshot of RoutePass service operations."],
     drivers: ["Drivers & routes", "Review driver-owned vehicles and assign approved operating routes."],
+    passengers: ["Passengers", "View registered passenger profiles, subscription assignments and profile photos."],
     routes: ["Manage routes", "Create, edit, activate and deactivate RoutePass transit routes."],
     vehicles: ["Vehicles", "Fleet availability and current assignments."],
     subscriptions: ["Subscriptions", "Passenger subscription records and payment state."],
@@ -26,6 +27,25 @@
     return "—";
   }
   function asArray(response, key) { return Array.isArray(response?.[key]) ? response[key] : []; }
+  function formatTime12Hour(value) {
+    const match = /^(\\d{1,2}):(\\d{2})$/.exec(String(value ?? "").trim());
+    if (!match) return String(value ?? "—");
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return String(value);
+    const suffix = hour >= 12 ? "PM" : "AM";
+    return (hour % 12 || 12) + ":" + String(minute).padStart(2, "0") + " " + suffix;
+  }
+  function parseTime12Hour(value) {
+    const text = String(value ?? "").trim().toUpperCase();
+    const match = /^(\\d{1,2}):(\\d{2})\\s*(AM|PM)$/.exec(text);
+    if (!match) return null;
+    let hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return null;
+    hour = (hour % 12) + (match[3] === "PM" ? 12 : 0);
+    return String(hour).padStart(2, "0") + ":" + String(minute).padStart(2, "0");
+  }
   function money(number) {
     const parsed = Number(number);
     return Number.isFinite(parsed) ? "ETB " + parsed.toLocaleString("en-ET", { maximumFractionDigits: 2 }) : "ETB 0";
@@ -97,6 +117,125 @@
   function statCard(title, number, sub) {
     return '<div class="card stat-card"><div class="stat-label">' + esc(title) + '</div><div class="stat-value">' + esc(number) + '</div><div class="stat-foot">' + esc(sub) + "</div></div>";
   }
+
+  let liveMap = null;
+  let liveMapTimer = null;
+  const liveMarkers = new Map();
+
+  async function refreshLiveMap() {
+    const status = $("#driver-map-status");
+    if (!status || !liveMap) return;
+    try {
+      const result = await api("/api/admin/tracking");
+      const vehicles = asArray(result, "vehicles");
+      const seen = new Set();
+      let plotted = 0;
+      for (const v of vehicles) {
+        const lat = Number(v.latitude);
+        const lng = Number(v.longitude);
+        if (v.latitude == null || v.longitude == null || !Number.isFinite(lat) || !Number.isFinite(lng) ||
+            Math.abs(lat) > 90 || Math.abs(lng) > 180 || !v.lastGpsAt) continue;
+        const key = String(v.id);
+        seen.add(key);
+        plotted++;
+        const ageMs = Math.max(0, Date.now() - new Date(v.lastGpsAt).getTime());
+        const freshness = Number.isFinite(ageMs) && ageMs <= 120000 ? "GPS fresh" : "GPS stale";
+        const title = String(v.driverName || "Driver") + " · " + String(v.plateNumber || "Vehicle");
+        const details = "<strong>" + esc(title) + "</strong><br>" +
+          esc(value(v, "routeName", "route_name")) + "<br>Progress: " + esc(value(v, "tripCurrentStop", "trip_current_stop", "currentStop", "current_stop")) +
+          "<br>Trip: " + esc(value(v, "tripStatus", "trip_status")) + " " + esc(value(v, "tripDirection", "trip_direction")) +
+          "<br>" + esc(freshness) + " · " + esc(dateText(v.lastGpsAt));
+        let marker = liveMarkers.get(key);
+        if (!marker) {
+          marker = window.L.marker([lat, lng]).addTo(liveMap);
+          liveMarkers.set(key, marker);
+        } else marker.setLatLng([lat, lng]);
+        marker.bindPopup(details);
+        marker.bindTooltip(title);
+      }
+      for (const [key, marker] of liveMarkers.entries()) {
+        if (!seen.has(key)) { liveMap.removeLayer(marker); liveMarkers.delete(key); }
+      }
+      status.textContent = "Showing " + plotted + " vehicle(s) with reported GPS. Refreshes every 15 seconds; stale GPS is labelled.";
+      if (plotted && !liveMap._routePassCentered) {
+        const points = Array.from(liveMarkers.values()).map(marker => marker.getLatLng());
+        if (points.length === 1) liveMap.setView(points[0], 14);
+        else if (points.length > 1) liveMap.fitBounds(window.L.latLngBounds(points).pad(0.15));
+        liveMap._routePassCentered = true;
+      }
+    } catch (error) {
+      status.textContent = "Could not refresh driver locations: " + error.message;
+    }
+  }
+
+  function initLiveMap() {
+    const mapElement = $("#driver-live-map");
+    if (!mapElement) {
+      if (liveMapTimer) window.clearInterval(liveMapTimer);
+      liveMapTimer = null;
+      return;
+    }
+    if (!window.L) {
+      $("#driver-map-status").textContent = "Map library did not load. Check network access to the map provider.";
+      return;
+    }
+    if (!liveMap) {
+      liveMap = window.L.map(mapElement).setView([9.03, 38.74], 12);
+      window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19, attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(liveMap);
+    }
+    window.setTimeout(() => liveMap && liveMap.invalidateSize(), 50);
+    refreshLiveMap();
+    if (liveMapTimer) window.clearInterval(liveMapTimer);
+    liveMapTimer = window.setInterval(refreshLiveMap, 15000);
+  }
+
+  async function viewPrivateMedia(button) {
+    const ownerId = button.dataset.privateMediaOwner;
+    const assetType = button.dataset.privateMediaType;
+    button.disabled = true;
+    try {
+      const response = await fetch("/api/profile-media/" + encodeURIComponent(ownerId) + "/" + encodeURIComponent(assetType), {
+        headers: { Authorization: "Bearer " + state.token, Accept: "*/*" },
+        credentials: "same-origin", cache: "no-store"
+      });
+      if (!response.ok) {
+        let message = "Could not load private file (HTTP " + response.status + ").";
+        try { const body = await response.json(); message = body.error || message; } catch (_) {}
+        throw new Error(message);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const overlay = document.createElement("div");
+      overlay.className = "media-modal";
+      const card = document.createElement("div");
+      card.className = "media-modal-card";
+      const heading = document.createElement("h3");
+      heading.textContent = assetType.replace(/_/g, " ");
+      const close = document.createElement("button");
+      close.className = "btn btn-secondary";
+      close.textContent = "Close";
+      const cleanup = () => { URL.revokeObjectURL(url); overlay.remove(); };
+      close.addEventListener("click", cleanup);
+      overlay.addEventListener("click", event => { if (event.target === overlay) cleanup(); });
+      card.append(heading);
+      if (blob.type.startsWith("image/")) {
+        const img = document.createElement("img");
+        img.className = "private-media-preview";
+        img.alt = assetType.replace(/_/g, " ");
+        img.src = url;
+        card.append(img);
+      } else {
+        const link = document.createElement("a");
+        link.href = url; link.target = "_blank"; link.rel = "noopener";
+        link.textContent = "Open private document in a new tab";
+        card.append(link);
+      }
+      card.append(close); overlay.append(card); document.body.append(overlay);
+    } catch (error) { toast(error.message, true); }
+    finally { button.disabled = false; }
+  }
   async function loadLookups() {
     const [routeResult, vehicleResult] = await Promise.all([api("/api/admin/routes"), api("/api/vehicles")]);
     state.cache.routes = asArray(routeResult, "routes");
@@ -117,8 +256,11 @@
       statCard("Boardings recorded", value(s, "todayCheckins"), "Check-in records marked boarded") +
       statCard("Open complaints", value(s, "openComplaints"), "Items needing attention") +
       "</div>" +
+      section("Live driver map", "Real driver GPS reports and active-trip progress. Locations update every 15 seconds; stale reports are labelled.", '<div id="driver-live-map" class="driver-live-map" role="img" aria-label="Map of reported driver locations"></div><p id="driver-map-status" class="map-status">Loading GPS reports…</p>') +
       section("Recently created driver accounts", "Latest driver records currently on the server.",
         table([
+          { label: "Photo", render: r => '<button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="DRIVER_PROFILE_PHOTO">View photo</button>' },
+          { label: "Documents", render: r => '<div class="inline-actions"><button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="DRIVER_LICENSE">Licence</button><button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="VEHICLE_PHOTO">Vehicle</button><button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="TRADE_LICENSE">Trade licence</button></div>' },
           { label: "Driver", render: r => "<strong>" + esc(value(r, "fullName", "full_name")) + "</strong>" },
           { label: "Phone / username", keys: ["phone"] },
           { label: "Vehicle", keys: ["assignedVehiclePlate", "assigned_vehicle_plate"] },
@@ -135,6 +277,8 @@
       '<button class="btn btn-secondary" data-go="routes">Manage routes</button>') +
       section("Registered drivers", data.length + " account(s)",
         table([
+          { label: "Photo", render: r => '<button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="DRIVER_PROFILE_PHOTO">View photo</button>' },
+          { label: "Documents", render: r => '<div class="inline-actions"><button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="DRIVER_LICENSE">Licence</button><button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="VEHICLE_PHOTO">Vehicle</button><button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="TRADE_LICENSE">Trade licence</button></div>' },
           { label: "Driver", render: r => "<strong>" + esc(value(r, "fullName", "full_name")) + "</strong>" },
           { label: "Phone / username", keys: ["phone"] },
           { label: "Company", keys: ["companyName", "company_name"] },
@@ -161,16 +305,19 @@
   }
 
   async function renderRoutes() {
-    const result = await api("/api/admin/routes");
+    const [result, geofence] = await Promise.all([api("/api/admin/routes"), api("/api/admin/settings/geofence")]);
     const routes = asArray(result, "routes");
     state.cache.routes = routes;
     return pageHeader("Manage routes", "Create a route, update its timetable and tariff, or deactivate it without deleting history.") +
+      section("Driver GPS arrival radius", "Choose how close a driver must be to the assigned departure stop before confirming arrival. Allowed range: 25–5,000 metres.",
+        '<div class="form-card"><div class="field"><label for="driver-geofence-radius">GPS radius in metres</label><input id="driver-geofence-radius" type="number" min="25" max="5000" step="25" value="' + esc(geofence.radiusMeters || 200) + '" required><span class="hint">Examples: 50 m, 200 m, 1,000 m. Applies to trip-start confirmations immediately.</span></div><div class="form-actions"><button class="btn btn-primary" type="button" data-save-geofence>Save GPS radius</button></div></div>') +
       section("Create a route", "New routes are active by default.",
         '<form id="create-route-form" class="form-card"><div class="driver-form-grid">' +
         '<div class="field"><label for="route-name">Route name (English) *</label><input id="route-name" name="name" required maxlength="120" placeholder="Bole - Merkato Express"></div>' +
         '<div class="field"><label for="route-name-am">Route name (Amharic) *</label><input id="route-name-am" name="nameAm" required maxlength="120" placeholder="ቦሌ - መርካቶ"></div>' +
         '<div class="field"><label for="route-description">Description</label><input id="route-description" name="description" maxlength="400"></div>' +
         '<div class="field"><label for="route-distance">Distance (km)</label><input id="route-distance" name="distanceKm" type="number" min="0.1" step="0.1" value="10"></div>' +
+        '<div class="field"><label for="route-service-type">Route service type</label><select id="route-service-type" name="serviceType"><option value="TWO_WAY">Two-way (home ↔ work/school)</option><option value="ONE_WAY">One-way service</option></select></div>' +
         '<div class="field"><label for="route-morning">Morning departure</label><input id="route-morning" name="morningDeparture" type="time" value="06:30" required></div>' +
         '<div class="field"><label for="route-evening">Evening departure</label><input id="route-evening" name="eveningDeparture" type="time" value="17:30" required></div>' +
         '<div class="field"><label for="route-price">Monthly tariff (ETB)</label><input id="route-price" name="basePriceEtb" type="number" min="0" step="1" value="2500" required></div>' +
@@ -179,8 +326,9 @@
       section("Existing routes", routes.length + " route(s)",
         table([
           { label: "Route", render: r => "<strong>" + esc(value(r, "name")) + "</strong><br><span class=\"muted\">" + esc(value(r, "nameAm", "name_am")) + "</span>" },
-          { label: "Morning", keys: ["morningDeparture", "morning_departure"] },
-          { label: "Evening", keys: ["eveningDeparture", "evening_departure"] },
+          { label: "Service type", keys: ["serviceType", "service_type"] },
+          { label: "Morning", render: r => esc(formatTime12Hour(value(r, "morningDeparture", "morning_departure"))) },
+          { label: "Evening", render: r => esc(formatTime12Hour(value(r, "eveningDeparture", "evening_departure"))) },
           { label: "Distance", render: r => esc(value(r, "distanceKm", "distance_km")) + " km" },
           { label: "Monthly tariff", render: r => esc(money(value(r, "basePriceEtb", "base_price_etb"))) },
           { label: "Status", render: r => pill(value(r, "active") === false || value(r, "active") === 0 ? "INACTIVE" : "ACTIVE") },
@@ -203,16 +351,72 @@
           { label: "Status", render: r => pill(value(r, "status")) }
         ], data));
   }
+  async function renderPassengers() {
+    await loadLookups();
+    const data = asArray(await api("/api/admin/passengers"), "passengers");
+    const activeRoutes = (state.cache.routes || []).filter(route =>
+      route.active !== false && route.active !== 0 && route.active !== "false" && route.active !== "0"
+    );
+    return pageHeader("Passenger directory", "Review custom route requests and assign or change each passenger's active route. Route changes reset an old pass to pending/unpaid until the new fare is paid.") +
+      section("Registered passengers", data.length + " account(s)",
+        table([
+          { label: "Profile photo", render: r => '<button class="btn btn-secondary" data-private-media-owner="' + esc(value(r, "id")) + '" data-private-media-type="PROFILE_PHOTO">View photo</button>' },
+          { label: "Passenger", render: r => "<strong>" + esc(value(r, "fullName", "full_name")) + "</strong>" },
+          { label: "Phone", keys: ["phone"] },
+          { label: "Email", keys: ["email"] },
+          { label: "Account", render: r => pill(value(r, "status")) },
+          { label: "Requested route / review", render: r => {
+            const requestText = value(r, "requested_route", "requestedRoute");
+            const requestStatus = value(r, "route_request_status", "routeRequestStatus");
+            if (requestText === "—") return '<span class="muted">No custom request</span>';
+            return '<strong>' + esc(requestText) + '</strong><br>' + pill(requestStatus);
+          }},
+          { label: "Route / assign", render: r => {
+            const passengerId = esc(value(r, "id"));
+            const currentRouteId = String(r.routeId || r.route_id || r.appliedRouteId || r.applied_route_id || "");
+            const options = '<option value="">Choose active route…</option>' + activeRoutes.map(route =>
+              '<option value="' + esc(value(route, "id")) + '" ' + (String(value(route, "id")) === currentRouteId ? "selected" : "") + '>' +
+              esc(value(route, "name")) + ' · ' + esc(money(value(route, "basePriceEtb", "base_price_etb"))) + '</option>'
+            ).join("");
+            return '<div class="inline-actions"><select data-current-route-id="' + esc(currentRouteId) + '" data-passenger-route-for="' + passengerId + '" aria-label="Assign route for ' + esc(value(r, "fullName", "full_name")) + '" style="min-width:190px;padding:7px;border:1px solid #d5deea;border-radius:8px">' + options + '</select>' +
+              '<button class="btn btn-primary" data-assign-passenger-route="' + passengerId + '">Assign / update</button></div>';
+          }},
+          { label: "Assigned vehicle", keys: ["vehiclePlate", "vehicle_plate"] },
+          { label: "Assigned driver", keys: ["driverName", "driver_name"] },
+          { label: "Subscription", render: r => pill(value(r, "subscriptionStatus", "subscription_status")) },
+          { label: "Payment", render: r => pill(value(r, "paymentStatus", "payment_status")) },
+          { label: "Registered", render: r => esc(dateText(value(r, "createdAt", "created_at"))) }
+        ], data));
+  }
+
   async function renderSubscriptions() {
     await loadLookups();
     const data = asArray(await api("/api/admin/subscriptions"), "subscriptions");
     const eligibleVehicles = state.cache.vehicles || [];
-    return pageHeader("Subscriptions & passenger assignments", "Assign a driver-owned vehicle on the same route and manually activate passes for testing. Manual recharges are NOT real payments.") +
+    const activeRoutes = (state.cache.routes || []).filter(route =>
+      route.active !== false && route.active !== 0 && route.active !== "false" && route.active !== "0"
+    );
+    return pageHeader("Subscriptions & passenger assignments", "Change passenger routes, assign vehicles and record verified offline payments. A route change resets the pass to pending/unpaid until payment is recorded.") +
       section("Passenger subscriptions", data.length + " record(s)",
         table([
           { label: "Passenger", render: r => "<strong>" + esc(value(r, "passengerName", "passenger_name")) + "</strong>" },
           { label: "Phone", keys: ["passengerPhone", "passenger_phone"] },
-          { label: "Route", keys: ["routeName", "route_name"] },
+          { label: "Route / change", render: r => {
+            const subId = esc(value(r, "id"));
+            const currentRouteId = String(value(r, "routeId", "route_id") || "");
+            const currentRouteName = String(value(r, "routeName", "route_name") || "Unassigned route");
+            const currentRouteIsActive = activeRoutes.some(route => String(value(route, "id")) === currentRouteId);
+            const inactiveCurrent = currentRouteId && !currentRouteIsActive
+              ? '<option value="' + esc(currentRouteId) + '" selected disabled>' + esc(currentRouteName) + ' (inactive)</option>'
+              : "";
+            const choices = activeRoutes.map(route =>
+              '<option value="' + esc(value(route, "id")) + '" ' + (String(value(route, "id")) === currentRouteId ? "selected" : "") + '>' +
+              esc(value(route, "name")) + ' · ' + esc(money(value(route, "basePriceEtb", "base_price_etb"))) + '</option>'
+            ).join("");
+            return '<div class="inline-actions"><select data-subscription-route-for="' + subId + '" aria-label="Change route for ' + esc(value(r, "passengerName", "passenger_name")) + '" style="min-width:190px;padding:7px;border:1px solid #d5deea;border-radius:8px">' +
+              inactiveCurrent + choices +
+              '</select><button class="btn btn-primary" data-change-subscription-route="' + subId + '" data-passenger-id="' + esc(value(r, "passengerId", "passenger_id")) + '">Change</button></div>';
+          }},
           { label: "Owner vehicle / driver", render: r => esc(value(r, "vehiclePlate", "vehicle_plate")) + "<br><span class=\"muted\">" + esc(value(r, "driverName", "driver_name")) + "</span>" },
           { label: "Assign vehicle", render: r => {
             const subId = esc(value(r, "id"));
@@ -231,7 +435,7 @@
           { label: "Payment", render: r => pill(value(r, "paymentStatus", "payment_status")) },
           { label: "Subscription", render: r => pill(value(r, "subscriptionStatus", "subscription_status")) },
           { label: "End date", keys: ["endDate", "end_date"] },
-          { label: "Testing action", render: r => '<button class="btn btn-primary" data-recharge="' + esc(value(r, "id")) + '">Recharge 30 days (test)</button>' }
+          { label: "Payment entry", render: r => '<div class="inline-actions"><button class="btn btn-primary" data-manual-payment="' + esc(value(r, "id")) + '">Record payment</button><button class="btn btn-secondary" data-recharge="' + esc(value(r, "id")) + '">Test only</button></div>' }
         ], data));
   }
   async function renderPayments() {
@@ -303,6 +507,7 @@
       let html;
       switch (state.view) {
         case "drivers": html = await renderDrivers(); break;
+        case "passengers": html = await renderPassengers(); break;
         case "routes": html = await renderRoutes(); break;
         case "vehicles": html = await renderVehicles(); break;
         case "subscriptions": html = await renderSubscriptions(); break;
@@ -313,6 +518,8 @@
         default: html = await renderOverview();
       }
       $("#page-content").innerHTML = html;
+      if (state.view === "overview") initLiveMap();
+      else if (liveMapTimer) { window.clearInterval(liveMapTimer); liveMapTimer = null; }
       const routeForm = $("#create-route-form");
       if (routeForm) routeForm.addEventListener("submit", submitRoute);
     } catch (error) {
@@ -412,6 +619,61 @@
     } catch (error) { toast(error.message, true); button.disabled = false; }
   }
 
+  async function assignPassengerRoute(button) {
+    const passengerId = button.dataset.assignPassengerRoute;
+    const select = $$("[data-passenger-route-for]").find(item => item.dataset.passengerRouteFor === passengerId);
+    if (!select || !select.value) return toast("Choose an active route first.", true);
+    if (select.dataset.currentRouteId === select.value) return toast("Passenger is already assigned to that route.");
+    if (!window.confirm("Assign this active route? If changed, the old QR pass and vehicle assignment will be cleared and payment will be required again.")) return;
+    button.disabled = true;
+    try {
+      const result = await api("/api/admin/passengers/" + encodeURIComponent(passengerId) + "/route", {
+        method: "PATCH", body: JSON.stringify({ routeId: select.value })
+      });
+      toast(result.message || "Passenger route updated.");
+      await renderView();
+    } catch (error) { toast(error.message, true); button.disabled = false; }
+  }
+
+  async function changeSubscriptionRoute(button) {
+    const subId = button.dataset.changeSubscriptionRoute;
+    const passengerId = button.dataset.passengerId;
+    const select = $$("[data-subscription-route-for]").find(item => item.dataset.subscriptionRouteFor === subId);
+    if (!passengerId) return toast("Passenger ID is missing. Refresh the subscriptions list and try again.", true);
+    if (!select || !select.value) return toast("Choose an active route first.", true);
+    if (!window.confirm("Changing this passenger's route will reset the subscription to PENDING/UNPAID, clear the old QR pass and vehicle assignment, and require payment for the new route tariff. Continue?")) return;
+    button.disabled = true;
+    try {
+      // The backend route-change endpoint is keyed by passenger ID, not subscription ID.
+      // It updates the passenger's latest subscription, syncs their account route, and invalidates the old pass.
+      const result = await api("/api/admin/passengers/" + encodeURIComponent(passengerId) + "/route", {
+        method: "PATCH", body: JSON.stringify({ routeId: select.value })
+      });
+      toast(result.message || "Passenger route changed.");
+      await renderView();
+    } catch (error) { toast(error.message, true); button.disabled = false; }
+  }
+
+  async function recordManualPayment(button) {
+    const id = button.dataset.manualPayment;
+    const amountEtb = Number(window.prompt("Amount received in ETB (must equal the subscription price):", ""));
+    if (!Number.isFinite(amountEtb) || amountEtb <= 0) return toast("Enter a valid positive payment amount.", true);
+    const referenceNumber = window.prompt("Receipt / bank reference number:", "");
+    if (referenceNumber === null || !referenceNumber.trim()) return toast("A unique receipt/reference number is required.", true);
+    const method = window.prompt("Payment method: CASH, BANK_TRANSFER, or OTHER", "CASH");
+    if (method === null) return;
+    const notes = window.prompt("Optional notes (cash receipt, teller, etc.):", "") || "";
+    if (!window.confirm("Record ETB " + amountEtb + " as a real offline payment and activate this passenger pass? Only continue after funds are actually received and verified.")) return;
+    button.disabled = true;
+    try {
+      const result = await api("/api/admin/subscriptions/" + encodeURIComponent(id) + "/manual-payment", {
+        method: "POST", body: JSON.stringify({ amountEtb, referenceNumber: referenceNumber.trim(), method: method.trim().toUpperCase(), notes })
+      });
+      toast(result.message || "Manual payment recorded.");
+      await renderView();
+    } catch (error) { toast(error.message, true); button.disabled = false; }
+  }
+
   async function rechargeSubscription(button) {
     const id = button.dataset.recharge;
     if (!window.confirm("Activate this passenger subscription for 30 test days? This is an ADMIN_TEST entry, not a real Telebirr payment.")) return;
@@ -444,10 +706,12 @@
       if (nameAm === null) return;
       const description = window.prompt("Description:", value(route, "description") === "—" ? "" : value(route, "description"));
       if (description === null) return;
-      const morningDeparture = window.prompt("Morning departure (HH:MM):", value(route, "morningDeparture", "morning_departure"));
+      const morningDeparture = window.prompt("Morning departure (e.g. 6:30 AM or 12:15 PM):", formatTime12Hour(value(route, "morningDeparture", "morning_departure")));
       if (morningDeparture === null) return;
-      const eveningDeparture = window.prompt("Evening departure (HH:MM):", value(route, "eveningDeparture", "evening_departure"));
+      const eveningDeparture = window.prompt("Evening departure (e.g. 5:30 PM or 12:15 AM):", formatTime12Hour(value(route, "eveningDeparture", "evening_departure")));
       if (eveningDeparture === null) return;
+      const serviceType = window.prompt("Route service type: ONE_WAY or TWO_WAY", value(route, "serviceType", "service_type") === "—" ? "TWO_WAY" : value(route, "serviceType", "service_type"));
+      if (serviceType === null || !["ONE_WAY", "TWO_WAY"].includes(serviceType.trim().toUpperCase())) return toast("Choose ONE_WAY or TWO_WAY.", true);
       const basePriceEtb = Number(window.prompt("Monthly tariff in ETB:", value(route, "basePriceEtb", "base_price_etb")));
       if (!Number.isFinite(basePriceEtb) || basePriceEtb < 0) return toast("Tariff must be a valid non-negative number.", true);
       const editedStopsText = window.prompt(
@@ -458,7 +722,7 @@
       const stops = parseStopsText(editedStopsText);
       await api("/api/routes/" + encodeURIComponent(id), {
         method: "PUT",
-        body: JSON.stringify({ ...route, name, nameAm, description, morningDeparture, eveningDeparture, basePriceEtb, stops })
+        body: JSON.stringify({ ...route, name, nameAm, description, morningDeparture: morningDeparture24, eveningDeparture: eveningDeparture24, serviceType: serviceType.trim().toUpperCase(), basePriceEtb, stops })
       });
       toast("Route and stops updated.");
       await renderView();
@@ -482,6 +746,18 @@
         body: JSON.stringify({ ...route, active })
       });
       toast(active ? "Route activated." : "Route deactivated.");
+      await renderView();
+    } catch (error) { toast(error.message, true); button.disabled = false; }
+  }
+
+  async function saveGeofenceRadius(button) {
+    const input = $("#driver-geofence-radius");
+    const radiusMeters = Number(input?.value);
+    if (!Number.isInteger(radiusMeters) || radiusMeters < 25 || radiusMeters > 5000) return toast("Enter a whole number from 25 to 5000 metres.", true);
+    button.disabled = true;
+    try {
+      const result = await api("/api/admin/settings/geofence", { method: "PUT", body: JSON.stringify({ radiusMeters }) });
+      toast(result.message || "GPS radius saved.");
       await renderView();
     } catch (error) { toast(error.message, true); button.disabled = false; }
   }
@@ -518,16 +794,26 @@
     finally { button.disabled = false; button.textContent = "Sign in to admin portal"; }
   }
   document.addEventListener("click", event => {
+    const saveGeofenceButton = event.target.closest("[data-save-geofence]");
+    if (saveGeofenceButton) { saveGeofenceRadius(saveGeofenceButton); return; }
     const navButton = event.target.closest("[data-view]");
     if (navButton) { state.view = navButton.dataset.view; renderView(); return; }
     const goButton = event.target.closest("[data-go]");
     if (goButton) { state.view = goButton.dataset.go; renderView(); return; }
+    const privateMediaButton = event.target.closest("[data-private-media-owner]");
+    if (privateMediaButton) { viewPrivateMedia(privateMediaButton); return; }
     const approvalButton = event.target.closest("[data-driver-approval]");
     if (approvalButton) { updateDriverApproval(approvalButton); return; }
     const assignRouteButton = event.target.closest("[data-assign-route]");
     if (assignRouteButton) { assignDriverRoute(assignRouteButton); return; }
     const assignVehicleButton = event.target.closest("[data-assign-vehicle]");
     if (assignVehicleButton) { assignSubscriptionVehicle(assignVehicleButton); return; }
+    const assignPassengerRouteButton = event.target.closest("[data-assign-passenger-route]");
+    if (assignPassengerRouteButton) { assignPassengerRoute(assignPassengerRouteButton); return; }
+    const changeSubscriptionRouteButton = event.target.closest("[data-change-subscription-route]");
+    if (changeSubscriptionRouteButton) { changeSubscriptionRoute(changeSubscriptionRouteButton); return; }
+    const manualPaymentButton = event.target.closest("[data-manual-payment]");
+    if (manualPaymentButton) { recordManualPayment(manualPaymentButton); return; }
     const rechargeButton = event.target.closest("[data-recharge]");
     if (rechargeButton) { rechargeSubscription(rechargeButton); return; }
     const editRouteButton = event.target.closest("[data-edit-route]");
