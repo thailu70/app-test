@@ -84,7 +84,7 @@ fun PassengerDashboardScreen(
     // Do not expose a tariff or allow checkout until an administrator assigns an official route.
     val hasAdminAssignedRoute = !currentUser?.appliedRouteId.isNullOrBlank() && selectedRoute != null
     val checkoutAmount = if (hasAdminAssignedRoute) selectedRoute?.basePriceEtb ?: subscription?.priceEtb ?: 0.0 else 0.0
-    val assignedVehicle = assignment?.get("vehicle") as? Map<*, *>
+    val assignedVehicle = (assignment?.get("vehicle") as? Map<*, *>) ?: (myRoster?.get("vehicle") as? Map<*, *>)
     val driverName = assignedDriver?.get("fullName")?.toString()?.takeIf { it.isNotBlank() } ?: "Driver not assigned yet"
     val driverPhone = assignedDriver?.get("phone")?.toString()?.takeIf { it.isNotBlank() }
     val vehicleModel = assignedVehicle?.get("model")?.toString()?.takeIf { it.isNotBlank() }
