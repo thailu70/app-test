@@ -311,7 +311,6 @@ fun SubscriptionStatusCard(
     fun parseRequestedEndpoints(value: String): Pair<String, String>? {
         val separators = listOf(
             Regex("\\s+(?:to|→|->)\\s+", RegexOption.IGNORE_CASE),
-            Regex("\\s+[–—-]\\s+")
         )
         for (separator in separators) {
             val parts = separator.split(value.trim(), limit = 2)
@@ -342,7 +341,7 @@ fun SubscriptionStatusCard(
         ?: destinationStopFromRoute?.stopName?.takeIf { it.isNotBlank() }
         ?: requestedEndpoints?.second
         ?: "Destination not assigned — contact admin"
-    val hasRealEndpoints = pickupName != "Pickup not set" && destinationName != "Destination not set"
+    val hasRealEndpoints = !pickupName.startsWith("Pickup not assigned") && !destinationName.startsWith("Destination not assigned")
     val routeDisplayName = if (hasRealEndpoints) "$pickupName - $destinationName"
         else subscription?.requestedRoute?.takeIf { it.isNotBlank() }
             ?: userAppliedRoute?.takeIf { it.isNotBlank() }
