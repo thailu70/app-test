@@ -163,7 +163,7 @@ fun DriverTripScreen(
             item {
                 RoutePassHeroHeader(
                     title = "Drivers cockpit",
-                    subtitle = "Manage your assigned trip, navigate stops, and confirm passenger boarding."
+                    subtitle = "Manage your assigned trip, navigate stops, and confirm passenger boarding.",
                     icon = Icons.Default.DirectionsBus
                 )
             }
