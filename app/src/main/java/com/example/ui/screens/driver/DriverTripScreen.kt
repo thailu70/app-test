@@ -128,7 +128,7 @@ fun DriverTripScreen(
     val vehicleDisplayName = listOfNotNull(
         assignedVehicleModel,
         assignedVehicleClass?.takeIf { !it.equals(assignedVehicleModel, ignoreCase = true) }
-    ).joinToString(" · ").ifBlank { null }
+    ).joinToString(" · ").takeIf { it.isNotBlank() }
     val assignedVehiclePlate = assignedVehicle?.get("plateNumber")?.toString()?.takeIf { it.isNotBlank() }
         ?: assignedVehicle?.get("plate")?.toString()?.takeIf { it.isNotBlank() }
         ?: currentUser?.assignedVehiclePlate?.takeIf { it.isNotBlank() }
