@@ -225,10 +225,10 @@ class TransportRepository(
                     id = subDto.id,
                     passengerId = user.id,
                     routeId = subDto.routeId,
-                    pickupStopId = "stop_atlas",
-                    destinationStopId = "stop_merkato",
-                    morningSchedule = "06:30",
-                    eveningSchedule = "17:30",
+                    pickupStopId = subDto.pickupStopId ?: "",
+                    destinationStopId = subDto.destinationStopId ?: "",
+                    morningSchedule = subDto.morningSchedule ?: "06:30",
+                    eveningSchedule = subDto.eveningSchedule ?: "17:30",
                     startDate = "",
                     endDate = "",
                     priceEtb = subDto.priceEtb ?: 2500.0,
@@ -236,7 +236,11 @@ class TransportRepository(
                     subscriptionStatus = subDto.status ?: "PENDING",
                     vehicleId = "",
                     qrToken = subDto.qrToken ?: "",
-                    daysRemaining = subDto.daysRemaining
+                    daysRemaining = subDto.daysRemaining,
+                    requestedRoute = subDto.requestedRoute ?: "",
+                    pickupStopName = subDto.pickupStopName ?: "",
+                    destinationStopName = subDto.destinationStopName ?: "",
+                    serviceType = subDto.serviceType ?: "TWO_WAY"
                 )
                 dao.insertSubscription(sub)
             }
@@ -747,8 +751,8 @@ class TransportRepository(
             id = subId,
             passengerId = passengerId,
             routeId = routeId,
-            pickupStopId = pickupStopId.ifBlank { "stop_atlas" },
-            destinationStopId = destinationStopId.ifBlank { "stop_merkato" },
+            pickupStopId = pickupStopId,
+            destinationStopId = destinationStopId,
             morningSchedule = morningSchedule.ifBlank { "06:30" },
             eveningSchedule = eveningSchedule.ifBlank { "17:30" },
             startDate = SimpleDateFormat("dd MMM yyyy", Locale.US).format(Date()),

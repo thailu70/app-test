@@ -94,6 +94,10 @@ fun DriverTripScreen(
     val driverActionMessage by viewModel.driverActionMessage.collectAsState()
     var gpsStatus by remember { mutableStateOf("Waiting for GPS permission.") }
     var routeDirection by remember { mutableStateOf("OUTBOUND") }
+    // Preview the selected direction before starting; live trips already receive direction-ordered stops from the ViewModel.
+    val displayStops = remember(stops, routeDirection, tripState.isNavigating) {
+        if (!tripState.isNavigating && routeDirection.equals("INBOUND", ignoreCase = true)) stops.asReversed() else stops
+    }
     var showDepartureConfirmation by remember { mutableStateOf(false) }
     var isStartingTrip by remember { mutableStateOf(false) }
     var showTripCompletionConfirmation by remember { mutableStateOf(false) }
@@ -122,7 +126,7 @@ fun DriverTripScreen(
     Box(modifier = modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFFF3F7FB), Color(0xFFEAF2F8))))) {
         DriverLocationReporter(
             viewModel = viewModel,
-            currentStop = stops.getOrNull(tripState.currentStopIndex)?.stopName.orEmpty(),
+            currentStop = displayStops.getOrNull(tripState.currentStopIndex)?.stopName.orEmpty(),
             onStatusChanged = { gpsStatus = it }
         )
         LazyColumn(
@@ -314,9 +318,9 @@ fun DriverTripScreen(
             item {
                 DriverNavigationHudCard(
                     tripState = tripState,
-                    currentStop = stops.getOrNull(tripState.currentStopIndex),
+                    currentStop = displayStops.getOrNull(tripState.currentStopIndex),
                     lang = lang,
-                    isFinalStop = stops.isNotEmpty() && tripState.currentStopIndex >= stops.lastIndex,
+                    isFinalStop = displayStops.isNotEmpty() && tripState.currentStopIndex >= displayStops.lastIndex,
                     onStartNavigation = { showDepartureConfirmation = true },
                     onArrived = { viewModel.arriveAtCurrentStop() },
                     onScanQr = { viewModel.openScanner() },
@@ -336,7 +340,7 @@ fun DriverTripScreen(
                 )
             }
 
-            itemsIndexed(stops) { index, stop ->
+            itemsIndexed(displayStops) { index, stop ->
                 StopSequenceRow(
                     index = index,
                     stop = stop,
@@ -408,7 +412,7 @@ fun DriverTripScreen(
         if (isScannerOpen) {
             DriverQrScannerDialog(
                 scanResult = scanResult,
-                currentStop = stops.getOrNull(tripState.currentStopIndex)?.stopName ?: "Bole Atlas",
+                currentStop = displayStops.getOrNull(tripState.currentStopIndex)?.stopName ?: "Bole Atlas",
                 tripState = tripState,
                 onScanToken = { token -> viewModel.verifyQrToken(token) },
                 onDismissResult = { viewModel.dismissScanResult() },
