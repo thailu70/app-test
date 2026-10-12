@@ -74,6 +74,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val drawerScope = rememberCoroutineScope()
     var drawerNotice by remember { mutableStateOf<String?>(null) }
+    var requestedDashboardSection by remember { mutableStateOf<String?>(null) }
 
     fun t(key: String) = AppStrings.get(key, currentLang)
 
@@ -136,28 +137,42 @@ fun MainTransportApp(viewModel: MainViewModel) {
                     }
                     HorizontalDivider(color = Color(0xFFE7E7E7), thickness = 1.dp)
                     Spacer(Modifier.height(18.dp))
-                    val drawerItems = listOf(
-                        "Home" to Icons.Default.Home,
-                        "Bookings" to Icons.Default.BookmarkBorder,
-                        "Transactions" to Icons.Default.CreditCard,
-                        "Favorite Routes" to Icons.Default.FavoriteBorder,
-                        "Suggest Route" to Icons.Default.DirectionsBus,
-                        "Route Preferences" to Icons.Default.Tune,
-                        "FAQ" to Icons.Default.HelpOutline,
-                        "Feedback" to Icons.Default.Feedback
-                    )
-                    drawerItems.forEach { (label, itemIcon) ->
+                    val drawerItems = when (currentRole) {
+                        AppRole.PASSENGER -> listOf(
+                            Triple("My Journey & Schedule", Icons.Default.Home, "journey"),
+                            Triple("My Boarding QR", Icons.Default.QrCode, "qr"),
+                            Triple("Assigned Driver & Vehicle", Icons.Default.DirectionsCar, "driver"),
+                            Triple("Live Vehicle Location", Icons.Default.LocationOn, "map"),
+                            Triple("Payments & Receipts", Icons.Default.CreditCard, "payments"),
+                            Triple("Trip History", Icons.Default.History, "history"),
+                            Triple("Help & Feedback", Icons.Default.SupportAgent, "support"),
+                            Triple("Suggest a Route", Icons.Default.DirectionsBus, "suggest")
+                        )
+                        AppRole.DRIVER -> listOf(
+                            Triple("Driver Cockpit", Icons.Default.Dashboard, "cockpit"),
+                            Triple("Passenger Roster & Attendance", Icons.Default.Groups, "roster"),
+                            Triple("Vehicle & Documents", Icons.Default.Description, "documents"),
+                            Triple("Live GPS & Map", Icons.Default.LocationOn, "map"),
+                            Triple("Navigation & Stops", Icons.Default.Navigation, "navigation"),
+                            Triple("Departure Direction", Icons.Default.CompareArrows, "direction")
+                        )
+                        AppRole.ADMIN -> listOf(Triple("Admin Web Portal", Icons.Default.AdminPanelSettings, "admin"))
+                    }
+                    drawerItems.forEach { (label, itemIcon, section) ->
                         Row(
-                            modifier = Modifier.fillMaxWidth().height(72.dp).clickable {
+                            modifier = Modifier.fillMaxWidth().height(64.dp).clickable {
                                 drawerScope.launch { drawerState.close() }
-                                if (label != "Home") drawerNotice = label
+                                when (section) {
+                                    "suggest", "admin" -> drawerNotice = label
+                                    else -> requestedDashboardSection = section
+                                }
                             }.padding(horizontal = 22.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(18.dp)
                         ) {
-                            Surface(shape = CircleShape, color = Color(0xFFF0F0F0), modifier = Modifier.size(46.dp)) {
+                            Surface(shape = CircleShape, color = Color(0xFFF0F0F0), modifier = Modifier.size(44.dp)) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(itemIcon, contentDescription = null, tint = Color(0xFF0D683E), modifier = Modifier.size(24.dp))
+                                    Icon(itemIcon, contentDescription = null, tint = Color(0xFF0D683E), modifier = Modifier.size(23.dp))
                                 }
                             }
                             Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Color(0xFF111111))
@@ -321,10 +336,10 @@ fun MainTransportApp(viewModel: MainViewModel) {
             ) {
                 when (currentRole) {
                     AppRole.PASSENGER -> {
-                        PassengerDashboardScreen(viewModel = viewModel)
+                        PassengerDashboardScreen(viewModel = viewModel, requestedSection = requestedDashboardSection, onSectionNavigated = { requestedDashboardSection = null })
                     }
                     AppRole.DRIVER -> {
-                        DriverTripScreen(viewModel = viewModel)
+                        DriverTripScreen(viewModel = viewModel, requestedSection = requestedDashboardSection, onSectionNavigated = { requestedDashboardSection = null })
                     }
                     AppRole.ADMIN -> {
                         Column(
@@ -358,6 +373,8 @@ fun MainTransportApp(viewModel: MainViewModel) {
                     "Route Preferences" -> "Your current route, pickup and destination preferences are managed with your subscription."
                     "FAQ" -> "RoutePass support information will be added here."
                     "Feedback" -> "Use the support and complaint section on the Home screen to send feedback."
+                    "Suggest a Route" -> "Submit your requested pickup and destination during passenger registration. Route changes and new route requests require administrator review before they become active."
+                    "Admin Web Portal" -> "RoutePass administration is managed in the web portal: https://routepass.duckdns.org/admin/."
                     else -> "RoutePass"
                 }) },
                 confirmButton = { TextButton(onClick = { drawerNotice = null }) { Text("OK") } }
