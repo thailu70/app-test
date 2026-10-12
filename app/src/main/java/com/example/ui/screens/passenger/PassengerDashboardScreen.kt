@@ -152,6 +152,8 @@ fun PassengerDashboardScreen(
             SubscriptionStatusCard(
                 subscription = subscription,
                 userAppliedRoute = currentUser?.appliedRouteName,
+                assignedVehicleName = vehicleName,
+                assignedVehiclePlate = vehiclePlate,
                 routeStops = passengerRouteStops,
                 isRouteAssigned = hasAdminAssignedRoute,
                 lang = lang,
@@ -388,7 +390,7 @@ fun SubscriptionStatusCard(
     val morningTime = formatScheduleTime(subscription?.morningSchedule)
     val eveningTime = formatScheduleTime(subscription?.eveningSchedule)
     val days = if (isSubscribed) (subscription?.daysRemaining ?: 30) else 0
-    val priceVal = (subscription?.priceEtb ?: 2500.0).toInt()
+    val priceVal = subscription?.priceEtb?.toInt()
 
     Card(
         modifier = Modifier
@@ -428,7 +430,10 @@ fun SubscriptionStatusCard(
                         Text(
                             text = listOfNotNull(assignedVehicleName, assignedVehiclePlate?.let { "Plate: $it" })
                                 .joinToString(" • ")
-                                .ifBlank { if (isSubscribed) "Monthly commuter pass" else "Subscription not active" },
+                                .ifBlank {
+                                    if (isSubscribed) "Vehicle assignment pending"
+                                    else "Vehicle assignment pending · subscription not active"
+                                },
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate400
                         )
@@ -486,7 +491,7 @@ fun SubscriptionStatusCard(
                                     text = if (lang == AppLanguage.AMHARIC)
                                         "ይህ ተሳፋሪ እስካሁን አልተመዘገበም!"
                                     else
-                                        "Passenger is not subscribed yet!",
+                                        "Subscription awaiting administrator confirmation",
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFFFDE68A)
@@ -495,7 +500,7 @@ fun SubscriptionStatusCard(
                                     text = if (lang == AppLanguage.AMHARIC)
                                         "እባክዎ ለተመረጠው የጉዞ መስመር ($routeDisplayName) ክፍያ ፈጽመው ይመዝገቡ። ከዚያ በኋላ ደንበኝነቱ ንቁ (Active) ይሆናል።"
                                     else
-                                        "The passenger is not subscribed. Please pay and subscribe for the selected route ($routeDisplayName). After payment, your monthly subscription will be ACTIVE.",
+                                        "Your route or subscription is awaiting confirmation. RoutePass administrators manage subscription activation and payment confirmation for now.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Color.White
                                 )
@@ -583,7 +588,11 @@ fun SubscriptionStatusCard(
                         Text(
                             text = if (!isRouteAssigned) {
                                 if (lang == AppLanguage.AMHARIC) "መስመር እየተመደበ ነው" else "PENDING ROUTE ASSIGNMENT"
-                            } else if (isSubscribed) "PAID (ETB $priceVal)" else "UNPAID (ETB $priceVal)",
+                            } else if (isSubscribed) {
+                                if (priceVal != null) "PAID (ETB $priceVal)" else "PAID · AMOUNT NOT SET"
+                            } else {
+                                if (priceVal != null) "PENDING (ETB $priceVal)" else "PAYMENT PENDING ADMIN CONFIRMATION"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             color = if (isSubscribed) StatusActiveGreen else StatusErrorRed
