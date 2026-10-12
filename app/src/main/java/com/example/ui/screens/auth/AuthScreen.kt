@@ -81,7 +81,7 @@ fun AuthScreen(
     var destinationStopId by remember { mutableStateOf("") }
     var stopMenu by remember { mutableStateOf("") }
     var serviceType by remember { mutableStateOf("ONE_WAY") }
-    var travelUntil by remember { mutableStateOf("2026-12-31") }
+    var travelUntil by remember { mutableStateOf("") }
     var shift by remember { mutableStateOf("Morning") }
     var pickupTime by remember { mutableStateOf("06:30") }
 
@@ -650,7 +650,7 @@ fun AuthScreen(
                                             value = travelUntil,
                                             onValueChange = { travelUntil = it.take(10) },
                                             label = { Text("Travels until (YYYY-MM-DD)") },
-                                            placeholder = { Text("2026-12-31") },
+                                            placeholder = { Text("YYYY-MM-DD") },
                                             singleLine = true,
                                             modifier = Modifier.fillMaxWidth().testTag("passenger_travel_until")
                                         )
@@ -881,8 +881,12 @@ fun AuthScreen(
                                     val validationMessage = when {
                                         password.length < 10 -> "Use a password with at least 10 characters."
                                         password != confirmPassword -> "The two passwords do not match. Please re-enter them."
+                                        portal == AppRole.PASSENGER && selectedRouteId.isBlank() && requestedRoute.isBlank() -> "Select an available route or enter the route you need."
+                                        portal == AppRole.PASSENGER && selectedRouteId.isNotBlank() && signupRouteStops.isNotEmpty() && (pickupStopId.isBlank() || destinationStopId.isBlank()) -> "Choose both pickup and destination stops."
+                                        portal == AppRole.PASSENGER && pickupStopId.isNotBlank() && pickupStopId == destinationStopId -> "Pickup and destination must be different stops."
+                                        portal == AppRole.PASSENGER && selectedRouteId.isNotBlank() && travelUntil.isNotBlank() && !travelUntil.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) -> "Enter the travel end date as YYYY-MM-DD."
                                         portal != AppRole.ADMIN && !(portal == AppRole.PASSENGER && testPassengerRegistrationBypass) && otpProof.isNullOrBlank() -> "Verify your mobile number by SMS before registering."
-                                         else -> null
+                                        else -> null
                                     }
                                     if (validationMessage != null) {
                                         registrationValidationMessage = validationMessage
