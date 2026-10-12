@@ -67,9 +67,16 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), async (req, res
   try {
     const passengerId = req.user.id;
     const sub = await DB.prepare(`
-      SELECT s.*, r.name as routeName, r.nameAm as routeNameAm, r.basePriceEtb, r.morningDeparture, r.eveningDeparture
+      SELECT s.*, r.name as routeName, r.nameAm as routeNameAm, r.basePriceEtb,
+             r.morningDeparture, r.eveningDeparture, r.serviceType,
+             pickup.stopName AS pickupStopName, destination.stopName AS destinationStopName,
+             (SELECT pr.requested_route FROM passenger_route_requests pr
+              WHERE pr.passenger_id = s.passengerId
+              ORDER BY pr.created_at DESC LIMIT 1) AS requestedRoute
       FROM subscriptions s
       LEFT JOIN routes r ON s.routeId = r.id
+      LEFT JOIN route_stops pickup ON pickup.id = s.pickupStopId
+      LEFT JOIN route_stops destination ON destination.id = s.destinationStopId
       WHERE s.passengerId = ?
       ORDER BY s.updatedAt DESC LIMIT 1
     `).get(passengerId);
@@ -88,6 +95,14 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), async (req, res
           routeId: sub.routeId,
           routeName: sub.routeName,
           routeNameAm: sub.routeNameAm,
+          requestedRoute: sub.requestedRoute || '',
+          pickupStopName: sub.pickupStopName || '',
+          destinationStopName: sub.destinationStopName || '',
+          serviceType: sub.serviceType || 'TWO_WAY',
+          pickupStopId: sub.pickupStopId || '',
+          destinationStopId: sub.destinationStopId || '',
+          morningSchedule: sub.morningSchedule || sub.morningDeparture || '06:30',
+          eveningSchedule: sub.eveningSchedule || sub.eveningDeparture || '17:30',
           status: sub.subscriptionStatus,
           paymentStatus: sub.paymentStatus,
           priceEtb: sub.priceEtb,
@@ -108,6 +123,12 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), async (req, res
         routeId: sub.routeId,
         routeName: sub.routeName,
         routeNameAm: sub.routeNameAm,
+        requestedRoute: sub.requestedRoute || '',
+        pickupStopName: sub.pickupStopName || '',
+        destinationStopName: sub.destinationStopName || '',
+        serviceType: sub.serviceType || 'TWO_WAY',
+        pickupStopId: sub.pickupStopId || '',
+        destinationStopId: sub.destinationStopId || '',
         status: sub.subscriptionStatus,
         paymentStatus: sub.paymentStatus,
         priceEtb: sub.priceEtb,
