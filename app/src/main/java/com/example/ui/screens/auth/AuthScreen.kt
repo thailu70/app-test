@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.localization.AppLanguage
 import com.example.data.entity.RouteEntity
+import com.example.data.entity.RouteStopEntity
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.AppRole
 import com.example.ui.viewmodel.MainViewModel
@@ -75,6 +76,14 @@ fun AuthScreen(
     var selectedRouteId by remember { mutableStateOf("") }
     var selectedRouteName by remember { mutableStateOf("") }
     var requestedRoute by remember { mutableStateOf("") }
+    val signupRouteStops by viewModel.signupRouteStops.collectAsState()
+    var pickupStopId by remember { mutableStateOf("") }
+    var destinationStopId by remember { mutableStateOf("") }
+    var stopMenu by remember { mutableStateOf("") }
+    var serviceType by remember { mutableStateOf("ONE_WAY") }
+    var travelUntil by remember { mutableStateOf("2026-12-31") }
+    var shift by remember { mutableStateOf("Morning") }
+    var pickupTime by remember { mutableStateOf("06:30") }
 
     // Never pre-fill the login form with shared/demo credentials.
     LaunchedEffect(selectedPortal, isRegisterMode) {
@@ -88,6 +97,9 @@ fun AuthScreen(
         requestedRoute = ""
         selectedRouteId = ""
         selectedRouteName = ""
+        pickupStopId = ""
+        destinationStopId = ""
+        viewModel.loadSignupRouteStops("")
         if (isRegisterMode && selectedPortal == AppRole.PASSENGER) {
             viewModel.refreshSignupRoutes()
         }
@@ -566,6 +578,9 @@ fun AuthScreen(
                                                         selectedRouteId = route.id
                                                         selectedRouteName = route.name
                                                         requestedRoute = ""
+                                                        pickupStopId = ""
+                                                        destinationStopId = ""
+                                                        viewModel.loadSignupRouteStops(route.id)
                                                     }
                                                     .testTag("route_option_${route.id}")
                                             ) {
@@ -611,6 +626,71 @@ fun AuthScreen(
                                                         }
                                                     }
                                                 }
+                                            }
+                                        }
+                                    }
+
+                                    if (selectedRouteId == route.id && signupRouteStops.isNotEmpty()) {
+                                        Spacer(Modifier.height(8.dp))
+                                        Text("JOURNEY DETAILS", fontWeight = FontWeight.ExtraBold, color = Slate900)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                            listOf("ONE_WAY" to "One Way", "TWO_WAY" to "Round Trip").forEach { (value, label) ->
+                                                val selected = serviceType == value
+                                                OutlinedButton(
+                                                    onClick = { serviceType = value },
+                                                    modifier = Modifier.weight(1f),
+                                                    colors = ButtonDefaults.outlinedButtonColors(containerColor = if (selected) Color(0xFF383536) else Color.White, contentColor = if (selected) Color.White else Slate900),
+                                                    shape = RoundedCornerShape(14.dp)
+                                                ) { Text(label, fontWeight = FontWeight.SemiBold) }
+                                            }
+                                        }
+                                        RouteStopSelector("Pickup", signupRouteStops, pickupStopId, stopMenu == "pickup", { stopMenu = if (stopMenu == "pickup") "" else "pickup" }, { stopMenu = "" }, { pickupStopId = it; stopMenu = "" })
+                                        RouteStopSelector("Destination", signupRouteStops, destinationStopId, stopMenu == "destination", { stopMenu = if (stopMenu == "destination") "" else "destination" }, { stopMenu = "" }, { destinationStopId = it; stopMenu = "" })
+                                        OutlinedTextField(
+                                            value = travelUntil,
+                                            onValueChange = { travelUntil = it.take(10) },
+                                            label = { Text("Travels until (YYYY-MM-DD)") },
+                                            placeholder = { Text("2026-12-31") },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth().testTag("passenger_travel_until")
+                                        )
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                            var shiftMenuExpanded by remember { mutableStateOf(false) }
+                                            var timeMenuExpanded by remember { mutableStateOf(false) }
+                                            Column(Modifier.weight(1f)) {
+                                                Text("Shift", fontWeight = FontWeight.SemiBold, color = Slate900)
+                                                Box {
+                                                    OutlinedButton(onClick = { shiftMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                                                        Text(shift, maxLines = 1)
+                                                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                                    }
+                                                    DropdownMenu(expanded = shiftMenuExpanded, onDismissRequest = { shiftMenuExpanded = false }) {
+                                                        listOf("Morning", "Evening").forEach { value ->
+                                                            DropdownMenuItem(text = { Text(value) }, onClick = { shift = value; shiftMenuExpanded = false; pickupTime = if (value == "Morning") "06:30" else "17:30" })
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Column(Modifier.weight(1f)) {
+                                                Text("Pickup time", fontWeight = FontWeight.SemiBold, color = Slate900)
+                                                Box {
+                                                    OutlinedButton(onClick = { timeMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                                                        Text(pickupTime, maxLines = 1)
+                                                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                                    }
+                                                    DropdownMenu(expanded = timeMenuExpanded, onDismissRequest = { timeMenuExpanded = false }) {
+                                                        (if (shift == "Morning") listOf("06:00", "06:30", "07:00", "07:30", "08:00") else listOf("16:30", "17:00", "17:30", "18:00", "18:30")).forEach { value ->
+                                                            DropdownMenuItem(text = { Text(value) }, onClick = { pickupTime = value; timeMenuExpanded = false })
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Surface(color = Color(0xFFF4F4F4), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Text("Monthly commuter pass", fontWeight = FontWeight.Bold, color = Slate900)
+                                                Text("ETB ${route.basePriceEtb.toInt()} / month", fontWeight = FontWeight.ExtraBold, color = TransportGreenPrimary, style = MaterialTheme.typography.titleMedium)
+                                                Text("Vehicle type and final assignment are confirmed by the RoutePass administrator.", style = MaterialTheme.typography.bodySmall, color = Slate600)
                                             }
                                         }
                                     }
@@ -722,6 +802,8 @@ fun AuthScreen(
                                             password.length < 10 -> "Use a password with at least 10 characters before requesting OTP."
                                             password != confirmPassword -> "The two passwords do not match."
                                             portal == AppRole.PASSENGER && selectedRouteId.isBlank() && requestedRoute.isBlank() -> "Select an available route or enter the route you need."
+                                            portal == AppRole.PASSENGER && selectedRouteId.isNotBlank() && signupRouteStops.isNotEmpty() && (pickupStopId.isBlank() || destinationStopId.isBlank()) -> "Choose both pickup and destination stops."
+                                            portal == AppRole.PASSENGER && pickupStopId.isNotBlank() && pickupStopId == destinationStopId -> "Pickup and destination must be different stops."
                                             portal == AppRole.DRIVER && (licenseNumber.isBlank() || vehiclePlate.isBlank() || vehicleModel.isBlank()) -> "Complete your driver licence and vehicle details first."
                                             else -> null
                                         }
@@ -806,6 +888,9 @@ fun AuthScreen(
                                         registrationValidationMessage = validationMessage
                                     } else {
                                         registrationValidationMessage = null
+                                        val routePreferences = if (portal == AppRole.PASSENGER && selectedRouteId.isNotBlank() && pickupStopId.isNotBlank() && destinationStopId.isNotBlank()) {
+                                            "Route: $selectedRouteName | Pickup: ${signupRouteStops.firstOrNull { it.id == pickupStopId }?.stopName.orEmpty()} | Destination: ${signupRouteStops.firstOrNull { it.id == destinationStopId }?.stopName.orEmpty()} | Service: $serviceType | Travel until: $travelUntil | Shift: $shift | Pickup time: $pickupTime"
+                                        } else requestedRoute.trim()
                                         viewModel.register(
                                             fullName = fullName,
                                             phone = phone,
@@ -819,7 +904,7 @@ fun AuthScreen(
                                             vehicleType = vehicleType,
                                             appliedRouteId = if (requestedRoute.isBlank()) selectedRouteId else "",
                                             appliedRouteName = if (requestedRoute.isBlank()) selectedRouteName else "",
-                                            requestedRoute = requestedRoute.trim(),
+                                            requestedRoute = routePreferences,
                                             adminSecret = adminSecret,
                                              otpProof = otpProof.orEmpty()
                                         )
@@ -953,6 +1038,33 @@ fun PortalOptionCard(
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteStopSelector(
+    label: String,
+    stops: List<RouteStopEntity>,
+    selectedStopId: String,
+    expanded: Boolean,
+    onExpand: () -> Unit,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit
+) {
+    val selectedName = stops.firstOrNull { it.id == selectedStopId }?.stopName ?: label
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.fillMaxWidth()) {
+        Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Slate900)
+        Box {
+            OutlinedButton(onClick = onExpand, modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp), shape = RoundedCornerShape(12.dp)) {
+                Text(selectedName, modifier = Modifier.weight(1f), textAlign = TextAlign.Start, color = if (selectedStopId.isBlank()) Slate400 else Slate900)
+                Icon(Icons.Default.ArrowDropDown, contentDescription = "Choose $label")
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+                stops.sortedBy { it.stopOrder }.forEach { stop ->
+                    DropdownMenuItem(text = { Text(stop.stopName) }, onClick = { onSelect(stop.id) }, leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) })
+                }
             }
         }
     }
