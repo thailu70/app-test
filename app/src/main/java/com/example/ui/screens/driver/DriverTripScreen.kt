@@ -875,7 +875,7 @@ fun DriverNavigationHudCard(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(text = "DISTANCE", style = MaterialTheme.typography.labelSmall, color = Slate600)
                     Text(
-                        text = if (currentStop == null) "—" else if (tripState.isArrivedAtStop) "0.0 km" else "${tripState.currentDistanceKm} km",
+                        text = if (currentStop == null) "—" else if (tripState.isArrivedAtStop) "0.0 km" else if (tripState.currentDistanceKm > 0.0) "${tripState.currentDistanceKm} km" else "—",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = TransportGreenPrimary
@@ -884,7 +884,7 @@ fun DriverNavigationHudCard(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(text = "ETA", style = MaterialTheme.typography.labelSmall, color = Slate600)
                     Text(
-                        text = if (currentStop == null) "—" else if (tripState.isArrivedAtStop) "0 min" else "${tripState.currentEtaMins} min",
+                        text = if (currentStop == null) "—" else if (tripState.isArrivedAtStop) "0 min" else if (tripState.currentEtaMins > 0) "${tripState.currentEtaMins} min" else "—",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFFB45309)
