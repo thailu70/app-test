@@ -123,9 +123,9 @@ fun MainTransportApp(viewModel: MainViewModel) {
                 ModalDrawerSheet(modifier = Modifier.width(300.dp), drawerContainerColor = Color.White) {
                     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 34.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                            Surface(shape = CircleShape, color = Color(0xFFFCEEEB), modifier = Modifier.size(64.dp)) {
+                            Surface(shape = CircleShape, color = Color(0xFFE0F5E9), modifier = Modifier.size(64.dp)) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Text(currentUser?.avatarInitials ?: "A", color = Color(0xFFC75C42), fontSize = 28.sp, fontWeight = FontWeight.Medium)
+                                    Text(currentUser?.avatarInitials ?: "A", color = Color(0xFF0D683E), fontSize = 28.sp, fontWeight = FontWeight.Medium)
                                 }
                             }
                             Column(modifier = Modifier.weight(1f)) {
@@ -157,7 +157,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                         ) {
                             Surface(shape = CircleShape, color = Color(0xFFF0F0F0), modifier = Modifier.size(46.dp)) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(itemIcon, contentDescription = null, tint = Color(0xFFC75C42), modifier = Modifier.size(24.dp))
+                                    Icon(itemIcon, contentDescription = null, tint = Color(0xFF0D683E), modifier = Modifier.size(24.dp))
                                 }
                             }
                             Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Color(0xFF111111))
@@ -173,7 +173,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(18.dp)
                     ) {
-                        Icon(Icons.Default.Logout, contentDescription = null, tint = Color(0xFFC75C42), modifier = Modifier.size(28.dp))
+                        Icon(Icons.Default.Logout, contentDescription = null, tint = Color(0xFF0D683E), modifier = Modifier.size(28.dp))
                         Text("Logout", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Color(0xFF111111))
                     }
                 }
