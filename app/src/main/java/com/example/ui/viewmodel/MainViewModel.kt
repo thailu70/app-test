@@ -199,19 +199,32 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     private val _mediaUploadMessage = MutableStateFlow<String?>(null)
     val mediaUploadMessage: StateFlow<String?> = _mediaUploadMessage.asStateFlow()
 
-    fun refreshMyRoster() {
+    fun refreshMyRoster(refreshPhotos: Boolean = true) {
         viewModelScope.launch {
             try {
+                val previousRoster = _myRoster.value
+                val previousAssignment = previousRoster?.get("assignment") as? Map<*, *>
+                val previousDriver = previousAssignment?.get("driver") as? Map<*, *>
                 val roster = repository.getMyRoster()
-                _myRoster.value = roster
-                loadRosterPassengerPhotos(roster)
                 val assignment = roster["assignment"] as? Map<*, *>
                 val driver = assignment?.get("driver") as? Map<*, *>
-                val signedInUser = _currentUser.value
-                val photoOwnerId = if (signedInUser?.role == "DRIVER") signedInUser.id else driver?.get("id")?.toString()
-                _assignedDriverPhotoBytes.value = if (!photoOwnerId.isNullOrBlank()) repository.getProfileMedia(photoOwnerId, "DRIVER_PROFILE_PHOTO") else null
-                if (signedInUser?.role == "PASSENGER") {
-                    _passengerProfilePhotoBytes.value = repository.getProfileMedia(signedInUser.id, "PROFILE_PHOTO")
+                val previousDriverId = previousDriver?.get("id")?.toString()
+                val currentDriverId = driver?.get("id")?.toString()
+                val assignmentChanged = previousDriverId != currentDriverId
+                _myRoster.value = roster
+
+                if (refreshPhotos || assignmentChanged) {
+                    loadRosterPassengerPhotos(roster)
+                    val signedInUser = _currentUser.value
+                    val photoOwnerId = if (signedInUser?.role == "DRIVER") signedInUser.id else currentDriverId
+                    _assignedDriverPhotoBytes.value = if (!photoOwnerId.isNullOrBlank()) {
+                        repository.getProfileMedia(photoOwnerId, "DRIVER_PROFILE_PHOTO")
+                    } else {
+                        null
+                    }
+                    if (refreshPhotos && signedInUser?.role == "PASSENGER") {
+                        _passengerProfilePhotoBytes.value = repository.getProfileMedia(signedInUser.id, "PROFILE_PHOTO")
+                    }
                 }
             } catch (e: Exception) {
                 _mediaUploadMessage.value = e.message ?: "Could not load roster."
