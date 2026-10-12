@@ -818,7 +818,7 @@ fun DriverNavigationHudCard(
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
-                        text = "NEXT PICKUP STOP #${tripState.currentStopIndex + 1}",
+                        text = currentStop?.let { "NEXT PICKUP STOP #${tripState.currentStopIndex + 1}" } ?: "ASSIGNED STOP PENDING",
                         color = TransportGreenPrimary,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
@@ -851,7 +851,7 @@ fun DriverNavigationHudCard(
             // Target Stop Name & Scheduled Time
             Column {
                 Text(
-                    text = currentStop?.stopName ?: "No pickup stop assigned",
+                    text = currentStop?.stopName ?: if (tripState.isNavigating) "No pickup stop assigned" else "Assigned departure point",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -906,7 +906,6 @@ fun DriverNavigationHudCard(
                 if (!tripState.isNavigating) {
                     Button(
                         onClick = onStartNavigation,
-                        enabled = currentStop != null,
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = TransportGreenPrimary),
                         modifier = Modifier.fillMaxWidth().height(56.dp).testTag("driver_start_trip_button")
@@ -914,7 +913,7 @@ fun DriverNavigationHudCard(
                         Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(24.dp))
                         Spacer(Modifier.width(10.dp))
                         Text(
-                            if (currentStop == null) "NO PICKUP STOP ASSIGNED" else "CONFIRM ARRIVAL & START",
+                            if (currentStop == null) "CONFIRM ASSIGNED DEPARTURE" else "CONFIRM ARRIVAL & START",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -922,6 +921,7 @@ fun DriverNavigationHudCard(
                 } else if (!tripState.isArrivedAtStop) {
                     Button(
                         onClick = onArrived,
+                        enabled = currentStop != null,
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = TransportGreenPrimary),
                         modifier = Modifier
@@ -941,6 +941,7 @@ fun DriverNavigationHudCard(
                     // When arrived: Big Scan QR button + Next Stop
                     Button(
                         onClick = onScanQr,
+                        enabled = currentStop != null,
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue),
                         modifier = Modifier
@@ -968,6 +969,7 @@ fun DriverNavigationHudCard(
                                 .weight(1f)
                                 .height(48.dp)
                                 .testTag("driver_skip_button"),
+                            enabled = currentStop != null,
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusExpiredRed)
                         ) {
                             Text(text = t("skip_noshow"), fontWeight = FontWeight.Bold)
