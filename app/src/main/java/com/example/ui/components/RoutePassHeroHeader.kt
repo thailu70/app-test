@@ -77,28 +77,28 @@ fun RoutePassHeroHeader(
         Box(
             modifier = Modifier
                 .background(Brush.linearGradient(listOf(RouteNavy, RouteBlue, Color(0xFF145B70))))
-                .padding(20.dp)
+                .padding(16.dp)
         ) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(end = 4.dp, top = 2.dp)
-                    .size((112 * drift).dp)
+                    .size((88 * drift).dp)
                     .alpha(glowAlpha)
                     .clip(CircleShape)
                     .background(Brush.radialGradient(listOf(RouteMint, RouteCyan.copy(alpha = 0.1f))))
             )
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Surface(color = Color.White.copy(alpha = 0.12f), shape = RoundedCornerShape(14.dp)) {
-                        Icon(imageVector = icon, contentDescription = null, tint = RouteMint, modifier = Modifier.padding(11.dp).size(27.dp))
+                        Icon(imageVector = icon, contentDescription = null, tint = RouteMint, modifier = Modifier.padding(9.dp).size(23.dp))
                     }
                     Column {
                         Text("ROUTEPASS", color = RouteMint, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.ExtraBold)
                         Text("MOVE SMARTER", color = Color.White.copy(alpha = 0.72f), style = MaterialTheme.typography.labelSmall)
                     }
                 }
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(0.dp))
                 Text(title, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
                 Text(subtitle, color = Color.White.copy(alpha = 0.82f), style = MaterialTheme.typography.bodyMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
