@@ -188,7 +188,7 @@ fun PassengerDashboardScreen(
                 status = subscription?.subscriptionStatus ?: "NOT_SUBSCRIBED",
                 lang = lang,
                 isRouteAssigned = hasAdminAssignedRoute,
-                onSubscribeClick = { if (hasAdminAssignedRoute) viewModel.openTelebirrDialog() }
+                onSubscribeClick = { }
             )
         }
 
