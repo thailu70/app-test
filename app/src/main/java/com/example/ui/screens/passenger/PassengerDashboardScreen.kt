@@ -398,11 +398,11 @@ fun SubscriptionStatusCard(
                     }
 
                     Surface(
-                        color = if (isSubscribed) StatusActiveGreen.copy(alpha = 0.2f) else StatusErrorRed.copy(alpha = 0.2f),
+                        color = if (isSubscribed) StatusActiveGreen.copy(alpha = 0.2f) else StatusWarningOrange.copy(alpha = 0.2f),
                         shape = RoundedCornerShape(12.dp),
                         border = androidx.compose.foundation.BorderStroke(
                             1.dp,
-                            if (isSubscribed) StatusActiveGreen else StatusErrorRed
+                            if (isSubscribed) StatusActiveGreen else StatusWarningOrange
                         )
                     ) {
                         Row(
@@ -413,7 +413,7 @@ fun SubscriptionStatusCard(
                             Icon(
                                 imageVector = if (isSubscribed) Icons.Default.CheckCircle else Icons.Default.Cancel,
                                 contentDescription = null,
-                                tint = if (isSubscribed) StatusActiveGreen else StatusErrorRed,
+                                tint = if (isSubscribed) StatusActiveGreen else StatusWarningOrange,
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
@@ -451,7 +451,7 @@ fun SubscriptionStatusCard(
                             Column {
                                 Text(
                                     text = if (lang == AppLanguage.AMHARIC)
-                                        "ይህ ተሳፋሪ እስካሁን አልተመዘገበም!"
+                                        "ምዝገባ ማረጋገጫ እየጠበቀ ነው።"
                                     else
                                         "Subscription awaiting administrator confirmation",
                                     style = MaterialTheme.typography.labelMedium,
