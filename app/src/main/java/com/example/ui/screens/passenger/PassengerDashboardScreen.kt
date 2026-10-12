@@ -71,7 +71,15 @@ fun PassengerDashboardScreen(
     val driverPhotoBitmap = remember(driverPhotoBytes) { driverPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
     val passengerRouteStops by viewModel.passengerRouteStops.collectAsState()
 
-    LaunchedEffect(currentUser?.id) { if (currentUser != null) viewModel.refreshMyRoster() }
+    LaunchedEffect(currentUser?.id) {
+        if (currentUser != null) {
+            viewModel.refreshMyRoster()
+            while (true) {
+                kotlinx.coroutines.delay(30_000)
+                viewModel.refreshMyRoster(refreshPhotos = false)
+            }
+        }
+    }
     val assignment = myRoster?.get("assignment") as? Map<*, *>
     val assignedDriver = assignment?.get("driver") as? Map<*, *>
 
@@ -109,7 +117,7 @@ fun PassengerDashboardScreen(
     val driverPhone = assignedDriver?.get("phone")?.toString()?.takeIf { it.isNotBlank() }
     val vehicleModel = assignedVehicle?.get("model")?.toString()?.takeIf { it.isNotBlank() }
         ?: assignedVehicle?.get("vehicleName")?.toString()?.takeIf { it.isNotBlank() }
-    val vehicleClass = assignedVehicle?.get("type")?.toString()?.takeIf { it.isNotBlank() }?.replace('_', ' ')
+    val vehicleClass = (assignedVehicle?.get("vehicleType") ?: assignedVehicle?.get("type"))?.toString()?.takeIf { it.isNotBlank() }?.replace('_', ' ')
     val vehicleName = listOfNotNull(
         vehicleModel,
         vehicleClass?.takeIf { !it.equals(vehicleModel, ignoreCase = true) }
@@ -150,8 +158,18 @@ fun PassengerDashboardScreen(
                         Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color(0xFF0B8A70), modifier = Modifier.size(22.dp))
                         Text("Your driver", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF173B35))
                         Spacer(Modifier.weight(1f))
-                        Surface(color = Color(0xFFE0F5E9), shape = RoundedCornerShape(8.dp)) {
-                            Text("ASSIGNED", modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), color = Color(0xFF16734B), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        val isDriverAndVehicleAssigned = assignedDriver != null && assignedVehicle != null
+                        Surface(
+                            color = if (isDriverAndVehicleAssigned) Color(0xFFE0F5E9) else Color(0xFFFFF1D6),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                if (isDriverAndVehicleAssigned) "ASSIGNED" else "PENDING",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                color = if (isDriverAndVehicleAssigned) Color(0xFF16734B) else Color(0xFF8A5A00),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
