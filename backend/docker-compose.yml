@@ -60,6 +60,9 @@ services:
       TELEBIRR_NOTIFY_URL: ${TELEBIRR_NOTIFY_URL:-}
       DATA_DIR: /app/data
       ROUTEPASS_PRIVATE_MEDIA_DIR: /app/data/private-media
+      AFROMESSAGE_API_TOKEN: ${AFROMESSAGE_API_TOKEN:-}
+      AFROMESSAGE_IDENTIFIER_ID: ${AFROMESSAGE_IDENTIFIER_ID:-}
+      AFROMESSAGE_SENDER_NAME: ${AFROMESSAGE_SENDER_NAME:-}
     volumes:
       - routepass_app_data:/app/data
     expose:
