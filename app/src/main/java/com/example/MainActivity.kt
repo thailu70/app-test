@@ -21,7 +21,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.launch
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.example.core.localization.AppLanguage
@@ -85,17 +84,43 @@ fun MainTransportApp(viewModel: MainViewModel) {
 
     if (!isAuthenticated) {
         // Independent Authentication Screen (Passenger, Driver/Transporter, Operator/Admin)
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            contentWindowInsets = WindowInsets.safeDrawing,
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = t("app_title"),
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    },
+                    actions = {
+                        TextButton(onClick = { viewModel.toggleLanguage() }) {
+                            Text(
+                                text = if (currentLang == AppLanguage.ENGLISH) "አማርኛ" else "English",
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                )
+            }
+        ) { innerPadding ->
+            AuthScreen(
+                viewModel = viewModel,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            )
+        }
+    } else {
+        // Authenticated System Experience
         ModalNavigationDrawer(
             drawerState = drawerState,
             drawerContent = {
-                ModalDrawerSheet(
-                    modifier = Modifier.width(300.dp),
-                    drawerContainerColor = Color.White
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 34.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                ModalDrawerSheet(modifier = Modifier.width(300.dp), drawerContainerColor = Color.White) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 34.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                             Surface(shape = CircleShape, color = Color(0xFFFCEEEB), modifier = Modifier.size(64.dp)) {
                                 Box(contentAlignment = Alignment.Center) {
@@ -163,38 +188,6 @@ fun MainTransportApp(viewModel: MainViewModel) {
                             Icon(Icons.Default.Menu, contentDescription = "Open navigation menu")
                         }
                     },
-                    title = {
-                        Text(
-                            text = t("app_title"),
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                    },
-                    actions = {
-                        TextButton(onClick = { viewModel.toggleLanguage() }) {
-                            Text(
-                                text = if (currentLang == AppLanguage.ENGLISH) "አማርኛ" else "English",
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                )
-            }
-        ) { innerPadding ->
-            AuthScreen(
-                viewModel = viewModel,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-            )
-        }
-    } else {
-        // Authenticated System Experience
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            contentWindowInsets = WindowInsets.safeDrawing,
-            topBar = {
-                TopAppBar(
                     title = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
