@@ -14,7 +14,7 @@ router.get('/my-assignment', async (req, res) => {
   try {
     const assignment = await DB.prepare(`
       SELECT u.id AS driverId, u.fullName AS driverName, v.id AS vehicleId,
-        v.plateNumber, v.model, s.routeId, s.id AS subscriptionId
+        v.plateNumber, v.model, v.vehicleType, v.capacityLimit, s.routeId, s.id AS subscriptionId
       FROM subscriptions s
       JOIN vehicles v ON v.assignedRouteId = s.routeId
       JOIN users u ON u.id = v.driverId AND u.role = 'DRIVER' AND u.status = 'ACTIVE'
@@ -31,7 +31,7 @@ router.get('/my-assignment', async (req, res) => {
           fullName: assignment.driverName,
           photoUrl: '/api/profile-media/' + encodeURIComponent(assignment.driverId) + '/DRIVER_PROFILE_PHOTO'
         },
-        vehicle: { id: assignment.vehicleId, plateNumber: assignment.plateNumber, model: assignment.model },
+        vehicle: { id: assignment.vehicleId, plateNumber: assignment.plateNumber, model: assignment.model, vehicleType: assignment.vehicleType, capacityLimit: assignment.capacityLimit },
         routeId: assignment.routeId,
         subscriptionId: assignment.subscriptionId
       } : null
@@ -48,7 +48,7 @@ router.get('/my-assignment', async (req, res) => {
 router.get('/my', async (req, res) => {
   try {
     if (req.user.role === 'DRIVER') {
-      const vehicle = await DB.prepare(`SELECT v.id, v.plateNumber, v.model, v.assignedRouteId, v.driverId, u.appliedRouteId AS driverAppliedRouteId FROM vehicles v LEFT JOIN users u ON u.id = v.driverId WHERE v.driverId = ? ORDER BY v.updatedAt DESC LIMIT 1`).get(req.user.id);
+      const vehicle = await DB.prepare(`SELECT v.id, v.plateNumber, v.model, v.vehicleType, v.capacityLimit, v.assignedRouteId, v.driverId, u.appliedRouteId AS driverAppliedRouteId FROM vehicles v LEFT JOIN users u ON u.id = v.driverId WHERE v.driverId = ? ORDER BY v.updatedAt DESC LIMIT 1`).get(req.user.id);
       if (!vehicle) return res.json({
         success: true, role: 'DRIVER', trip: null, passengers: [],
         rosterMessage: 'No vehicle is registered to this driver account yet. Ask the administrator to verify the driver-to-vehicle assignment.'
@@ -59,7 +59,7 @@ router.get('/my', async (req, res) => {
       const routeId = trip?.routeId || vehicle.assignedRouteId || vehicle.driverAppliedRouteId;
       if (!routeId) return res.json({
         success: true, role: 'DRIVER', trip: trip || null, passengers: [],
-        vehicle: { id: vehicle.id, plateNumber: vehicle.plateNumber, model: vehicle.model },
+        vehicle: { id: vehicle.id, plateNumber: vehicle.plateNumber, model: vehicle.model, vehicleType: vehicle.vehicleType, capacityLimit: vehicle.capacityLimit },
         rosterMessage: 'Your vehicle has no administrator-assigned route yet. Ask the administrator to assign the route before passengers can appear.'
       });
       const passengers = await DB.prepare(`
@@ -78,7 +78,7 @@ router.get('/my', async (req, res) => {
       return res.json({
         success: true, role: 'DRIVER',
         trip: trip ? { id: trip.id, routeId: trip.routeId, status: trip.status, direction: trip.direction } : null,
-        vehicle: { id: vehicle.id, plateNumber: vehicle.plateNumber, model: vehicle.model },
+        vehicle: { id: vehicle.id, plateNumber: vehicle.plateNumber, model: vehicle.model, vehicleType: vehicle.vehicleType, capacityLimit: vehicle.capacityLimit },
         rosterMessage: passengers.length
           ? 'Passenger roster loaded for the assigned route. Check subscription and payment status before boarding.'
           : `No passengers matched route ${routeId} and vehicle ${vehicle.id}. Ask the administrator to verify that passenger subscriptions use this route and are not assigned to another vehicle.`,
@@ -96,7 +96,7 @@ router.get('/my', async (req, res) => {
     if (req.user.role === 'PASSENGER') {
       const assignment = await DB.prepare(`
         SELECT u.id AS driverId, u.fullName AS driverName, v.id AS vehicleId,
-          v.plateNumber, v.model, s.routeId, s.id AS subscriptionId
+          v.plateNumber, v.model, v.vehicleType, v.capacityLimit, s.routeId, s.id AS subscriptionId
         FROM subscriptions s
         JOIN vehicles v ON v.assignedRouteId = s.routeId
         JOIN users u ON u.id = v.driverId AND u.role = 'DRIVER' AND u.status = 'ACTIVE'
@@ -109,7 +109,7 @@ router.get('/my', async (req, res) => {
         assignment: assignment ? {
           driver: { id: assignment.driverId, fullName: assignment.driverName,
             photoUrl: '/api/profile-media/' + encodeURIComponent(assignment.driverId) + '/DRIVER_PROFILE_PHOTO' },
-          vehicle: { id: assignment.vehicleId, plateNumber: assignment.plateNumber, model: assignment.model },
+          vehicle: { id: assignment.vehicleId, plateNumber: assignment.plateNumber, model: assignment.model, vehicleType: assignment.vehicleType, capacityLimit: assignment.capacityLimit },
           routeId: assignment.routeId, subscriptionId: assignment.subscriptionId
         } : null
       });
