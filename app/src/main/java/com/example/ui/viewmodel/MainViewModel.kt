@@ -274,6 +274,13 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         if (id.isBlank()) flowOf(null) else repository.getSubscriptionForPassenger(id)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val passengerRouteStops: StateFlow<List<RouteStopEntity>> = activeSubscription
+        .flatMapLatest { sub ->
+            if (sub == null || sub.routeId.isBlank()) flowOf(emptyList())
+            else repository.getStopsForRoute(sub.routeId)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val passengerPayments: StateFlow<List<PaymentTransactionEntity>> = _currentUser.flatMapLatest { user ->
         val id = user?.id ?: ""
         if (id.isBlank()) flowOf(emptyList()) else repository.getPaymentsForPassenger(id)
