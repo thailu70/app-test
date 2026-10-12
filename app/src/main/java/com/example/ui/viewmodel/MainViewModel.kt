@@ -811,6 +811,10 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     }
 
     fun arriveAtCurrentStop() {
+        if (routeStops.value.getOrNull(_driverTrip.value.currentStopIndex) == null) {
+            _driverActionMessage.value = "No stop is configured for this assigned route. Contact the RoutePass administrator."
+            return
+        }
         _driverTrip.update {
             it.copy(
                 isArrivedAtStop = true,
@@ -821,7 +825,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         viewModelScope.launch {
             val stops = routeStops.value
             val currentStop = stops.getOrNull(_driverTrip.value.currentStopIndex)
-            repository.logAction("DRIVER_ARRIVED_STOP", currentDriverId, "DRIVER", "Arrived at stop ${currentStop?.stopName ?: "Atlas"}")
+            repository.logAction("DRIVER_ARRIVED_STOP", currentDriverId, "DRIVER", "Arrived at stop ${currentStop?.stopName ?: "Unassigned stop"}")
         }
     }
 
@@ -889,6 +893,11 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     // QR Verification for Driver. Never open the camera unless a server trip is active.
     fun openScanner() {
         val trip = _driverTrip.value
+        if (routeStops.value.getOrNull(trip.currentStopIndex) == null) {
+            _driverActionMessage.value = "No assigned stop is available for this trip. Contact the RoutePass administrator before scanning passengers."
+            _isScannerOpen.value = false
+            return
+        }
         if (!trip.isNavigating || trip.tripId.isBlank() || trip.vehicleId.isBlank()) {
             _driverActionMessage.value = "Trip not started. Confirm arrival at the assigned departure point and wait for RoutePass to start the live trip before scanning passengers."
             _isScannerOpen.value = false
@@ -916,8 +925,15 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     fun verifyQrToken(rawToken: String) {
         viewModelScope.launch {
             val stops = routeStops.value
-            val currentStop = stops.getOrNull(_driverTrip.value.currentStopIndex)?.stopName ?: "Bole Atlas"
             val tripState = _driverTrip.value
+            val currentStop = stops.getOrNull(tripState.currentStopIndex)?.stopName
+            if (currentStop.isNullOrBlank()) {
+                _scanResult.value = QrValidationResult.Invalid(
+                    "reason_stop_not_assigned",
+                    "No assigned stop is available for this trip. Contact the RoutePass administrator."
+                )
+                return@launch
+            }
             if (!tripState.isNavigating || tripState.tripId.isBlank() || tripState.vehicleId.isBlank()) {
                 _scanResult.value = QrValidationResult.Invalid(
                     "reason_trip_not_started",
