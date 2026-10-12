@@ -118,13 +118,21 @@ fun DriverTripScreen(
     val mediaUploadMessage by viewModel.mediaUploadMessage.collectAsState()
     val driverPhotoBytes by viewModel.assignedDriverPhotoBytes.collectAsState()
     val driverPhotoBitmap = remember(driverPhotoBytes) { driverPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
-    LaunchedEffect(currentUser?.id) { if (currentUser != null) viewModel.refreshMyRoster() }
+    LaunchedEffect(currentUser?.id) {
+        if (currentUser != null) {
+            viewModel.refreshMyRoster()
+            while (true) {
+                kotlinx.coroutines.delay(30_000)
+                viewModel.refreshMyRoster(refreshPhotos = false)
+            }
+        }
+    }
     val rosterPassengers = myRoster?.get("passengers") as? List<*> ?: emptyList<Any>()
     val assignment = myRoster?.get("assignment") as? Map<*, *>
     val assignedVehicle = assignment?.get("vehicle") as? Map<*, *>
     val assignedVehicleModel = assignedVehicle?.get("model")?.toString()?.takeIf { it.isNotBlank() }
         ?: assignedVehicle?.get("vehicleName")?.toString()?.takeIf { it.isNotBlank() }
-    val assignedVehicleClass = assignedVehicle?.get("type")?.toString()?.takeIf { it.isNotBlank() }?.replace('_', ' ')
+    val assignedVehicleClass = (assignedVehicle?.get("vehicleType") ?: assignedVehicle?.get("type"))?.toString()?.takeIf { it.isNotBlank() }?.replace('_', ' ')
     val vehicleDisplayName = listOfNotNull(
         assignedVehicleModel,
         assignedVehicleClass?.takeIf { !it.equals(assignedVehicleModel, ignoreCase = true) }
