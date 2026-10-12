@@ -36,7 +36,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -86,7 +85,6 @@ fun DriverTripScreen(
     viewModel: MainViewModel,
     modifier: Modifier = Modifier,
     requestedSection: String? = null,
-    onSectionNavigated: () -> Unit = {}
 ) {
     val lang by viewModel.currentLanguage.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
@@ -153,39 +151,26 @@ fun DriverTripScreen(
             currentStop = displayStops.getOrNull(tripState.currentStopIndex)?.stopName.orEmpty(),
             onStatusChanged = { gpsStatus = it }
         )
-        val dashboardListState = rememberLazyListState()
-        LaunchedEffect(requestedSection) {
-            val targetIndex = when (requestedSection) {
-                "cockpit" -> 1
-                "documents" -> 2
-                "roster" -> 3
-                "map" -> 4
-                "direction" -> 5
-                "navigation" -> 6
-                else -> null
-            }
-            if (targetIndex != null && requestedSection != null) {
-                dashboardListState.animateScrollToItem(targetIndex)
-                onSectionNavigated()
-            }
-        }
+        val activeSection = requestedSection ?: "cockpit"
         LazyColumn(
-            state = dashboardListState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = 48.dp)
         ) {
+            if (activeSection == "cockpit") {
             item {
                 RoutePassHeroHeader(
-                    title = "Your route. In control.",
-                    subtitle = "Live trip tools, passenger boarding and vehicle status — all in one place.",
+                    title = "Drivers cockpit",
+                    subtitle = "Manage your assigned trip, navigate stops, and confirm passenger boarding."
                     icon = Icons.Default.DirectionsBus
                 )
             }
+            }
 
             // 1. Driver Console Cockpit Card
+            if (activeSection == "cockpit") {
             item {
                 DriverCockpitHeaderCard(
                     driverName = currentUser?.fullName ?: "Driver",
@@ -200,7 +185,9 @@ fun DriverTripScreen(
                     onSetVehicleType = { type, cap -> viewModel.setVehicleType(type, cap) }
                 )
             }
+            }
 
+            if (activeSection == "documents") {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -236,7 +223,9 @@ fun DriverTripScreen(
                     }
                 }
             }
+            }
 
+            if (activeSection == "roster") {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -325,8 +314,10 @@ fun DriverTripScreen(
                     }
                 }
             }
+            }
 
             // 2. Actual vehicle position, reported by this driver's phone.
+            if (activeSection == "map") {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     MiniVehicleMap(vehicle = trackedVehicle, modifier = Modifier.testTag("driver_live_vehicle_map"), mapHeight = 190, serverMessage = trackingMessage)
@@ -336,8 +327,10 @@ fun DriverTripScreen(
                     }
                 }
             }
+            }
 
             // Admin-assigned route supports both commute directions.
+            if (activeSection == "direction") {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     Text("Choose scheduled direction", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
@@ -356,8 +349,10 @@ fun DriverTripScreen(
                     )
                 }
             }
+            }
 
             // 3. High-Visibility Big Navigation HUD
+            if (activeSection == "cockpit") {
             item {
                 DriverNavigationHudCard(
                     tripState = tripState,
@@ -372,8 +367,10 @@ fun DriverTripScreen(
                     onCompleteTrip = { showTripCompletionConfirmation = true }
                 )
             }
+            }
 
             // 4. Stop Sequence & Passenger Attendance
+            if (activeSection == "cockpit") {
             item {
                 Text(
                     text = t("pickup_sequence"),
@@ -382,7 +379,9 @@ fun DriverTripScreen(
                     color = MaterialTheme.colorScheme.onBackground
                 )
             }
+            }
 
+            if (activeSection == "cockpit") {
             itemsIndexed(displayStops) { index, stop ->
                 StopSequenceRow(
                     index = index,
@@ -394,6 +393,7 @@ fun DriverTripScreen(
                         viewModel.openScanner()
                     }
                 )
+            }
             }
         }
 
