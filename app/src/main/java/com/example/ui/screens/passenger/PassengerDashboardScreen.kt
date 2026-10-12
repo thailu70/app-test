@@ -11,7 +11,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -50,7 +49,6 @@ fun PassengerDashboardScreen(
     viewModel: MainViewModel,
     modifier: Modifier = Modifier,
     requestedSection: String? = null,
-    onSectionNavigated: () -> Unit = {}
 ) {
     val lang by viewModel.currentLanguage.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
@@ -128,26 +126,8 @@ fun PassengerDashboardScreen(
     val vehiclePlate = assignedVehicle?.get("plateNumber")?.toString()?.takeIf { it.isNotBlank() }
         ?: assignedVehicle?.get("plate")?.toString()?.takeIf { it.isNotBlank() }
 
-    val dashboardListState = rememberLazyListState()
-    LaunchedEffect(requestedSection) {
-        val targetIndex = when (requestedSection) {
-            "journey" -> 1
-            "qr" -> 2
-            "driver" -> 3
-            "map" -> 4
-            "payments" -> 5
-            "history" -> 7
-            "support" -> 8
-            else -> null
-        }
-        if (targetIndex != null && requestedSection != null) {
-            dashboardListState.animateScrollToItem(targetIndex)
-            onSectionNavigated()
-        }
-    }
-
+    val activeSection = requestedSection ?: "journey"
     LazyColumn(
-        state = dashboardListState,
         modifier = modifier
             .fillMaxSize()
             .background(Brush.verticalGradient(listOf(Color(0xFFF7FAF9), Color(0xFFEAF3F1))))
@@ -156,6 +136,7 @@ fun PassengerDashboardScreen(
         contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp)
     ) {
         // Hero is the first major content card, matching the reference design.
+        if (activeSection == "journey") {
         item {
             RoutePassHeroHeader(
                 title = "Your everyday, upgraded.",
@@ -163,8 +144,10 @@ fun PassengerDashboardScreen(
                 icon = Icons.Default.QrCode
             )
         }
+        }
 
         // 1. Primary journey and schedule
+        if (activeSection == "journey") {
         item {
             SubscriptionStatusCard(
                 subscription = subscription,
@@ -176,8 +159,10 @@ fun PassengerDashboardScreen(
                 onCancelClick = { viewModel.cancelSubscription() }
             )
         }
+        }
 
         // 2. Boarding pass and QR
+        if (activeSection == "qr") {
         item {
             PassengerQrCard(
                 isSubscribed = subscription != null && subscription?.subscriptionStatus == "ACTIVE",
@@ -188,8 +173,10 @@ fun PassengerDashboardScreen(
                 onSubscribeClick = { }
             )
         }
+        }
 
         // Driver details follow the passenger’s route and boarding pass. The passenger never sees the passenger roster.
+        if (activeSection == "driver") {
         item {
             Card(
                 modifier = Modifier.fillMaxWidth().testTag("passenger_assigned_driver_card"),
@@ -261,13 +248,17 @@ fun PassengerDashboardScreen(
                 }
             }
         }
+        }
 
         // 4. Server-reported driver location. No demo coordinates are shown as live.
+        if (activeSection == "map") {
         item {
             MiniVehicleMap(vehicle = trackedVehicle, modifier = Modifier.testTag("passenger_live_vehicle_map"), serverMessage = trackingMessage)
         }
+        }
 
         // 5. Payment overview
+        if (activeSection == "payments") {
         item {
             FinancialBalanceCard(
                 lang = lang,
@@ -276,8 +267,10 @@ fun PassengerDashboardScreen(
                 onPayClick = { }
             )
         }
+        }
 
         // 6. Payment records and receipts
+        if (activeSection == "payments") {
         item {
             PaymentHistoryCard(
                 payments = payments,
@@ -285,19 +278,24 @@ fun PassengerDashboardScreen(
                 onReceiptClick = { viewModel.openReceipt(it) }
             )
         }
+        }
 
         // 7. Trip history
+        if (activeSection == "history") {
         item {
             TripAttendanceCard(checkIns = checkIns, lang = lang)
         }
+        }
 
         // 8. Support and feedback
+        if (activeSection == "support") {
         item {
             ComplaintsCard(
                 complaints = complaints,
                 lang = lang,
                 onSubmitClick = { viewModel.openComplaintDialog() }
             )
+        }
         }
     }
 
