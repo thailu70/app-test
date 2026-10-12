@@ -460,7 +460,7 @@ fun SubscriptionStatusCard(
                                 )
                                 Text(
                                     text = if (lang == AppLanguage.AMHARIC)
-                                        "እባክዎ ለተመረጠው የጉዞ መስመር ($routeDisplayName) ክፍያ ፈጽመው ይመዝገቡ። ከዚያ በኋላ ደንበኝነቱ ንቁ (Active) ይሆናል።"
+                                        "መስመር ወይም ምዝገባዎ ማረጋገጫ እየጠበቀ ነው። ለአሁኑ የምዝገባና የክፍያ ማረጋገጫ በRoutePass አስተዳዳሪ ይከናወናል።"
                                     else
                                         "Your route or subscription is awaiting confirmation. RoutePass administrators manage subscription activation and payment confirmation for now.",
                                     style = MaterialTheme.typography.bodySmall,
