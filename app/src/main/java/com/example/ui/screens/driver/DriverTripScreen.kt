@@ -129,7 +129,7 @@ fun DriverTripScreen(
     }
     val rosterPassengers = myRoster?.get("passengers") as? List<*> ?: emptyList<Any>()
     val assignment = myRoster?.get("assignment") as? Map<*, *>
-    val assignedVehicle = assignment?.get("vehicle") as? Map<*, *>
+    val assignedVehicle = (assignment?.get("vehicle") as? Map<*, *>) ?: (myRoster?.get("vehicle") as? Map<*, *>)
     val assignedVehicleModel = assignedVehicle?.get("model")?.toString()?.takeIf { it.isNotBlank() }
         ?: assignedVehicle?.get("vehicleName")?.toString()?.takeIf { it.isNotBlank() }
     val assignedVehicleClass = (assignedVehicle?.get("vehicleType") ?: assignedVehicle?.get("type"))?.toString()?.takeIf { it.isNotBlank() }?.replace('_', ' ')
