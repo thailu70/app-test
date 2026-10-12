@@ -105,85 +105,137 @@ fun PassengerDashboardScreen(
         viewModel.consumeTelebirrCheckoutUrl()
     }
 
+    val assignedVehicle = assignment?.get("vehicle") as? Map<*, *>
+    val driverName = assignedDriver?.get("fullName")?.toString()?.takeIf { it.isNotBlank() } ?: "Driver not assigned yet"
+    val driverPhone = assignedDriver?.get("phone")?.toString()?.takeIf { it.isNotBlank() }
+    val vehicleName = assignedVehicle?.get("model")?.toString()?.takeIf { it.isNotBlank() }
+        ?: assignedVehicle?.get("vehicleName")?.toString()?.takeIf { it.isNotBlank() }
+    val vehiclePlate = assignedVehicle?.get("plateNumber")?.toString()?.takeIf { it.isNotBlank() }
+        ?: assignedVehicle?.get("plate")?.toString()?.takeIf { it.isNotBlank() }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFFF3F7FB), Color(0xFFEAF2F8))))
+            .background(Brush.verticalGradient(listOf(Color(0xFFF7FAF9), Color(0xFFEAF3F1))))
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
+        contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp)
     ) {
+        // Compact passenger identity bar, with the profile kept at the top.
         item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(22.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Your passenger profile", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        if (passengerPhotoBitmap != null) {
-                            Image(
-                                bitmap = passengerPhotoBitmap!!.asImageBitmap(),
-                                contentDescription = "Your profile photo",
-                                modifier = Modifier.size(88.dp).clip(CircleShape).border(2.dp, Color(0xFF19B7A5), CircleShape)
-                            )
-                        } else {
-                            androidx.compose.material3.Surface(
-                                modifier = Modifier.size(88.dp),
-                                shape = CircleShape,
-                                color = Color(0xFFE0F2F1),
-                                border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF19B7A5))
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(
-                                        currentUser?.fullName?.split(" ")?.mapNotNull { it.firstOrNull() }?.take(2)?.joinToString("") ?: "RP",
-                                        color = Color(0xFF087F8C), fontWeight = FontWeight.Bold, fontSize = 24.sp
-                                    )
-                                }
-                            }
-                        }
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(currentUser?.fullName ?: "Passenger", fontWeight = FontWeight.SemiBold)
-                            Text(if (passengerPhotoBitmap != null) "Profile photo added" else "Add a photo so your profile is recognizable", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            PrivateMediaUploadButton(
-                                viewModel, "PROFILE_PHOTO",
-                                if (passengerPhotoBitmap != null) "Change photo" else "Add profile photo",
-                                imagesOnly = true
+                if (passengerPhotoBitmap != null) {
+                    Image(
+                        bitmap = passengerPhotoBitmap!!.asImageBitmap(),
+                        contentDescription = "Your profile photo",
+                        modifier = Modifier.size(48.dp).clip(CircleShape).border(2.dp, Color(0xFF0F9F82), CircleShape)
+                    )
+                } else {
+                    Surface(
+                        modifier = Modifier.size(48.dp),
+                        shape = CircleShape,
+                        color = Color(0xFFD9F1EA),
+                        border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF0F9F82))
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                currentUser?.fullName?.split(" ")?.mapNotNull { it.firstOrNull() }?.take(2)?.joinToString("") ?: "RP",
+                                color = Color(0xFF087F68), fontWeight = FontWeight.Bold, fontSize = 17.sp
                             )
                         }
                     }
-                    mediaUploadMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                    Divider()
-                    Text("Your driver", fontWeight = FontWeight.Bold)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        if (driverPhotoBitmap != null) {
-                            Image(
-                                bitmap = driverPhotoBitmap!!.asImageBitmap(),
-                                contentDescription = "Assigned driver photo",
-                                modifier = Modifier.size(64.dp).clip(CircleShape)
-                            )
-                        } else {
-                            androidx.compose.material3.Surface(
-                                modifier = Modifier.size(64.dp), shape = CircleShape,
-                                color = MaterialTheme.colorScheme.surfaceVariant
-                            ) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Person, contentDescription = null) } }
-                        }
-                        Column {
-                            Text(assignedDriver?.get("fullName")?.toString() ?: "Driver not assigned yet", fontWeight = FontWeight.Medium)
-                            Text(if (driverPhotoBitmap != null) "Verified driver profile" else "Driver photo not available yet", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                }
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(currentUser?.fullName ?: "Passenger", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF173B35))
+                    Text("Passenger Portal", style = MaterialTheme.typography.bodySmall, color = Color(0xFF6B807B))
+                }
+                Surface(color = Color(0xFFDDF7E9), shape = RoundedCornerShape(10.dp)) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Box(Modifier.size(7.dp).clip(CircleShape).background(if (trackedVehicle != null) Color(0xFF168653) else Color(0xFF8B9894)))
+                        Text(if (trackedVehicle != null) "LIVE" else "READY", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF176747))
                     }
                 }
             }
         }
 
+        // Hero is the first major content card, matching the reference design.
         item {
             RoutePassHeroHeader(
                 title = "Your everyday, upgraded.",
                 subtitle = "Your pass, your driver and your journey — beautifully connected.",
                 icon = Icons.Default.QrCode
             )
+        }
+
+        // Dedicated driver card; passenger dashboard intentionally has no passenger roster.
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("passenger_assigned_driver_card"),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color(0xFF0B8A70), modifier = Modifier.size(22.dp))
+                        Text("Your driver", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF173B35))
+                        Spacer(Modifier.weight(1f))
+                        Surface(color = Color(0xFFE0F5E9), shape = RoundedCornerShape(8.dp)) {
+                            Text("ASSIGNED", modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), color = Color(0xFF16734B), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        if (driverPhotoBitmap != null) {
+                            Image(
+                                bitmap = driverPhotoBitmap!!.asImageBitmap(),
+                                contentDescription = "Assigned driver photo",
+                                modifier = Modifier.size(88.dp).clip(CircleShape).border(2.dp, Color(0xFFE1EBE7), CircleShape)
+                            )
+                        } else {
+                            Surface(modifier = Modifier.size(88.dp), shape = CircleShape, color = Color(0xFFEAF2EF)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF668078), modifier = Modifier.size(42.dp))
+                                }
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text(driverName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF182F2A))
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Icon(Icons.Default.Verified, contentDescription = null, tint = Color(0xFF0D9B68), modifier = Modifier.size(16.dp))
+                                Text(if (driverPhotoBitmap != null) "Verified driver profile" else "Driver profile", style = MaterialTheme.typography.bodySmall, color = Color(0xFF71817C))
+                            }
+                            if (driverPhone != null) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Icon(Icons.Default.Call, contentDescription = null, tint = Color(0xFF70837D), modifier = Modifier.size(17.dp))
+                                    Text(driverPhone, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF253C36))
+                                }
+                            }
+                        }
+                    }
+                    if (vehicleName != null || vehiclePlate != null) {
+                        HorizontalDivider(color = Color(0xFFE8EFEC))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFF0B8A70), modifier = Modifier.size(20.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(vehicleName ?: "Assigned vehicle", fontWeight = FontWeight.SemiBold, color = Color(0xFF253C36))
+                                vehiclePlate?.let { Text("Plate: $it", style = MaterialTheme.typography.bodySmall, color = Color(0xFF71817C)) }
+                            }
+                        }
+                    }
+                    mediaUploadMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF55716A)) }
+                }
+            }
         }
 
         // 1. Subscription Overview Card
