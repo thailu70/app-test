@@ -107,9 +107,13 @@ fun PassengerDashboardScreen(
     val assignedVehicle = assignment?.get("vehicle") as? Map<*, *>
     val driverName = assignedDriver?.get("fullName")?.toString()?.takeIf { it.isNotBlank() } ?: "Driver not assigned yet"
     val driverPhone = assignedDriver?.get("phone")?.toString()?.takeIf { it.isNotBlank() }
-    val vehicleName = assignedVehicle?.get("model")?.toString()?.takeIf { it.isNotBlank() }
+    val vehicleModel = assignedVehicle?.get("model")?.toString()?.takeIf { it.isNotBlank() }
         ?: assignedVehicle?.get("vehicleName")?.toString()?.takeIf { it.isNotBlank() }
-        ?: assignedVehicle?.get("type")?.toString()?.takeIf { it.isNotBlank() }
+    val vehicleClass = assignedVehicle?.get("type")?.toString()?.takeIf { it.isNotBlank() }?.replace('_', ' ')
+    val vehicleName = listOfNotNull(
+        vehicleModel,
+        vehicleClass?.takeIf { !it.equals(vehicleModel, ignoreCase = true) }
+    ).joinToString(" · ").ifBlank { null }
     val vehiclePlate = assignedVehicle?.get("plateNumber")?.toString()?.takeIf { it.isNotBlank() }
         ?: assignedVehicle?.get("plate")?.toString()?.takeIf { it.isNotBlank() }
 
