@@ -666,7 +666,7 @@ fun DriverCockpitHeaderCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(text = t("todays_trips"), style = MaterialTheme.typography.labelSmall, color = Slate400)
-                    Text(text = "Scheduled trip (${formatRouteTime12Hour(tripState.departureTime)})", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = TransportGold)
+                    Text(text = "Scheduled trip (${formatRouteTime12Hour(tripState.departureTime)})", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = Color(0xFFB8F2DD))
                     Text(text = routeName, style = MaterialTheme.typography.bodySmall, color = Color.White)
                 }
                 Column(horizontalAlignment = Alignment.End) {
@@ -687,7 +687,7 @@ fun DriverCockpitHeaderCard(
                         else
                             "${tripState.vehicleCapacity - tripState.checkedInCount} seats available",
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (isFull) StatusErrorRed else TransportGold,
+                        color = if (isFull) StatusErrorRed else StatusActiveGreen,
                         fontWeight = FontWeight.Bold
                     )
                 }
