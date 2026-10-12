@@ -293,11 +293,44 @@ fun SubscriptionStatusCard(
     fun t(key: String) = AppStrings.get(key, lang)
 
     val isSubscribed = subscription != null && subscription.subscriptionStatus == "ACTIVE"
-    val routeDisplayName = if (!userAppliedRoute.isNullOrBlank()) userAppliedRoute else "Bole → Merkato"
+    fun parseRequestedEndpoints(value: String): Pair<String, String>? {
+        val separators = listOf(
+            Regex("\\s+(?:to|→|->)\\s+", RegexOption.IGNORE_CASE),
+            Regex("\\s+[–—-]\\s+")
+        )
+        for (separator in separators) {
+            val parts = separator.split(value.trim(), limit = 2)
+            if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) {
+                return parts[0].trim() to parts[1].trim()
+            }
+        }
+        return null
+    }
+    fun formatScheduleTime(value: String?): String {
+        val parts = value?.take(5)?.split(":") ?: return "Time not set"
+        if (parts.size != 2) return value ?: "Time not set"
+        val hour = parts[0].toIntOrNull() ?: return value
+        val minute = parts[1].toIntOrNull() ?: return value
+        if (hour !in 0..23 || minute !in 0..59) return value
+        val suffix = if (hour < 12) "AM" else "PM"
+        return "${hour % 12.let { if (it == 0) 12 else it }}:${minute.toString().padStart(2, '0')} $suffix"
+    }
+    val requestedEndpoints = parseRequestedEndpoints(subscription?.requestedRoute.orEmpty())
+    val pickupName = requestedEndpoints?.first
+        ?: subscription?.pickupStopName?.takeIf { it.isNotBlank() }
+        ?: "Pickup not set"
+    val destinationName = requestedEndpoints?.second
+        ?: subscription?.destinationStopName?.takeIf { it.isNotBlank() }
+        ?: "Destination not set"
+    val hasRealEndpoints = pickupName != "Pickup not set" && destinationName != "Destination not set"
+    val routeDisplayName = if (hasRealEndpoints) "$pickupName - $destinationName"
+        else subscription?.requestedRoute?.takeIf { it.isNotBlank() }
+            ?: userAppliedRoute?.takeIf { it.isNotBlank() }
+            ?: "Monthly commuter pass"
+    val morningTime = formatScheduleTime(subscription?.morningSchedule)
+    val eveningTime = formatScheduleTime(subscription?.eveningSchedule)
     val days = if (isSubscribed) (subscription?.daysRemaining ?: 30) else 0
-    val priceVal = (subscription?.priceEtb ?: if (routeDisplayName.contains("CMC")) 3000.0 else if (routeDisplayName.contains("Saris")) 2800.0 else 2500.0).toInt()
-    val pickupName = if (routeDisplayName.contains("CMC")) "CMC Station" else if (routeDisplayName.contains("Saris")) "Saris Abo" else "Bole Atlas"
-    val destinationName = if (routeDisplayName.contains("CMC")) "Bole Medhanialem" else if (routeDisplayName.contains("Kazanchis")) "Kazanchis UNECA" else "Merkato"
+    val priceVal = (subscription?.priceEtb ?: 2500.0).toInt()
 
     Card(
         modifier = Modifier
@@ -413,28 +446,48 @@ fun SubscriptionStatusCard(
 
                 HorizontalDivider(color = Slate700)
 
-                // Route pickup & destination details
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(text = t("pickup"), style = MaterialTheme.typography.labelMedium, color = Slate400)
-                        Text(text = pickupName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
-                        Text(text = "06:30 AM Pickup", style = MaterialTheme.typography.labelSmall, color = TransportGold)
-                    }
-                    Icon(
-                        Icons.Default.ArrowForward,
-                        contentDescription = null,
-                        tint = Slate400,
-                        modifier = Modifier
-                            .align(Alignment.CenterVertically)
-                            .padding(horizontal = 8.dp)
+                // Passenger's requested endpoints define the route title. Return service reverses the same endpoints.
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Morning • Home → Work / School",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TransportGold,
+                        fontWeight = FontWeight.Bold
                     )
-                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                        Text(text = t("destination"), style = MaterialTheme.typography.labelMedium, color = Slate400)
-                        Text(text = destinationName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
-                        Text(text = "17:30 PM Return", style = MaterialTheme.typography.labelSmall, color = TransportGold)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(text = t("pickup"), style = MaterialTheme.typography.labelMedium, color = Slate400)
+                            Text(text = pickupName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Text(text = "$morningTime Pickup", style = MaterialTheme.typography.labelSmall, color = TransportGold)
+                        }
+                        Icon(Icons.Default.ArrowForward, contentDescription = null, tint = Slate400,
+                            modifier = Modifier.align(Alignment.CenterVertically).padding(horizontal = 8.dp))
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                            Text(text = t("destination"), style = MaterialTheme.typography.labelMedium, color = Slate400)
+                            Text(text = destinationName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
+                        }
+                    }
+                    if (!subscription?.serviceType.equals("ONE_WAY", ignoreCase = true)) {
+                        HorizontalDivider(color = Slate700.copy(alpha = 0.7f))
+                        Text(
+                            text = "Return • Work / School → Home",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = TransportGold,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = t("pickup"), style = MaterialTheme.typography.labelMedium, color = Slate400)
+                                Text(text = destinationName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
+                                Text(text = "$eveningTime Return", style = MaterialTheme.typography.labelSmall, color = TransportGold)
+                            }
+                            Icon(Icons.Default.ArrowForward, contentDescription = null, tint = Slate400,
+                                modifier = Modifier.align(Alignment.CenterVertically).padding(horizontal = 8.dp))
+                            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                                Text(text = t("destination"), style = MaterialTheme.typography.labelMedium, color = Slate400)
+                                Text(text = pickupName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            }
+                        }
                     }
                 }
 
