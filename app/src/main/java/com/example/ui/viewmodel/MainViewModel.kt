@@ -857,6 +857,10 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
     fun nextStop() {
         val stops = routeStops.value
+        if (stops.isEmpty()) {
+            _driverActionMessage.value = "No stops are configured for this assigned route."
+            return
+        }
         val currentIndex = _driverTrip.value.currentStopIndex
         val updatedStates = _driverTrip.value.stopStates.toMutableMap()
         updatedStates[currentIndex] = NavigationStepState.COMPLETED
@@ -867,8 +871,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
             it.copy(
                 currentStopIndex = nextIndex,
                 isArrivedAtStop = false,
-                currentDistanceKm = if (nextIndex < stops.size - 1) 2.1 else 0.8,
-                currentEtaMins = if (nextIndex < stops.size - 1) 6 else 3,
+                currentDistanceKm = 0.0,
+                currentEtaMins = 0,
                 stopStates = updatedStates
             )
         }
@@ -876,6 +880,10 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
     fun skipCurrentStop() {
         val stops = routeStops.value
+        if (stops.isEmpty()) {
+            _driverActionMessage.value = "No stops are configured for this assigned route."
+            return
+        }
         val currentIndex = _driverTrip.value.currentStopIndex
         val updatedStates = _driverTrip.value.stopStates.toMutableMap()
         updatedStates[currentIndex] = NavigationStepState.SKIPPED
