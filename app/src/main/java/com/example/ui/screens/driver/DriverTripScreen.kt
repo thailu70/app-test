@@ -36,6 +36,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -83,7 +84,9 @@ private fun formatRouteTime12Hour(value: String): String {
 @Composable
 fun DriverTripScreen(
     viewModel: MainViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    requestedSection: String? = null,
+    onSectionNavigated: () -> Unit = {}
 ) {
     val lang by viewModel.currentLanguage.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
@@ -150,7 +153,24 @@ fun DriverTripScreen(
             currentStop = displayStops.getOrNull(tripState.currentStopIndex)?.stopName.orEmpty(),
             onStatusChanged = { gpsStatus = it }
         )
+        val dashboardListState = rememberLazyListState()
+        LaunchedEffect(requestedSection) {
+            val targetIndex = when (requestedSection) {
+                "cockpit" -> 1
+                "documents" -> 2
+                "roster" -> 3
+                "map" -> 4
+                "direction" -> 5
+                "navigation" -> 6
+                else -> null
+            }
+            if (targetIndex != null && requestedSection != null) {
+                dashboardListState.animateScrollToItem(targetIndex)
+                onSectionNavigated()
+            }
+        }
         LazyColumn(
+            state = dashboardListState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
