@@ -113,7 +113,7 @@ fun PassengerDashboardScreen(
     val vehicleName = listOfNotNull(
         vehicleModel,
         vehicleClass?.takeIf { !it.equals(vehicleModel, ignoreCase = true) }
-    ).joinToString(" · ").ifBlank { null }
+    ).joinToString(" · ").takeIf { it.isNotBlank() }
     val vehiclePlate = assignedVehicle?.get("plateNumber")?.toString()?.takeIf { it.isNotBlank() }
         ?: assignedVehicle?.get("plate")?.toString()?.takeIf { it.isNotBlank() }
 
