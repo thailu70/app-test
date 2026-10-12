@@ -140,8 +140,6 @@ fun DriverTripScreen(
     ).joinToString(" · ").takeIf { it.isNotBlank() }
     val assignedVehiclePlate = assignedVehicle?.get("plateNumber")?.toString()?.takeIf { it.isNotBlank() }
         ?: assignedVehicle?.get("plate")?.toString()?.takeIf { it.isNotBlank() }
-        ?: currentUser?.assignedVehiclePlate?.takeIf { it.isNotBlank() }
-        ?: tripState.vehiclePlate
 
     fun t(key: String) = AppStrings.get(key, lang)
 
@@ -548,7 +546,7 @@ private fun DriverLocationReporter(
 @Composable
 fun DriverCockpitHeaderCard(
     driverName: String,
-    vehiclePlate: String,
+    vehiclePlate: String? = null,
     vehicleDisplayName: String? = null,
     vehicleClass: String? = null,
     routeName: String,
@@ -590,9 +588,12 @@ fun DriverCockpitHeaderCard(
                         color = Color.White
                     )
                     Text(
-                        text = "${vehicleDisplayName ?: tripState.vehicleType.replace('_', ' ')} • Plate: $vehiclePlate",
+                        text = listOfNotNull(
+                            vehicleDisplayName,
+                            vehiclePlate?.let { "Plate: $it" }
+                        ).joinToString(" • ").ifBlank { "Vehicle assignment pending" },
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFB8F2DD)
+                        color = if (vehicleDisplayName != null || vehiclePlate != null) Color(0xFFB8F2DD) else TransportGold
                     )
                 }
 
@@ -666,7 +667,7 @@ fun DriverCockpitHeaderCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = (vehicleClass ?: tripState.vehicleType.replace('_', ' ')),
+                        text = vehicleClass ?: vehicleDisplayName ?: "Vehicle class not available",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White,
                         fontWeight = FontWeight.Bold
@@ -694,8 +695,23 @@ fun DriverCockpitHeaderCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(text = t("todays_trips"), style = MaterialTheme.typography.labelSmall, color = Slate400)
-                    Text(text = "Scheduled trip (${formatRouteTime12Hour(tripState.departureTime)})", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = Color(0xFFB8F2DD))
-                    Text(text = routeName, style = MaterialTheme.typography.bodySmall, color = Color.White)
+                    Text(
+                        text = "Departure ${formatRouteTime12Hour(tripState.departureTime)}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFB8F2DD)
+                    )
+                    Text(text = routeName.ifBlank { "Route assignment pending" }, style = MaterialTheme.typography.bodySmall, color = Color.White)
+                    Text(
+                        text = when {
+                            !tripState.isNavigating -> "NEXT ACTION · Confirm arrival at assigned departure stop"
+                            tripState.isArrivedAtStop -> "NEXT ACTION · Scan passenger boarding QR codes"
+                            else -> "NEXT ACTION · Proceed to the current assigned stop"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = TransportGold
+                    )
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
@@ -815,7 +831,11 @@ fun DriverNavigationHudCard(
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
-                        text = if (tripState.isArrivedAtStop) "ARRIVED AT STOP" else "EN ROUTE",
+                        text = when {
+                            !tripState.isNavigating -> "SCHEDULED"
+                            tripState.isArrivedAtStop -> "ARRIVED AT STOP"
+                            else -> "EN ROUTE"
+                        },
                         color = if (tripState.isArrivedAtStop) Color.White else Slate900,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.ExtraBold,
@@ -827,7 +847,7 @@ fun DriverNavigationHudCard(
             // Target Stop Name & Scheduled Time
             Column {
                 Text(
-                    text = currentStop?.stopName ?: "Bole Atlas",
+                    text = currentStop?.stopName ?: "No pickup stop assigned",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -851,7 +871,7 @@ fun DriverNavigationHudCard(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(text = "DISTANCE", style = MaterialTheme.typography.labelSmall, color = Slate600)
                     Text(
-                        text = if (tripState.isArrivedAtStop) "0.0 km" else "${tripState.currentDistanceKm} km",
+                        text = if (currentStop == null) "—" else if (tripState.isArrivedAtStop) "0.0 km" else "${tripState.currentDistanceKm} km",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = TransportGreenPrimary
@@ -860,7 +880,7 @@ fun DriverNavigationHudCard(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(text = "ETA", style = MaterialTheme.typography.labelSmall, color = Slate600)
                     Text(
-                        text = if (tripState.isArrivedAtStop) "0 min" else "${tripState.currentEtaMins} min",
+                        text = if (currentStop == null) "—" else if (tripState.isArrivedAtStop) "0 min" else "${tripState.currentEtaMins} min",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFFB45309)
@@ -869,7 +889,7 @@ fun DriverNavigationHudCard(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(text = "GROUP PASSENGERS", style = MaterialTheme.typography.labelSmall, color = Slate600)
                     Text(
-                        text = "${currentStop?.maxCapacity ?: 4} Persons",
+                        text = currentStop?.maxCapacity?.let { "$it Persons" } ?: "—",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = Slate900
@@ -882,13 +902,18 @@ fun DriverNavigationHudCard(
                 if (!tripState.isNavigating) {
                     Button(
                         onClick = onStartNavigation,
+                        enabled = currentStop != null,
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = TransportGreenPrimary),
                         modifier = Modifier.fillMaxWidth().height(56.dp).testTag("driver_start_trip_button")
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(24.dp))
                         Spacer(Modifier.width(10.dp))
-                        Text("START TRIP", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (currentStop == null) "NO PICKUP STOP ASSIGNED" else "CONFIRM ARRIVAL & START",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 } else if (!tripState.isArrivedAtStop) {
                     Button(
