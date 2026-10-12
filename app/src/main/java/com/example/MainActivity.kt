@@ -149,11 +149,10 @@ fun MainTransportApp(viewModel: MainViewModel) {
                             Triple("Suggest a Route", Icons.Default.DirectionsBus, "suggest")
                         )
                         AppRole.DRIVER -> listOf(
-                            Triple("Driver Cockpit", Icons.Default.Dashboard, "cockpit"),
+                            Triple("Drivers Cockpit", Icons.Default.Dashboard, "cockpit"),
                             Triple("Passenger Roster & Attendance", Icons.Default.Groups, "roster"),
                             Triple("Vehicle & Documents", Icons.Default.Description, "documents"),
                             Triple("Live GPS & Map", Icons.Default.LocationOn, "map"),
-                            Triple("Navigation & Stops", Icons.Default.Navigation, "navigation"),
                             Triple("Departure Direction", Icons.Default.CompareArrows, "direction")
                         )
                         AppRole.ADMIN -> listOf(Triple("Admin Web Portal", Icons.Default.AdminPanelSettings, "admin"))
@@ -336,10 +335,10 @@ fun MainTransportApp(viewModel: MainViewModel) {
             ) {
                 when (currentRole) {
                     AppRole.PASSENGER -> {
-                        PassengerDashboardScreen(viewModel = viewModel, requestedSection = requestedDashboardSection, onSectionNavigated = { requestedDashboardSection = null })
+                        PassengerDashboardScreen(viewModel = viewModel, requestedSection = requestedDashboardSection)
                     }
                     AppRole.DRIVER -> {
-                        DriverTripScreen(viewModel = viewModel, requestedSection = requestedDashboardSection, onSectionNavigated = { requestedDashboardSection = null })
+                        DriverTripScreen(viewModel = viewModel, requestedSection = requestedDashboardSection)
                     }
                     AppRole.ADMIN -> {
                         Column(
