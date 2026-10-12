@@ -630,7 +630,7 @@ fun AuthScreen(
                                         }
                                     }
 
-                                    if (selectedRouteId == route.id && signupRouteStops.isNotEmpty()) {
+                                    if (selectedRouteId.isNotBlank() && signupRouteStops.isNotEmpty()) {
                                         Spacer(Modifier.height(8.dp))
                                         Text("JOURNEY DETAILS", fontWeight = FontWeight.ExtraBold, color = Slate900)
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
