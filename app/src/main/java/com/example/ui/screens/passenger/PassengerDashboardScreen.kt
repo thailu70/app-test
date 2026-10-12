@@ -26,7 +26,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -53,17 +52,12 @@ fun PassengerDashboardScreen(
     val lang by viewModel.currentLanguage.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val routes by viewModel.allRoutes.collectAsState()
-    val telebirrCheckoutUrl by viewModel.telebirrCheckoutUrl.collectAsState()
-    val uriHandler = LocalUriHandler.current
     val trackedVehicle by viewModel.trackedVehicle.collectAsState()
     val trackingMessage by viewModel.trackingMessage.collectAsState()
     val subscription by viewModel.activeSubscription.collectAsState()
     val payments by viewModel.passengerPayments.collectAsState()
     val checkIns by viewModel.passengerCheckIns.collectAsState()
     val complaints by viewModel.passengerComplaints.collectAsState()
-    val isTelebirrOpen by viewModel.isTelebirrDialogOpen.collectAsState()
-    val isProcessingPayment by viewModel.isProcessingPayment.collectAsState()
-    val paymentMessage by viewModel.paymentMessage.collectAsState()
     val selectedReceipt by viewModel.selectedReceipt.collectAsState()
     val isComplaintOpen by viewModel.isComplaintDialogOpen.collectAsState()
     val myRoster by viewModel.myRoster.collectAsState()
@@ -90,29 +84,6 @@ fun PassengerDashboardScreen(
     // Do not expose a tariff or allow checkout until an administrator assigns an official route.
     val hasAdminAssignedRoute = !currentUser?.appliedRouteId.isNullOrBlank() && selectedRoute != null
     val checkoutAmount = if (hasAdminAssignedRoute) selectedRoute?.basePriceEtb ?: subscription?.priceEtb ?: 0.0 else 0.0
-    val checkoutRouteName = selectedRoute?.name
-        ?: currentUser?.appliedRouteName?.takeIf { it.isNotBlank() }
-        ?: "Monthly commuter pass"
-
-    LaunchedEffect(telebirrCheckoutUrl) {
-        val url = telebirrCheckoutUrl ?: return@LaunchedEffect
-        val uri = Uri.parse(url)
-        val allowedHost = uri.host == "developerportal.ethiotelebirr.et" ||
-            uri.host == "superapp.ethiomobilemoney.et"
-        val validCheckout = uri.scheme == "https" && uri.port == 38443 &&
-            uri.path == "/payment/web/paygate" && allowedHost
-        if (validCheckout) {
-            try {
-                uriHandler.openUri(url)
-            } catch (_: Exception) {
-                viewModel.reportTelebirrCheckoutOpenError()
-            }
-        } else {
-            viewModel.reportTelebirrCheckoutOpenError()
-        }
-        viewModel.consumeTelebirrCheckoutUrl()
-    }
-
     val assignedVehicle = assignment?.get("vehicle") as? Map<*, *>
     val driverName = assignedDriver?.get("fullName")?.toString()?.takeIf { it.isNotBlank() } ?: "Driver not assigned yet"
     val driverPhone = assignedDriver?.get("phone")?.toString()?.takeIf { it.isNotBlank() }
@@ -299,19 +270,6 @@ fun PassengerDashboardScreen(
             )
         }
         }
-    }
-
-    // Telebirr Payment Dialog
-    if (isTelebirrOpen && hasAdminAssignedRoute) {
-        TelebirrCheckoutDialog(
-            amountEtb = checkoutAmount,
-            routeName = checkoutRouteName,
-            isProcessing = isProcessingPayment,
-            statusMessage = paymentMessage,
-            lang = lang,
-            onDismiss = { viewModel.closeTelebirrDialog() },
-            onConfirm = { viewModel.processTelebirrPayment() }
-        )
     }
 
     // Receipt Dialog
