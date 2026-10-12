@@ -43,6 +43,7 @@ data class DriverTripState(
     val vehicleId: String = "",
     val routeId: String = "",
     val routeName: String = "",
+    val direction: String = "OUTBOUND",
     val vehiclePlate: String = "",
     val vehicleType: String = "MINIBUS_14",
     val vehicleCapacity: Int = 14,
@@ -346,10 +347,16 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     private val _driverTrip = MutableStateFlow(DriverTripState())
     val driverTrip: StateFlow<DriverTripState> = _driverTrip.asStateFlow()
 
+    // Inbound (work/school → home) must traverse the same assigned stops in reverse order.
     val routeStops: StateFlow<List<RouteStopEntity>> = _driverTrip
-        .map { it.routeId }
+        .map { it.routeId to it.direction }
         .distinctUntilChanged()
-        .flatMapLatest { routeId -> if (routeId.isBlank()) flowOf(emptyList()) else repository.getStopsForRoute(routeId) }
+        .flatMapLatest { (routeId, direction) ->
+            if (routeId.isBlank()) flowOf(emptyList())
+            else repository.getStopsForRoute(routeId).map { stops ->
+                if (direction.equals("INBOUND", ignoreCase = true)) stops.asReversed() else stops
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _driverActionMessage = MutableStateFlow<String?>(null)
@@ -730,6 +737,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     vehicleId = vehicle.id,
                     routeId = routeId,
                     routeName = trip.routeName ?: vehicle.routeName.orEmpty(),
+                    direction = direction.uppercase(),
                     vehiclePlate = trip.plateNumber ?: vehicle.plateNumber,
                     vehicleType = trip.vehicleType ?: vehicle.vehicleType,
                     vehicleCapacity = trip.capacityLimit ?: vehicle.capacityLimit,
