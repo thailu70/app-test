@@ -976,24 +976,34 @@ fun DriverNavigationHudCard(
                         }
 
                         Button(
-                            onClick = if (isFinalStop) onCompleteTrip else onNextStop,
+                            onClick = onNextStop,
+                            enabled = !isFinalStop,
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = if (isFinalStop) StatusActiveGreen else TransportGreenDark),
+                            colors = ButtonDefaults.buttonColors(containerColor = TransportGreenDark),
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp)
-                                .testTag(if (isFinalStop) "driver_complete_trip_button" else "driver_next_stop_button")
+                                .testTag("driver_next_stop_button")
                         ) {
-                            if (isFinalStop) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("COMPLETE TRIP", fontWeight = FontWeight.Bold)
-                            } else {
-                                Text(text = t("next_stop"), fontWeight = FontWeight.Bold)
-                                Spacer(Modifier.width(4.dp))
-                                Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
-                            }
+                            Text(text = t("next_stop"), fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.width(4.dp))
+                            Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
                         }
+                    }
+
+                    // Trip completion remains available at every active stop, not only the final stop.
+                    Button(
+                        onClick = onCompleteTrip,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = StatusActiveGreen),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .testTag("driver_complete_trip_button")
+                    ) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("COMPLETE TRIP", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     }
                 }
             }
