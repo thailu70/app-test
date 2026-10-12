@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.data.dao.TransportDao
 import com.example.data.entity.*
@@ -25,13 +26,22 @@ import kotlinx.coroutines.launch
         AuditLogEntity::class,
         NotificationEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class TransportDatabase : RoomDatabase() {
     abstract fun transportDao(): TransportDao
 
     companion object {
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE subscriptions ADD COLUMN requestedRoute TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE subscriptions ADD COLUMN pickupStopName TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE subscriptions ADD COLUMN destinationStopName TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE subscriptions ADD COLUMN serviceType TEXT NOT NULL DEFAULT 'TWO_WAY'")
+            }
+        }
+
         @Volatile
         private var INSTANCE: TransportDatabase? = null
 
@@ -42,6 +52,7 @@ abstract class TransportDatabase : RoomDatabase() {
                     TransportDatabase::class.java,
                     "transport_navigator_database"
                 )
+                    .addMigrations(MIGRATION_4_5)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
