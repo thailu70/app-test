@@ -268,6 +268,17 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         }
     }
 
+    private val _signupRouteStops = MutableStateFlow<List<RouteStopEntity>>(emptyList())
+    val signupRouteStops: StateFlow<List<RouteStopEntity>> = _signupRouteStops.asStateFlow()
+
+    fun loadSignupRouteStops(routeId: String) {
+        viewModelScope.launch {
+            _signupRouteStops.value = if (routeId.isBlank()) emptyList() else try {
+                repository.getStopsForRouteSync(routeId).sortedBy { it.stopOrder }
+            } catch (_: Exception) { emptyList() }
+        }
+    }
+
     // Passenger Flows
     val activeSubscription: StateFlow<SubscriptionEntity?> = _currentUser.flatMapLatest { user ->
         val id = user?.id ?: ""
