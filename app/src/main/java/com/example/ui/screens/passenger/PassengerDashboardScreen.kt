@@ -69,8 +69,7 @@ fun PassengerDashboardScreen(
     val mediaUploadMessage by viewModel.mediaUploadMessage.collectAsState()
     val driverPhotoBytes by viewModel.assignedDriverPhotoBytes.collectAsState()
     val driverPhotoBitmap = remember(driverPhotoBytes) { driverPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
-    val passengerPhotoBytes by viewModel.passengerProfilePhotoBytes.collectAsState()
-    val passengerPhotoBitmap = remember(passengerPhotoBytes) { passengerPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
+    val passengerRouteStops by viewModel.passengerRouteStops.collectAsState()
 
     LaunchedEffect(currentUser?.id) { if (currentUser != null) viewModel.refreshMyRoster() }
     val assignment = myRoster?.get("assignment") as? Map<*, *>
@@ -110,6 +109,7 @@ fun PassengerDashboardScreen(
     val driverPhone = assignedDriver?.get("phone")?.toString()?.takeIf { it.isNotBlank() }
     val vehicleName = assignedVehicle?.get("model")?.toString()?.takeIf { it.isNotBlank() }
         ?: assignedVehicle?.get("vehicleName")?.toString()?.takeIf { it.isNotBlank() }
+        ?: assignedVehicle?.get("type")?.toString()?.takeIf { it.isNotBlank() }
     val vehiclePlate = assignedVehicle?.get("plateNumber")?.toString()?.takeIf { it.isNotBlank() }
         ?: assignedVehicle?.get("plate")?.toString()?.takeIf { it.isNotBlank() }
 
@@ -121,51 +121,6 @@ fun PassengerDashboardScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp)
     ) {
-        // Compact passenger identity bar, with the profile kept at the top.
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                if (passengerPhotoBitmap != null) {
-                    Image(
-                        bitmap = passengerPhotoBitmap!!.asImageBitmap(),
-                        contentDescription = "Your profile photo",
-                        modifier = Modifier.size(48.dp).clip(CircleShape).border(2.dp, Color(0xFF0F9F82), CircleShape)
-                    )
-                } else {
-                    Surface(
-                        modifier = Modifier.size(48.dp),
-                        shape = CircleShape,
-                        color = Color(0xFFD9F1EA),
-                        border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF0F9F82))
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                currentUser?.fullName?.split(" ")?.mapNotNull { it.firstOrNull() }?.take(2)?.joinToString("") ?: "RP",
-                                color = Color(0xFF087F68), fontWeight = FontWeight.Bold, fontSize = 17.sp
-                            )
-                        }
-                    }
-                }
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(currentUser?.fullName ?: "Passenger", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF173B35))
-                    Text("Passenger Portal", style = MaterialTheme.typography.bodySmall, color = Color(0xFF6B807B))
-                }
-                Surface(color = Color(0xFFDDF7E9), shape = RoundedCornerShape(10.dp)) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        Box(Modifier.size(7.dp).clip(CircleShape).background(if (trackedVehicle != null) Color(0xFF168653) else Color(0xFF8B9894)))
-                        Text(if (trackedVehicle != null) "LIVE" else "READY", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF176747))
-                    }
-                }
-            }
-        }
-
         // Hero is the first major content card, matching the reference design.
         item {
             RoutePassHeroHeader(
@@ -243,6 +198,10 @@ fun PassengerDashboardScreen(
             SubscriptionStatusCard(
                 subscription = subscription,
                 userAppliedRoute = currentUser?.appliedRouteName,
+                assignedDriverName = assignedDriver?.get("fullName")?.toString()?.takeIf { it.isNotBlank() },
+                assignedVehicleName = vehicleName,
+                assignedVehiclePlate = vehiclePlate,
+                routeStops = passengerRouteStops,
                 isRouteAssigned = hasAdminAssignedRoute,
                 lang = lang,
                 onRenewClick = { viewModel.openTelebirrDialog() },
@@ -337,6 +296,10 @@ fun PassengerDashboardScreen(
 fun SubscriptionStatusCard(
     subscription: com.example.data.entity.SubscriptionEntity?,
     userAppliedRoute: String?,
+    assignedDriverName: String? = null,
+    assignedVehicleName: String? = null,
+    assignedVehiclePlate: String? = null,
+    routeStops: List<com.example.data.entity.RouteStopEntity> = emptyList(),
     isRouteAssigned: Boolean = true,
     lang: AppLanguage,
     onRenewClick: () -> Unit,
@@ -369,12 +332,16 @@ fun SubscriptionStatusCard(
         return "$hour12:${minute.toString().padStart(2, '0')} $suffix"
     }
     val requestedEndpoints = parseRequestedEndpoints(subscription?.requestedRoute.orEmpty())
-    val pickupName = requestedEndpoints?.first
-        ?: subscription?.pickupStopName?.takeIf { it.isNotBlank() }
-        ?: "Pickup not set"
-    val destinationName = requestedEndpoints?.second
-        ?: subscription?.destinationStopName?.takeIf { it.isNotBlank() }
-        ?: "Destination not set"
+    val pickupStopFromRoute = routeStops.firstOrNull { it.id == subscription?.pickupStopId }
+    val destinationStopFromRoute = routeStops.firstOrNull { it.id == subscription?.destinationStopId }
+    val pickupName = subscription?.pickupStopName?.takeIf { it.isNotBlank() }
+        ?: pickupStopFromRoute?.stopName?.takeIf { it.isNotBlank() }
+        ?: requestedEndpoints?.first
+        ?: "Pickup not assigned — contact admin"
+    val destinationName = subscription?.destinationStopName?.takeIf { it.isNotBlank() }
+        ?: destinationStopFromRoute?.stopName?.takeIf { it.isNotBlank() }
+        ?: requestedEndpoints?.second
+        ?: "Destination not assigned — contact admin"
     val hasRealEndpoints = pickupName != "Pickup not set" && destinationName != "Destination not set"
     val routeDisplayName = if (hasRealEndpoints) "$pickupName - $destinationName"
         else subscription?.requestedRoute?.takeIf { it.isNotBlank() }
@@ -421,7 +388,9 @@ fun SubscriptionStatusCard(
                             color = Color.White
                         )
                         Text(
-                            text = if (isSubscribed) "Toyota Coaster • Plate: AA-12345" else "Selected Transit Route",
+                            text = listOfNotNull(assignedVehicleName, assignedVehiclePlate?.let { "Plate: $it" })
+                                .joinToString(" • ")
+                                .ifBlank { if (isSubscribed) "Vehicle assignment pending" else "Selected Transit Route" },
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate400
                         )
@@ -556,7 +525,7 @@ fun SubscriptionStatusCard(
                     Column {
                         Text(text = t("driver_label"), style = MaterialTheme.typography.labelSmall, color = Slate400)
                         Text(
-                            text = if (isSubscribed) "Abebe Alemu" else "Pending Payment",
+                            text = if (isSubscribed) assignedDriverName?.takeIf { it.isNotBlank() } ?: "Driver assignment pending" else "Pending Payment",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
