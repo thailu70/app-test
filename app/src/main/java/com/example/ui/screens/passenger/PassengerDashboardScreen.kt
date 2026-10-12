@@ -313,7 +313,8 @@ fun SubscriptionStatusCard(
         val minute = parts[1].toIntOrNull() ?: return value
         if (hour !in 0..23 || minute !in 0..59) return value
         val suffix = if (hour < 12) "AM" else "PM"
-        return "${hour % 12.let { if (it == 0) 12 else it }}:${minute.toString().padStart(2, '0')} $suffix"
+        val hour12 = if (hour % 12 == 0) 12 else hour % 12
+        return "$hour12:${minute.toString().padStart(2, '0')} $suffix"
     }
     val requestedEndpoints = parseRequestedEndpoints(subscription?.requestedRoute.orEmpty())
     val pickupName = requestedEndpoints?.first
