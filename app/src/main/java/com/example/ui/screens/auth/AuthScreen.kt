@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +52,8 @@ fun AuthScreen(
     // Passenger and driver share one sign-in/registration screen; switch roles without leaving the form.
     var selectedPortal by remember { mutableStateOf<AppRole?>(AppRole.PASSENGER) }
     var isRegisterMode by remember { mutableStateOf(false) }
+    var rememberMe by remember { mutableStateOf(true) }
+    var showForgotPasswordDialog by remember { mutableStateOf(false) }
 
     // Form fields
     var fullName by remember { mutableStateOf("") }
@@ -108,10 +111,11 @@ fun AuthScreen(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFFEAF8F7), Color(0xFFF5FBF4), Color(0xFFE4F5E9))))
             .padding(horizontal = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(top = 24.dp, bottom = 48.dp)
+        contentPadding = PaddingValues(top = 28.dp, bottom = 48.dp)
     ) {
         // App Identity Header
         item {
@@ -122,14 +126,15 @@ fun AuthScreen(
                 Surface(
                     color = TransportGreenPrimary,
                     shape = CircleShape,
-                    modifier = Modifier.size(64.dp)
+                    shadowElevation = 10.dp,
+                    modifier = Modifier.size(82.dp).border(4.dp, Color.White.copy(alpha = 0.95f), CircleShape)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             Icons.Default.DirectionsBus,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(44.dp)
                         )
                     }
                 }
@@ -338,9 +343,9 @@ fun AuthScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("auth_form_card"),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+                    shape = RoundedCornerShape(26.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.97f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
                 ) {
                     Column(
                         modifier = Modifier.padding(20.dp),
@@ -661,6 +666,33 @@ fun AuthScreen(
                                 .testTag("auth_password_input")
                         )
 
+                        if (!isRegisterMode) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = rememberMe,
+                                        onCheckedChange = { rememberMe = it },
+                                        colors = CheckboxDefaults.colors(checkedColor = TransportGreenPrimary)
+                                    )
+                                    Text("Remember Me", color = Slate900, style = MaterialTheme.typography.bodyMedium)
+                                }
+                                Text(
+                                    text = "Forgot Password?",
+                                    color = TransportGreenPrimary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier
+                                        .clickable { showForgotPasswordDialog = true }
+                                        .padding(vertical = 8.dp)
+                                        .testTag("forgot_password_button")
+                                )
+                            }
+                        }
+
                         if (isRegisterMode) {
                             OutlinedTextField(
                                 value = confirmPassword,
@@ -820,6 +852,19 @@ fun AuthScreen(
             }
 
         }
+    }
+
+    if (showForgotPasswordDialog) {
+        AlertDialog(
+            onDismissRequest = { showForgotPasswordDialog = false },
+            title = { Text("Forgot Password?") },
+            text = { Text("Password recovery by SMS is not yet connected. Please contact the RoutePass administrator to reset your account password.") },
+            confirmButton = {
+                TextButton(onClick = { showForgotPasswordDialog = false }) {
+                    Text("OK", color = TransportGreenPrimary)
+                }
+            }
+        )
     }
 }
 
