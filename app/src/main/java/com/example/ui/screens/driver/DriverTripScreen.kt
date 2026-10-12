@@ -453,7 +453,7 @@ fun DriverTripScreen(
         if (isScannerOpen) {
             DriverQrScannerDialog(
                 scanResult = scanResult,
-                currentStop = displayStops.getOrNull(tripState.currentStopIndex)?.stopName ?: "Bole Atlas",
+                currentStop = displayStops.getOrNull(tripState.currentStopIndex)?.stopName ?: "No pickup stop assigned",
                 tripState = tripState,
                 onScanToken = { token -> viewModel.verifyQrToken(token) },
                 onDismissResult = { viewModel.dismissScanResult() },
@@ -827,7 +827,11 @@ fun DriverNavigationHudCard(
                 }
 
                 Surface(
-                    color = if (tripState.isArrivedAtStop) StatusActiveGreen else TransportGold,
+                    color = when {
+                        !tripState.isNavigating -> StatusInfoBlue
+                        tripState.isArrivedAtStop -> StatusActiveGreen
+                        else -> TransportGold
+                    },
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
