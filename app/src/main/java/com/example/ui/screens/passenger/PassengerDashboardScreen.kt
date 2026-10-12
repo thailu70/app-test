@@ -169,9 +169,6 @@ fun PassengerDashboardScreen(
             SubscriptionStatusCard(
                 subscription = subscription,
                 userAppliedRoute = currentUser?.appliedRouteName,
-                assignedDriverName = assignedDriver?.get("fullName")?.toString()?.takeIf { it.isNotBlank() },
-                assignedVehicleName = vehicleName,
-                assignedVehiclePlate = vehiclePlate,
                 routeStops = passengerRouteStops,
                 isRouteAssigned = hasAdminAssignedRoute,
                 lang = lang,
@@ -433,7 +430,7 @@ fun SubscriptionStatusCard(
                         Text(
                             text = listOfNotNull(assignedVehicleName, assignedVehiclePlate?.let { "Plate: $it" })
                                 .joinToString(" • ")
-                                .ifBlank { if (isSubscribed) "Vehicle assignment pending" else "Selected Transit Route" },
+                                .ifBlank { if (isSubscribed) "Monthly commuter pass" else "Subscription not active" },
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate400
                         )
@@ -566,9 +563,9 @@ fun SubscriptionStatusCard(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column {
-                        Text(text = t("driver_label"), style = MaterialTheme.typography.labelSmall, color = Slate400)
+                        Text(text = "Service", style = MaterialTheme.typography.labelSmall, color = Slate400)
                         Text(
-                            text = if (isSubscribed) assignedDriverName?.takeIf { it.isNotBlank() } ?: "Driver assignment pending" else "Pending Payment",
+                            text = if (subscription?.serviceType.equals("ONE_WAY", ignoreCase = true)) "One way" else "Round trip",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
