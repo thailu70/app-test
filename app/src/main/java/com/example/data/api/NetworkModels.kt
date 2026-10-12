@@ -154,7 +154,13 @@ data class SubscriptionDto(
     val qrToken: String? = null,
     val morningSchedule: String? = null,
     val eveningSchedule: String? = null,
-    val vehicleId: String? = null
+    val vehicleId: String? = null,
+    val requestedRoute: String? = null,
+    val pickupStopName: String? = null,
+    val destinationStopName: String? = null,
+    val pickupStopId: String? = null,
+    val destinationStopId: String? = null,
+    val serviceType: String? = "TWO_WAY"
 )
 
 @JsonClass(generateAdapter = true)
