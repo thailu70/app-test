@@ -120,10 +120,23 @@ fun DriverTripScreen(
     val driverPhotoBitmap = remember(driverPhotoBytes) { driverPhotoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
     LaunchedEffect(currentUser?.id) { if (currentUser != null) viewModel.refreshMyRoster() }
     val rosterPassengers = myRoster?.get("passengers") as? List<*> ?: emptyList<Any>()
+    val assignment = myRoster?.get("assignment") as? Map<*, *>
+    val assignedVehicle = assignment?.get("vehicle") as? Map<*, *>
+    val assignedVehicleModel = assignedVehicle?.get("model")?.toString()?.takeIf { it.isNotBlank() }
+        ?: assignedVehicle?.get("vehicleName")?.toString()?.takeIf { it.isNotBlank() }
+    val assignedVehicleClass = assignedVehicle?.get("type")?.toString()?.takeIf { it.isNotBlank() }?.replace('_', ' ')
+    val vehicleDisplayName = listOfNotNull(
+        assignedVehicleModel,
+        assignedVehicleClass?.takeIf { !it.equals(assignedVehicleModel, ignoreCase = true) }
+    ).joinToString(" · ").ifBlank { null }
+    val assignedVehiclePlate = assignedVehicle?.get("plateNumber")?.toString()?.takeIf { it.isNotBlank() }
+        ?: assignedVehicle?.get("plate")?.toString()?.takeIf { it.isNotBlank() }
+        ?: currentUser?.assignedVehiclePlate?.takeIf { it.isNotBlank() }
+        ?: tripState.vehiclePlate
 
     fun t(key: String) = AppStrings.get(key, lang)
 
-    Box(modifier = modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFFF3F7FB), Color(0xFFEAF2F8))))) {
+    Box(modifier = modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFFF7FAF9), Color(0xFFEAF3F1))))) {
         DriverLocationReporter(
             viewModel = viewModel,
             currentStop = displayStops.getOrNull(tripState.currentStopIndex)?.stopName.orEmpty(),
@@ -148,7 +161,9 @@ fun DriverTripScreen(
             item {
                 DriverCockpitHeaderCard(
                     driverName = currentUser?.fullName ?: "Driver",
-                    vehiclePlate = currentUser?.assignedVehiclePlate?.ifBlank { tripState.vehiclePlate } ?: tripState.vehiclePlate,
+                    vehiclePlate = assignedVehiclePlate,
+                    vehicleDisplayName = vehicleDisplayName,
+                    vehicleClass = assignedVehicleClass,
                     routeName = currentUser?.appliedRouteName?.ifBlank { tripState.routeName } ?: tripState.routeName,
                     tripState = tripState,
                     networkStatus = networkStatus,
@@ -506,6 +521,8 @@ private fun DriverLocationReporter(
 fun DriverCockpitHeaderCard(
     driverName: String,
     vehiclePlate: String,
+    vehicleDisplayName: String? = null,
+    vehicleClass: String? = null,
     routeName: String,
     tripState: DriverTripState,
     networkStatus: NetworkStatus,
@@ -545,9 +562,9 @@ fun DriverCockpitHeaderCard(
                         color = Color.White
                     )
                     Text(
-                        text = "${tripState.vehicleType} • Plate: $vehiclePlate",
+                        text = "${vehicleDisplayName ?: tripState.vehicleType.replace('_', ' ')} • Plate: $vehiclePlate",
                         style = MaterialTheme.typography.bodySmall,
-                        color = TransportGold
+                        color = Color(0xFFB8F2DD)
                     )
                 }
 
@@ -621,7 +638,7 @@ fun DriverCockpitHeaderCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = tripState.vehicleType.replace('_', ' '),
+                        text = (vehicleClass ?: tripState.vehicleType.replace('_', ' ')),
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White,
                         fontWeight = FontWeight.Bold
