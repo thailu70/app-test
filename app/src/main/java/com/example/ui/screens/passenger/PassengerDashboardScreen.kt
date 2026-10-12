@@ -11,6 +11,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,7 +48,9 @@ import com.example.ui.viewmodel.MainViewModel
 @Composable
 fun PassengerDashboardScreen(
     viewModel: MainViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    requestedSection: String? = null,
+    onSectionNavigated: () -> Unit = {}
 ) {
     val lang by viewModel.currentLanguage.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
@@ -125,7 +128,26 @@ fun PassengerDashboardScreen(
     val vehiclePlate = assignedVehicle?.get("plateNumber")?.toString()?.takeIf { it.isNotBlank() }
         ?: assignedVehicle?.get("plate")?.toString()?.takeIf { it.isNotBlank() }
 
+    val dashboardListState = rememberLazyListState()
+    LaunchedEffect(requestedSection) {
+        val targetIndex = when (requestedSection) {
+            "journey" -> 1
+            "qr" -> 2
+            "driver" -> 3
+            "map" -> 4
+            "payments" -> 5
+            "history" -> 7
+            "support" -> 8
+            else -> null
+        }
+        if (targetIndex != null && requestedSection != null) {
+            dashboardListState.animateScrollToItem(targetIndex)
+            onSectionNavigated()
+        }
+    }
+
     LazyColumn(
+        state = dashboardListState,
         modifier = modifier
             .fillMaxSize()
             .background(Brush.verticalGradient(listOf(Color(0xFFF7FAF9), Color(0xFFEAF3F1))))
@@ -142,7 +164,35 @@ fun PassengerDashboardScreen(
             )
         }
 
-        // Dedicated driver card; passenger dashboard intentionally has no passenger roster.
+        // 1. Primary journey and schedule
+        item {
+            SubscriptionStatusCard(
+                subscription = subscription,
+                userAppliedRoute = currentUser?.appliedRouteName,
+                assignedDriverName = assignedDriver?.get("fullName")?.toString()?.takeIf { it.isNotBlank() },
+                assignedVehicleName = vehicleName,
+                assignedVehiclePlate = vehiclePlate,
+                routeStops = passengerRouteStops,
+                isRouteAssigned = hasAdminAssignedRoute,
+                lang = lang,
+                onRenewClick = { },
+                onCancelClick = { viewModel.cancelSubscription() }
+            )
+        }
+
+        // 2. Boarding pass and QR
+        item {
+            PassengerQrCard(
+                isSubscribed = subscription != null && subscription?.subscriptionStatus == "ACTIVE",
+                token = subscription?.qrToken ?: "",
+                status = subscription?.subscriptionStatus ?: "NOT_SUBSCRIBED",
+                lang = lang,
+                isRouteAssigned = hasAdminAssignedRoute,
+                onSubscribeClick = { if (hasAdminAssignedRoute) viewModel.openTelebirrDialog() }
+            )
+        }
+
+        // Driver details follow the passenger’s route and boarding pass. The passenger never sees the passenger roster.
         item {
             Card(
                 modifier = Modifier.fillMaxWidth().testTag("passenger_assigned_driver_card"),
@@ -215,50 +265,22 @@ fun PassengerDashboardScreen(
             }
         }
 
-        // 1. Subscription Overview Card
-        item {
-            SubscriptionStatusCard(
-                subscription = subscription,
-                userAppliedRoute = currentUser?.appliedRouteName,
-                assignedDriverName = assignedDriver?.get("fullName")?.toString()?.takeIf { it.isNotBlank() },
-                assignedVehicleName = vehicleName,
-                assignedVehiclePlate = vehiclePlate,
-                routeStops = passengerRouteStops,
-                isRouteAssigned = hasAdminAssignedRoute,
-                lang = lang,
-                onRenewClick = { viewModel.openTelebirrDialog() },
-                onCancelClick = { viewModel.cancelSubscription() }
-            )
-        }
-
-        // 2. Dynamic Boarding QR Code Card
-        item {
-            PassengerQrCard(
-                isSubscribed = subscription != null && subscription?.subscriptionStatus == "ACTIVE",
-                token = subscription?.qrToken ?: "",
-                status = subscription?.subscriptionStatus ?: "NOT_SUBSCRIBED",
-                lang = lang,
-                isRouteAssigned = hasAdminAssignedRoute,
-                onSubscribeClick = { if (hasAdminAssignedRoute) viewModel.openTelebirrDialog() }
-            )
-        }
-
-        // 3. Server-reported driver location. No demo coordinates are shown as live.
+        // 4. Server-reported driver location. No demo coordinates are shown as live.
         item {
             MiniVehicleMap(vehicle = trackedVehicle, modifier = Modifier.testTag("passenger_live_vehicle_map"), serverMessage = trackingMessage)
         }
 
-        // 4. Passenger Financial Account & Balance
+        // 5. Payment overview
         item {
             FinancialBalanceCard(
                 lang = lang,
                 amountEtb = checkoutAmount,
                 isRouteAssigned = hasAdminAssignedRoute,
-                onPayClick = { if (hasAdminAssignedRoute) viewModel.openTelebirrDialog() }
+                onPayClick = { }
             )
         }
 
-        // 5. Telebirr Payment History
+        // 6. Payment records and receipts
         item {
             PaymentHistoryCard(
                 payments = payments,
@@ -267,12 +289,12 @@ fun PassengerDashboardScreen(
             )
         }
 
-        // 6. Trip Attendance History
+        // 7. Trip history
         item {
             TripAttendanceCard(checkIns = checkIns, lang = lang)
         }
 
-        // 7. Complaints & Support
+        // 8. Support and feedback
         item {
             ComplaintsCard(
                 complaints = complaints,
@@ -574,72 +596,24 @@ fun SubscriptionStatusCard(
                     }
                 }
 
-                // Keep tariff and payment controls hidden until an administrator assigns an official route.
-                if (!isRouteAssigned) {
-                    Surface(
-                        color = Color(0xFFFEF3C7).copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(12.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B))
-                    ) {
-                        Text(
-                            text = if (lang == AppLanguage.AMHARIC)
-                                "የመስመር ምደባ በአስተዳዳሪ እስኪጸድቅ ድረስ የወርሃዊ ክፍያ መጠን አይታይም።"
-                            else
-                                "Route assignment pending. Your monthly price will be shown after an administrator assigns your route.",
-                            modifier = Modifier.padding(12.dp),
-                            color = Color.White,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                } else if (!isSubscribed) {
-                    Button(
-                        onClick = onRenewClick,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("pay_and_subscribe_button"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue)
-                    ) {
-                        Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = Color.White)
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = if (lang == AppLanguage.AMHARIC)
-                                "በቴሌብር ይክፈሉ እና ይመዝገቡ (ETB $priceVal)"
-                            else
-                                "Pay & Subscribe with Telebirr (ETB $priceVal)",
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
-                } else {
+                Surface(
+                    color = Color(0xFFE8F5EE),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        OutlinedButton(
-                            onClick = onRenewClick,
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("renew_subscription_button"),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, TelebirrBlue)
-                        ) {
-                            Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = TelebirrBlue)
-                            Spacer(Modifier.width(6.dp))
-                            Text(text = t("renew_subscription"), fontWeight = FontWeight.SemiBold)
-                        }
-
-                        TextButton(
-                            onClick = onCancelClick,
-                            modifier = Modifier.testTag("cancel_sub_button")
-                        ) {
-                            Text(
-                                text = "Cancel Pass",
-                                color = Slate400,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
+                        Icon(Icons.Default.Info, contentDescription = null, tint = TransportGreenPrimary)
+                        Text(
+                            text = if (lang == AppLanguage.AMHARIC)
+                                "የክፍያ ማረጋገጫና የወርሃዊ ምዝገባ ማደስ ለጊዜው በአስተዳዳሪ ይከናወናል።"
+                            else
+                                "Subscription activation and renewals are managed by the RoutePass administrator for now.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF245443)
+                        )
                     }
                 }
             }
@@ -992,7 +966,7 @@ fun FinancialBalanceCard(
             ) {
                 Column {
                     Text(text = t("current_balance"), style = MaterialTheme.typography.labelSmall, color = Slate600)
-                    Text(text = "ETB 0.00", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(text = if (lang == AppLanguage.AMHARIC) "በአስተዳዳሪ ይረጋገጣል" else "Admin verified", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(text = t("monthly_fee"), style = MaterialTheme.typography.labelSmall, color = Slate600)
@@ -1014,18 +988,17 @@ fun FinancialBalanceCard(
             ) {
                 Column {
                     Text(text = t("next_payment"), style = MaterialTheme.typography.labelSmall, color = Slate600)
-                    Text(text = "01 Nov 2026", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text(text = if (lang == AppLanguage.AMHARIC) "በአስተዳዳሪ ይመዘገባል" else "Managed by administrator", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                 }
-                if (isRouteAssigned) Button(
-                    onClick = onPayClick,
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue),
-                    modifier = Modifier.testTag("telebirr_pay_quick_button")
-                ) {
-                    Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(text = t("pay_telebirr"), style = MaterialTheme.typography.labelMedium)
-                }
+                Text(
+                    text = if (lang == AppLanguage.AMHARIC)
+                        "ክፍያ እና ባላንስ ማሻሻያ ለጊዜው በRoutePass አስተዳዳሪ ይከናወናል።"
+                    else
+                        "Payments and balance updates are handled by the RoutePass administrator for now.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Slate600,
+                    modifier = Modifier.widthIn(max = 220.dp)
+                )
             }
         }
     }
