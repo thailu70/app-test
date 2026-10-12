@@ -689,7 +689,7 @@ fun AuthScreen(
                                         Surface(color = Color(0xFFF4F4F4), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                                 Text("Monthly commuter pass", fontWeight = FontWeight.Bold, color = Slate900)
-                                                Text("ETB ${route.basePriceEtb.toInt()} / month", fontWeight = FontWeight.ExtraBold, color = TransportGreenPrimary, style = MaterialTheme.typography.titleMedium)
+                                                Text("ETB ${availableRoutes.firstOrNull { it.id == selectedRouteId }?.basePriceEtb?.toInt() ?: 0} / month", fontWeight = FontWeight.ExtraBold, color = TransportGreenPrimary, style = MaterialTheme.typography.titleMedium)
                                                 Text("Vehicle type and final assignment are confirmed by the RoutePass administrator.", style = MaterialTheme.typography.bodySmall, color = Slate600)
                                             }
                                         }
