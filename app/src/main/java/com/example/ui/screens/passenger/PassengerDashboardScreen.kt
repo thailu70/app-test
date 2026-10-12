@@ -771,29 +771,24 @@ fun PassengerQrCard(
 
                         Text(
                             text = if (lang == AppLanguage.AMHARIC)
-                                "የዲጂታል መሳፈሪያ QR ኮድ ለማግኘት እባክዎ አስቀድመው ለተመረጠው መስመር በቴሌብር ክፍያ ፈጽመው ይመዝገቡ።"
+                                "የመሳፈሪያ QR ኮድ እንዲነቃ አስተዳዳሪው ምዝገባዎንና ክፍያዎን ማረጋገጥ አለበት።"
                             else
-                                if (isRouteAssigned) "The dynamic QR boarding pass is locked because you do not have an active monthly subscription. Follow the payment instructions for your assigned route."
+                                if (isRouteAssigned) "Your boarding pass will activate after the RoutePass administrator confirms your subscription and payment."
                                 else "Your route is awaiting administrator assignment. The price and payment option will appear after your route is assigned.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate600,
                             textAlign = TextAlign.Center
                         )
 
-                        if (isRouteAssigned) Button(
-                            onClick = onSubscribeClick,
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue),
-                            modifier = Modifier.padding(top = 4.dp)
-                        ) {
-                            Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = Color.White)
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = if (lang == AppLanguage.AMHARIC) "በቴሌብር ይክፈሉ" else "Pay & Subscribe via Telebirr",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        Text(
+                            text = if (lang == AppLanguage.AMHARIC)
+                                "ለምዝገባና ለክፍያ ማረጋገጫ RoutePass አስተዳዳሪን ያነጋግሩ።"
+                            else
+                                "Contact the RoutePass administrator to confirm your subscription and activate your boarding pass.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Slate600,
+                            textAlign = TextAlign.Center
+                        )
                     }
                 }
             }
