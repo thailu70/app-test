@@ -79,6 +79,7 @@ fun AuthScreen(
     var driverDepartureTime by remember { mutableStateOf("06:30") }
     var driverJourneyType by remember { mutableStateOf("Two way") }
     var driverServiceTier by remember { mutableStateOf("Economy") }
+    var driverServiceMode by remember { mutableStateOf("Both") }
     val isCustomCommuterRequest = initialRouteName == "Requested commuter route" && initialRouteId.isNullOrBlank()
     var selectedServiceTier by remember { mutableStateOf(initialServiceTier ?: "Economy") }
     var showRoutePicker by remember { mutableStateOf(initialRouteName.isNullOrBlank()) }
@@ -552,7 +553,19 @@ fun AuthScreen(
                                             }
                                         }
                                     }
-                                    Text("Service / commute type", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Slate900)
+                                    Text("Service type you want to drive", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Slate900)
+                                    Text("This is a preference only. PASSO administration must approve your vehicle and assign eligible trips before you can operate.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                        listOf("Daily Commuter", "Intercity", "Both").forEach { mode ->
+                                            FilterChip(
+                                                selected = driverServiceMode == mode,
+                                                onClick = { driverServiceMode = mode },
+                                                label = { Text(mode, maxLines = 1) },
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                    }
+                                    Text("Vehicle service preference", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Slate900)
                                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                                         listOf("VIP", "Deluxe", "Economy").forEach { tier ->
                                             FilterChip(selected = driverServiceTier == tier, onClick = { driverServiceTier = tier }, label = { Text(tier) }, modifier = Modifier.weight(1f))
@@ -851,8 +864,8 @@ fun AuthScreen(
                                             vehicleType = vehicleType,
                                             appliedRouteId = when { portal == AppRole.DRIVER && driverRouteMode == "custom" -> ""; isCustomCommuterRequest -> ""; else -> selectedRouteId },
                                             appliedRouteName = when {
-                                                portal == AppRole.DRIVER && isRegisterMode && driverRouteMode == "custom" -> "Proposed driver route | Pickup: $driverPickup | Destination: $driverDestination | Departure: $driverDepartureTime | Journey: $driverJourneyType | Tier: $driverServiceTier"
-                                                portal == AppRole.DRIVER && isRegisterMode -> "Driver route preference | Route: $selectedRouteName | Tier: $driverServiceTier"
+                                                portal == AppRole.DRIVER && isRegisterMode && driverRouteMode == "custom" -> "Driver service preference: $driverServiceMode | Proposed route | Pickup: $driverPickup | Destination: $driverDestination | Departure: $driverDepartureTime | Journey: $driverJourneyType | Tier: $driverServiceTier"
+                                                portal == AppRole.DRIVER && isRegisterMode -> "Driver service preference: $driverServiceMode | Route: $selectedRouteName | Tier: $driverServiceTier"
                                                 isCustomCommuterRequest -> "Requested commuter route | Pickup: $requestPickup | Destination: $requestDestination | Journey: $commuteDirection | Tier: $selectedServiceTier"
                                                 else -> selectedRouteName
                                             },
