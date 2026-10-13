@@ -36,7 +36,8 @@ import com.example.ui.viewmodel.MainViewModel
 @Composable
 fun AuthScreen(
     viewModel: MainViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    initialPortal: AppRole? = null
 ) {
     val lang by viewModel.currentLanguage.collectAsState()
     val authError by viewModel.authError.collectAsState()
@@ -44,7 +45,7 @@ fun AuthScreen(
     val availableRoutes by viewModel.allRoutes.collectAsState()
 
     // Dedicated Independent Portal Gateway (null = selecting portal; non-null = inside specific portal)
-    var selectedPortal by remember { mutableStateOf<AppRole?>(null) }
+    var selectedPortal by remember { mutableStateOf<AppRole?>(initialPortal) }
     var isRegisterMode by remember { mutableStateOf(false) }
 
     // Form fields
