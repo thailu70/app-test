@@ -29,6 +29,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.localization.AppLanguage
 import com.example.data.entity.RouteEntity
+import com.example.data.api.ApiClient
+import com.example.data.api.TransportCompanyDto
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.AppRole
 import com.example.ui.viewmodel.MainViewModel
@@ -81,6 +83,9 @@ fun AuthScreen(
     var driverServiceTier by remember { mutableStateOf("Economy") }
     var driverServiceMode by remember { mutableStateOf("Daily Commuter") }
     var driverTransportCompany by remember { mutableStateOf("") }
+    var transportCompanies by remember { mutableStateOf<List<TransportCompanyDto>>(emptyList()) }
+    var companyMenuExpanded by remember { mutableStateOf(false) }
+    var companyDirectoryMessage by remember { mutableStateOf<String?>(null) }
     val isCustomCommuterRequest = initialRouteName == "Requested commuter route" && initialRouteId.isNullOrBlank()
     var selectedServiceTier by remember { mutableStateOf(initialServiceTier ?: "Economy") }
     var showRoutePicker by remember { mutableStateOf(initialRouteName.isNullOrBlank()) }
@@ -91,6 +96,28 @@ fun AuthScreen(
         if (!initialRouteId.isNullOrBlank()) selectedRouteId = initialRouteId
         if (!initialRouteName.isNullOrBlank()) { selectedRouteName = initialRouteName; showRoutePicker = false }
         if (!initialServiceTier.isNullOrBlank()) selectedServiceTier = initialServiceTier
+    }
+
+    LaunchedEffect(driverServiceMode) {
+        if (driverServiceMode == "Intercity") {
+            try {
+                val response = ApiClient.getService().getTransportCompanies()
+                if (response.isSuccessful && response.body()?.success == true) {
+                    transportCompanies = response.body()?.companies.orEmpty()
+                    companyDirectoryMessage = if (transportCompanies.isEmpty()) "No registered transport companies are available yet. Contact PASSO administration." else null
+                    if (transportCompanies.none { it.name == driverTransportCompany }) driverTransportCompany = ""
+                } else {
+                    transportCompanies = emptyList()
+                    companyDirectoryMessage = "Could not load registered companies. Check your connection and try again."
+                }
+            } catch (_: Exception) {
+                transportCompanies = emptyList()
+                companyDirectoryMessage = "Could not load registered companies. Check your connection and try again."
+            }
+        } else {
+            companyMenuExpanded = false
+            companyDirectoryMessage = null
+        }
     }
 
     // Automatically synchronize default route if available
@@ -524,7 +551,42 @@ fun AuthScreen(
                                         }
                                     }
                                     if (driverServiceMode == "Intercity") {
-                                        OutlinedTextField(value = driverTransportCompany, onValueChange = { driverTransportCompany = it }, label = { Text("Transport company") }, placeholder = { Text("Enter the registered company name") }, leadingIcon = { Icon(Icons.Default.Business, contentDescription = null) }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("driver_transport_company_input"))
+                                        Column(modifier = Modifier.fillMaxWidth()) {
+                                            OutlinedTextField(
+                                                value = driverTransportCompany,
+                                                onValueChange = {},
+                                                readOnly = true,
+                                                label = { Text("Transport company") },
+                                                placeholder = { Text("Select a registered company") },
+                                                leadingIcon = { Icon(Icons.Default.Business, contentDescription = null) },
+                                                trailingIcon = {
+                                                    IconButton(onClick = { companyMenuExpanded = !companyMenuExpanded }) {
+                                                        Icon(Icons.Default.ArrowDropDown, contentDescription = "Choose transport company")
+                                                    }
+                                                },
+                                                singleLine = true,
+                                                modifier = Modifier.fillMaxWidth().testTag("driver_transport_company_input")
+                                                    .clickable { companyMenuExpanded = true }
+                                            )
+                                            DropdownMenu(
+                                                expanded = companyMenuExpanded,
+                                                onDismissRequest = { companyMenuExpanded = false }
+                                            ) {
+                                                transportCompanies.forEach { company ->
+                                                    DropdownMenuItem(
+                                                        text = { Text(company.name) },
+                                                        onClick = {
+                                                            driverTransportCompany = company.name
+                                                            companyMenuExpanded = false
+                                                            companyDirectoryMessage = null
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                            companyDirectoryMessage?.let {
+                                                Text(it, color = Slate600, style = MaterialTheme.typography.bodySmall)
+                                            }
+                                        }
                                         Text("Choose the company you want to operate with. PASSO administration must approve your registration and assign eligible intercity journeys.", style = MaterialTheme.typography.bodySmall, color = Slate600)
                                     } else {
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
