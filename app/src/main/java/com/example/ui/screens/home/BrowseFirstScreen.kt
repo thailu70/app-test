@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Work
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.ui.window.Dialog
 import androidx.compose.runtime.*
