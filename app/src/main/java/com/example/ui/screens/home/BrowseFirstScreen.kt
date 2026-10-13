@@ -45,7 +45,7 @@ private val HomeInk = Color(0xFF17212B)
 @Composable
 fun BrowseFirstScreen(
     viewModel: MainViewModel,
-    onPassengerContinue: () -> Unit,
+    onPassengerContinue: (registerFirst: Boolean, routeId: String?, routeName: String?, serviceTier: String?) -> Unit,
     onDriverAccess: () -> Unit,
     onCompanyAccess: () -> Unit,
     modifier: Modifier = Modifier
@@ -105,7 +105,7 @@ fun BrowseFirstScreen(
                         }
                     }
                     Button(
-                        onClick = { selectedRoute = null; onPassengerContinue() },
+                        onClick = { selectedRoute = null; onPassengerContinue(true, route.id, route.name, selectedTier) },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = HomeGreen)
                     ) {
@@ -137,7 +137,7 @@ fun BrowseFirstScreen(
                     Text("RoutePass", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = HomeInk)
                     Text("Move People. Connect Places.", style = MaterialTheme.typography.bodySmall, color = Slate600)
                 }
-                TextButton(onClick = onPassengerContinue) { Text("Sign in", color = HomeGreen, fontWeight = FontWeight.Bold) }
+                TextButton(onClick = { onPassengerContinue(false, null, null, null) }) { Text("Sign in", color = HomeGreen, fontWeight = FontWeight.Bold) }
             }
         }
         item {
@@ -217,7 +217,7 @@ fun BrowseFirstScreen(
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("No vehicle available yet?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = HomeInk)
                         Text("You can submit a request and join the waitlist. No subscription payment is due until an eligible vehicle is assigned and you accept the offer.", style = MaterialTheme.typography.bodyMedium, color = Slate600)
-                        Button(onClick = onPassengerContinue, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = HomeGreen)) {
+                        Button(onClick = { onPassengerContinue(true, null, "Requested commuter route", selectedTier) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = HomeGreen)) {
                             Text("Sign in / Sign up to request")
                             Spacer(Modifier.width(8.dp))
                             Icon(Icons.Default.ArrowForward, contentDescription = null)
