@@ -117,6 +117,19 @@ router.post('/register', authLimiter, async (req, res) => {
           error: 'Driver registration requires a commercial licence number, vehicle plate, vehicle model and valid vehicle type.'
         });
       }
+      const isCityTravelRequest = /city travel|intercity/i.test(String(appliedRouteName || ''));
+      const requestedCompanyName = String(companyName || '').trim();
+      if (isCityTravelRequest && !requestedCompanyName) {
+        return res.status(400).json({ success: false, error: 'Select a registered transport company for City Travel.' });
+      }
+      if (requestedCompanyName) {
+        const registeredCompany = await DB.prepare(
+          "SELECT id, name FROM transport_companies WHERE lower(name) = lower(?) AND status = 'ACTIVE'"
+        ).get(requestedCompanyName);
+        if (!registeredCompany) {
+          return res.status(400).json({ success: false, error: 'Select an active transport company from the registered company list.' });
+        }
+      }
       const existingPlate = await DB.prepare('SELECT id FROM vehicles WHERE plateNumber = ?').get(driverVehiclePlate);
       if (existingPlate) {
         return res.status(409).json({ success: false, error: 'That vehicle plate is already registered. Contact support if you are the legal owner.' });
