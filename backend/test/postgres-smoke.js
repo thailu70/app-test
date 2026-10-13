@@ -117,12 +117,6 @@ async function run() {
     assert.equal(result.status, 200, 'Driver registration must be able to load active transport companies');
     assert.ok(result.data.companies.some(company => company.name === ciCompanyName), 'Active company should appear in the public list');
 
-    // Register a transport company through the admin workflow before driver registration.
-    result = await requestJson(baseUrl, '/api/companies/admin', 'POST', {
-      name: 'CI Transport'
-    }, adminToken);
-    assert.equal(result.status, 201, 'Admin must be able to register a transport company');
-
     // A driver self-registers, awaits admin approval, then receives a route assignment.
     result = await requestJson(baseUrl, '/api/auth/register', 'POST', {
       fullName: 'CI Driver Owner',
