@@ -242,7 +242,7 @@ fun BrowseFirstScreen(
                             Spacer(Modifier.width(8.dp))
                             Text("Travel date and seat selection", color = Slate600, style = MaterialTheme.typography.bodyMedium)
                         }
-                        Button(onClick = onPassengerContinue, modifier = Modifier.fillMaxWidth(), enabled = origin.isNotBlank() && destination.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = HomeBlue)) {
+                        Button(onClick = { onPassengerContinue(true, null, "Intercity: $origin → $destination", "Intercity") }, modifier = Modifier.fillMaxWidth(), enabled = origin.isNotBlank() && destination.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = HomeBlue)) {
                             Icon(Icons.Default.Search, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text("Continue to search")
@@ -278,8 +278,8 @@ fun BrowseFirstScreen(
     NavigationBar(containerColor = Color.White, tonalElevation = 8.dp) {
         NavigationBarItem(selected = selectedSection == 0, onClick = { selectedSection = 0 }, icon = { Icon(Icons.Default.Work, contentDescription = "Home") }, label = { Text("Home") })
         NavigationBarItem(selected = false, onClick = { selectedSection = 1 }, icon = { Icon(Icons.Default.Search, contentDescription = "Search") }, label = { Text("Search") })
-        NavigationBarItem(selected = false, onClick = onPassengerContinue, icon = { Icon(Icons.Default.CalendarMonth, contentDescription = "Tickets") }, label = { Text("Tickets") })
-        NavigationBarItem(selected = false, onClick = onPassengerContinue, icon = { Icon(Icons.Default.Luggage, contentDescription = "More") }, label = { Text("More") })
+        NavigationBarItem(selected = false, onClick = { onPassengerContinue(false, null, null, null) }, icon = { Icon(Icons.Default.CalendarMonth, contentDescription = "Tickets") }, label = { Text("Tickets") })
+        NavigationBarItem(selected = false, onClick = { onPassengerContinue(false, null, null, null) }, icon = { Icon(Icons.Default.Luggage, contentDescription = "More") }, label = { Text("More") })
     }
     }
 }
