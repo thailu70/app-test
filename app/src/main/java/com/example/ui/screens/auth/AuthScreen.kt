@@ -386,7 +386,7 @@ fun AuthScreen(
 
                         if (isRegisterMode && portal == AppRole.DRIVER) {
                             Text(
-                                text = "Register yourself and your own vehicle below. Your PASSO administrator will assign the operating route after registration.",
+                                text = "Create your driver account and register the vehicle you own. Choose Daily Commuter, Intercity, or Both. Your account and documents may need review before trips are assigned.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color(0xFF92400E),
                                 modifier = Modifier
@@ -511,7 +511,7 @@ fun AuthScreen(
                                     verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     Text("Operating route preferences", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = Color(0xFF123C78))
-                                    Text("Choose an existing route or propose a new route. The administrator will review and assign your operating route.", style = MaterialTheme.typography.bodySmall, color = Slate700)
+                                    Text("Choose an existing daily commuter route or propose a route. For intercity service, select Intercity above; your operator/admin must approve the account and assign eligible journeys. This preference does not itself create a booking or trip assignment.", style = MaterialTheme.typography.bodySmall, color = Slate700)
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                                         FilterChip(selected = driverRouteMode == "existing", onClick = { driverRouteMode = "existing" }, label = { Text("Existing route") }, modifier = Modifier.weight(1f))
                                         FilterChip(selected = driverRouteMode == "custom", onClick = { driverRouteMode = "custom" }, label = { Text("Propose route") }, modifier = Modifier.weight(1f))
