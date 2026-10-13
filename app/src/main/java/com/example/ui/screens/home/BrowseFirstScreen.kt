@@ -143,8 +143,8 @@ fun BrowseFirstScreen(
         item {
             Surface(shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp, bottomStart = 26.dp, bottomEnd = 26.dp), color = HomeBlue, modifier = Modifier.fillMaxWidth()) {
                 Box(modifier = Modifier.fillMaxWidth().height(252.dp)) {
-                    Image(painter = painterResource(id = R.drawable.transport_icon_1791227027460), contentDescription = "PASSO bus transport", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                    Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0xAA174E9B), Color(0x33174E9B), Color(0xCC102B55)))))
+                    Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(Color(0xFF0757B8), Color(0xFF06356D), Color(0xFF00A982)))))
+                    Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0x22000000), Color(0x33000000), Color(0x55000000)))))
                     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color.White, modifier = Modifier.size(48.dp))
