@@ -37,7 +37,11 @@ import com.example.ui.viewmodel.MainViewModel
 fun AuthScreen(
     viewModel: MainViewModel,
     modifier: Modifier = Modifier,
-    initialPortal: AppRole? = null
+    initialPortal: AppRole? = null,
+    initialRegisterMode: Boolean = false,
+    initialRouteId: String? = null,
+    initialRouteName: String? = null,
+    initialServiceTier: String? = null
 ) {
     val lang by viewModel.currentLanguage.collectAsState()
     val authError by viewModel.authError.collectAsState()
@@ -46,7 +50,8 @@ fun AuthScreen(
 
     // Dedicated Independent Portal Gateway (null = selecting portal; non-null = inside specific portal)
     var selectedPortal by remember { mutableStateOf<AppRole?>(initialPortal) }
-    var isRegisterMode by remember { mutableStateOf(false) }
+    var isRegisterMode by remember { mutableStateOf(initialRegisterMode) }
+    var showPasswordHelp by remember { mutableStateOf(false) }
 
     // Form fields
     var fullName by remember { mutableStateOf("") }
@@ -64,12 +69,21 @@ fun AuthScreen(
     var adminSecret by remember { mutableStateOf("") }
 
     // Applied Route Selection for Passenger and Driver
-    var selectedRouteId by remember { mutableStateOf("route_bole_merkato") }
-    var selectedRouteName by remember { mutableStateOf("Bole → Merkato") }
+    var selectedRouteId by remember { mutableStateOf(initialRouteId ?: "route_bole_merkato") }
+    var selectedRouteName by remember { mutableStateOf(initialRouteName ?: "Bole → Merkato") }
+    var selectedServiceTier by remember { mutableStateOf(initialServiceTier ?: "Economy") }
+
+    LaunchedEffect(initialPortal, initialRegisterMode, initialRouteId, initialRouteName, initialServiceTier) {
+        if (initialPortal != null) selectedPortal = initialPortal
+        isRegisterMode = initialRegisterMode
+        if (!initialRouteId.isNullOrBlank()) selectedRouteId = initialRouteId
+        if (!initialRouteName.isNullOrBlank()) selectedRouteName = initialRouteName
+        if (!initialServiceTier.isNullOrBlank()) selectedServiceTier = initialServiceTier
+    }
 
     // Automatically synchronize default route if available
     LaunchedEffect(availableRoutes) {
-        if (selectedRouteId.isBlank() && availableRoutes.isNotEmpty()) {
+        if ((selectedRouteId.isBlank() || availableRoutes.none { it.id == selectedRouteId }) && initialRouteId.isNullOrBlank() && availableRoutes.isNotEmpty()) {
             selectedRouteId = availableRoutes.first().id
             selectedRouteName = availableRoutes.first().name
         }
@@ -97,6 +111,15 @@ fun AuthScreen(
         viewModel.clearRegistrationMessage()
         selectedPortal = null
         isRegisterMode = false
+    }
+
+    if (showPasswordHelp) {
+        AlertDialog(
+            onDismissRequest = { showPasswordHelp = false },
+            title = { Text("Password help") },
+            text = { Text("Password reset is not connected to the server yet. Please contact your RoutePass administrator to reset your account password.") },
+            confirmButton = { TextButton(onClick = { showPasswordHelp = false }) { Text("OK") } }
+        )
     }
 
     LazyColumn(
@@ -389,6 +412,16 @@ fun AuthScreen(
                         }
 
                         if (isRegisterMode) {
+                            if (portal == AppRole.PASSENGER) {
+                                Surface(color = Color(0xFFECFDF5), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text("Your commuter request", fontWeight = FontWeight.Bold, color = TransportGreenDark)
+                                        Text("Route: $selectedRouteName", color = Slate900)
+                                        Text("Service tier: $selectedServiceTier", color = Slate900)
+                                        Text("You can review availability and fare before accepting an offer.", style = MaterialTheme.typography.bodySmall, color = Slate700)
+                                    }
+                                }
+                            }
                             OutlinedTextField(
                                 value = fullName,
                                 onValueChange = { fullName = it },
@@ -637,6 +670,12 @@ fun AuthScreen(
                                 .testTag("auth_password_input")
                         )
 
+                        if (!isRegisterMode) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                TextButton(onClick = { showPasswordHelp = true }) { Text("Forgot password?", color = if (portal == AppRole.DRIVER) Color(0xFFB45309) else TransportGreenPrimary) }
+                            }
+                        }
+
                         if (isRegisterMode) {
                             OutlinedTextField(
                                 value = confirmPassword,
@@ -682,6 +721,14 @@ fun AuthScreen(
                                     .background(Color(0xFFECFDF5), RoundedCornerShape(10.dp))
                                     .padding(12.dp)
                             )
+                        }
+
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (isRegisterMode) "Already a member? " else "New to RoutePass? ", color = Slate600, style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = {
+                                viewModel.clearRegistrationMessage()
+                                isRegisterMode = !isRegisterMode
+                            }) { Text(if (isRegisterMode) "Sign in" else "Sign up", color = if (portal == AppRole.DRIVER) Color(0xFFB45309) else TransportGreenPrimary, fontWeight = FontWeight.Bold) }
                         }
 
                         Button(
