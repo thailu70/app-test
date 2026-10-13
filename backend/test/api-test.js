@@ -102,6 +102,37 @@ async function runTests() {
     adminToken = admLogin.data.token;
     console.log('✓ [4/13] Admin login passed:', admLogin.data.user.fullName);
 
+    // Transport companies are managed server-side for City Travel / Intercity registration.
+    const companySuffix = Date.now().toString(36);
+    const companyCreate = await makeRequest('POST', '/api/companies/admin', {
+      name: 'RoutePass Test Company ' + companySuffix
+    }, adminToken);
+    if (companyCreate.status !== 201 || !companyCreate.data.company?.id) {
+      throw new Error('Admin transport company creation failed: ' + JSON.stringify(companyCreate.data));
+    }
+    const companyList = await makeRequest('GET', '/api/companies');
+    if (companyList.status !== 200 || !companyList.data.companies?.some(c => c.id === companyCreate.data.company.id)) {
+      throw new Error('Public active transport company list failed: ' + JSON.stringify(companyList.data));
+    }
+    const duplicateCompany = await makeRequest('POST', '/api/companies/admin', {
+      name: '  RoutePass Test Company ' + companySuffix + '  '
+    }, adminToken);
+    if (duplicateCompany.status !== 409) {
+      throw new Error('Duplicate transport company should be rejected: ' + JSON.stringify(duplicateCompany.data));
+    }
+    const deactivateCompany = await makeRequest('PATCH', '/api/companies/admin/' + companyCreate.data.company.id + '/status', {
+      status: 'INACTIVE'
+    }, adminToken);
+    if (deactivateCompany.status !== 200) {
+      throw new Error('Transport company deactivation failed: ' + JSON.stringify(deactivateCompany.data));
+    }
+    const activeCompanyList = await makeRequest('GET', '/api/companies');
+    if (activeCompanyList.data.companies?.some(c => c.id === companyCreate.data.company.id)) {
+      throw new Error('Inactive transport company leaked into public registration list.');
+    }
+    console.log('✓ Transport company administration, public listing, duplicate protection and deactivation passed');
+
+
     // 3. Security: Admin cannot freely register
     const rogueAdminReg = await makeRequest('POST', '/api/auth/register', {
       fullName: 'Intruder',
