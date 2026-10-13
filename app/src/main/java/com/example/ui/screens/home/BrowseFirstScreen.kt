@@ -211,14 +211,7 @@ fun BrowseFirstScreen(
                     CommuterRouteCard(route = route, selectedTier = selectedTier, onTierSelected = { tier -> selectedTier = tier; selectedRoute = route }, onClick = { selectedRoute = route })
                 }
             }
-            item {
-                Text("Choose your service tier", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = HomeInk)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    TierChip("VIP", "4 seats", Modifier.weight(1f))
-                    TierChip("Deluxe", "7 seats", Modifier.weight(1f))
-                    TierChip("Economy", "13 seats", Modifier.weight(1f))
-                }
-            }
+
             item {
                 Surface(color = Color.White, shape = RoundedCornerShape(18.dp), tonalElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
