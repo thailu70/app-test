@@ -110,11 +110,12 @@ async function run() {
     assert.match(result.data.subscription.qrToken, /^RP1:/, 'Manual recharge must issue a signed QR pass');
 
     // Companies are administered separately from driver accounts and must exist before selection.
-    result = await requestJson(baseUrl, '/api/companies/admin', 'POST', { name: 'CI Transport' }, adminToken);
-    assert.equal(result.status, 201, 'Admin should create a transport company before driver registration');
+    const ciCompanyName = 'CI Transport ' + Date.now();
+    result = await requestJson(baseUrl, '/api/companies/admin', 'POST', { name: ciCompanyName }, adminToken);
+    assert.equal(result.status, 201, 'Admin should be able to register a transport company');
     result = await requestJson(baseUrl, '/api/companies');
     assert.equal(result.status, 200, 'Driver registration must be able to load active transport companies');
-    assert.ok(result.data.companies.some(company => company.name === 'CI Transport'), 'Active company should appear in the public list');
+    assert.ok(result.data.companies.some(company => company.name === ciCompanyName), 'Active company should appear in the public list');
 
     // Register a transport company through the admin workflow before driver registration.
     result = await requestJson(baseUrl, '/api/companies/admin', 'POST', {
@@ -129,7 +130,7 @@ async function run() {
       password: 'CI_Driver_Password#2026',
       role: 'DRIVER',
       licenseNumber: 'CI-DL-1',
-      companyName: 'CI Transport',
+      companyName: ciCompanyName,
       assignedVehiclePlate: '3-CI-0001',
       vehicleModel: 'CI Minibus',
       vehicleType: 'MINIBUS_14'
