@@ -79,7 +79,8 @@ fun AuthScreen(
     var driverDepartureTime by remember { mutableStateOf("06:30") }
     var driverJourneyType by remember { mutableStateOf("Two way") }
     var driverServiceTier by remember { mutableStateOf("Economy") }
-    var driverServiceMode by remember { mutableStateOf("Both") }
+    var driverServiceMode by remember { mutableStateOf("Daily Commuter") }
+    var driverTransportCompany by remember { mutableStateOf("") }
     val isCustomCommuterRequest = initialRouteName == "Requested commuter route" && initialRouteId.isNullOrBlank()
     var selectedServiceTier by remember { mutableStateOf(initialServiceTier ?: "Economy") }
     var showRoutePicker by remember { mutableStateOf(initialRouteName.isNullOrBlank()) }
@@ -510,13 +511,27 @@ fun AuthScreen(
                                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color(0xFFF0F6FF)).padding(14.dp),
                                     verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    Text("Operating route preferences", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = Color(0xFF123C78))
-                                    Text("Choose an existing daily commuter route or propose a route. For intercity service, select Intercity above; your operator/admin must approve the account and assign eligible journeys. This preference does not itself create a booking or trip assignment.", style = MaterialTheme.typography.bodySmall, color = Slate700)
+                                    Text("Operating preferences", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = Color(0xFF123C78))
+                                    Text("Choose one service type. Daily commuter drivers select or propose a route. City Travel drivers select their transport company. Approval and trip assignment are required before operating.", style = MaterialTheme.typography.bodySmall, color = Slate700)
+                                    Text("Service type", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Slate900)
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                        FilterChip(selected = driverRouteMode == "existing", onClick = { driverRouteMode = "existing" }, label = { Text("Existing route") }, modifier = Modifier.weight(1f))
-                                        FilterChip(selected = driverRouteMode == "custom", onClick = { driverRouteMode = "custom" }, label = { Text("Propose route") }, modifier = Modifier.weight(1f))
+                                        listOf("Daily Commuter", "Intercity").forEach { mode ->
+                                            FilterChip(selected = driverServiceMode == mode, onClick = {
+                                                driverServiceMode = mode
+                                                if (mode == "Intercity") { driverRouteMode = "existing"; selectedRouteId = ""; selectedRouteName = ""; driverPickup = ""; driverDestination = "" }
+                                                else { driverTransportCompany = "" }
+                                            }, label = { Text(if (mode == "Intercity") "City Travel" else "Daily", maxLines = 1) }, modifier = Modifier.weight(1f))
+                                        }
                                     }
-                                    if (driverRouteMode == "existing") {
+                                    if (driverServiceMode == "Intercity") {
+                                        OutlinedTextField(value = driverTransportCompany, onValueChange = { driverTransportCompany = it }, label = { Text("Transport company") }, placeholder = { Text("Enter the registered company name") }, leadingIcon = { Icon(Icons.Default.Business, contentDescription = null) }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("driver_transport_company_input"))
+                                        Text("Choose the company you want to operate with. PASSO administration must approve your registration and assign eligible intercity journeys.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                                    } else {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                            FilterChip(selected = driverRouteMode == "existing", onClick = { driverRouteMode = "existing" }, label = { Text("Existing route") }, modifier = Modifier.weight(1f))
+                                            FilterChip(selected = driverRouteMode == "custom", onClick = { driverRouteMode = "custom" }, label = { Text("Propose route") }, modifier = Modifier.weight(1f))
+                                        }
+                                        if (driverRouteMode == "existing") {
                                         if (availableRoutes.isEmpty()) {
                                             Text("No active routes are currently listed. Choose Propose route to submit your route details.", color = Slate600, style = MaterialTheme.typography.bodySmall)
                                         } else {
@@ -553,17 +568,6 @@ fun AuthScreen(
                                             }
                                         }
                                     }
-                                    Text("Service type you want to drive", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Slate900)
-                                    Text("This is a preference only. PASSO administration must approve your vehicle and assign eligible trips before you can operate.", style = MaterialTheme.typography.bodySmall, color = Slate600)
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                                        listOf("Daily Commuter", "Intercity", "Both").forEach { mode ->
-                                            FilterChip(
-                                                selected = driverServiceMode == mode,
-                                                onClick = { driverServiceMode = mode },
-                                                label = { Text(mode, maxLines = 1) },
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                        }
                                     }
                                     Text("Vehicle service preference", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Slate900)
                                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
@@ -840,9 +844,10 @@ fun AuthScreen(
                                     val validationMessage = when {
                                         portal == AppRole.PASSENGER && isCustomCommuterRequest && requestPickup.isBlank() -> "Enter your pickup location."
                                          portal == AppRole.PASSENGER && isCustomCommuterRequest && requestDestination.isBlank() -> "Enter your destination."
-                                         portal == AppRole.DRIVER && isRegisterMode && driverRouteMode == "custom" && driverPickup.isBlank() -> "Enter the proposed route pickup location."
-                                         portal == AppRole.DRIVER && isRegisterMode && driverRouteMode == "custom" && driverDestination.isBlank() -> "Enter the proposed route destination."
-                                         portal == AppRole.DRIVER && isRegisterMode && driverRouteMode == "custom" && driverDepartureTime.isBlank() -> "Enter a preferred departure time."
+                                         portal == AppRole.DRIVER && isRegisterMode && driverServiceMode == "Daily Commuter" && driverRouteMode == "custom" && driverPickup.isBlank() -> "Enter the proposed route pickup location."
+                                         portal == AppRole.DRIVER && isRegisterMode && driverServiceMode == "Daily Commuter" && driverRouteMode == "custom" && driverDestination.isBlank() -> "Enter the proposed route destination."
+                                         portal == AppRole.DRIVER && isRegisterMode && driverServiceMode == "Daily Commuter" && driverRouteMode == "custom" && driverDepartureTime.isBlank() -> "Enter a preferred departure time."
+                                         portal == AppRole.DRIVER && isRegisterMode && driverServiceMode == "Intercity" && driverTransportCompany.isBlank() -> "Select or enter your transport company."
                                          password.length < 10 -> "Use a password with at least 10 characters."
                                         password != confirmPassword -> "The two passwords do not match. Please re-enter them."
                                         else -> null
@@ -858,14 +863,15 @@ fun AuthScreen(
                                             password = password,
                                             role = portal,
                                             licenseNumber = licenseNumber,
-                                            companyName = companyName,
+                                            companyName = if (portal == AppRole.DRIVER && driverServiceMode == "Intercity") driverTransportCompany.trim() else companyName,
                                             assignedVehiclePlate = vehiclePlate,
                                             vehicleModel = vehicleModel,
                                             vehicleType = vehicleType,
-                                            appliedRouteId = when { portal == AppRole.DRIVER && driverRouteMode == "custom" -> ""; isCustomCommuterRequest -> ""; else -> selectedRouteId },
+                                            appliedRouteId = when { portal == AppRole.DRIVER && (driverServiceMode == "Intercity" || driverRouteMode == "custom") -> ""; isCustomCommuterRequest -> ""; else -> selectedRouteId },
                                             appliedRouteName = when {
-                                                portal == AppRole.DRIVER && isRegisterMode && driverRouteMode == "custom" -> "Driver service preference: $driverServiceMode | Proposed route | Pickup: $driverPickup | Destination: $driverDestination | Departure: $driverDepartureTime | Journey: $driverJourneyType | Tier: $driverServiceTier"
-                                                portal == AppRole.DRIVER && isRegisterMode -> "Driver service preference: $driverServiceMode | Route: $selectedRouteName | Tier: $driverServiceTier"
+                                                portal == AppRole.DRIVER && isRegisterMode && driverServiceMode == "Intercity" -> "Driver service preference: City Travel | Transport company: " + driverTransportCompany.trim() + " | Tier: " + driverServiceTier
+                                                portal == AppRole.DRIVER && isRegisterMode && driverRouteMode == "custom" -> "Driver service preference: Daily Commuter | Proposed route | Pickup: $driverPickup | Destination: $driverDestination | Departure: $driverDepartureTime | Journey: $driverJourneyType | Tier: $driverServiceTier"
+                                                portal == AppRole.DRIVER && isRegisterMode -> "Driver service preference: Daily Commuter | Route: $selectedRouteName | Tier: $driverServiceTier"
                                                 isCustomCommuterRequest -> "Requested commuter route | Pickup: $requestPickup | Destination: $requestDestination | Journey: $commuteDirection | Tier: $selectedServiceTier"
                                                 else -> selectedRouteName
                                             },
