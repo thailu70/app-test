@@ -56,7 +56,6 @@ fun AuthScreen(
     // Form fields
     var fullName by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var registrationValidationMessage by remember { mutableStateOf<String?>(null) }
@@ -562,15 +561,6 @@ fun AuthScreen(
                                 }
                             }
 
-                            OutlinedTextField(
-                                value = email,
-                                onValueChange = { email = it },
-                                label = { Text("Email Address (Optional)") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
                             // Passenger chooses a subscription route at registration; driver route is assigned by admin.
                             if (portal == AppRole.PASSENGER) {
                                 Column(
@@ -851,7 +841,7 @@ fun AuthScreen(
                                         viewModel.register(
                                             fullName = fullName,
                                             phone = phone,
-                                            email = email,
+                                            email = "",
                                             password = password,
                                             role = portal,
                                             licenseNumber = licenseNumber,
