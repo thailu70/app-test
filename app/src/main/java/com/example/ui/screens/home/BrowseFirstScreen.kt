@@ -175,7 +175,7 @@ fun BrowseFirstScreen(
             item {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     TextButton(onClick = { selectedSection = 0 }) { Text("← Home", color = HomeGreen, fontWeight = FontWeight.Bold) }
-                    Text(if (selectedSection == 1) "Daily Commuter" else "Intercity Travel", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = HomeInk)
+                    Text(if (selectedSection == 1) "Daily Commuter" else if (selectedSection == 3) "Journey results" else "Intercity Travel", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = HomeInk)
                 }
             }
         }
@@ -260,7 +260,7 @@ fun BrowseFirstScreen(
                         }
                         HorizontalDivider(color = Color(0xFFE8ECE9))
                         Row(verticalAlignment = Alignment.CenterVertically) { Surface(color = HomeMint, shape = RoundedCornerShape(13.dp), modifier = Modifier.size(44.dp)) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.People, contentDescription = null, tint = HomeGreen) } }; Spacer(Modifier.width(11.dp)); Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text("Passengers", fontWeight = FontWeight.Bold, color = HomeInk); Text("$intercityPassengers traveller(s)", style = MaterialTheme.typography.bodySmall, color = Slate600) }; IconButton(onClick = { if (intercityPassengers > 1) intercityPassengers-- }, enabled = intercityPassengers > 1) { Text("−", style = MaterialTheme.typography.titleLarge, color = HomeGreen) }; Surface(color = HomeMint, shape = RoundedCornerShape(9.dp)) { Text("$intercityPassengers", modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp), fontWeight = FontWeight.Bold, color = HomeGreen) }; IconButton(onClick = { if (intercityPassengers < 8) intercityPassengers++ }, enabled = intercityPassengers < 8) { Text("+", style = MaterialTheme.typography.titleLarge, color = HomeGreen) } }
-                        Button(onClick = { val returnDateText = if (intercityTripType == "Return") intercityReturnDate?.toString() ?: "" else "N/A"; val journeyDetails = "Intercity: ${origin.trim()} → ${destination.trim()} | $intercityTripType | $intercityPassengers passenger(s) | departure ${intercityDepartureDate ?: ""} | return $returnDateText"; onPassengerContinue(true, null, journeyDetails, "Intercity") }, modifier = Modifier.fillMaxWidth().height(54.dp), enabled = origin.isNotBlank() && destination.isNotBlank() && !origin.trim().equals(destination.trim(), ignoreCase = true) && intercityDepartureDate != null && (intercityTripType != "Return" || (intercityReturnDate != null && intercityReturnDate!! >= (intercityDepartureDate ?: 0L))), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = HomeGreen)) { Icon(Icons.Default.Search, contentDescription = null); Spacer(Modifier.width(9.dp)); Text("Search journeys", fontWeight = FontWeight.Bold); Spacer(Modifier.width(5.dp)); Icon(Icons.Default.ArrowForward, contentDescription = null) }
+                        Button(onClick = { selectedSection = 3 }, modifier = Modifier.fillMaxWidth().height(54.dp), enabled = origin.isNotBlank() && destination.isNotBlank() && !origin.trim().equals(destination.trim(), ignoreCase = true) && intercityDepartureDate != null && (intercityTripType != "Return" || (intercityReturnDate != null && intercityReturnDate!! >= (intercityDepartureDate ?: 0L))), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = HomeGreen)) { Icon(Icons.Default.Search, contentDescription = null); Spacer(Modifier.width(9.dp)); Text("Search journeys", fontWeight = FontWeight.Bold); Spacer(Modifier.width(5.dp)); Icon(Icons.Default.ArrowForward, contentDescription = null) }
                         Text("No payment is taken here. Only confirmed operator schedules, fares and seat availability can be offered for booking.", style = MaterialTheme.typography.bodySmall, color = Slate600)
                     }
                 }
@@ -271,6 +271,40 @@ fun BrowseFirstScreen(
     
             }
             item { Surface(color = Color(0xFFEAF0FC), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) { Row(Modifier.padding(15.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) { Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = HomeBlue, modifier = Modifier.size(25.dp)); Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { Text("Travel with confidence", fontWeight = FontWeight.Bold, color = HomeInk); Text("Clear journey details, transparent fares, seat selection and a digital ticket after booking is confirmed.", style = MaterialTheme.typography.bodySmall, color = Slate600) } } } }
+        }
+        if (selectedSection == 3) {
+            item {
+                Surface(color = Color.White, shape = RoundedCornerShape(22.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E9E6)), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Your journey", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = HomeInk)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Column(Modifier.weight(1f)) {
+                                Text("FROM", style = MaterialTheme.typography.labelSmall, color = Slate600)
+                                Text(origin.trim(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = HomeInk)
+                            }
+                            Icon(Icons.Default.ArrowForward, contentDescription = null, tint = HomeGreen)
+                            Column(Modifier.weight(1f)) {
+                                Text("TO", style = MaterialTheme.typography.labelSmall, color = Slate600)
+                                Text(destination.trim(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = HomeInk)
+                            }
+                        }
+                        HorizontalDivider(color = Color(0xFFE8ECE9))
+                        Text("${intercityTripType} • ${intercityPassengers} passenger(s)", color = HomeInk, fontWeight = FontWeight.SemiBold)
+                        Text("Departure: ${intercityDepartureDate?.let { java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(it)) } ?: "Not selected"}", color = Slate600)
+                        if (intercityTripType == "Return") Text("Return: ${intercityReturnDate?.let { java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(it)) } ?: "Not selected"}", color = Slate600)
+                        Surface(color = Color(0xFFFFF4DF), shape = RoundedCornerShape(14.dp)) {
+                            Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
+                                Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFF8A5A00))
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Live intercity schedules are not connected yet", fontWeight = FontWeight.Bold, color = HomeInk)
+                                    Text("We cannot show confirmed operators, fares or seat availability until the intercity search service is connected. We have not booked or charged you.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                                }
+                            }
+                        }
+                        Button(onClick = { selectedSection = 2 }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = HomeGreen)) { Text("Edit journey") }
+                    }
+                }
+            }
         }
         item {
             HorizontalDivider()
