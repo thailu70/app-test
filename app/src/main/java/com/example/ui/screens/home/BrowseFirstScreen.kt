@@ -19,6 +19,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Work
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material3.*
 import androidx.compose.ui.window.Dialog
 import androidx.compose.runtime.*
@@ -58,6 +60,12 @@ fun BrowseFirstScreen(
     var selectedRoute by remember { mutableStateOf<RouteEntity?>(null) }
     var selectedTier by remember { mutableStateOf("Economy") }
     var routeFilter by remember { mutableStateOf(0) }
+    var intercityTripType by remember { mutableStateOf("One-way") }
+    var intercityPassengers by remember { mutableIntStateOf(1) }
+    var intercityDepartureDate by remember { mutableStateOf<Long?>(null) }
+    var intercityReturnDate by remember { mutableStateOf<Long?>(null) }
+    var showDeparturePicker by remember { mutableStateOf(false) }
+    var showReturnPicker by remember { mutableStateOf(false) }
 
     selectedRoute?.let { route ->
         Dialog(onDismissRequest = { selectedRoute = null }) {
@@ -227,41 +235,38 @@ fun BrowseFirstScreen(
             }
         } else if (selectedSection == 2) {
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Find an intercity journey", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = HomeInk)
-                    Text("Search without signing in. Seat availability, fares and departure times will be confirmed during booking.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                Surface(shape = RoundedCornerShape(26.dp), color = HomeBlue, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(horizontal = 20.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Surface(color = Color.White.copy(alpha = 0.16f), shape = RoundedCornerShape(50.dp)) { Text("  PASSO INTERCITY  ", color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 7.dp)) }
+                        Text("Go further.\nTravel better.", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                        Text("Find your next journey across Ethiopia.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) { Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp)); Text("Compare journeys • Choose your seat • Travel with confidence", color = Color.White.copy(alpha = 0.88f), style = MaterialTheme.typography.labelSmall) }
+                    }
                 }
             }
+            item { Column(verticalArrangement = Arrangement.spacedBy(5.dp)) { Text("Where would you like to go?", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = HomeInk); Text("Search for a journey. Schedules, fares and live availability must be confirmed by operators.", style = MaterialTheme.typography.bodySmall, color = Slate600) } }
             item {
-                Surface(color = Color.White, shape = RoundedCornerShape(18.dp), tonalElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
+                Surface(color = Color.White, shape = RoundedCornerShape(24.dp), tonalElevation = 2.dp, border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE6ECE9)), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(value = origin, onValueChange = { origin = it }, label = { Text("From city or terminal") }, leadingIcon = { Icon(Icons.Default.Map, contentDescription = null) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                        OutlinedTextField(value = destination, onValueChange = { destination = it }, label = { Text("To city or terminal") }, leadingIcon = { Icon(Icons.Default.Map, contentDescription = null) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = HomeGreen)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Travel date and seat selection", color = Slate600, style = MaterialTheme.typography.bodyMedium)
+                        OutlinedTextField(value = origin, onValueChange = { origin = it }, label = { Text("Leaving from") }, placeholder = { Text("City or bus terminal") }, leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null, tint = HomeGreen) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(15.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { TextButton(onClick = { val old = origin; origin = destination; destination = old }) { Icon(Icons.Default.SwapVert, contentDescription = null, tint = HomeGreen); Spacer(Modifier.width(5.dp)); Text("Swap locations", color = HomeGreen, fontWeight = FontWeight.Bold) } }
+                        OutlinedTextField(value = destination, onValueChange = { destination = it }, label = { Text("Going to") }, placeholder = { Text("Your destination city") }, leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null, tint = HomeBlue) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(15.dp))
+                        Text("JOURNEY TYPE", color = Slate600, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) { listOf("One-way", "Return").forEach { type -> val chosen = intercityTripType == type; Surface(modifier = Modifier.weight(1f).clickable { intercityTripType = type }, shape = RoundedCornerShape(14.dp), color = if (chosen) HomeMint else Color(0xFFF7F9F8), border = androidx.compose.foundation.BorderStroke(1.dp, if (chosen) HomeGreen else Color(0xFFE1E8E4))) { Row(Modifier.padding(vertical = 9.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = chosen, onClick = { intercityTripType = type }, colors = RadioButtonDefaults.colors(selectedColor = HomeGreen), modifier = Modifier.size(28.dp)); Spacer(Modifier.width(4.dp)); Text(type, color = if (chosen) HomeGreen else HomeInk, fontWeight = FontWeight.Bold) } } } }
+                        Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) { Text("DEPARTURE", color = Slate600, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold); OutlinedButton(onClick = { showDeparturePicker = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 11.dp)) { Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = HomeGreen); Spacer(Modifier.width(5.dp)); Text(intercityDepartureDate?.let { java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(it)) } ?: "Choose date", maxLines = 1) } }
+                            if (intercityTripType == "Return") Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) { Text("RETURN", color = Slate600, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold); OutlinedButton(onClick = { showReturnPicker = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 11.dp)) { Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = HomeGreen); Spacer(Modifier.width(5.dp)); Text(intercityReturnDate?.let { java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(it)) } ?: "Choose date", maxLines = 1) } }
                         }
-                        Button(onClick = { onPassengerContinue(true, null, "Intercity: $origin → $destination", "Intercity") }, modifier = Modifier.fillMaxWidth(), enabled = origin.isNotBlank() && destination.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = HomeBlue)) {
-                            Icon(Icons.Default.Search, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Continue to search")
-                        }
+                        HorizontalDivider(color = Color(0xFFE8ECE9))
+                        Row(verticalAlignment = Alignment.CenterVertically) { Surface(color = HomeMint, shape = RoundedCornerShape(13.dp), modifier = Modifier.size(44.dp)) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.People, contentDescription = null, tint = HomeGreen) } }; Spacer(Modifier.width(11.dp)); Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text("Passengers", fontWeight = FontWeight.Bold, color = HomeInk); Text("$"+"intercityPassengers traveller(s)", style = MaterialTheme.typography.bodySmall, color = Slate600) }; IconButton(onClick = { if (intercityPassengers > 1) intercityPassengers-- }, enabled = intercityPassengers > 1) { Text("−", style = MaterialTheme.typography.titleLarge, color = HomeGreen) }; Surface(color = HomeMint, shape = RoundedCornerShape(9.dp)) { Text("$"+"intercityPassengers", modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp), fontWeight = FontWeight.Bold, color = HomeGreen) }; IconButton(onClick = { if (intercityPassengers < 8) intercityPassengers++ }, enabled = intercityPassengers < 8) { Text("+", style = MaterialTheme.typography.titleLarge, color = HomeGreen) } }
+                        Button(onClick = { onPassengerContinue(true, null, "Intercity: $"+"origin → $"+"destination | $"+"intercityTripType | $"+"intercityPassengers passenger(s)", "Intercity") }, modifier = Modifier.fillMaxWidth().height(54.dp), enabled = origin.isNotBlank() && destination.isNotBlank() && !origin.trim().equals(destination.trim(), ignoreCase = true) && intercityDepartureDate != null && (intercityTripType != "Return" || (intercityReturnDate != null && intercityReturnDate!! >= (intercityDepartureDate ?: 0L))), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = HomeGreen)) { Icon(Icons.Default.Search, contentDescription = null); Spacer(Modifier.width(9.dp)); Text("Search journeys", fontWeight = FontWeight.Bold); Spacer(Modifier.width(5.dp)); Icon(Icons.Default.ArrowForward, contentDescription = null) }
+                        Text("No payment is taken here. Only confirmed operator schedules, fares and seat availability can be offered for booking.", style = MaterialTheme.typography.bodySmall, color = Slate600)
                     }
                 }
             }
-            item {
-                Surface(color = Color(0xFFEAF0FC), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = HomeBlue)
-                        Column {
-                            Text("One-way and return tickets", fontWeight = FontWeight.Bold, color = HomeInk)
-                            Text("Compare participating operators, choose a seat and receive a QR ticket after payment is verified.", style = MaterialTheme.typography.bodySmall, color = Slate600)
-                        }
-                    }
-                }
-            }
-        }
+            if (showDeparturePicker) { val picker = rememberDatePickerState(initialSelectedDateMillis = intercityDepartureDate); DatePickerDialog(onDismissRequest = { showDeparturePicker = false }, confirmButton = { TextButton(onClick = { intercityDepartureDate = picker.selectedDateMillis; if (intercityReturnDate != null && intercityDepartureDate != null && intercityReturnDate!! < intercityDepartureDate!!) intercityReturnDate = null; showDeparturePicker = false }) { Text("Done", color = HomeGreen) } }, dismissButton = { TextButton(onClick = { showDeparturePicker = false }) { Text("Cancel") } }) { DatePicker(state = picker) } }
+            if (showReturnPicker) { val picker = rememberDatePickerState(initialSelectedDateMillis = intercityReturnDate); DatePickerDialog(onDismissRequest = { showReturnPicker = false }, confirmButton = { TextButton(onClick = { intercityReturnDate = picker.selectedDateMillis; showReturnPicker = false }) { Text("Done", color = HomeGreen) } }, dismissButton = { TextButton(onClick = { showReturnPicker = false }) { Text("Cancel") } }) { DatePicker(state = picker) } }
+            item { Surface(color = Color(0xFFEAF0FC), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) { Row(Modifier.padding(15.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) { Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = HomeBlue, modifier = Modifier.size(25.dp)); Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { Text("Travel with confidence", fontWeight = FontWeight.Bold, color = HomeInk); Text("Clear journey details, transparent fares, seat selection and a digital ticket after booking is confirmed.", style = MaterialTheme.typography.bodySmall, color = Slate600) } } } }
         item {
             HorizontalDivider()
             Text("Are you a transport provider?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = HomeInk)
