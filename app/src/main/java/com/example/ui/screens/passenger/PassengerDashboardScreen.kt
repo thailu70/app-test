@@ -133,23 +133,49 @@ fun PassengerDashboardScreen(
                         )
                     }
                     item {
-                        PassengerQrCard(
-                            isSubscribed = subscription != null && subscription?.subscriptionStatus == "ACTIVE",
-                            token = subscription?.qrToken ?: "",
-                            status = subscription?.subscriptionStatus ?: "NOT_SUBSCRIBED",
-                            lang = lang,
-                            onSubscribeClick = { viewModel.openTelebirrDialog() }
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().clickable { passengerSection = "My Pass" },
+                            shape = RoundedCornerShape(18.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                Surface(shape = RoundedCornerShape(12.dp), color = TransportGreenPrimary.copy(alpha = 0.12f)) {
+                                    Icon(Icons.Default.QrCode, contentDescription = null, tint = TransportGreenPrimary, modifier = Modifier.padding(12.dp).size(26.dp))
+                                }
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Boarding QR Pass", fontWeight = FontWeight.Bold, color = Slate900)
+                                    Text(
+                                        if (subscription?.subscriptionStatus == "ACTIVE") "Your pass is active. Open your QR code to board."
+                                        else "Open your pass to check status and boarding access.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Slate600
+                                    )
+                                }
+                                Icon(Icons.Default.ChevronRight, contentDescription = "Open My Pass", tint = TransportGreenPrimary)
+                            }
+                        }
+                    }
+                    item {
+                        PassengerMenuRow(
+                            title = "Live vehicle location",
+                            subtitle = if (trackedVehicle != null) "View the latest vehicle location" else "Location updates appear when received",
+                            icon = Icons.Default.LocationOn,
+                            onClick = { passengerSection = "Live Location" }
                         )
                     }
                 }
                 "My Pass" -> {
                     item {
-                        SubscriptionStatusCard(
-                            subscription = subscription,
-                            userAppliedRoute = currentUser?.appliedRouteName,
-                            lang = lang,
-                            onRenewClick = { viewModel.openTelebirrDialog() },
-                            onCancelClick = { viewModel.cancelSubscription() }
+                        Text("Your boarding pass", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Slate900)
+                        Text(
+                            currentUser?.appliedRouteName?.takeIf { it.isNotBlank() } ?: "Your assigned commuter route",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Slate600
                         )
                     }
                     item {
@@ -159,6 +185,13 @@ fun PassengerDashboardScreen(
                             status = subscription?.subscriptionStatus ?: "NOT_SUBSCRIBED",
                             lang = lang,
                             onSubscribeClick = { viewModel.openTelebirrDialog() }
+                        )
+                    }
+                    item {
+                        Text(
+                            "Show this QR code to your driver when boarding. The pass is available only when your subscription is active.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Slate600
                         )
                     }
                 }
