@@ -120,7 +120,7 @@ fun AuthScreen(
         AlertDialog(
             onDismissRequest = { showPasswordHelp = false },
             title = { Text("Password help") },
-            text = { Text("Password reset is not connected to the server yet. Please contact your RoutePass administrator to reset your account password.") },
+            text = { Text("Password reset is not connected to the server yet. Please contact your PASSO administrator to reset your account password.") },
             confirmButton = { TextButton(onClick = { showPasswordHelp = false }) { Text("OK") } }
         )
     }
@@ -154,7 +154,7 @@ fun AuthScreen(
                     }
                 }
                 Text(
-                    text = "Transport Navigator",
+                    text = "PASSO • Tap. Move. Clear.",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onBackground
@@ -246,7 +246,7 @@ fun AuthScreen(
                         "Fleet trip navigation, stop check-in attendance, and vehicle capacity enforcement",
                     badge = "TRANSPORTER ACCESS",
                     icon = Icons.Default.DirectionsBus,
-                    accentColor = Color(0xFFB45309),
+                    accentColor = Color(0xFF1769C2),
                     buttonText = if (lang == AppLanguage.AMHARIC) "የአጓጓዥ ኮንሶል ክፈት →" else "Open Transporter Console →",
                     testTag = "open_transporter_portal_button",
                     onClick = {
@@ -278,7 +278,7 @@ fun AuthScreen(
                     Surface(
                         color = when (portal) {
                             AppRole.PASSENGER -> TransportGreenPrimary.copy(alpha = 0.15f)
-                            AppRole.DRIVER -> Color(0xFFF59E0B).copy(alpha = 0.15f)
+                            AppRole.DRIVER -> Color(0xFF00A982).copy(alpha = 0.15f)
                             AppRole.ADMIN -> TelebirrBlue.copy(alpha = 0.15f)
                         },
                         shape = RoundedCornerShape(12.dp),
@@ -286,7 +286,7 @@ fun AuthScreen(
                             1.dp,
                             when (portal) {
                                 AppRole.PASSENGER -> TransportGreenPrimary
-                                AppRole.DRIVER -> Color(0xFFB45309)
+                                AppRole.DRIVER -> Color(0xFF1769C2)
                                 AppRole.ADMIN -> TelebirrBlue
                             }
                         )
@@ -299,7 +299,7 @@ fun AuthScreen(
                             },
                             color = when (portal) {
                                 AppRole.PASSENGER -> TransportGreenDark
-                                AppRole.DRIVER -> Color(0xFFB45309)
+                                AppRole.DRIVER -> Color(0xFF1769C2)
                                 AppRole.ADMIN -> TelebirrBlue
                             },
                             style = MaterialTheme.typography.labelSmall,
@@ -385,7 +385,7 @@ fun AuthScreen(
 
                         if (isRegisterMode && portal == AppRole.DRIVER) {
                             Text(
-                                text = "Register yourself and your own vehicle below. Your RoutePass administrator will assign the operating route after registration.",
+                                text = "Register yourself and your own vehicle below. Your PASSO administrator will assign the operating route after registration.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color(0xFF92400E),
                                 modifier = Modifier
@@ -700,7 +700,7 @@ fun AuthScreen(
                                                         Text(
                                                             text = "Departure: ${route.morningDeparture} AM & ${route.eveningDeparture} PM",
                                                             style = MaterialTheme.typography.labelSmall,
-                                                            color = Color(0xFFB45309),
+                                                            color = Color(0xFF1769C2),
                                                             fontWeight = FontWeight.SemiBold
                                                         )
                                                     }
@@ -759,7 +759,7 @@ fun AuthScreen(
 
                         if (!isRegisterMode) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                TextButton(onClick = { showPasswordHelp = true }) { Text("Forgot password?", color = if (portal == AppRole.DRIVER) Color(0xFFB45309) else TransportGreenPrimary) }
+                                TextButton(onClick = { showPasswordHelp = true }) { Text("Forgot password?", color = if (portal == AppRole.DRIVER) Color(0xFF1769C2) else TransportGreenPrimary) }
                             }
                         }
 
@@ -811,11 +811,11 @@ fun AuthScreen(
                         }
 
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (isRegisterMode) "Already a member? " else "New to RoutePass? ", color = Slate600, style = MaterialTheme.typography.bodySmall)
+                            Text(if (isRegisterMode) "Already a member? " else "New to PASSO? ", color = Slate600, style = MaterialTheme.typography.bodySmall)
                             TextButton(onClick = {
                                 viewModel.clearRegistrationMessage()
                                 isRegisterMode = !isRegisterMode
-                            }) { Text(if (isRegisterMode) "Sign in" else "Sign up", color = if (portal == AppRole.DRIVER) Color(0xFFB45309) else TransportGreenPrimary, fontWeight = FontWeight.Bold) }
+                            }) { Text(if (isRegisterMode) "Sign in" else "Sign up", color = if (portal == AppRole.DRIVER) Color(0xFF1769C2) else TransportGreenPrimary, fontWeight = FontWeight.Bold) }
                         }
 
                         Button(
@@ -865,7 +865,7 @@ fun AuthScreen(
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = when (portal) {
                                     AppRole.PASSENGER -> TransportGreenPrimary
-                                    AppRole.DRIVER -> Color(0xFFB45309)
+                                    AppRole.DRIVER -> Color(0xFF1769C2)
                                     AppRole.ADMIN -> TelebirrBlue
                                 }
                             ),
