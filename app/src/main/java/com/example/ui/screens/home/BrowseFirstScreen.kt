@@ -133,7 +133,7 @@ fun BrowseFirstScreen(
     Column(modifier = modifier.fillMaxSize().background(Color(0xFFF6F8F7))) {
     LazyColumn(
         modifier = Modifier.weight(1f),
-        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 104.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         if (selectedSection == 0) {
