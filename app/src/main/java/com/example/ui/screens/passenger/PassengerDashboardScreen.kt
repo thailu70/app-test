@@ -782,7 +782,7 @@ fun FinancialBalanceCard(
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(text = t("monthly_fee"), style = MaterialTheme.typography.labelSmall, color = Slate600)
-                    Text(text = "ETB ${String.format(java.util.Locale.US, "%,.2f", amountEtb)}", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                    Text(text = "ETB 0.00", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 }
             }
 
