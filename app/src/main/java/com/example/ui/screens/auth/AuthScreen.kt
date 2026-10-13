@@ -397,20 +397,6 @@ fun AuthScreen(
                         }
 
                         if (isRegisterMode) {
-                            if (portal == AppRole.PASSENGER) {
-                                Surface(color = Color(0xFFECFDF5), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Text("Your commuter request", fontWeight = FontWeight.Bold, color = TransportGreenDark)
-                                        if (!isCustomCommuterRequest) {
-                                            Text("Selected route: $selectedRouteName", color = Slate900)
-                                            Text("Service tier: $selectedServiceTier", color = Slate900)
-                                        } else {
-                                            Text("Tell us where you need to travel. Your request will be sent for route and vehicle assignment.", color = Slate700, style = MaterialTheme.typography.bodySmall)
-                                        }
-                                        Text("No payment is due until an eligible vehicle is assigned and you accept the offer.", style = MaterialTheme.typography.bodySmall, color = Slate700)
-                                    }
-                                }
-                            }
                             OutlinedTextField(
                                 value = fullName,
                                 onValueChange = { fullName = it },
@@ -609,7 +595,7 @@ fun AuthScreen(
                                             text = if (lang == AppLanguage.AMHARIC)
                                                 "የሚመዘገቡበትን የጉዞ መስመር ይምረጡ *"
                                             else
-                                                "SELECT ROUTE YOU ARE APPLYING FOR *",
+                                                if (showRoutePicker) "CHOOSE YOUR COMMUTER ROUTE" else "YOUR COMMUTER ROUTE",
                                             style = MaterialTheme.typography.labelMedium,
                                             fontWeight = FontWeight.ExtraBold,
                                             color = Slate900
@@ -658,19 +644,29 @@ fun AuthScreen(
                                             }
                                         }
                                     } else if (!showRoutePicker && selectedRouteName.isNotBlank()) {
+                                        val chosenRoute = availableRoutes.firstOrNull { it.id == selectedRouteId }
                                         Surface(
-                                            color = Color(0xFFD1FAE5),
+                                            color = Color(0xFFECFDF5),
                                             shape = RoundedCornerShape(10.dp),
-                                            border = androidx.compose.foundation.BorderStroke(2.dp, TransportGreenPrimary),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFB7E4D0)),
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                                Text("Selected route", style = MaterialTheme.typography.labelMedium, color = Slate600)
-                                                Text(selectedRouteName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Slate900)
-                                                Text("Service tier: $selectedServiceTier", color = Slate700)
+                                            Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    Text(selectedRouteName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Slate900)
+                                                    Text("Tier: $selectedServiceTier", style = MaterialTheme.typography.bodyMedium, color = Slate700)
+                                                    if (chosenRoute != null) {
+                                                        Text("Morning ${chosenRoute.morningDeparture} • Evening ${chosenRoute.eveningDeparture}", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                                                        Text("Monthly fare from ETB ${chosenRoute.basePriceEtb.toInt()}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = TransportGreenDark)
+                                                    } else {
+                                                        Text("Fare and schedule confirmed when your route is reviewed", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                                                    }
+                                                }
                                                 TextButton(onClick = { showRoutePicker = true }) { Text("Change route") }
                                             }
                                         }
+                                        Text("No payment is due until an eligible vehicle is assigned and you accept the offer.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+
                                     } else {
                                     Text(
                                         text = "Select the daily commuter shuttle route you wish to subscribe to:",
@@ -693,6 +689,7 @@ fun AuthScreen(
                                                     .clickable {
                                                         selectedRouteId = route.id
                                                         selectedRouteName = route.name
+                                                        showRoutePicker = false
                                                     }
                                                     .testTag("route_option_${route.id}")
                                             ) {
