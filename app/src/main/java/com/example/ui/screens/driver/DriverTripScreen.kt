@@ -165,7 +165,7 @@ fun DriverTripScreen(
                             }
                         }
                         item {
-                            DriverNavigationHudCard(tripState = tripState, currentStop = stops.getOrNull(tripState.currentStopIndex), lang = lang,
+                            DriverNavigationHudCard(tripState = tripState, currentStop = stops.getOrNull(tripState.currentStopIndex), totalStops = stops.size, lang = lang,
                                 onStartNavigation = { viewModel.startNavigation() }, onArrived = { viewModel.arriveAtCurrentStop() },
                                 onScanQr = { viewModel.openScanner() }, onSkip = { viewModel.skipCurrentStop() }, onNextStop = { viewModel.nextStop() }, isLastStop = stops.isNotEmpty() && tripState.currentStopIndex >= stops.lastIndex)
                         }
@@ -664,6 +664,7 @@ fun DriverCockpitHeaderCard(
 fun DriverNavigationHudCard(
     tripState: DriverTripState,
     currentStop: RouteStopEntity?,
+    totalStops: Int = 0,
     lang: AppLanguage,
     onStartNavigation: () -> Unit,
     onArrived: () -> Unit,
