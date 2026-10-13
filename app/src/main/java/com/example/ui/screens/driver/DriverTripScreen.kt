@@ -100,7 +100,7 @@ fun DriverTripScreen(
                 DriverCockpitHeaderCard(
                     driverName = currentUser?.fullName ?: "Driver",
                     vehiclePlate = currentUser?.assignedVehiclePlate?.ifBlank { tripState.vehiclePlate } ?: tripState.vehiclePlate,
-                    routeName = currentUser?.appliedRouteName?.ifBlank { tripState.routeName } ?: tripState.routeName,
+                    routeName = tripState.routeName.takeIf { it.isNotBlank() && !it.equals("Unassigned", ignoreCase = true) } ?: if (currentUser?.appliedRouteName.orEmpty().contains("Driver service preference:", ignoreCase = true)) "Awaiting approved route / journey assignment" else currentUser?.appliedRouteName?.ifBlank { "Awaiting route assignment" } ?: "Awaiting route assignment",
                     tripState = tripState,
                     networkStatus = networkStatus,
                     lang = lang,
