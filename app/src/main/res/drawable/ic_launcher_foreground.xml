@@ -1,8 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:width="66dp"
-        android:height="66dp"
-        android:drawable="@drawable/transport_icon_1791227027460"
-        android:gravity="center" />
-</layer-list>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M24,24h60a7,7 0,0 1,7 7v42a7,7 0,0 1,-7 7h-60a7,7 0,0 1,-7 -7v-42a7,7 0,0 1,7 -7z"/>
+    <path
+        android:fillColor="#0757B8"
+        android:pathData="M29,33h50v29h-50z"/>
+    <path
+        android:fillColor="#00A982"
+        android:pathData="M29,66h50v7h-50z"/>
+    <path
+        android:fillColor="#0757B8"
+        android:pathData="M33,77a5,5 0,1 0,10 0a5,5 0,1 0,-10 0zM65,77a5,5 0,1 0,10 0a5,5 0,1 0,-10 0z"/>
+    <path
+        android:fillColor="#00A982"
+        android:pathData="M24,13l21,0l0,-7l19,14l-19,14l0,-7l-21,0z"/>
+</vector>
