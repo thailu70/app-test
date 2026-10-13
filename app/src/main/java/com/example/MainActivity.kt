@@ -88,7 +88,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                 viewModel = viewModel,
                 onPassengerContinue = { requestedAuthPortal = AppRole.PASSENGER; showPublicHome = false },
                 onDriverAccess = { requestedAuthPortal = AppRole.DRIVER; showPublicHome = false },
-                onCompanyAccess = { requestedAuthPortal = AppRole.ADMIN; showPublicHome = false }
+                onCompanyAccess = { requestedAuthPortal = null; showPublicHome = false }
             )
         } else {
         // Independent Authentication Screen (Passenger, Driver/Transporter, Operator/Admin)
