@@ -233,14 +233,6 @@ fun PassengerDashboardScreen(
                     }
                     item {
                         PassengerMenuRow(
-                            title = "Live vehicle location",
-                            subtitle = "View the latest location reported by the server",
-                            icon = Icons.Default.LocationOn,
-                            onClick = { passengerSection = "Live Location" }
-                        )
-                    }
-                    item {
-                        PassengerMenuRow(
                             title = "Trip attendance",
                             subtitle = "Review recorded boardings",
                             icon = Icons.Default.EventAvailable,
