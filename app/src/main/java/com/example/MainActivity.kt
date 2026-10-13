@@ -82,12 +82,13 @@ fun MainTransportApp(viewModel: MainViewModel) {
 
     if (!isAuthenticated) {
         var showPublicHome by remember { mutableStateOf(true) }
+        var requestedAuthPortal by remember { mutableStateOf<AppRole?>(null) }
         if (showPublicHome) {
             BrowseFirstScreen(
                 viewModel = viewModel,
-                onPassengerContinue = { showPublicHome = false },
-                onDriverAccess = { showPublicHome = false },
-                onCompanyAccess = { showPublicHome = false }
+                onPassengerContinue = { requestedAuthPortal = AppRole.PASSENGER; showPublicHome = false },
+                onDriverAccess = { requestedAuthPortal = AppRole.DRIVER; showPublicHome = false },
+                onCompanyAccess = { requestedAuthPortal = AppRole.ADMIN; showPublicHome = false }
             )
         } else {
         // Independent Authentication Screen (Passenger, Driver/Transporter, Operator/Admin)
@@ -97,7 +98,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
             topBar = {
                 TopAppBar(
                     navigationIcon = {
-                        TextButton(onClick = { showPublicHome = true }) {
+                        TextButton(onClick = { showPublicHome = true; requestedAuthPortal = null }) {
                             Text("Back", color = TransportGreenPrimary, fontWeight = FontWeight.Bold)
                         }
                     },
@@ -123,7 +124,8 @@ fun MainTransportApp(viewModel: MainViewModel) {
                 viewModel = viewModel,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
+                    .padding(innerPadding),
+                initialPortal = requestedAuthPortal
             )
         }
         }
