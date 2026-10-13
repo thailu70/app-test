@@ -13,6 +13,9 @@ import androidx.compose.material.icons.filled.DirectionsBus
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Work
@@ -52,6 +55,7 @@ fun BrowseFirstScreen(
     var origin by remember { mutableStateOf("") }
     var destination by remember { mutableStateOf("") }
     var selectedRoute by remember { mutableStateOf<RouteEntity?>(null) }
+    var routeFilter by remember { mutableStateOf(0) }
 
     selectedRoute?.let { route ->
         Dialog(onDismissRequest = { selectedRoute = null }) {
@@ -151,9 +155,28 @@ fun BrowseFirstScreen(
         }
         if (selectedService == 0) {
             item {
+                Surface(color = HomeBlue, shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 0.dp, bottomEnd = 0.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(horizontal = 18.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Daily Commuter", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
+                        Text("Available services in Addis Ababa", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+            item {
+                Row(modifier = Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    listOf("All Routes", "Near Me", "Popular").forEachIndexed { index, label ->
+                        Column(Modifier.weight(1f).clickable { routeFilter = index }.padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(label, color = if (routeFilter == index) HomeGreen else Slate600, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                            Spacer(Modifier.height(8.dp))
+                            Box(Modifier.fillMaxWidth().height(if (routeFilter == index) 3.dp else 1.dp).background(if (routeFilter == index) HomeGreen else Color(0xFFE5E9E7)))
+                        }
+                    }
+                }
+            }
+            item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) { Text("Popular Routes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = HomeInk, modifier = Modifier.weight(1f)); TextButton(onClick = { selectedService = 0 }) { Text("See all", color = HomeBlue) } }
-                    Text("Choose a route to view times, pickup points and fares.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                    Text("Browse commuter routes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = HomeInk)
+                    Text("Compare schedules, service tiers and monthly prices before signing in.", style = MaterialTheme.typography.bodySmall, color = Slate600)
                 }
             }
             if (routes.filter { it.active }.isEmpty()) {
@@ -168,7 +191,7 @@ fun BrowseFirstScreen(
             } else {
                 items(routes.filter { it.active }.size) { index ->
                     val route = routes.filter { it.active }[index]
-                    ExistingRouteCard(route = route, onClick = { selectedRoute = route }, compact = true)
+                    CommuterRouteCard(route = route, onClick = { selectedRoute = route })
                 }
             }
             item {
@@ -362,6 +385,44 @@ private fun RouteInfoTile(label: String, value: String, modifier: Modifier = Mod
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label, color = Slate600, style = MaterialTheme.typography.labelSmall)
             Text(value, color = HomeGreen, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+        }
+    }
+}
+
+@Composable
+private fun CommuterRouteCard(route: RouteEntity, onClick: () -> Unit) {
+    Surface(color = Color.White, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().clickable(onClick = onClick), tonalElevation = 1.dp) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(route.name, color = HomeInk, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                    Text("Mon – Fri • Two way", color = Slate600, style = MaterialTheme.typography.bodyMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = HomeBlue, modifier = Modifier.size(17.dp))
+                        Text(route.morningDeparture + " & " + route.eveningDeparture, color = Slate600, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Surface(color = HomeMint, shape = RoundedCornerShape(8.dp)) {
+                    Text("Available", color = HomeGreen, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
+                }
+                Icon(Icons.Default.KeyboardArrowRight, contentDescription = "View route", tint = HomeInk, modifier = Modifier.size(25.dp))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
+                TierPriceCard("VIP", "4 seats", route.basePriceEtb * 1.56, Color(0xFFFFF3D6), Color(0xFFB87500), Modifier.weight(1f))
+                TierPriceCard("Deluxe", "7 seats", route.basePriceEtb * 1.32, Color(0xFFEAF1FF), HomeBlue, Modifier.weight(1f))
+                TierPriceCard("Economy", "13 seats", route.basePriceEtb, HomeMint, HomeGreen, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun TierPriceCard(name: String, seats: String, price: Double, bg: Color, tint: Color, modifier: Modifier = Modifier) {
+    Surface(color = bg, shape = RoundedCornerShape(12.dp), modifier = modifier) {
+        Column(Modifier.padding(horizontal = 7.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(name, color = tint, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.labelLarge)
+            Text(seats, color = Slate600, style = MaterialTheme.typography.labelSmall)
+            Text("ETB " + String.format(java.util.Locale.US, "%,.0f", price), color = HomeGreen, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.labelLarge, maxLines = 1)
         }
     }
 }
