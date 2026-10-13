@@ -70,7 +70,7 @@ fun BrowseFirstScreen(
                             Text("Route details", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = HomeInk)
                             Text("Browse first • Sign in only to continue", style = MaterialTheme.typography.bodySmall, color = Slate600)
                         }
-                        IconButton(onClick = { selectedRoute = null }) { Icon(Icons.Default.Close, contentDescription = "Close") }
+                        IconButton(onClick = { selectedRoute = null }) { Icon(Icons.Default.Clear, contentDescription = "Close") }
                     }
                     HorizontalDivider(color = Color(0xFFE1E8E3))
                     Text(route.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = HomeInk)
