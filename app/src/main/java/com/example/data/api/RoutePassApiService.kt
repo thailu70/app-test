@@ -33,6 +33,10 @@ interface RoutePassApiService {
     @GET("api/routes")
     suspend fun getRoutes(): Response<RoutesResponse>
 
+    @GET("api/companies")
+    suspend fun getTransportCompanies(): Response<TransportCompaniesResponse>
+
+
     @GET("api/routes/{id}")
     suspend fun getRouteById(@Path("id") routeId: String): Response<RouteDetailsResponse>
 
