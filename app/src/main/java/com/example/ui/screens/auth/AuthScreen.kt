@@ -74,6 +74,12 @@ fun AuthScreen(
     var requestPickup by remember { mutableStateOf("") }
     var requestDestination by remember { mutableStateOf("") }
     var commuteDirection by remember { mutableStateOf("Two way") }
+    var driverRouteMode by remember { mutableStateOf("existing") }
+    var driverPickup by remember { mutableStateOf("") }
+    var driverDestination by remember { mutableStateOf("") }
+    var driverDepartureTime by remember { mutableStateOf("06:30") }
+    var driverJourneyType by remember { mutableStateOf("Two way") }
+    var driverServiceTier by remember { mutableStateOf("Economy") }
     val isCustomCommuterRequest = initialRouteName == "Requested commuter route" && initialRouteId.isNullOrBlank()
     var selectedServiceTier by remember { mutableStateOf(initialServiceTier ?: "Economy") }
 
@@ -512,6 +518,62 @@ fun AuthScreen(
                                 }
                             }
 
+                            if (isRegisterMode && portal == AppRole.DRIVER) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color(0xFFF0F6FF)).padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Text("Operating route preferences", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = Color(0xFF123C78))
+                                    Text("Choose an existing route or propose a new route. The administrator will review and assign your operating route.", style = MaterialTheme.typography.bodySmall, color = Slate700)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                        FilterChip(selected = driverRouteMode == "existing", onClick = { driverRouteMode = "existing" }, label = { Text("Existing route") }, modifier = Modifier.weight(1f))
+                                        FilterChip(selected = driverRouteMode == "custom", onClick = { driverRouteMode = "custom" }, label = { Text("Propose route") }, modifier = Modifier.weight(1f))
+                                    }
+                                    if (driverRouteMode == "existing") {
+                                        if (availableRoutes.isEmpty()) {
+                                            Text("No active routes are currently listed. Choose Propose route to submit your route details.", color = Slate600, style = MaterialTheme.typography.bodySmall)
+                                        } else {
+                                            availableRoutes.filter { it.active }.forEach { route ->
+                                                val chosen = selectedRouteId == route.id
+                                                Surface(
+                                                    color = if (chosen) Color(0xFFDCEBFF) else Color.White,
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    border = androidx.compose.foundation.BorderStroke(if (chosen) 2.dp else 1.dp, if (chosen) Color(0xFF1769C2) else Slate200),
+                                                    modifier = Modifier.fillMaxWidth().clickable {
+                                                        selectedRouteId = route.id
+                                                        selectedRouteName = route.name
+                                                    }
+                                                ) {
+                                                    Row(Modifier.padding(11.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                        Column(Modifier.weight(1f)) {
+                                                            Text(route.name, fontWeight = FontWeight.Bold, color = Slate900)
+                                                            Text("Morning " + route.morningDeparture + " • Evening " + route.eveningDeparture, color = Slate600, style = MaterialTheme.typography.bodySmall)
+                                                        }
+                                                        if (chosen) Icon(Icons.Default.CheckCircle, contentDescription = "Selected route", tint = Color(0xFF1769C2))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        OutlinedTextField(value = driverPickup, onValueChange = { driverPickup = it }, label = { Text("Pickup / departure location") }, placeholder = { Text("E.g. Alem Gena") }, leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                                        OutlinedTextField(value = driverDestination, onValueChange = { driverDestination = it }, label = { Text("Destination") }, placeholder = { Text("E.g. Sefera") }, leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                                        OutlinedTextField(value = driverDepartureTime, onValueChange = { driverDepartureTime = it }, label = { Text("Preferred departure time") }, placeholder = { Text("06:30") }, leadingIcon = { Icon(Icons.Default.Schedule, contentDescription = null) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                                        Text("Journey type", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Slate900)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                            listOf("One way", "Two way").forEach { option ->
+                                                FilterChip(selected = driverJourneyType == option, onClick = { driverJourneyType = option }, label = { Text(option) }, modifier = Modifier.weight(1f))
+                                            }
+                                        }
+                                    }
+                                    Text("Service / commute type", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Slate900)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                        listOf("VIP", "Deluxe", "Economy").forEach { tier ->
+                                            FilterChip(selected = driverServiceTier == tier, onClick = { driverServiceTier = tier }, label = { Text(tier) }, modifier = Modifier.weight(1f))
+                                        }
+                                    }
+                                }
+                            }
+
                             OutlinedTextField(
                                 value = email,
                                 onValueChange = { email = it },
@@ -762,6 +824,9 @@ fun AuthScreen(
                                     val validationMessage = when {
                                         portal == AppRole.PASSENGER && isCustomCommuterRequest && requestPickup.isBlank() -> "Enter your pickup location."
                                          portal == AppRole.PASSENGER && isCustomCommuterRequest && requestDestination.isBlank() -> "Enter your destination."
+                                         portal == AppRole.DRIVER && isRegisterMode && driverRouteMode == "custom" && driverPickup.isBlank() -> "Enter the proposed route pickup location."
+                                         portal == AppRole.DRIVER && isRegisterMode && driverRouteMode == "custom" && driverDestination.isBlank() -> "Enter the proposed route destination."
+                                         portal == AppRole.DRIVER && isRegisterMode && driverRouteMode == "custom" && driverDepartureTime.isBlank() -> "Enter a preferred departure time."
                                          password.length < 10 -> "Use a password with at least 10 characters."
                                         password != confirmPassword -> "The two passwords do not match. Please re-enter them."
                                         else -> null
@@ -781,8 +846,13 @@ fun AuthScreen(
                                             assignedVehiclePlate = vehiclePlate,
                                             vehicleModel = vehicleModel,
                                             vehicleType = vehicleType,
-                                            appliedRouteId = if (isCustomCommuterRequest) "" else selectedRouteId,
-                                            appliedRouteName = if (isCustomCommuterRequest) "Requested commuter route | Pickup: $requestPickup | Destination: $requestDestination | Journey: $commuteDirection | Tier: $selectedServiceTier" else selectedRouteName,
+                                            appliedRouteId = when { portal == AppRole.DRIVER && driverRouteMode == "custom" -> ""; isCustomCommuterRequest -> ""; else -> selectedRouteId },
+                                            appliedRouteName = when {
+                                                portal == AppRole.DRIVER && isRegisterMode && driverRouteMode == "custom" -> "Proposed driver route | Pickup: $driverPickup | Destination: $driverDestination | Departure: $driverDepartureTime | Journey: $driverJourneyType | Tier: $driverServiceTier"
+                                                portal == AppRole.DRIVER && isRegisterMode -> "Driver route preference | Route: $selectedRouteName | Tier: $driverServiceTier"
+                                                isCustomCommuterRequest -> "Requested commuter route | Pickup: $requestPickup | Destination: $requestDestination | Journey: $commuteDirection | Tier: $selectedServiceTier"
+                                                else -> selectedRouteName
+                                            },
                                             adminSecret = adminSecret
                                         )
                                     }
