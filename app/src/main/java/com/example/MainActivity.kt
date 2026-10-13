@@ -84,6 +84,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
         var showPublicHome by remember { mutableStateOf(true) }
         if (showPublicHome) {
             BrowseFirstScreen(
+                viewModel = viewModel,
                 onPassengerContinue = { showPublicHome = false },
                 onDriverAccess = { showPublicHome = false },
                 onCompanyAccess = { showPublicHome = false }
