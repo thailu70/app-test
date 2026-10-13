@@ -196,29 +196,42 @@ fun DriverTripScreen(
                                         Text("${tripState.vehicleCapacity}", color = Slate900, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                                     }
                                 }
-                                Button(onClick = { viewModel.openScanner() }, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                                    Icon(Icons.Default.QrCodeScanner, contentDescription = null)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Scan passenger QR")
-                                }
+                                Text("Use SCAN PASSENGERS in the trip workflow to record boarding. This page is for checking status.", color = Slate600, style = MaterialTheme.typography.bodySmall)
                             }
                         }
                         item {
-                            DriverSectionCard(title = "Assigned pickup points", subtitle = "Passenger names and individual boarding states require the trip roster from the server.", icon = Icons.Default.LocationOn) {
+                            DriverSectionCard(title = "Pickup point status", subtitle = "Status only — no scanning from this page.", icon = Icons.Default.LocationOn) {
                                 if (stops.isEmpty()) {
                                     Text("No assigned trip stops are available. Contact your transport company or PASSO administrator.", color = Slate600)
                                 } else {
                                     stops.forEachIndexed { index, stop ->
-                                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                                            Surface(shape = CircleShape, color = if (index == tripState.currentStopIndex) TransportGreenPrimary else Slate200) {
-                                                Text("${index + 1}", modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp), color = if (index == tripState.currentStopIndex) Color.White else Slate900, fontWeight = FontWeight.Bold)
+                                        val stopState = tripState.stopStates[index]
+                                            ?: if (index < tripState.currentStopIndex) NavigationStepState.COMPLETED else NavigationStepState.EN_ROUTE
+                                        val statusLabel = when {
+                                            stopState == NavigationStepState.COMPLETED -> "Completed"
+                                            stopState == NavigationStepState.SKIPPED -> "Skipped"
+                                            index == tripState.currentStopIndex && tripState.isArrivedAtStop -> "Arrived"
+                                            index == tripState.currentStopIndex -> "Current stop"
+                                            else -> "Upcoming"
+                                        }
+                                        val statusColor = when {
+                                            stopState == NavigationStepState.COMPLETED -> StatusActiveGreen
+                                            stopState == NavigationStepState.SKIPPED -> StatusErrorRed
+                                            index == tripState.currentStopIndex -> TransportGreenPrimary
+                                            else -> Slate600
+                                        }
+                                        Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Surface(shape = CircleShape, color = if (index == tripState.currentStopIndex) TransportGreenPrimary.copy(alpha = 0.12f) else Slate200) {
+                                                Text("${index + 1}", modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp), color = if (index == tripState.currentStopIndex) TransportGreenPrimary else Slate900, fontWeight = FontWeight.Bold)
                                             }
                                             Spacer(Modifier.width(12.dp))
                                             Column(Modifier.weight(1f)) {
                                                 Text(stop.stopName, color = Slate900, fontWeight = FontWeight.SemiBold)
-                                                Text(if (index == tripState.currentStopIndex) "Current stop" else "Assigned stop", color = Slate600, style = MaterialTheme.typography.bodySmall)
+                                                Text("Pickup point", color = Slate600, style = MaterialTheme.typography.bodySmall)
                                             }
-                                            OutlinedButton(onClick = { viewModel.openScanner() }) { Text("Scan") }
+                                            Surface(color = statusColor.copy(alpha = 0.12f), shape = RoundedCornerShape(8.dp)) {
+                                                Text(statusLabel, color = statusColor, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp))
+                                            }
                                         }
                                     }
                                 }
