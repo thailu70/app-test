@@ -69,8 +69,12 @@ fun AuthScreen(
     var adminSecret by remember { mutableStateOf("") }
 
     // Applied Route Selection for Passenger and Driver
-    var selectedRouteId by remember { mutableStateOf(initialRouteId ?: "route_bole_merkato") }
+    var selectedRouteId by remember { mutableStateOf(initialRouteId ?: if (initialRouteName == "Requested commuter route") "" else "route_bole_merkato") }
     var selectedRouteName by remember { mutableStateOf(initialRouteName ?: "Bole → Merkato") }
+    var requestPickup by remember { mutableStateOf("") }
+    var requestDestination by remember { mutableStateOf("") }
+    var commuteDirection by remember { mutableStateOf("Two way") }
+    val isCustomCommuterRequest = initialRouteName == "Requested commuter route" && initialRouteId.isNullOrBlank()
     var selectedServiceTier by remember { mutableStateOf(initialServiceTier ?: "Economy") }
 
     LaunchedEffect(initialPortal, initialRegisterMode, initialRouteId, initialRouteName, initialServiceTier) {
@@ -83,7 +87,7 @@ fun AuthScreen(
 
     // Automatically synchronize default route if available
     LaunchedEffect(availableRoutes) {
-        if ((selectedRouteId.isBlank() || availableRoutes.none { it.id == selectedRouteId }) && initialRouteId.isNullOrBlank() && availableRoutes.isNotEmpty()) {
+        if (!isCustomCommuterRequest && (selectedRouteId.isBlank() || availableRoutes.none { it.id == selectedRouteId }) && initialRouteId.isNullOrBlank() && availableRoutes.isNotEmpty()) {
             selectedRouteId = availableRoutes.first().id
             selectedRouteName = availableRoutes.first().name
         }
@@ -390,9 +394,13 @@ fun AuthScreen(
                                 Surface(color = Color(0xFFECFDF5), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                         Text("Your commuter request", fontWeight = FontWeight.Bold, color = TransportGreenDark)
-                                        Text("Route: $selectedRouteName", color = Slate900)
-                                        Text("Service tier: $selectedServiceTier", color = Slate900)
-                                        Text("You can review availability and fare before accepting an offer.", style = MaterialTheme.typography.bodySmall, color = Slate700)
+                                        if (!isCustomCommuterRequest) {
+                                            Text("Selected route: $selectedRouteName", color = Slate900)
+                                            Text("Service tier: $selectedServiceTier", color = Slate900)
+                                        } else {
+                                            Text("Tell us where you need to travel. Your request will be sent for route and vehicle assignment.", color = Slate700, style = MaterialTheme.typography.bodySmall)
+                                        }
+                                        Text("No payment is due until an eligible vehicle is assigned and you accept the offer.", style = MaterialTheme.typography.bodySmall, color = Slate700)
                                     }
                                 }
                             }
@@ -544,6 +552,48 @@ fun AuthScreen(
                                         )
                                     }
 
+                                    if (isCustomCommuterRequest) {
+                                        OutlinedTextField(
+                                            value = requestPickup,
+                                            onValueChange = { requestPickup = it },
+                                            label = { Text("Pickup location") },
+                                            placeholder = { Text("E.g. Alem Gena") },
+                                            leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth().testTag("commuter_pickup_input")
+                                        )
+                                        OutlinedTextField(
+                                            value = requestDestination,
+                                            onValueChange = { requestDestination = it },
+                                            label = { Text("Destination") },
+                                            placeholder = { Text("E.g. Sefera") },
+                                            leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth().testTag("commuter_destination_input")
+                                        )
+                                        Text("Journey type", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Slate900)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                            listOf("One way", "Two way").forEach { option ->
+                                                FilterChip(
+                                                    selected = commuteDirection == option,
+                                                    onClick = { commuteDirection = option },
+                                                    label = { Text(option) },
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
+                                        }
+                                        Text("Commute service tier", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Slate900)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                            listOf("VIP", "Deluxe", "Economy").forEach { tier ->
+                                                FilterChip(
+                                                    selected = selectedServiceTier == tier,
+                                                    onClick = { selectedServiceTier = tier },
+                                                    label = { Text(tier) },
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
+                                        }
+                                    } else {
                                     Text(
                                         text = "Select the daily commuter shuttle route you wish to subscribe to:",
                                         style = MaterialTheme.typography.bodySmall,
@@ -612,6 +662,7 @@ fun AuthScreen(
                                                 }
                                             }
                                         }
+                                    }
                                     }
                                 }
                             }
@@ -709,7 +760,9 @@ fun AuthScreen(
                             onClick = {
                                 if (isRegisterMode) {
                                     val validationMessage = when {
-                                        password.length < 10 -> "Use a password with at least 10 characters."
+                                        portal == AppRole.PASSENGER && isCustomCommuterRequest && requestPickup.isBlank() -> "Enter your pickup location."
+                                         portal == AppRole.PASSENGER && isCustomCommuterRequest && requestDestination.isBlank() -> "Enter your destination."
+                                         password.length < 10 -> "Use a password with at least 10 characters."
                                         password != confirmPassword -> "The two passwords do not match. Please re-enter them."
                                         else -> null
                                     }
