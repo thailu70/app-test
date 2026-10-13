@@ -781,8 +781,8 @@ fun AuthScreen(
                                             assignedVehiclePlate = vehiclePlate,
                                             vehicleModel = vehicleModel,
                                             vehicleType = vehicleType,
-                                            appliedRouteId = selectedRouteId,
-                                            appliedRouteName = selectedRouteName,
+                                            appliedRouteId = if (isCustomCommuterRequest) "" else selectedRouteId,
+                                            appliedRouteName = if (isCustomCommuterRequest) "Requested commuter route | Pickup: $requestPickup | Destination: $requestDestination | Journey: $commuteDirection | Tier: $selectedServiceTier" else selectedRouteName,
                                             adminSecret = adminSecret
                                         )
                                     }
