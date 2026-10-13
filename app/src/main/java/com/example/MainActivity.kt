@@ -83,11 +83,22 @@ fun MainTransportApp(viewModel: MainViewModel) {
     if (!isAuthenticated) {
         var showPublicHome by remember { mutableStateOf(true) }
         var requestedAuthPortal by remember { mutableStateOf<AppRole?>(null) }
+        var requestedRegisterFirst by remember { mutableStateOf(false) }
+        var requestedRouteId by remember { mutableStateOf<String?>(null) }
+        var requestedRouteName by remember { mutableStateOf<String?>(null) }
+        var requestedServiceTier by remember { mutableStateOf<String?>(null) }
         if (showPublicHome) {
             BrowseFirstScreen(
                 viewModel = viewModel,
-                onPassengerContinue = { requestedAuthPortal = AppRole.PASSENGER; showPublicHome = false },
-                onDriverAccess = { requestedAuthPortal = AppRole.DRIVER; showPublicHome = false },
+                onPassengerContinue = { registerFirst, routeId, routeName, tier ->
+                    requestedAuthPortal = AppRole.PASSENGER
+                    requestedRegisterFirst = registerFirst
+                    requestedRouteId = routeId
+                    requestedRouteName = routeName
+                    requestedServiceTier = tier
+                    showPublicHome = false
+                },
+                onDriverAccess = { requestedAuthPortal = AppRole.DRIVER; requestedRegisterFirst = false; requestedRouteId = null; requestedRouteName = null; requestedServiceTier = null; showPublicHome = false },
                 onCompanyAccess = { requestedAuthPortal = null; showPublicHome = false }
             )
         } else {
@@ -98,7 +109,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
             topBar = {
                 TopAppBar(
                     navigationIcon = {
-                        TextButton(onClick = { showPublicHome = true; requestedAuthPortal = null }) {
+                        TextButton(onClick = { showPublicHome = true; requestedAuthPortal = null; requestedRegisterFirst = false; requestedRouteId = null; requestedRouteName = null; requestedServiceTier = null }) {
                             Text("Back", color = TransportGreenPrimary, fontWeight = FontWeight.Bold)
                         }
                     },
@@ -125,7 +136,11 @@ fun MainTransportApp(viewModel: MainViewModel) {
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
-                initialPortal = requestedAuthPortal
+                initialPortal = requestedAuthPortal,
+                initialRegisterMode = requestedRegisterFirst,
+                initialRouteId = requestedRouteId,
+                initialRouteName = requestedRouteName,
+                initialServiceTier = requestedServiceTier
             )
         }
         }
