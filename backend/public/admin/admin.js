@@ -9,6 +9,7 @@
     drivers: ["Drivers & routes", "Review driver-owned vehicles and assign approved operating routes."],
     passengers: ["Passengers", "View registered passenger profiles, subscription assignments and profile photos."],
     routes: ["Manage routes", "Create, edit, activate and deactivate RoutePass transit routes."],
+    companies: ["Transport companies", "Register the companies drivers can select for City Travel / Intercity."],
     vehicles: ["Vehicles", "Fleet availability and current assignments."],
     subscriptions: ["Subscriptions", "Passenger subscription records and payment state."],
     payments: ["Payments", "Transaction history for operational review."],
@@ -304,6 +305,22 @@
         ], data));
   }
 
+  async function renderCompanies() {
+    const result = await api("/api/companies/admin");
+    const companies = asArray(result, "companies");
+    state.cache.companies = companies;
+    return pageHeader("Transport companies", "Only active companies appear in the City Travel driver registration dropdown.") +
+      section("Register a company", "Company names are centrally managed by administrators.",
+        '<form id="create-company-form" class="form-card"><div class="field"><label for="company-name">Registered transport company name *</label><input id="company-name" name="name" required maxlength="120" placeholder="Company name"></div><div class="form-actions"><button class="btn btn-primary" type="submit">Add company</button></div><p id="company-form-message" class="form-message" hidden role="status"></p></form>') +
+      section("Registered companies", companies.length + " record(s)",
+        table([
+          { label: "Company", keys: ["name"] },
+          { label: "Created", render: r => esc(dateText(value(r, "createdAt", "created_at"))) },
+          { label: "Status", render: r => pill(value(r, "status")) },
+          { label: "Actions", render: r => '<button class="btn btn-secondary" data-company-status="' + esc(r.id) + '" data-status="' + (String(r.status).toUpperCase() === "ACTIVE" ? "INACTIVE" : "ACTIVE") + '">' + (String(r.status).toUpperCase() === "ACTIVE" ? "Deactivate" : "Activate") + '</button>' }
+        ], companies));
+  }
+
   async function renderRoutes() {
     const [result, geofence] = await Promise.all([api("/api/admin/routes"), api("/api/admin/settings/geofence")]);
     const routes = asArray(result, "routes");
@@ -509,6 +526,7 @@
         case "drivers": html = await renderDrivers(); break;
         case "passengers": html = await renderPassengers(); break;
         case "routes": html = await renderRoutes(); break;
+        case "companies": html = await renderCompanies(); break;
         case "vehicles": html = await renderVehicles(); break;
         case "subscriptions": html = await renderSubscriptions(); break;
         case "payments": html = await renderPayments(); break;
@@ -520,6 +538,8 @@
       $("#page-content").innerHTML = html;
       if (state.view === "overview") initLiveMap();
       else if (liveMapTimer) { window.clearInterval(liveMapTimer); liveMapTimer = null; }
+      const companyForm = $("#create-company-form");
+      if (companyForm) companyForm.addEventListener("submit", submitCompany);
       const routeForm = $("#create-route-form");
       if (routeForm) routeForm.addEventListener("submit", submitRoute);
     } catch (error) {
@@ -750,6 +770,41 @@
     } catch (error) { toast(error.message, true); button.disabled = false; }
   }
 
+  async function submitCompany(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
+    const message = $("#company-form-message");
+    const name = String(new FormData(form).get("name") || "").trim();
+    if (name.length < 2) return toast("Enter a company name with at least two characters.", true);
+    button.disabled = true;
+    try {
+      await api("/api/companies/admin", { method: "POST", body: JSON.stringify({ name }) });
+      toast("Transport company added to the registration list.");
+      await renderView();
+    } catch (error) {
+      if (message) { message.textContent = error.message; message.hidden = false; }
+      else toast(error.message, true);
+      button.disabled = false;
+    }
+  }
+
+  async function updateCompanyStatus(button) {
+    const id = button.dataset.companyStatus;
+    const status = button.dataset.status;
+    const company = (state.cache.companies || []).find(item => item.id === id);
+    if (!company) return toast("Company data is stale. Refresh and try again.", true);
+    if (!window.confirm((status === "ACTIVE" ? "Activate " : "Deactivate ") + company.name + "?")) return;
+    button.disabled = true;
+    try {
+      await api("/api/companies/admin/" + encodeURIComponent(id) + "/status", {
+        method: "PATCH", body: JSON.stringify({ status })
+      });
+      toast("Transport company status updated.");
+      await renderView();
+    } catch (error) { toast(error.message, true); button.disabled = false; }
+  }
+
   async function saveGeofenceRadius(button) {
     const input = $("#driver-geofence-radius");
     const radiusMeters = Number(input?.value);
@@ -816,6 +871,8 @@
     if (manualPaymentButton) { recordManualPayment(manualPaymentButton); return; }
     const rechargeButton = event.target.closest("[data-recharge]");
     if (rechargeButton) { rechargeSubscription(rechargeButton); return; }
+    const companyStatusButton = event.target.closest("[data-company-status]");
+    if (companyStatusButton) { updateCompanyStatus(companyStatusButton); return; }
     const editRouteButton = event.target.closest("[data-edit-route]");
     if (editRouteButton) { editRoute(editRouteButton); return; }
     const toggleRouteButton = event.target.closest("[data-toggle-route]");
