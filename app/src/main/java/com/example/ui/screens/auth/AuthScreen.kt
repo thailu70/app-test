@@ -82,12 +82,13 @@ fun AuthScreen(
     var driverServiceTier by remember { mutableStateOf("Economy") }
     val isCustomCommuterRequest = initialRouteName == "Requested commuter route" && initialRouteId.isNullOrBlank()
     var selectedServiceTier by remember { mutableStateOf(initialServiceTier ?: "Economy") }
+    var showRoutePicker by remember { mutableStateOf(initialRouteName.isNullOrBlank()) }
 
     LaunchedEffect(initialPortal, initialRegisterMode, initialRouteId, initialRouteName, initialServiceTier) {
         if (initialPortal != null) selectedPortal = initialPortal
         isRegisterMode = initialRegisterMode
         if (!initialRouteId.isNullOrBlank()) selectedRouteId = initialRouteId
-        if (!initialRouteName.isNullOrBlank()) selectedRouteName = initialRouteName
+        if (!initialRouteName.isNullOrBlank()) { selectedRouteName = initialRouteName; showRoutePicker = false }
         if (!initialServiceTier.isNullOrBlank()) selectedServiceTier = initialServiceTier
     }
 
@@ -542,6 +543,7 @@ fun AuthScreen(
                                                     modifier = Modifier.fillMaxWidth().clickable {
                                                         selectedRouteId = route.id
                                                         selectedRouteName = route.name
+                                                        showRoutePicker = false
                                                     }
                                                 ) {
                                                     Row(Modifier.padding(11.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -653,6 +655,20 @@ fun AuthScreen(
                                                     label = { Text(tier) },
                                                     modifier = Modifier.weight(1f)
                                                 )
+                                            }
+                                        }
+                                    } else if (!showRoutePicker && selectedRouteName.isNotBlank()) {
+                                        Surface(
+                                            color = Color(0xFFD1FAE5),
+                                            shape = RoundedCornerShape(10.dp),
+                                            border = androidx.compose.foundation.BorderStroke(2.dp, TransportGreenPrimary),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                                Text("Selected route", style = MaterialTheme.typography.labelMedium, color = Slate600)
+                                                Text(selectedRouteName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Slate900)
+                                                Text("Service tier: $selectedServiceTier", color = Slate700)
+                                                TextButton(onClick = { showRoutePicker = true }) { Text("Change route") }
                                             }
                                         }
                                     } else {
