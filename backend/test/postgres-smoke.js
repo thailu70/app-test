@@ -109,6 +109,13 @@ async function run() {
     assert.equal(result.data.transaction.provider, 'ADMIN_TEST', 'Manual recharge must not masquerade as Telebirr');
     assert.match(result.data.subscription.qrToken, /^RP1:/, 'Manual recharge must issue a signed QR pass');
 
+    // Companies are administered separately from driver accounts and must exist before selection.
+    result = await requestJson(baseUrl, '/api/companies/admin', 'POST', { name: 'CI Transport' }, adminToken);
+    assert.equal(result.status, 201, 'Admin should create a transport company before driver registration');
+    result = await requestJson(baseUrl, '/api/companies');
+    assert.equal(result.status, 200, 'Driver registration must be able to load active transport companies');
+    assert.ok(result.data.companies.some(company => company.name === 'CI Transport'), 'Active company should appear in the public list');
+
     // A driver self-registers, awaits admin approval, then receives a route assignment.
     result = await requestJson(baseUrl, '/api/auth/register', 'POST', {
       fullName: 'CI Driver Owner',
