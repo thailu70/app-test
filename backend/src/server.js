@@ -452,6 +452,7 @@ app.locals.broadcastWs = broadcastAuthorized;
 // Start only after applying the additive runtime GPS-table migration. This supports existing
 // PostgreSQL installations where init-db.sql was executed before vehicle_live_locations existed.
 async function startServer() {
+  await companiesSchemaReady;
   // Additive migration: managed transport company directory for City Travel / Intercity.
   await DB.prepare(`
     CREATE TABLE IF NOT EXISTS transport_companies (
