@@ -29,6 +29,7 @@ import com.example.data.database.TransportDatabase
 import com.example.data.repository.TransportRepository
 import com.example.ui.components.NotificationTrayDialog
 import com.example.ui.screens.auth.AuthScreen
+import com.example.ui.screens.home.BrowseFirstScreen
 import com.example.ui.screens.driver.DriverTripScreen
 import com.example.ui.screens.passenger.PassengerDashboardScreen
 import com.example.ui.theme.*
@@ -80,12 +81,25 @@ fun MainTransportApp(viewModel: MainViewModel) {
     }
 
     if (!isAuthenticated) {
+        var showPublicHome by remember { mutableStateOf(true) }
+        if (showPublicHome) {
+            BrowseFirstScreen(
+                onPassengerContinue = { showPublicHome = false },
+                onDriverAccess = { showPublicHome = false },
+                onCompanyAccess = { showPublicHome = false }
+            )
+        } else {
         // Independent Authentication Screen (Passenger, Driver/Transporter, Operator/Admin)
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             contentWindowInsets = WindowInsets.safeDrawing,
             topBar = {
                 TopAppBar(
+                    navigationIcon = {
+                        TextButton(onClick = { showPublicHome = true }) {
+                            Text("Back", color = TransportGreenPrimary, fontWeight = FontWeight.Bold)
+                        }
+                    },
                     title = {
                         Text(
                             text = t("app_title"),
@@ -110,6 +124,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                     .fillMaxSize()
                     .padding(innerPadding)
             )
+        }
         }
     } else {
         // Authenticated System Experience
