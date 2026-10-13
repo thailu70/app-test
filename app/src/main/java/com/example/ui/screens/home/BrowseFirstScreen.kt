@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Work
 import androidx.compose.material3.*
+import androidx.compose.ui.window.Dialog
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +46,63 @@ fun BrowseFirstScreen(
     var selectedService by remember { mutableStateOf(0) }
     var origin by remember { mutableStateOf("") }
     var destination by remember { mutableStateOf("") }
+    var selectedRoute by remember { mutableStateOf<RouteEntity?>(null) }
+
+    selectedRoute?.let { route ->
+        Dialog(onDismissRequest = { selectedRoute = null }) {
+            Surface(
+                color = Color.White,
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(13.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(color = HomeMint, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(46.dp)) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = HomeGreen, modifier = Modifier.size(27.dp))
+                            }
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Route details", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = HomeInk)
+                            Text("Browse first • Sign in only to continue", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                        }
+                        IconButton(onClick = { selectedRoute = null }) { Icon(Icons.Default.Close, contentDescription = "Close") }
+                    }
+                    HorizontalDivider(color = Color(0xFFE1E8E3))
+                    Text(route.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = HomeInk)
+                    if (route.nameAm.isNotBlank()) Text(route.nameAm, color = Slate600)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        RouteInfoTile("Morning pickup", route.morningDeparture, Modifier.weight(1f))
+                        RouteInfoTile("Evening return", route.eveningDeparture, Modifier.weight(1f))
+                    }
+                    RouteInfoTile("Monthly subscription", "ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), Modifier.fillMaxWidth())
+                    Text("Choose your service tier", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = HomeInk)
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
+                        TierChip("VIP", "4 seats", Modifier.weight(1f))
+                        TierChip("Deluxe", "7 seats", Modifier.weight(1f))
+                        TierChip("Economy", "13 seats", Modifier.weight(1f))
+                    }
+                    Text("Pickup points and vehicle availability are confirmed when you continue with this route.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                    Button(
+                        onClick = { selectedRoute = null; onPassengerContinue() },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = HomeGreen)
+                    ) {
+                        Text("Request / Continue")
+                        Spacer(Modifier.width(8.dp))
+                        Icon(Icons.Default.ArrowForward, contentDescription = null)
+                    }
+                    OutlinedButton(onClick = { selectedRoute = null }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Back to routes")
+                    }
+                }
+            }
+        }
+    }
 
     LazyColumn(
         modifier = modifier.fillMaxSize().background(Color(0xFFF6F8F7)),
@@ -113,7 +171,7 @@ fun BrowseFirstScreen(
             } else {
                 items(routes.filter { it.active }.size) { index ->
                     val route = routes.filter { it.active }[index]
-                    ExistingRouteCard(route = route, onClick = onPassengerContinue)
+                    ExistingRouteCard(route = route, onClick = { selectedRoute = route })
                 }
             }
             item {
@@ -265,6 +323,16 @@ private fun TierChip(title: String, seats: String, modifier: Modifier = Modifier
         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(title, color = HomeBlue, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
             Text(seats, color = Slate600, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable
+private fun RouteInfoTile(label: String, value: String, modifier: Modifier = Modifier) {
+    Surface(color = Color(0xFFF3F7F4), shape = RoundedCornerShape(14.dp), modifier = modifier) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(label, color = Slate600, style = MaterialTheme.typography.labelSmall)
+            Text(value, color = HomeGreen, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
         }
     }
 }
