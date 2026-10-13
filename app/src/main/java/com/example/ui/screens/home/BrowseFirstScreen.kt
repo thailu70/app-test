@@ -44,6 +44,7 @@ private val HomeMint = Color(0xFFE8F6EE)
 private val HomeBlue = Color(0xFF0757B8)
 private val HomeInk = Color(0xFF17212B)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowseFirstScreen(
     viewModel: MainViewModel,
