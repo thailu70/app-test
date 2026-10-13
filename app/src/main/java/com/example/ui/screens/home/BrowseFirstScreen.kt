@@ -37,9 +37,9 @@ import com.example.ui.theme.TransportGreenPrimary
 import com.example.ui.theme.Slate600
 import com.example.ui.theme.Slate900
 
-private val HomeGreen = Color(0xFF0E6B46)
+private val HomeGreen = Color(0xFF00A982)
 private val HomeMint = Color(0xFFE8F6EE)
-private val HomeBlue = Color(0xFF315EA8)
+private val HomeBlue = Color(0xFF0757B8)
 private val HomeInk = Color(0xFF17212B)
 
 @Composable
@@ -134,8 +134,8 @@ fun BrowseFirstScreen(
                     Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp)) }
                 }
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                    Text("RoutePass", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = HomeInk)
-                    Text("Move People. Connect Places.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                    Text("PASSO", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = HomeInk)
+                    Text("Tap. Move. Clear.", style = MaterialTheme.typography.bodySmall, color = Slate600)
                 }
                 TextButton(onClick = { onPassengerContinue(false, null, null, null) }) { Text("Sign in", color = HomeGreen, fontWeight = FontWeight.Bold) }
             }
@@ -143,13 +143,13 @@ fun BrowseFirstScreen(
         item {
             Surface(shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp, bottomStart = 26.dp, bottomEnd = 26.dp), color = HomeBlue, modifier = Modifier.fillMaxWidth()) {
                 Box(modifier = Modifier.fillMaxWidth().height(252.dp)) {
-                    Image(painter = painterResource(id = R.drawable.transport_icon_1791227027460), contentDescription = "RoutePass bus transport", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    Image(painter = painterResource(id = R.drawable.transport_icon_1791227027460), contentDescription = "PASSO bus transport", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                     Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0xAA174E9B), Color(0x33174E9B), Color(0xCC102B55)))))
                     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color.White, modifier = Modifier.size(48.dp))
-                            Text("RoutePass", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                            Text("Move People. Connect Places.", style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                            Text("PASSO", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                            Text("Tap. Move. Clear.", style = MaterialTheme.typography.bodyMedium, color = Color.White)
                         }
                         Text("Travel across your city and Ethiopia", style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold)
                     }
@@ -201,7 +201,7 @@ fun BrowseFirstScreen(
                     Surface(color = Color.White, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Loading available routes", fontWeight = FontWeight.Bold, color = HomeInk)
-                            Text("RoutePass is checking routes configured by the transport operator. Please try again shortly.", color = Slate600, style = MaterialTheme.typography.bodySmall)
+                            Text("PASSO is checking routes configured by the transport operator. Please try again shortly.", color = Slate600, style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -272,7 +272,7 @@ fun BrowseFirstScreen(
             }
         }
         item {
-            Text("RoutePass • Ethiopia", style = MaterialTheme.typography.labelSmall, color = Slate600, modifier = Modifier.fillMaxWidth())
+            Text("PASSO • Ethiopia", style = MaterialTheme.typography.labelSmall, color = Slate600, modifier = Modifier.fillMaxWidth())
         }
     }
     NavigationBar(containerColor = Color.White, tonalElevation = 8.dp) {
