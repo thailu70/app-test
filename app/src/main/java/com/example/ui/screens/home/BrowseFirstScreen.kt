@@ -192,8 +192,8 @@ fun BrowseFirstScreen(
             }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Browse commuter routes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = HomeInk)
-                    Text("Compare schedules, service tiers and monthly prices before signing in.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                    Text("Find your daily route", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = HomeInk)
+                    Text("Compare routes, departure times and configured monthly fares. Sign in only when you are ready to request a service.", style = MaterialTheme.typography.bodySmall, color = Slate600)
                 }
             }
             if (routes.filter { it.active }.isEmpty()) {
@@ -341,7 +341,7 @@ private fun ExistingRouteCard(route: RouteEntity, onClick: () -> Unit, compact: 
     ) {
         if (compact) {
             Row(Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Image(painter = painterResource(id = R.drawable.transport_icon_1791227027460), contentDescription = "Bus on route", contentScale = ContentScale.Crop, modifier = Modifier.size(width = 94.dp, height = 62.dp).clip(RoundedCornerShape(10.dp)))
+                Surface(color = HomeMint, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(54.dp)) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.DirectionsBus, contentDescription = "Commuter bus", tint = HomeGreen, modifier = Modifier.size(30.dp)) } }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(route.name, fontWeight = FontWeight.Bold, color = HomeInk, style = MaterialTheme.typography.titleSmall, maxLines = 1)
                     Text("ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), color = HomeGreen, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
@@ -413,14 +413,14 @@ private fun CommuterRouteCard(route: RouteEntity, selectedTier: String, onTierSe
                     }
                 }
                 Surface(color = HomeMint, shape = RoundedCornerShape(8.dp)) {
-                    Text("Available", color = HomeGreen, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
+                    Text("Route listed", color = HomeGreen, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
                 }
                 Icon(Icons.Default.KeyboardArrowRight, contentDescription = "View route", tint = HomeInk, modifier = Modifier.size(25.dp))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-                TierPriceCard("VIP", "4 seats", "Not set", selectedTier == "VIP", Color(0xFFFFF3D6), Color(0xFFB87500), Modifier.weight(1f)) { onTierSelected("VIP") }
-                TierPriceCard("Deluxe", "7 seats", "Not set", selectedTier == "Deluxe", Color(0xFFEAF1FF), HomeBlue, Modifier.weight(1f)) { onTierSelected("Deluxe") }
-                TierPriceCard("Economy", "13 seats", "ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), selectedTier == "Economy", HomeMint, HomeGreen, Modifier.weight(1f)) { onTierSelected("Economy") }
+                TierPriceCard("VIP", "Premium", "Fare not set", selectedTier == "VIP", Color(0xFFFFF3D6), Color(0xFFB87500), Modifier.weight(1f)) { onTierSelected("VIP") }
+                TierPriceCard("Deluxe", "Comfort", "Fare not set", selectedTier == "Deluxe", Color(0xFFEAF1FF), HomeBlue, Modifier.weight(1f)) { onTierSelected("Deluxe") }
+                TierPriceCard("Economy", "Standard", "ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), selectedTier == "Economy", HomeMint, HomeGreen, Modifier.weight(1f)) { onTierSelected("Economy") }
             }
         }
     }
