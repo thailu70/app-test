@@ -6,7 +6,7 @@ concurrency:
 
 on:
   push:
-    branches: [main, "audit/**", "feature/routepass-otp-geofence-payments"]
+    branches: [main, "audit/**", "feature/routepass-otp-geofence-payments", "feature/routepass-backend-completion-2026-10-14"]
   pull_request:
     branches: [main, "audit/**"]
   workflow_dispatch:
