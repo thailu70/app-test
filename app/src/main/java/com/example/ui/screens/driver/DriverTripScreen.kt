@@ -167,7 +167,7 @@ fun DriverTripScreen(
                         item {
                             DriverNavigationHudCard(tripState = tripState, currentStop = stops.getOrNull(tripState.currentStopIndex), lang = lang,
                                 onStartNavigation = { viewModel.startNavigation() }, onArrived = { viewModel.arriveAtCurrentStop() },
-                                onScanQr = { viewModel.openScanner() }, onSkip = { viewModel.skipCurrentStop() }, onNextStop = { viewModel.nextStop() })
+                                onScanQr = { viewModel.openScanner() }, onSkip = { viewModel.skipCurrentStop() }, onNextStop = { viewModel.nextStop() }, isLastStop = stops.isNotEmpty() && tripState.currentStopIndex >= stops.lastIndex)
                         }
                     }
                     "My Trips" -> {
@@ -178,7 +178,7 @@ fun DriverTripScreen(
                                 DriverNavigationHudCard(tripState = tripState, currentStop = stops.getOrNull(tripState.currentStopIndex), lang = lang,
                                     onStartNavigation = { viewModel.startNavigation() }, onArrived = { viewModel.arriveAtCurrentStop() },
                                     onScanQr = { selectedDriverSection = "Passengers"; viewModel.openScanner() },
-                                    onSkip = { viewModel.skipCurrentStop() }, onNextStop = { viewModel.nextStop() })
+                                    onSkip = { viewModel.skipCurrentStop() }, onNextStop = { viewModel.nextStop() }, isLastStop = stops.isNotEmpty() && tripState.currentStopIndex >= stops.lastIndex)
                             }
                         }
                         if (stops.isNotEmpty()) {
@@ -244,7 +244,7 @@ fun DriverTripScreen(
                             DriverNavigationHudCard(tripState = tripState, currentStop = stops.getOrNull(tripState.currentStopIndex), lang = lang,
                                 onStartNavigation = { viewModel.startNavigation() }, onArrived = { viewModel.arriveAtCurrentStop() },
                                 onScanQr = { selectedDriverSection = "Passengers"; viewModel.openScanner() },
-                                onSkip = { viewModel.skipCurrentStop() }, onNextStop = { viewModel.nextStop() })
+                                onSkip = { viewModel.skipCurrentStop() }, onNextStop = { viewModel.nextStop() }, isLastStop = stops.isNotEmpty() && tripState.currentStopIndex >= stops.lastIndex)
                         }
                         if (stops.isNotEmpty()) {
                             item { Text("Pickup sequence", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Slate900) }
@@ -669,7 +669,8 @@ fun DriverNavigationHudCard(
     onArrived: () -> Unit,
     onScanQr: () -> Unit,
     onSkip: () -> Unit,
-    onNextStop: () -> Unit
+    onNextStop: () -> Unit,
+    isLastStop: Boolean = false
 ) {
     fun t(key: String) = AppStrings.get(key, lang)
 
@@ -819,7 +820,7 @@ fun DriverNavigationHudCard(
                             colors = ButtonDefaults.buttonColors(containerColor = TransportGreenDark),
                             modifier = Modifier.weight(1f).height(48.dp).testTag("driver_next_stop_button")
                         ) {
-                            Text(text = if (tripState.currentStopIndex >= tripState.totalStops - 1) "COMPLETE ROUTE" else "NEXT STOP", fontWeight = FontWeight.Bold)
+                            Text(text = if (isLastStop) "COMPLETE ROUTE" else "NEXT STOP", fontWeight = FontWeight.Bold)
                             Spacer(Modifier.width(4.dp))
                             Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
                         }
