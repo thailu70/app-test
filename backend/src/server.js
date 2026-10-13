@@ -148,6 +148,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/auth/otp', require('./routes/otp'));
 app.use('/api/routes', (req, res, next) => Promise.resolve(routeTypeSchemaReady).then(() => next()).catch(next));
 app.use('/api/routes', require('./routes/routes'));
+app.use('/api/companies', require('./routes/companies'));
 app.use('/api/subscriptions/telebirr', require('./routes/telebirr'));
 app.use('/api/subscriptions', require('./routes/subscriptions'));
 app.use('/api/vehicles', require('./routes/vehicles'));
@@ -437,6 +438,18 @@ app.locals.broadcastWs = broadcastAuthorized;
 // Start only after applying the additive runtime GPS-table migration. This supports existing
 // PostgreSQL installations where init-db.sql was executed before vehicle_live_locations existed.
 async function startServer() {
+  // Additive migration: managed transport company directory for City Travel / Intercity.
+  await DB.prepare(`
+    CREATE TABLE IF NOT EXISTS transport_companies (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(120) NOT NULL UNIQUE,
+      status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE')),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+  await DB.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_transport_companies_name_ci ON transport_companies (LOWER(name))').run();
+
   await DB.prepare(`
     CREATE TABLE IF NOT EXISTS vehicle_live_locations (
       vehicle_id VARCHAR(64) PRIMARY KEY REFERENCES vehicles(id) ON DELETE CASCADE,
