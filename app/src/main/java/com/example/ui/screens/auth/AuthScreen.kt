@@ -49,7 +49,7 @@ fun AuthScreen(
     val availableRoutes by viewModel.allRoutes.collectAsState()
 
     // Dedicated Independent Portal Gateway (null = selecting portal; non-null = inside specific portal)
-    var selectedPortal by remember { mutableStateOf<AppRole?>(initialPortal) }
+    var selectedPortal by remember { mutableStateOf<AppRole?>(initialPortal ?: AppRole.PASSENGER) }
     var isRegisterMode by remember { mutableStateOf(initialRegisterMode) }
     var showPasswordHelp by remember { mutableStateOf(false) }
 
@@ -104,13 +104,6 @@ fun AuthScreen(
             password = ""
             confirmPassword = ""
         }
-    }
-
-    // Handle back button when inside a portal to safely return to Portal Gateway
-    BackHandler(enabled = selectedPortal != null) {
-        viewModel.clearRegistrationMessage()
-        selectedPortal = null
-        isRegisterMode = false
     }
 
     if (showPasswordHelp) {
@@ -270,26 +263,7 @@ fun AuthScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedButton(
-                        onClick = {
-                            selectedPortal = null
-                            isRegisterMode = false
-                        },
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Slate700),
-                        modifier = Modifier.testTag("back_to_portals_button")
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = if (lang == AppLanguage.AMHARIC) "ፖርታል ቀይር" else "Change Portal",
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    }
+                    Spacer(Modifier.width(1.dp))
 
                     Surface(
                         color = when (portal) {
