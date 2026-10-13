@@ -60,6 +60,7 @@ fun PassengerDashboardScreen(
     val paymentMessage by viewModel.paymentMessage.collectAsState()
     val selectedReceipt by viewModel.selectedReceipt.collectAsState()
     val isComplaintOpen by viewModel.isComplaintDialogOpen.collectAsState()
+    var passengerSection by remember { mutableStateOf("Home") }
 
     fun t(key: String): String = AppStrings.get(key, lang)
 
@@ -88,69 +89,141 @@ fun PassengerDashboardScreen(
         viewModel.consumeTelebirrCheckoutUrl()
     }
 
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
-    ) {
-        // 1. Subscription Overview Card
-        item {
-            SubscriptionStatusCard(
-                subscription = subscription,
-                userAppliedRoute = currentUser?.appliedRouteName,
-                lang = lang,
-                onRenewClick = { viewModel.openTelebirrDialog() },
-                onCancelClick = { viewModel.cancelSubscription() }
-            )
+    Column(modifier = modifier.fillMaxSize()) {
+        ScrollableTabRow(
+            selectedTabIndex = listOf("Home", "My Pass", "Payments", "More").indexOf(passengerSection).coerceAtLeast(0),
+            edgePadding = 12.dp,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = TransportGreenPrimary
+        ) {
+            listOf("Home", "My Pass", "Payments", "More").forEach { section ->
+                Tab(
+                    selected = passengerSection == section,
+                    onClick = { passengerSection = section },
+                    text = { Text(section, fontWeight = if (passengerSection == section) FontWeight.Bold else FontWeight.Medium) },
+                    icon = {
+                        Icon(
+                            imageVector = when (section) {
+                                "Home" -> Icons.Default.Home
+                                "My Pass" -> Icons.Default.QrCode
+                                "Payments" -> Icons.Default.AccountBalanceWallet
+                                else -> Icons.Default.Menu
+                            },
+                            contentDescription = null
+                        )
+                    }
+                )
+            }
         }
 
-        // 2. Dynamic Boarding QR Code Card
-        item {
-            PassengerQrCard(
-                isSubscribed = subscription != null && subscription?.subscriptionStatus == "ACTIVE",
-                token = subscription?.qrToken ?: "",
-                status = subscription?.subscriptionStatus ?: "NOT_SUBSCRIBED",
-                lang = lang,
-                onSubscribeClick = { viewModel.openTelebirrDialog() }
-            )
-        }
-
-        // 3. Server-reported driver location. No demo coordinates are shown as live.
-        item {
-            MiniVehicleMap(vehicle = trackedVehicle, modifier = Modifier.testTag("passenger_live_vehicle_map"), serverMessage = trackingMessage)
-        }
-
-        // 4. Passenger Financial Account & Balance
-        item {
-            FinancialBalanceCard(
-                lang = lang,
-                onPayClick = { viewModel.openTelebirrDialog() }
-            )
-        }
-
-        // 5. Telebirr Payment History
-        item {
-            PaymentHistoryCard(
-                payments = payments,
-                lang = lang,
-                onReceiptClick = { viewModel.openReceipt(it) }
-            )
-        }
-
-        // 6. Trip Attendance History
-        item {
-            TripAttendanceCard(checkIns = checkIns, lang = lang)
-        }
-
-        // 7. Complaints & Support
-        item {
-            ComplaintsCard(
-                complaints = complaints,
-                lang = lang,
-                onSubmitClick = { viewModel.openComplaintDialog() }
-            )
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
+        ) {
+            when (passengerSection) {
+                "Home" -> {
+                    item {
+                        SubscriptionStatusCard(
+                            subscription = subscription,
+                            userAppliedRoute = currentUser?.appliedRouteName,
+                            lang = lang,
+                            onRenewClick = { viewModel.openTelebirrDialog() },
+                            onCancelClick = { viewModel.cancelSubscription() }
+                        )
+                    }
+                    item {
+                        PassengerQrCard(
+                            isSubscribed = subscription != null && subscription?.subscriptionStatus == "ACTIVE",
+                            token = subscription?.qrToken ?: "",
+                            status = subscription?.subscriptionStatus ?: "NOT_SUBSCRIBED",
+                            lang = lang,
+                            onSubscribeClick = { viewModel.openTelebirrDialog() }
+                        )
+                    }
+                }
+                "My Pass" -> {
+                    item {
+                        SubscriptionStatusCard(
+                            subscription = subscription,
+                            userAppliedRoute = currentUser?.appliedRouteName,
+                            lang = lang,
+                            onRenewClick = { viewModel.openTelebirrDialog() },
+                            onCancelClick = { viewModel.cancelSubscription() }
+                        )
+                    }
+                    item {
+                        PassengerQrCard(
+                            isSubscribed = subscription != null && subscription?.subscriptionStatus == "ACTIVE",
+                            token = subscription?.qrToken ?: "",
+                            status = subscription?.subscriptionStatus ?: "NOT_SUBSCRIBED",
+                            lang = lang,
+                            onSubscribeClick = { viewModel.openTelebirrDialog() }
+                        )
+                    }
+                }
+                "Payments" -> {
+                    item {
+                        FinancialBalanceCard(lang = lang, onPayClick = { viewModel.openTelebirrDialog() })
+                    }
+                    item {
+                        PaymentHistoryCard(
+                            payments = payments,
+                            lang = lang,
+                            onReceiptClick = { viewModel.openReceipt(it) }
+                        )
+                    }
+                }
+                "Live Location" -> {
+                    item {
+                        MiniVehicleMap(
+                            vehicle = trackedVehicle,
+                            modifier = Modifier.testTag("passenger_live_vehicle_map"),
+                            serverMessage = trackingMessage
+                        )
+                    }
+                }
+                "Trip Attendance" -> item { TripAttendanceCard(checkIns = checkIns, lang = lang) }
+                "Help & Complaints" -> {
+                    item {
+                        ComplaintsCard(
+                            complaints = complaints,
+                            lang = lang,
+                            onSubmitClick = { viewModel.openComplaintDialog() }
+                        )
+                    }
+                }
+                else -> {
+                    item {
+                        Text("More services", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Slate900)
+                        Text("Choose a service to view its details.", style = MaterialTheme.typography.bodyMedium, color = Slate600)
+                    }
+                    item {
+                        PassengerMenuRow(
+                            title = "Live vehicle location",
+                            subtitle = "View the latest location reported by the server",
+                            icon = Icons.Default.LocationOn,
+                            onClick = { passengerSection = "Live Location" }
+                        )
+                    }
+                    item {
+                        PassengerMenuRow(
+                            title = "Trip attendance",
+                            subtitle = "Review recorded boardings",
+                            icon = Icons.Default.EventAvailable,
+                            onClick = { passengerSection = "Trip Attendance" }
+                        )
+                    }
+                    item {
+                        PassengerMenuRow(
+                            title = "Help & complaints",
+                            subtitle = "Create and follow up on support tickets",
+                            icon = Icons.Default.SupportAgent,
+                            onClick = { passengerSection = "Help & Complaints" }
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -1385,6 +1458,38 @@ fun ComplaintSubmissionDialog(
                     Text("SUBMIT TICKET")
                 }
             }
+        }
+    }
+}
+
+
+@Composable
+private fun PassengerMenuRow(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+        tonalElevation = 1.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Surface(shape = RoundedCornerShape(12.dp), color = TransportGreenPrimary.copy(alpha = 0.12f)) {
+                Icon(icon, contentDescription = null, tint = TransportGreenPrimary, modifier = Modifier.padding(11.dp).size(24.dp))
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, fontWeight = FontWeight.SemiBold, color = Slate900)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Slate600)
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = "Open", tint = Slate600)
         }
     }
 }
