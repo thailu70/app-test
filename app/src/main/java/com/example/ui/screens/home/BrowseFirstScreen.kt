@@ -90,14 +90,20 @@ fun BrowseFirstScreen(
                         RouteInfoTile("Morning pickup", route.morningDeparture, Modifier.weight(1f))
                         RouteInfoTile("Evening return", route.eveningDeparture, Modifier.weight(1f))
                     }
-                    RouteInfoTile("Monthly subscription", "ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), Modifier.fillMaxWidth())
+                    val selectedFare = if (selectedTier == "Economy") "ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb) else "Fare not configured"
+                    RouteInfoTile("Monthly subscription • $selectedTier", selectedFare, Modifier.fillMaxWidth())
                     Text("Choose your service tier", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = HomeInk)
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-                        TierChip("VIP", "4 seats", Modifier.weight(1f))
-                        TierChip("Deluxe", "7 seats", Modifier.weight(1f))
-                        TierChip("Economy", "13 seats", Modifier.weight(1f))
+                        TierChoice("VIP", "4 seats", selectedTier == "VIP", Modifier.weight(1f)) { selectedTier = "VIP" }
+                        TierChoice("Deluxe", "7 seats", selectedTier == "Deluxe", Modifier.weight(1f)) { selectedTier = "Deluxe" }
+                        TierChoice("Economy", "13 seats", selectedTier == "Economy", Modifier.weight(1f)) { selectedTier = "Economy" }
                     }
-                    Text("Pickup points and vehicle availability are confirmed when you continue with this route.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                    Surface(color = if (selectedTier == "Economy") HomeMint else Color(0xFFFFF3D6), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(if (selectedTier == "Economy") "Economy fare configured" else "$selectedTier fare not configured", color = if (selectedTier == "Economy") HomeGreen else Color(0xFF9A6700), fontWeight = FontWeight.Bold)
+                            Text(if (selectedTier == "Economy") "The route monthly fare is $selectedFare. Live seat availability still requires confirmation." else "No $selectedTier fare or live seat count is stored for this route yet. The operator must configure it before booking or payment.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                        }
+                    }
                     Button(
                         onClick = { selectedRoute = null; onPassengerContinue() },
                         modifier = Modifier.fillMaxWidth(),
