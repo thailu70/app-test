@@ -41,7 +41,7 @@ router.get('/admin', authenticate, requireRole('ADMIN'), async (_req, res) => {
 
 router.post('/admin', authenticate, requireRole('ADMIN'), async (req, res) => {
   try {
-    const name = String(req.body.name || '').trim().replace(/\\s+/g, ' ').slice(0, 120);
+    const name = String(req.body.name || '').trim().replace(/\s+/g, ' ').slice(0, 120);
     if (name.length < 2) {
       return res.status(400).json({ success: false, error: 'Company name must contain at least two characters.' });
     }
