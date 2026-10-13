@@ -157,14 +157,6 @@ fun DriverTripScreen(
                             }
                         }
                         item {
-                            DriverSectionCard(title = "Live vehicle location", subtitle = gpsStatus, icon = Icons.Default.LocationOn) {
-                                MiniVehicleMap(vehicle = trackedVehicle, modifier = Modifier.testTag("driver_live_vehicle_map"), mapHeight = 170, serverMessage = trackingMessage)
-                                driverActionMessage?.let { message ->
-                                    Text(message, style = MaterialTheme.typography.bodySmall, color = if (message.contains("not") || message.contains("failed", true) || message.contains("could not", true)) StatusErrorRed else TransportGreenPrimary)
-                                }
-                            }
-                        }
-                        item {
                             DriverNavigationHudCard(tripState = tripState, currentStop = stops.getOrNull(tripState.currentStopIndex), totalStops = stops.size, lang = lang,
                                 onStartNavigation = { viewModel.startNavigation() }, onArrived = { viewModel.arriveAtCurrentStop() },
                                 onScanQr = { viewModel.openScanner() }, onSkip = { viewModel.skipCurrentStop() }, onNextStop = { viewModel.nextStop() }, isLastStop = stops.isNotEmpty() && tripState.currentStopIndex >= stops.lastIndex)
