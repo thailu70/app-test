@@ -412,27 +412,28 @@ private fun CommuterRouteCard(route: RouteEntity, selectedTier: String, onTierSe
                         Text(route.morningDeparture + " & " + route.eveningDeparture, color = Slate600, style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                Surface(color = HomeMint, shape = RoundedCornerShape(8.dp)) {
-                    Text("Route listed", color = HomeGreen, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
-                }
                 Icon(Icons.Default.KeyboardArrowRight, contentDescription = "View route", tint = HomeInk, modifier = Modifier.size(25.dp))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-                TierPriceCard("VIP", "Premium", "Fare not set", selectedTier == "VIP", Color(0xFFFFF3D6), Color(0xFFB87500), Modifier.weight(1f)) { onTierSelected("VIP") }
-                TierPriceCard("Deluxe", "Comfort", "Fare not set", selectedTier == "Deluxe", Color(0xFFEAF1FF), HomeBlue, Modifier.weight(1f)) { onTierSelected("Deluxe") }
-                TierPriceCard("Economy", "Standard", "ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), selectedTier == "Economy", HomeMint, HomeGreen, Modifier.weight(1f)) { onTierSelected("Economy") }
+                TierPriceCard("VIP", "Premium", "Fare not set", "Awaiting assignment", selectedTier == "VIP", Color(0xFFFFF3D6), Color(0xFFB87500), Modifier.weight(1f)) { onTierSelected("VIP") }
+                TierPriceCard("Deluxe", "Comfort", "Fare not set", "Awaiting assignment", selectedTier == "Deluxe", Color(0xFFEAF1FF), HomeBlue, Modifier.weight(1f)) { onTierSelected("Deluxe") }
+                TierPriceCard("Economy", "Standard", "ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), "Awaiting assignment", selectedTier == "Economy", HomeMint, HomeGreen, Modifier.weight(1f)) { onTierSelected("Economy") }
             }
         }
     }
 }
 
 @Composable
-private fun TierPriceCard(name: String, seats: String, fare: String, selected: Boolean, bg: Color, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun TierPriceCard(name: String, seats: String, fare: String, availability: String, selected: Boolean, bg: Color, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(color = if (selected) bg else bg.copy(alpha = 0.55f), shape = RoundedCornerShape(12.dp), border = androidx.compose.foundation.BorderStroke(if (selected) 2.dp else 1.dp, if (selected) tint else tint.copy(alpha = 0.25f)), modifier = modifier.clickable(onClick = onClick)) {
         Column(Modifier.padding(horizontal = 7.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(name, color = tint, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.labelLarge)
             Text(seats, color = Slate600, style = MaterialTheme.typography.labelSmall)
-            Text(fare, color = HomeGreen, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+            Text(fare, color = tint, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+            Spacer(Modifier.height(2.dp))
+            Surface(color = Color.White.copy(alpha = 0.75f), shape = RoundedCornerShape(8.dp)) {
+                Text(availability, color = Color(0xFF9A6700), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 5.dp, vertical = 4.dp), maxLines = 2)
+            }
         }
     }
 }
