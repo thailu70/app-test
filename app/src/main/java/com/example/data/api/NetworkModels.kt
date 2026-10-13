@@ -130,6 +130,19 @@ data class RouteDetailsResponse(
 )
 
 @JsonClass(generateAdapter = true)
+data class TransportCompanyDto(
+    val id: String,
+    val name: String
+)
+
+@JsonClass(generateAdapter = true)
+data class TransportCompaniesResponse(
+    val success: Boolean,
+    val companies: List<TransportCompanyDto> = emptyList(),
+    val error: String? = null
+)
+
+@JsonClass(generateAdapter = true)
 data class RoutesResponse(
     val success: Boolean,
     val count: Int? = 0,
