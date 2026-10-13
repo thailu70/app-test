@@ -443,3 +443,15 @@ private fun TierPriceCard(name: String, seats: String, fare: String, selected: B
         }
     }
 }
+
+
+@Composable
+private fun TierChoice(name: String, seats: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(color = if (selected) HomeMint else Color.White, shape = RoundedCornerShape(12.dp), border = androidx.compose.foundation.BorderStroke(if (selected) 2.dp else 1.dp, if (selected) HomeGreen else Color(0xFFE0E6E2)), modifier = modifier.clickable(onClick = onClick)) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(name, color = if (selected) HomeGreen else HomeBlue, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+            Text(seats, color = Slate600, style = MaterialTheme.typography.labelSmall)
+            if (selected) Text("Selected", color = HomeGreen, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+        }
+    }
+}
