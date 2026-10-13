@@ -24,6 +24,19 @@ const otpSchemaReady = DB.prepare(`CREATE TABLE IF NOT EXISTS otp_challenges (
   expires_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
   verified INTEGER NOT NULL DEFAULT 0, proof_hash TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
 )`).run();
+// Additive schema bootstrap for managed transport companies (City Travel / Intercity).
+const companiesSchemaReady = (async () => {
+  await DB.prepare(`
+    CREATE TABLE IF NOT EXISTS transport_companies (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(120) NOT NULL UNIQUE,
+      status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE')),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+  await DB.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_transport_companies_name_ci ON transport_companies (LOWER(name))').run();
+})();
 const { verifyToken } = require('./middleware/auth');
 
 if (process.env.NODE_ENV === 'production') {
@@ -148,6 +161,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/auth/otp', require('./routes/otp'));
 app.use('/api/routes', (req, res, next) => Promise.resolve(routeTypeSchemaReady).then(() => next()).catch(next));
 app.use('/api/routes', require('./routes/routes'));
+app.use('/api/companies', (req, res, next) => Promise.resolve(companiesSchemaReady).then(() => next()).catch(next));
 app.use('/api/companies', require('./routes/companies'));
 app.use('/api/subscriptions/telebirr', require('./routes/telebirr'));
 app.use('/api/subscriptions', require('./routes/subscriptions'));
