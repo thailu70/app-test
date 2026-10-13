@@ -99,7 +99,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                     showPublicHome = false
                 },
                 onDriverAccess = { requestedAuthPortal = AppRole.DRIVER; requestedRegisterFirst = false; requestedRouteId = null; requestedRouteName = null; requestedServiceTier = null; showPublicHome = false },
-                onCompanyAccess = { requestedAuthPortal = null; showPublicHome = false }
+                onCompanyAccess = { requestedAuthPortal = AppRole.ADMIN; requestedRegisterFirst = false; requestedRouteId = null; requestedRouteName = null; requestedServiceTier = null; showPublicHome = false }
             )
         } else {
         // Independent Authentication Screen (Passenger, Driver/Transporter, Operator/Admin)
