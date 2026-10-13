@@ -1,5 +1,6 @@
 package com.example.ui.screens.home
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -21,6 +22,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.ui.viewmodel.MainViewModel
@@ -104,59 +108,51 @@ fun BrowseFirstScreen(
         }
     }
 
+    Column(modifier = modifier.fillMaxSize().background(Color(0xFFF6F8F7))) {
     LazyColumn(
-        modifier = modifier.fillMaxSize().background(Color(0xFFF6F8F7)),
+        modifier = Modifier.weight(1f),
         contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Surface(shape = RoundedCornerShape(14.dp), color = HomeGreen, modifier = Modifier.size(46.dp)) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color.White, modifier = Modifier.size(27.dp))
-                    }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                Surface(shape = RoundedCornerShape(14.dp), color = HomeGreen, modifier = Modifier.size(54.dp)) {
+                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp)) }
                 }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("RoutePass", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = HomeInk)
-                    Text("Your journey, made simple.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                    Text("RoutePass", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = HomeInk)
+                    Text("Move People. Connect Places.", style = MaterialTheme.typography.bodySmall, color = Slate600)
                 }
                 TextButton(onClick = onPassengerContinue) { Text("Sign in", color = HomeGreen, fontWeight = FontWeight.Bold) }
             }
         }
         item {
-            Surface(shape = RoundedCornerShape(24.dp), color = HomeGreen, modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Surface(color = Color.White.copy(alpha = 0.16f), shape = RoundedCornerShape(50.dp)) {
-                        Text("YOUR JOURNEY STARTS HERE", color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp))
-                    }
-                    Text("Move people. Connect places.", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color.White)
-                    Text("Explore routes and services before you sign in.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { selectedService = 0 }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = HomeGreen)) {
-                            Icon(Icons.Default.Work, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Daily commute")
+            Surface(shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp, bottomStart = 26.dp, bottomEnd = 26.dp), color = HomeBlue, modifier = Modifier.fillMaxWidth()) {
+                Box(modifier = Modifier.fillMaxWidth().height(252.dp)) {
+                    Image(painter = painterResource(id = R.drawable.transport_icon_1791227027460), contentDescription = "RoutePass bus transport", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0xAA174E9B), Color(0x33174E9B), Color(0xCC102B55)))))
+                    Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color.White, modifier = Modifier.size(48.dp))
+                            Text("RoutePass", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                            Text("Move People. Connect Places.", style = MaterialTheme.typography.bodyMedium, color = Color.White)
                         }
-                        OutlinedButton(onClick = { selectedService = 1 }, border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.8f)), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) {
-                            Icon(Icons.Default.Luggage, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Intercity")
-                        }
+                        Text("Travel across your city and Ethiopia", style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                ServiceSelector("Daily commuter", selectedService == 0, Modifier.weight(1f)) { selectedService = 0 }
-                ServiceSelector("Intercity tickets", selectedService == 1, Modifier.weight(1f)) { selectedService = 1 }
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ServiceHomeCard("Daily Commuter", "Monthly or daily", "Work • School • Office", Icons.Default.DirectionsBus, HomeGreen, selectedService == 0) { selectedService = 0 }
+                ServiceHomeCard("Intercity Travel", "One-way or return tickets", "Across Ethiopia", Icons.Default.Map, HomeBlue, selectedService == 1) { selectedService = 1 }
             }
         }
         if (selectedService == 0) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Popular commuter routes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = HomeInk)
-                    Text("See existing routes, departure times and monthly fares. Sign in only when you are ready to request a subscription.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) { Text("Popular Routes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = HomeInk, modifier = Modifier.weight(1f)); TextButton(onClick = { selectedService = 0 }) { Text("See all", color = HomeBlue) } }
+                    Text("Choose a route to view times, pickup points and fares.", style = MaterialTheme.typography.bodySmall, color = Slate600)
                 }
             }
             if (routes.filter { it.active }.isEmpty()) {
@@ -171,7 +167,7 @@ fun BrowseFirstScreen(
             } else {
                 items(routes.filter { it.active }.size) { index ->
                     val route = routes.filter { it.active }[index]
-                    ExistingRouteCard(route = route, onClick = { selectedRoute = route })
+                    ExistingRouteCard(route = route, onClick = { selectedRoute = route }, compact = true)
                 }
             }
             item {
@@ -245,6 +241,30 @@ fun BrowseFirstScreen(
             Text("RoutePass • Ethiopia", style = MaterialTheme.typography.labelSmall, color = Slate600, modifier = Modifier.fillMaxWidth())
         }
     }
+    NavigationBar(containerColor = Color.White, tonalElevation = 8.dp) {
+        NavigationBarItem(selected = true, onClick = { selectedService = 0 }, icon = { Icon(Icons.Default.Work, contentDescription = "Home") }, label = { Text("Home") })
+        NavigationBarItem(selected = false, onClick = { selectedService = 0 }, icon = { Icon(Icons.Default.Search, contentDescription = "Search") }, label = { Text("Search") })
+        NavigationBarItem(selected = false, onClick = onPassengerContinue, icon = { Icon(Icons.Default.CalendarMonth, contentDescription = "Tickets") }, label = { Text("Tickets") })
+        NavigationBarItem(selected = false, onClick = onPassengerContinue, icon = { Icon(Icons.Default.Luggage, contentDescription = "More") }, label = { Text("More") })
+    }
+    }
+}
+
+@Composable
+private fun ServiceHomeCard(title: String, subtitle: String, description: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, selected: Boolean, onClick: () -> Unit) {
+    Surface(color = Color.White, shape = RoundedCornerShape(18.dp), tonalElevation = 2.dp, border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) tint.copy(alpha = 0.35f) else Color(0xFFE5E9E7)), modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Surface(color = tint, shape = RoundedCornerShape(16.dp), modifier = Modifier.size(64.dp)) {
+                Box(contentAlignment = Alignment.Center) { Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(38.dp)) }
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = tint)
+                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = HomeInk)
+                Text(description, style = MaterialTheme.typography.bodySmall, color = Slate600)
+            }
+            Icon(Icons.Default.ArrowForward, contentDescription = "Open $title", tint = tint)
+        }
+    }
 }
 
 @Composable
@@ -277,7 +297,7 @@ private fun TierCard(name: String, capacity: String, description: String, icon: 
 }
 
 @Composable
-private fun ExistingRouteCard(route: RouteEntity, onClick: () -> Unit) {
+private fun ExistingRouteCard(route: RouteEntity, onClick: () -> Unit, compact: Boolean = false) {
     Surface(
         color = Color.White,
         shape = RoundedCornerShape(18.dp),
@@ -285,32 +305,40 @@ private fun ExistingRouteCard(route: RouteEntity, onClick: () -> Unit) {
         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE1E8E3)),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
     ) {
-        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Surface(color = HomeMint, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(44.dp)) {
-                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = HomeGreen, modifier = Modifier.size(25.dp)) }
-                }
+        if (compact) {
+            Row(Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Image(painter = painterResource(id = R.drawable.transport_icon_1791227027460), contentDescription = "Bus on route", contentScale = ContentScale.Crop, modifier = Modifier.size(width = 94.dp, height = 62.dp).clip(RoundedCornerShape(10.dp)))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(route.name, fontWeight = FontWeight.Bold, color = HomeInk, style = MaterialTheme.typography.titleMedium)
-                    if (route.nameAm.isNotBlank()) Text(route.nameAm, color = Slate600, style = MaterialTheme.typography.bodySmall)
+                    Text(route.name, fontWeight = FontWeight.Bold, color = HomeInk, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    Text("ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), color = HomeGreen, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
+                    Text(route.morningDeparture + " • " + route.eveningDeparture, color = Slate600, style = MaterialTheme.typography.labelSmall)
                 }
-                Surface(color = HomeMint, shape = RoundedCornerShape(50.dp)) {
-                    Text("Active", color = HomeGreen, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                }
+                Icon(Icons.Default.ArrowForward, contentDescription = "View route", tint = HomeBlue)
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = HomeGreen, modifier = Modifier.size(18.dp))
-                Text("Morning " + route.morningDeparture + " • Evening " + route.eveningDeparture, color = Slate600, style = MaterialTheme.typography.bodySmall)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Monthly from", color = Slate600, style = MaterialTheme.typography.labelSmall)
-                    Text("ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), color = HomeGreen, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge)
+        } else {
+            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Surface(color = HomeMint, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(44.dp)) {
+                        Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = HomeGreen, modifier = Modifier.size(25.dp)) }
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(route.name, fontWeight = FontWeight.Bold, color = HomeInk, style = MaterialTheme.typography.titleMedium)
+                        if (route.nameAm.isNotBlank()) Text(route.nameAm, color = Slate600, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Surface(color = HomeMint, shape = RoundedCornerShape(50.dp)) {
+                        Text("Active", color = HomeGreen, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    }
                 }
-                Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = HomeGreen)) {
-                    Text("View route")
-                    Spacer(Modifier.width(5.dp))
-                    Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = HomeGreen, modifier = Modifier.size(18.dp))
+                    Text("Morning " + route.morningDeparture + " • Evening " + route.eveningDeparture, color = Slate600, style = MaterialTheme.typography.bodySmall)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Monthly from", color = Slate600, style = MaterialTheme.typography.labelSmall)
+                        Text("ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), color = HomeGreen, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge)
+                    }
+                    Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = HomeGreen)) { Text("View route"); Spacer(Modifier.width(5.dp)); Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp)) }
                 }
             }
         }
