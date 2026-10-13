@@ -95,65 +95,68 @@ fun DriverTripScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = 48.dp)
         ) {
-            // 1. Driver Console Cockpit Card
+            // Unified driver home: service-aware assignment, clear next action, and compact navigation.
             item {
                 DriverCockpitHeaderCard(
                     driverName = currentUser?.fullName ?: "Driver",
                     vehiclePlate = currentUser?.assignedVehiclePlate?.ifBlank { tripState.vehiclePlate } ?: tripState.vehiclePlate,
                     routeName = tripState.routeName.takeIf { it.isNotBlank() && !it.equals("Unassigned", ignoreCase = true) } ?: if (currentUser?.appliedRouteName.orEmpty().contains("Driver service preference:", ignoreCase = true)) "Awaiting approved route / journey assignment" else currentUser?.appliedRouteName?.ifBlank { "Awaiting route assignment" } ?: "Awaiting route assignment",
-                    tripState = tripState,
-                    networkStatus = networkStatus,
-                    lang = lang,
+                    tripState = tripState, networkStatus = networkStatus, lang = lang,
                     onToggleNetwork = { viewModel.toggleNetworkMode() },
                     onSetVehicleType = { type, cap -> viewModel.setVehicleType(type, cap) }
                 )
             }
-
-            // 2. Actual vehicle position, reported by this driver's phone.
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MiniVehicleMap(vehicle = trackedVehicle, modifier = Modifier.testTag("driver_live_vehicle_map"), mapHeight = 190, serverMessage = trackingMessage)
-                    Text(gpsStatus, style = MaterialTheme.typography.bodySmall, color = Slate600)
-                    driverActionMessage?.let { message ->
-                        Text(message, style = MaterialTheme.typography.bodySmall, color = if (message.contains("not") || message.contains("failed", true) || message.contains("could not", true)) StatusErrorRed else TransportGreenPrimary)
+                val preference = currentUser?.appliedRouteName.orEmpty()
+                val serviceLabel = when {
+                    preference.contains("Intercity", ignoreCase = true) && preference.contains("Daily Commuter", ignoreCase = true) -> "Daily Commuter + Intercity"
+                    preference.contains("Intercity", ignoreCase = true) -> "Intercity"
+                    preference.contains("Daily Commuter", ignoreCase = true) -> "Daily Commuter"
+                    else -> "Assigned transport service"
+                }
+                Card(modifier = Modifier.fillMaxWidth().testTag("driver_service_assignment_card"), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Surface(shape = RoundedCornerShape(10.dp), color = TransportGreenPrimary.copy(alpha = 0.12f)) {
+                                Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = TransportGreenPrimary, modifier = Modifier.padding(10.dp).size(24.dp))
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text("Today\u0027s assignment", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Slate900)
+                                Text(serviceLabel, style = MaterialTheme.typography.bodySmall, color = Slate600)
+                            }
+                            Surface(shape = RoundedCornerShape(20.dp), color = if (stops.isEmpty()) StatusWarningOrange.copy(alpha = 0.16f) else StatusActiveGreen.copy(alpha = 0.14f)) {
+                                Text(if (stops.isEmpty()) "Awaiting assignment" else "Assigned", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = if (stops.isEmpty()) Color(0xFF92400E) else TransportGreenDark)
+                            }
+                        }
+                        Text(if (stops.isEmpty()) "Your transport company or PASSO administrator will assign an authorized journey here." else tripState.routeName.ifBlank { "Your assigned route or journey" }, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Slate900)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            DriverHomeAction("My Trips", if (stops.isEmpty()) "View assignments" else "Open current trip", Icons.Default.Route, Modifier.weight(1f)) { viewModel.startNavigation() }
+                            DriverHomeAction("Passengers", "${tripState.checkedInCount} / ${tripState.vehicleCapacity} boarded", Icons.Default.Groups, Modifier.weight(1f)) { viewModel.openScanner() }
+                        }
                     }
                 }
             }
-
-            // 3. High-Visibility Big Navigation HUD
             item {
-                DriverNavigationHudCard(
-                    tripState = tripState,
-                    currentStop = stops.getOrNull(tripState.currentStopIndex),
-                    lang = lang,
-                    onStartNavigation = { viewModel.startNavigation() },
-                    onArrived = { viewModel.arriveAtCurrentStop() },
-                    onScanQr = { viewModel.openScanner() },
-                    onSkip = { viewModel.skipCurrentStop() },
-                    onNextStop = { viewModel.nextStop() }
-                )
-            }
-
-            // 4. Stop Sequence & Passenger Attendance
-            item {
-                Text(
-                    text = t("pickup_sequence"),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
-
-            itemsIndexed(stops) { index, stop ->
-                StopSequenceRow(
-                    index = index,
-                    stop = stop,
-                    isCurrent = index == tripState.currentStopIndex,
-                    stepState = tripState.stopStates[index] ?: if (index < tripState.currentStopIndex) NavigationStepState.COMPLETED else NavigationStepState.EN_ROUTE,
-                    onScanClick = {
-                        viewModel.openScanner()
+                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = TransportGreenPrimary)
+                            Text("Live vehicle location", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Slate900)
+                        }
+                        MiniVehicleMap(vehicle = trackedVehicle, modifier = Modifier.testTag("driver_live_vehicle_map"), mapHeight = 170, serverMessage = trackingMessage)
+                        Text(gpsStatus, style = MaterialTheme.typography.bodySmall, color = Slate600)
+                        driverActionMessage?.let { message -> Text(message, style = MaterialTheme.typography.bodySmall, color = if (message.contains("not") || message.contains("failed", true) || message.contains("could not", true)) StatusErrorRed else TransportGreenPrimary) }
                     }
-                )
+                }
+            }
+            item {
+                DriverNavigationHudCard(tripState = tripState, currentStop = stops.getOrNull(tripState.currentStopIndex), lang = lang, onStartNavigation = { viewModel.startNavigation() }, onArrived = { viewModel.arriveAtCurrentStop() }, onScanQr = { viewModel.openScanner() }, onSkip = { viewModel.skipCurrentStop() }, onNextStop = { viewModel.nextStop() })
+            }
+            if (stops.isNotEmpty()) {
+                item { Text(text = t("pickup_sequence"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground) }
+                itemsIndexed(stops) { index, stop ->
+                    StopSequenceRow(index = index, stop = stop, isCurrent = index == tripState.currentStopIndex, stepState = tripState.stopStates[index] ?: if (index < tripState.currentStopIndex) NavigationStepState.COMPLETED else NavigationStepState.EN_ROUTE, onScanClick = { viewModel.openScanner() })
+                }
             }
         }
 
@@ -251,6 +254,16 @@ private fun DriverLocationReporter(
     }
 }
 
+@Composable
+private fun DriverHomeAction(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(modifier = modifier.clickable(onClick = onClick), shape = RoundedCornerShape(12.dp), color = Slate100, border = androidx.compose.foundation.BorderStroke(1.dp, Slate200)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(icon, contentDescription = null, tint = TransportGreenPrimary, modifier = Modifier.size(22.dp))
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Slate900)
+            Text(subtitle, style = MaterialTheme.typography.labelSmall, color = Slate600)
+        }
+    }
+}
 @Composable
 fun DriverCockpitHeaderCard(
     driverName: String,
