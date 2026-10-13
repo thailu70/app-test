@@ -15,7 +15,7 @@ object AppStrings {
     }
 
     private val englishDictionary = mapOf(
-        "app_title" to "Transport Navigator",
+        "app_title" to "PASSO",
         "app_tagline" to "Ethiopian Scheduled Transit & Subscriptions",
         "passenger" to "Passenger",
         "driver" to "Driver",
@@ -113,7 +113,7 @@ object AppStrings {
     )
 
     private val amharicDictionary = mapOf(
-        "app_title" to "ትራንስፖርት ናቪጌተር",
+        "app_title" to "PASSO",
         "app_tagline" to "የተቀናጀ የኢትዮጵያ የትራንስፖርት ደንበኝነት አገልግሎት",
         "passenger" to "ተሳፋሪ",
         "driver" to "ሹፌር",
