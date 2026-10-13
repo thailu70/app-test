@@ -56,6 +56,7 @@ fun BrowseFirstScreen(
     var origin by remember { mutableStateOf("") }
     var destination by remember { mutableStateOf("") }
     var selectedRoute by remember { mutableStateOf<RouteEntity?>(null) }
+    var selectedTier by remember { mutableStateOf("Economy") }
     var routeFilter by remember { mutableStateOf(0) }
 
     selectedRoute?.let { route ->
@@ -201,7 +202,7 @@ fun BrowseFirstScreen(
             } else {
                 items(routes.filter { it.active }.size) { index ->
                     val route = routes.filter { it.active }[index]
-                    CommuterRouteCard(route = route, onClick = { selectedRoute = route })
+                    CommuterRouteCard(route = route, selectedTier = selectedTier, onTierSelected = { tier -> selectedTier = tier; selectedRoute = route }, onClick = { selectedRoute = route })
                 }
             }
             item {
@@ -218,7 +219,7 @@ fun BrowseFirstScreen(
                         Text("No vehicle available yet?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = HomeInk)
                         Text("You can submit a request and join the waitlist. No subscription payment is due until an eligible vehicle is assigned and you accept the offer.", style = MaterialTheme.typography.bodyMedium, color = Slate600)
                         Button(onClick = onPassengerContinue, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = HomeGreen)) {
-                            Text("Request a commuter route")
+                            Text("Sign in / Sign up to request")
                             Spacer(Modifier.width(8.dp))
                             Icon(Icons.Default.ArrowForward, contentDescription = null)
                         }
@@ -400,7 +401,7 @@ private fun RouteInfoTile(label: String, value: String, modifier: Modifier = Mod
 }
 
 @Composable
-private fun CommuterRouteCard(route: RouteEntity, onClick: () -> Unit) {
+private fun CommuterRouteCard(route: RouteEntity, selectedTier: String, onTierSelected: (String) -> Unit, onClick: () -> Unit) {
     Surface(color = Color.White, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().clickable(onClick = onClick), tonalElevation = 1.dp) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -418,17 +419,17 @@ private fun CommuterRouteCard(route: RouteEntity, onClick: () -> Unit) {
                 Icon(Icons.Default.KeyboardArrowRight, contentDescription = "View route", tint = HomeInk, modifier = Modifier.size(25.dp))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-                TierPriceCard("VIP", "4 seats", "View fare", Color(0xFFFFF3D6), Color(0xFFB87500), Modifier.weight(1f))
-                TierPriceCard("Deluxe", "7 seats", "View fare", Color(0xFFEAF1FF), HomeBlue, Modifier.weight(1f))
-                TierPriceCard("Economy", "13 seats", "ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), HomeMint, HomeGreen, Modifier.weight(1f))
+                TierPriceCard("VIP", "4 seats", "Not set", selectedTier == "VIP", Color(0xFFFFF3D6), Color(0xFFB87500), Modifier.weight(1f)) { onTierSelected("VIP") }
+                TierPriceCard("Deluxe", "7 seats", "Not set", selectedTier == "Deluxe", Color(0xFFEAF1FF), HomeBlue, Modifier.weight(1f)) { onTierSelected("Deluxe") }
+                TierPriceCard("Economy", "13 seats", "ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), selectedTier == "Economy", HomeMint, HomeGreen, Modifier.weight(1f)) { onTierSelected("Economy") }
             }
         }
     }
 }
 
 @Composable
-private fun TierPriceCard(name: String, seats: String, fare: String, bg: Color, tint: Color, modifier: Modifier = Modifier) {
-    Surface(color = bg, shape = RoundedCornerShape(12.dp), modifier = modifier) {
+private fun TierPriceCard(name: String, seats: String, fare: String, selected: Boolean, bg: Color, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(color = if (selected) bg else bg.copy(alpha = 0.55f), shape = RoundedCornerShape(12.dp), border = androidx.compose.foundation.BorderStroke(if (selected) 2.dp else 1.dp, if (selected) tint else tint.copy(alpha = 0.25f)), modifier = modifier.clickable(onClick = onClick)) {
         Column(Modifier.padding(horizontal = 7.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(name, color = tint, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.labelLarge)
             Text(seats, color = Slate600, style = MaterialTheme.typography.labelSmall)
