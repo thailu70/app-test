@@ -408,21 +408,21 @@ private fun CommuterRouteCard(route: RouteEntity, onClick: () -> Unit) {
                 Icon(Icons.Default.KeyboardArrowRight, contentDescription = "View route", tint = HomeInk, modifier = Modifier.size(25.dp))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-                TierPriceCard("VIP", "4 seats", route.basePriceEtb * 1.56, Color(0xFFFFF3D6), Color(0xFFB87500), Modifier.weight(1f))
-                TierPriceCard("Deluxe", "7 seats", route.basePriceEtb * 1.32, Color(0xFFEAF1FF), HomeBlue, Modifier.weight(1f))
-                TierPriceCard("Economy", "13 seats", route.basePriceEtb, HomeMint, HomeGreen, Modifier.weight(1f))
+                TierPriceCard("VIP", "4 seats", "View fare", Color(0xFFFFF3D6), Color(0xFFB87500), Modifier.weight(1f))
+                TierPriceCard("Deluxe", "7 seats", "View fare", Color(0xFFEAF1FF), HomeBlue, Modifier.weight(1f))
+                TierPriceCard("Economy", "13 seats", "ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), HomeMint, HomeGreen, Modifier.weight(1f))
             }
         }
     }
 }
 
 @Composable
-private fun TierPriceCard(name: String, seats: String, price: Double, bg: Color, tint: Color, modifier: Modifier = Modifier) {
+private fun TierPriceCard(name: String, seats: String, fare: String, bg: Color, tint: Color, modifier: Modifier = Modifier) {
     Surface(color = bg, shape = RoundedCornerShape(12.dp), modifier = modifier) {
         Column(Modifier.padding(horizontal = 7.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(name, color = tint, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.labelLarge)
             Text(seats, color = Slate600, style = MaterialTheme.typography.labelSmall)
-            Text("ETB " + String.format(java.util.Locale.US, "%,.0f", price), color = HomeGreen, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+            Text(fare, color = HomeGreen, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.labelLarge, maxLines = 1)
         }
     }
 }
