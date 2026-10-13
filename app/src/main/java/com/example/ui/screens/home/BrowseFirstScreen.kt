@@ -51,6 +51,7 @@ fun BrowseFirstScreen(
     modifier: Modifier = Modifier
 ) {
     val routes by viewModel.activeRoutes.collectAsState()
+    var selectedSection by remember { mutableStateOf(0) }
     var selectedService by remember { mutableStateOf(0) }
     var origin by remember { mutableStateOf("") }
     var destination by remember { mutableStateOf("") }
@@ -119,6 +120,7 @@ fun BrowseFirstScreen(
         contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        if (selectedSection == 0) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                 Surface(shape = RoundedCornerShape(14.dp), color = HomeGreen, modifier = Modifier.size(54.dp)) {
@@ -149,11 +151,19 @@ fun BrowseFirstScreen(
         }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ServiceHomeCard("Daily Commuter", "Monthly or daily", "Work • School • Office", Icons.Default.DirectionsBus, HomeGreen, selectedService == 0) { selectedService = 0 }
-                ServiceHomeCard("Intercity Travel", "One-way or return tickets", "Across Ethiopia", Icons.Default.Map, HomeBlue, selectedService == 1) { selectedService = 1 }
+                ServiceHomeCard("Daily Commuter", "Monthly or daily", "Work • School • Office", Icons.Default.DirectionsBus, HomeGreen, false) { selectedSection = 1; selectedService = 0 }
+                ServiceHomeCard("Intercity Travel", "One-way or return tickets", "Across Ethiopia", Icons.Default.Map, HomeBlue, false) { selectedSection = 2; selectedService = 1 }
             }
         }
-        if (selectedService == 0) {
+        } else {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    TextButton(onClick = { selectedSection = 0 }) { Text("← Home", color = HomeGreen, fontWeight = FontWeight.Bold) }
+                    Text(if (selectedSection == 1) "Daily Commuter" else "Intercity Travel", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = HomeInk)
+                }
+            }
+        }
+        if (selectedSection == 1) {
             item {
                 Surface(color = HomeBlue, shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 0.dp, bottomEnd = 0.dp), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(horizontal = 18.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -215,7 +225,7 @@ fun BrowseFirstScreen(
                     }
                 }
             }
-        } else {
+        } else if (selectedSection == 2) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Find an intercity journey", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = HomeInk)
@@ -266,8 +276,8 @@ fun BrowseFirstScreen(
         }
     }
     NavigationBar(containerColor = Color.White, tonalElevation = 8.dp) {
-        NavigationBarItem(selected = true, onClick = { selectedService = 0 }, icon = { Icon(Icons.Default.Work, contentDescription = "Home") }, label = { Text("Home") })
-        NavigationBarItem(selected = false, onClick = { selectedService = 0 }, icon = { Icon(Icons.Default.Search, contentDescription = "Search") }, label = { Text("Search") })
+        NavigationBarItem(selected = selectedSection == 0, onClick = { selectedSection = 0 }, icon = { Icon(Icons.Default.Work, contentDescription = "Home") }, label = { Text("Home") })
+        NavigationBarItem(selected = false, onClick = { selectedSection = 1 }, icon = { Icon(Icons.Default.Search, contentDescription = "Search") }, label = { Text("Search") })
         NavigationBarItem(selected = false, onClick = onPassengerContinue, icon = { Icon(Icons.Default.CalendarMonth, contentDescription = "Tickets") }, label = { Text("Tickets") })
         NavigationBarItem(selected = false, onClick = onPassengerContinue, icon = { Icon(Icons.Default.Luggage, contentDescription = "More") }, label = { Text("More") })
     }
