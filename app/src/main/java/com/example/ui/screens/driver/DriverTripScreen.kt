@@ -710,7 +710,7 @@ fun DriverNavigationHudCard(
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
-                        text = if (tripState.isArrivedAtStop) "ARRIVED AT STOP" else "EN ROUTE",
+                        text = if (tripState.isArrivedAtStop) { if (tripState.currentStopIndex == 0) "AT DEPARTURE" else "ARRIVED AT STOP" } else "EN ROUTE",
                         color = if (tripState.isArrivedAtStop) Color.White else Slate900,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.ExtraBold,
@@ -779,65 +779,47 @@ fun DriverNavigationHudCard(
                         onClick = onArrived,
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = TransportGreenPrimary),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp)
-                            .testTag("driver_arrived_button")
+                        modifier = Modifier.fillMaxWidth().height(56.dp).testTag("driver_arrived_button")
                     ) {
                         Icon(Icons.Default.PinDrop, contentDescription = null, modifier = Modifier.size(24.dp))
                         Spacer(Modifier.width(10.dp))
                         Text(
-                            text = t("arrived_stop"),
+                            text = if (tripState.currentStopIndex == 0) "ARRIVE AT DEPARTURE" else "ARRIVE AT STOP",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 } else {
-                    // When arrived: Big Scan QR button + Next Stop
                     Button(
                         onClick = onScanQr,
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = TelebirrBlue),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp)
-                            .testTag("driver_scan_qr_button")
+                        modifier = Modifier.fillMaxWidth().height(56.dp).testTag("driver_scan_qr_button")
                     ) {
                         Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(26.dp))
                         Spacer(Modifier.width(10.dp))
                         Text(
-                            text = t("passenger_checkin"),
+                            text = "SCAN PASSENGERS",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                     }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedButton(
                             onClick = onSkip,
                             shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
-                                .testTag("driver_skip_button"),
+                            modifier = Modifier.weight(1f).height(48.dp).testTag("driver_skip_button"),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusExpiredRed)
                         ) {
                             Text(text = t("skip_noshow"), fontWeight = FontWeight.Bold)
                         }
-
                         Button(
                             onClick = onNextStop,
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = TransportGreenDark),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
-                                .testTag("driver_next_stop_button")
+                            modifier = Modifier.weight(1f).height(48.dp).testTag("driver_next_stop_button")
                         ) {
-                            Text(text = t("next_stop"), fontWeight = FontWeight.Bold)
+                            Text(text = if (tripState.currentStopIndex >= tripState.totalStops - 1) "COMPLETE ROUTE" else "NEXT STOP", fontWeight = FontWeight.Bold)
                             Spacer(Modifier.width(4.dp))
                             Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
                         }
