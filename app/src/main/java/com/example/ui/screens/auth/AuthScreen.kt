@@ -40,6 +40,7 @@ fun AuthScreen(
 ) {
     val lang by viewModel.currentLanguage.collectAsState()
     val authError by viewModel.authError.collectAsState()
+    val registrationMessage by viewModel.registrationMessage.collectAsState()
     val availableRoutes by viewModel.allRoutes.collectAsState()
 
     // Dedicated Independent Portal Gateway (null = selecting portal; non-null = inside specific portal)
@@ -50,10 +51,15 @@ fun AuthScreen(
     var fullName by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("123456") }
+    var password by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    var registrationValidationMessage by remember { mutableStateOf<String?>(null) }
     var licenseNumber by remember { mutableStateOf("") }
     var companyName by remember { mutableStateOf("") }
     var vehiclePlate by remember { mutableStateOf("") }
+    var vehicleModel by remember { mutableStateOf("") }
+    var vehicleType by remember { mutableStateOf("MINIBUS_14") }
+    var vehicleTypeMenuExpanded by remember { mutableStateOf(false) }
     var adminSecret by remember { mutableStateOf("") }
 
     // Applied Route Selection for Passenger and Driver
@@ -68,23 +74,26 @@ fun AuthScreen(
         }
     }
 
-    // Pre-fill default phone when entering portal for convenience
+    // Never pre-fill the login form with shared/demo credentials.
     LaunchedEffect(selectedPortal, isRegisterMode) {
-        if (!isRegisterMode && selectedPortal != null) {
-            when (selectedPortal) {
-                AppRole.PASSENGER -> phone = "+251911223344"
-                AppRole.DRIVER -> phone = "+251911998877"
-                AppRole.ADMIN -> phone = "+251910001122"
-                null -> {}
-            }
-        } else {
-            phone = ""
-            fullName = ""
+        phone = ""
+        password = ""
+        confirmPassword = ""
+        registrationValidationMessage = null
+        if (isRegisterMode) fullName = ""
+    }
+
+    LaunchedEffect(registrationMessage) {
+        if (!registrationMessage.isNullOrBlank() && selectedPortal == AppRole.DRIVER) {
+            isRegisterMode = false
+            password = ""
+            confirmPassword = ""
         }
     }
 
     // Handle back button when inside a portal to safely return to Portal Gateway
     BackHandler(enabled = selectedPortal != null) {
+        viewModel.clearRegistrationMessage()
         selectedPortal = null
         isRegisterMode = false
     }
@@ -193,6 +202,7 @@ fun AuthScreen(
                     buttonText = if (lang == AppLanguage.AMHARIC) "የተሳፋሪ ፖርታል ክፈት →" else "Open Passenger Portal →",
                     testTag = "open_passenger_portal_button",
                     onClick = {
+                        viewModel.clearRegistrationMessage()
                         selectedPortal = AppRole.PASSENGER
                         isRegisterMode = false
                     }
@@ -213,31 +223,14 @@ fun AuthScreen(
                     buttonText = if (lang == AppLanguage.AMHARIC) "የአጓጓዥ ኮንሶል ክፈት →" else "Open Transporter Console →",
                     testTag = "open_transporter_portal_button",
                     onClick = {
+                        viewModel.clearRegistrationMessage()
                         selectedPortal = AppRole.DRIVER
                         isRegisterMode = false
                     }
                 )
             }
 
-            // Portal Card 3: Operator / Admin Center
-            item {
-                PortalOptionCard(
-                    title = if (lang == AppLanguage.AMHARIC) "የትራንስፖርት ኦፕሬተር እና አስተዳዳሪ" else "Transit Operator & Admin Center",
-                    subtitle = if (lang == AppLanguage.AMHARIC)
-                        "የጉዞ መስመሮች እና ታሪፍ፣ የተሽከርካሪዎች ቁጥጥር፣ የቴሌብር ገቢ እና ማሳወቂያዎች"
-                    else
-                        "Route creation, fleet operations, Telebirr reconciliation, and system audits",
-                    badge = "OPERATOR ADMIN",
-                    icon = Icons.Default.AdminPanelSettings,
-                    accentColor = TelebirrBlue,
-                    buttonText = if (lang == AppLanguage.AMHARIC) "የኦፕሬተር ፖርታል ክፈት →" else "Open Operator Center →",
-                    testTag = "open_admin_portal_button",
-                    onClick = {
-                        selectedPortal = AppRole.ADMIN
-                        isRegisterMode = false
-                    }
-                )
-            }
+
         }
 
         // =========================================================================
@@ -333,7 +326,10 @@ fun AuthScreen(
                     )
                     Tab(
                         selected = isRegisterMode,
-                        onClick = { isRegisterMode = true },
+                        onClick = {
+                            viewModel.clearRegistrationMessage()
+                            isRegisterMode = true
+                        },
                         text = {
                             Text(
                                 text = if (lang == AppLanguage.AMHARIC) "ተመዝገብ (Register)" else "Register New Account",
@@ -378,6 +374,18 @@ fun AuthScreen(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
+
+                        if (isRegisterMode && portal == AppRole.DRIVER) {
+                            Text(
+                                text = "Register yourself and your own vehicle below. Your RoutePass administrator will assign the operating route after registration.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF92400E),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFFFF7ED), RoundedCornerShape(10.dp))
+                                    .padding(12.dp)
+                            )
+                        }
 
                         if (isRegisterMode) {
                             OutlinedTextField(
@@ -430,14 +438,62 @@ fun AuthScreen(
 
                                 OutlinedTextField(
                                     value = vehiclePlate,
-                                    onValueChange = { vehiclePlate = it },
-                                    label = { Text("Assigned Vehicle Plate Number") },
-                                    placeholder = { Text("E.g. AA-12345 (Toyota Coaster)") },
+                                    onValueChange = { vehiclePlate = it.uppercase() },
+                                    label = { Text("Your vehicle plate number *") },
+                                    placeholder = { Text("E.g. 3-AA-12345") },
                                     singleLine = true,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .testTag("auth_vehicle_plate_input")
                                 )
+                                OutlinedTextField(
+                                    value = vehicleModel,
+                                    onValueChange = { vehicleModel = it },
+                                    label = { Text("Vehicle make / model *") },
+                                    placeholder = { Text("E.g. Toyota HiAce") },
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("auth_vehicle_model_input")
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("Your vehicle type *", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                    Box {
+                                        OutlinedButton(
+                                            onClick = { vehicleTypeMenuExpanded = true },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(when (vehicleType) {
+                                                "MINIVAN_8" -> "Minivan · 8 seats"
+                                                "MINIBUS_14" -> "Minibus · 14 seats"
+                                                "HIGER_24" -> "Higer · 24 seats"
+                                                "ANBESSA_BUS_30" -> "Bus · 30 seats"
+                                                else -> vehicleType
+                                            })
+                                            Spacer(Modifier.weight(1f))
+                                            Icon(Icons.Default.ArrowDropDown, contentDescription = "Choose vehicle type")
+                                        }
+                                        DropdownMenu(
+                                            expanded = vehicleTypeMenuExpanded,
+                                            onDismissRequest = { vehicleTypeMenuExpanded = false }
+                                        ) {
+                                            listOf(
+                                                "MINIVAN_8" to "Minivan · 8 seats",
+                                                "MINIBUS_14" to "Minibus · 14 seats",
+                                                "HIGER_24" to "Higer · 24 seats",
+                                                "ANBESSA_BUS_30" to "Bus · 30 seats"
+                                            ).forEach { (type, label) ->
+                                                DropdownMenuItem(
+                                                    text = { Text(label) },
+                                                    onClick = {
+                                                        vehicleType = type
+                                                        vehicleTypeMenuExpanded = false
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
 
                             OutlinedTextField(
@@ -449,8 +505,8 @@ fun AuthScreen(
                                 modifier = Modifier.fillMaxWidth()
                             )
 
-                            // ROUTE SELECTION REQUIREMENT FOR BOTH PASSENGER AND DRIVER
-                            if (portal == AppRole.PASSENGER || portal == AppRole.DRIVER) {
+                            // Passenger chooses a subscription route at registration; driver route is assigned by admin.
+                            if (portal == AppRole.PASSENGER) {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -481,10 +537,7 @@ fun AuthScreen(
                                     }
 
                                     Text(
-                                        text = if (portal == AppRole.PASSENGER)
-                                            "Select the daily commuter shuttle route you wish to subscribe to:"
-                                        else
-                                            "Select the assigned transport route you will be operating:",
+                                        text = "Select the daily commuter shuttle route you wish to subscribe to:",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Slate600
                                     )
@@ -570,7 +623,10 @@ fun AuthScreen(
 
                         OutlinedTextField(
                             value = password,
-                            onValueChange = { password = it },
+                            onValueChange = {
+                                password = it
+                                registrationValidationMessage = null
+                            },
                             label = { Text("Security Password / PIN") },
                             visualTransformation = PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -580,6 +636,32 @@ fun AuthScreen(
                                 .testTag("auth_password_input")
                         )
 
+                        if (isRegisterMode) {
+                            OutlinedTextField(
+                                value = confirmPassword,
+                                onValueChange = {
+                                    confirmPassword = it
+                                    registrationValidationMessage = null
+                                },
+                                label = { Text("Confirm password") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                                singleLine = true,
+                                isError = confirmPassword.isNotEmpty() && password != confirmPassword,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("auth_confirm_password_input")
+                            )
+                        }
+
+                        registrationValidationMessage?.let { message ->
+                            Text(
+                                text = message,
+                                color = StatusExpiredRed,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                         authError?.let { err ->
                             Text(
                                 text = err,
@@ -588,24 +670,49 @@ fun AuthScreen(
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
+                        registrationMessage?.let { message ->
+                            Text(
+                                text = message,
+                                color = TransportGreenPrimary,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFECFDF5), RoundedCornerShape(10.dp))
+                                    .padding(12.dp)
+                            )
+                        }
 
                         Button(
                             onClick = {
                                 if (isRegisterMode) {
-                                    viewModel.register(
-                                        fullName = fullName,
-                                        phone = phone,
-                                        email = email,
-                                        password = password,
-                                        role = portal,
-                                        licenseNumber = licenseNumber,
-                                        companyName = companyName,
-                                        assignedVehiclePlate = vehiclePlate,
-                                        appliedRouteId = selectedRouteId,
-                                        appliedRouteName = selectedRouteName,
-                                        adminSecret = adminSecret
-                                    )
+                                    val validationMessage = when {
+                                        password.length < 10 -> "Use a password with at least 10 characters."
+                                        password != confirmPassword -> "The two passwords do not match. Please re-enter them."
+                                        else -> null
+                                    }
+                                    if (validationMessage != null) {
+                                        registrationValidationMessage = validationMessage
+                                    } else {
+                                        registrationValidationMessage = null
+                                        viewModel.register(
+                                            fullName = fullName,
+                                            phone = phone,
+                                            email = email,
+                                            password = password,
+                                            role = portal,
+                                            licenseNumber = licenseNumber,
+                                            companyName = companyName,
+                                            assignedVehiclePlate = vehiclePlate,
+                                            vehicleModel = vehicleModel,
+                                            vehicleType = vehicleType,
+                                            appliedRouteId = selectedRouteId,
+                                            appliedRouteName = selectedRouteName,
+                                            adminSecret = adminSecret
+                                        )
+                                    }
                                 } else {
+                                    viewModel.clearRegistrationMessage()
                                     viewModel.login(phone, password, portal)
                                 }
                             },
@@ -623,7 +730,7 @@ fun AuthScreen(
                                 .testTag("auth_submit_button")
                         ) {
                             Text(
-                                text = if (isRegisterMode) "COMPLETE REGISTRATION & ENTER" else "SIGN IN TO PORTAL",
+                                text = if (isRegisterMode && portal == AppRole.DRIVER) "SUBMIT DRIVER REGISTRATION" else if (isRegisterMode) "COMPLETE REGISTRATION & ENTER" else "SIGN IN TO PORTAL",
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -631,71 +738,6 @@ fun AuthScreen(
                 }
             }
 
-            // Quick 1-Tap Demo Login (Isolated to THIS portal only)
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Slate100)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            text = "⚡ Quick Demo Access (${portal.name.lowercase().replaceFirstChar { it.uppercase() }}):",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Slate700
-                        )
-
-                        when (portal) {
-                            AppRole.PASSENGER -> {
-                                OutlinedButton(
-                                    onClick = { viewModel.quickLoginAs(AppRole.PASSENGER) },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("quick_login_passenger"),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TransportGreenPrimary)
-                                ) {
-                                    Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Log In as Passenger (Alemayehu Haile)")
-                                }
-                            }
-                            AppRole.DRIVER -> {
-                                OutlinedButton(
-                                    onClick = { viewModel.quickLoginAs(AppRole.DRIVER) },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("quick_login_driver"),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFB45309))
-                                ) {
-                                    Icon(Icons.Default.DirectionsBus, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Log In as Transporter / Driver (Kassahun Tadesse)")
-                                }
-                            }
-                            AppRole.ADMIN -> {
-                                OutlinedButton(
-                                    onClick = { viewModel.quickLoginAs(AppRole.ADMIN) },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("quick_login_admin"),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TelebirrBlue)
-                                ) {
-                                    Icon(Icons.Default.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Log In as Transport Operator / Admin (Addis Transit)")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 }

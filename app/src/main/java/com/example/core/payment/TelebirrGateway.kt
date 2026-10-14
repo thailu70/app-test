@@ -12,6 +12,7 @@ import java.util.UUID
 
 sealed class TelebirrPaymentResult {
     data class Success(val transaction: PaymentTransactionEntity, val subscription: SubscriptionEntity) : TelebirrPaymentResult()
+    data class CheckoutReady(val checkoutUrl: String, val merchantOrderId: String, val message: String) : TelebirrPaymentResult()
     data class Failed(val errorCode: String, val message: String) : TelebirrPaymentResult()
     data object Cancelled : TelebirrPaymentResult()
     data object Timeout : TelebirrPaymentResult()
@@ -56,8 +57,34 @@ object TelebirrGateway {
 
             if (response.isSuccessful && response.body()?.success == true) {
                 val body = response.body()!!
-                val txnDto = body.transaction
+
+                // Production H5 returns a hosted URL, not a successful payment.
+                // The VPS activates the pass only after its server-to-server provider query.
+                val checkoutUrl = body.checkoutUrl
+                val orderId = body.merchantOrderId
+                if (!checkoutUrl.isNullOrBlank()) {
+                    if (orderId.isNullOrBlank()) {
+                        return TelebirrPaymentResult.Failed("INVALID_CHECKOUT_RESPONSE", "Telebirr checkout response was incomplete. No pass was activated.")
+                    }
+                    return TelebirrPaymentResult.CheckoutReady(
+                        checkoutUrl = checkoutUrl,
+                        merchantOrderId = orderId,
+                        message = body.message ?: "Complete payment on the official Telebirr checkout page. RoutePass will check confirmation automatically."
+                    )
+                }
+
+                // Keep the existing TEST simulator for CI; never trust an empty response as a paid pass.
                 val subDto = body.subscription
+                val txnDto = body.transaction
+                val testSimulationSuccess = body.paymentMode != "TELEBIRR_H5" &&
+                    body.status != "PENDING" && txnDto != null && subDto?.status == "ACTIVE" &&
+                    subDto.paymentStatus == "PAID"
+                if (!testSimulationSuccess) {
+                    return TelebirrPaymentResult.Failed(
+                        "PAYMENT_NOT_CONFIRMED",
+                        body.message ?: "Payment has not been confirmed. Return to RoutePass and check status before trying again."
+                    )
+                }
 
                 val txnEntity = PaymentTransactionEntity(
                     id = txnDto?.id ?: "tx_${UUID.randomUUID().toString().take(8)}",
@@ -99,10 +126,11 @@ object TelebirrGateway {
                 TelebirrPaymentResult.Failed("PAYMENT_REJECTED", errorMsg)
             }
         } catch (e: Exception) {
-            // Local fallback simulation if server is temporarily unreachable in dev mode
-            repository.processOfflinePayment(
-                passengerId, routeId, pickupStopId, destinationStopId,
-                morningSchedule, eveningSchedule, amountEtb, cleanPhone, vehicleId, idempotencyKey
+            // A network failure is not evidence of payment. Never mint a local
+            // active subscription or QR pass when the server cannot verify payment.
+            TelebirrPaymentResult.Failed(
+                "PAYMENT_STATUS_UNKNOWN",
+                "Payment could not be verified. Check your connection and subscription status before trying again."
             )
         }
     }

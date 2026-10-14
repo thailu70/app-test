@@ -24,7 +24,7 @@ interface RoutePassApiService {
     suspend fun getRoutes(): Response<RoutesResponse>
 
     @GET("api/routes/{id}")
-    suspend fun getRouteById(@Path("id") routeId: String): Response<RouteDto>
+    suspend fun getRouteById(@Path("id") routeId: String): Response<RouteDetailsResponse>
 
     @POST("api/routes")
     suspend fun createRoute(@Body route: Map<String, Any>): Response<GenericResponse>
@@ -44,6 +44,11 @@ interface RoutePassApiService {
         @Header("x-idempotency-key") idempotencyKey: String? = null
     ): Response<TelebirrPayResponse>
 
+    @GET("api/subscriptions/telebirr/status/{merchantOrderId}")
+    suspend fun getTelebirrPaymentStatus(
+        @Path("merchantOrderId") merchantOrderId: String
+    ): Response<TelebirrPaymentStatusResponse>
+
     @GET("api/subscriptions/all")
     suspend fun getAllSubscriptions(): Response<Map<String, Any>>
 
@@ -52,6 +57,12 @@ interface RoutePassApiService {
     // -------------------------------------------------------------
     @GET("api/vehicles")
     suspend fun getVehicles(): Response<VehiclesResponse>
+
+    @GET("api/vehicles/tracking")
+    suspend fun getTrackingVehicle(): Response<TrackingVehicleResponse>
+
+    @POST("api/vehicles/my-location")
+    suspend fun updateMyLocation(@Body request: LocationUpdateRequest): Response<GenericResponse>
 
     @GET("api/vehicles/{id}")
     suspend fun getVehicleById(@Path("id") vehicleId: String): Response<Map<String, Any>>

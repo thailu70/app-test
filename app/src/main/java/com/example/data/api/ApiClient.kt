@@ -1,5 +1,6 @@
 package com.example.data.api
 
+import com.example.BuildConfig
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.Interceptor
@@ -11,10 +12,12 @@ import java.util.concurrent.TimeUnit
 
 object ApiClient {
 
-    // Central VPS Host & URL configuration
-    const val DEFAULT_VPS_HOST = "62.72.19.170"
-    const val DEFAULT_HTTPS_URL = "https://62.72.19.170/"
-    const val DEFAULT_HTTP_DEV_URL = "http://62.72.19.170:3000/"
+    // Build with -PROUTEPASS_API_BASE_URL=https://api.yourdomain.com/ for each environment.
+    // The production default is a placeholder rather than an insecure hard-coded VPS IP/port.
+    val DEFAULT_HTTPS_URL: String = BuildConfig.ROUTEPASS_API_BASE_URL
+    val DEFAULT_VPS_HOST: String
+        get() = DEFAULT_HTTPS_URL.removePrefix("https://").removeSuffix("/")
+    const val DEFAULT_HTTP_DEV_URL = "http://10.0.2.2:3000/"
 
     // Valid HTTPS is the production Android default
     @Volatile

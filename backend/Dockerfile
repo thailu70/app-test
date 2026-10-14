@@ -13,6 +13,7 @@ RUN npm ci --only=production
 
 # Copy application source code
 COPY src/ ./src/
+COPY public/ ./public/
 
 # Create persistent data directory for SQLite database
 RUN mkdir -p /app/data && chown -R node:node /app
@@ -31,7 +32,7 @@ EXPOSE 3000
 
 # Docker Healthcheck
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:3000/api/health || exit 1
+  CMD curl -f http://localhost:3000/api/ready || exit 1
 
 # Start server
 CMD ["node", "src/server.js"]

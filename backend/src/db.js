@@ -8,6 +8,9 @@ const path = require('path');
 const fs = require('fs');
 
 const isPostgres = Boolean(process.env.DATABASE_URL);
+if (process.env.NODE_ENV === 'production' && !isPostgres) {
+  throw new Error('[FATAL CONFIGURATION ERROR] DATABASE_URL is required in production; refusing to start with local SQLite.');
+}
 let pgPool = null;
 let sqliteDb = null;
 
@@ -23,7 +26,10 @@ if (isPostgres) {
     });
     console.log('[Database] Initialized PostgreSQL connection pool');
   } catch (err) {
-    console.warn('[Database] Failed to initialize PostgreSQL pool, falling back to SQLite:', err.message);
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(`[FATAL DATABASE ERROR] Cannot initialize PostgreSQL driver: ${err.message}`);
+    }
+    console.warn('[Database] Failed to initialize PostgreSQL pool; using SQLite only in non-production:', err.message);
   }
 }
 
@@ -51,6 +57,13 @@ function normalizeRow(row) {
     if (lowerKey === 'capacitylimit' || lowerKey === 'capacity_limit') normalized.capacityLimit = val;
     if (lowerKey === 'currentoccupancy' || lowerKey === 'current_occupancy') normalized.currentOccupancy = val;
     if (lowerKey === 'assignedrouteid' || lowerKey === 'assigned_route_id') normalized.assignedRouteId = val;
+    if (lowerKey === 'vehicleid' || lowerKey === 'vehicle_id') normalized.vehicleId = val;
+    if (lowerKey === 'tripid' || lowerKey === 'trip_id') normalized.tripId = val;
+    if (lowerKey === 'currentstop' || lowerKey === 'current_stop') normalized.currentStop = val;
+    if (lowerKey === 'distancekm' || lowerKey === 'distance_km') normalized.distanceKm = val;
+    if (lowerKey === 'scheduledmorningtime' || lowerKey === 'scheduled_morning_time') normalized.scheduledMorningTime = val;
+    if (lowerKey === 'scheduledeveningtime' || lowerKey === 'scheduled_evening_time') normalized.scheduledEveningTime = val;
+    if (lowerKey === 'maxcapacity' || lowerKey === 'max_capacity') normalized.maxCapacity = val;
     if (lowerKey === 'driverid' || lowerKey === 'driver_id') normalized.driverId = val;
     if (lowerKey === 'drivername' || lowerKey === 'driver_name') normalized.driverName = val;
     if (lowerKey === 'currentlat' || lowerKey === 'current_lat') normalized.currentLat = val;
@@ -61,7 +74,10 @@ function normalizeRow(row) {
     if (lowerKey === 'appliedrouteid' || lowerKey === 'applied_route_id') normalized.appliedRouteId = val;
     if (lowerKey === 'appliedroutename' || lowerKey === 'applied_route_name') normalized.appliedRouteName = val;
     if (lowerKey === 'passengerid' || lowerKey === 'passenger_id') normalized.passengerId = val;
+    if (lowerKey === 'userid' || lowerKey === 'user_id') normalized.userId = val;
     if (lowerKey === 'passengername' || lowerKey === 'passenger_name') normalized.passengerName = val;
+    if (lowerKey === 'passengerphone' || lowerKey === 'passenger_phone') normalized.passengerPhone = val;
+    if (lowerKey === 'vehicleplate' || lowerKey === 'vehicle_plate') normalized.vehiclePlate = val;
     if (lowerKey === 'routeid' || lowerKey === 'route_id') normalized.routeId = val;
     if (lowerKey === 'routename' || lowerKey === 'route_name') normalized.routeName = val;
     if (lowerKey === 'routenameam' || lowerKey === 'route_name_am') normalized.routeNameAm = val;
@@ -92,6 +108,7 @@ function normalizeRow(row) {
     if (lowerKey === 'sendername' || lowerKey === 'sender_name') normalized.senderName = val;
     if (lowerKey === 'createdat' || lowerKey === 'created_at') normalized.createdAt = val;
     if (lowerKey === 'updatedat' || lowerKey === 'updated_at') normalized.updatedAt = val;
+    if (lowerKey === 'lastgpsat' || lowerKey === 'last_gps_at') normalized.lastGpsAt = val;
   }
   return normalized;
 }
@@ -117,7 +134,10 @@ function translateSqlForPostgres(sql) {
     .replace(/\bcurrentLat\b/g, 'current_lat')
     .replace(/\bcurrentLng\b/g, 'current_lng')
     .replace(/\bpassengerId\b/g, 'passenger_id')
+    .replace(/\buserId\b/g, 'user_id')
     .replace(/\bpassengerName\b/g, 'passenger_name')
+    .replace(/\bpassengerPhone\b/g, 'passenger_phone')
+    .replace(/\bvehiclePlate\b/g, 'vehicle_plate')
     .replace(/\brouteId\b/g, 'route_id')
     .replace(/\bnameAm\b/g, 'name_am')
     .replace(/\bstopNameAm\b/g, 'stop_name_am')
@@ -133,6 +153,13 @@ function translateSqlForPostgres(sql) {
     .replace(/\bendDate\b/g, 'end_date')
     .replace(/\bpriceEtb\b/g, 'price_etb')
     .replace(/\bbasePriceEtb\b/g, 'base_price_etb')
+    .replace(/\bdistanceKm\b/g, 'distance_km')
+    .replace(/\bscheduledMorningTime\b/g, 'scheduled_morning_time')
+    .replace(/\bscheduledEveningTime\b/g, 'scheduled_evening_time')
+    .replace(/\bmaxCapacity\b/g, 'max_capacity')
+    .replace(/\bcurrentStop\b/g, 'current_stop')
+    .replace(/\bvehicleId\b/g, 'vehicle_id')
+    .replace(/\btripId\b/g, 'trip_id')
     .replace(/\bamountEtb\b/g, 'amount_etb')
     .replace(/\bpaymentStatus\b/g, 'payment_status')
     .replace(/\bsubscriptionStatus\b/g, 'subscription_status')
@@ -219,7 +246,7 @@ const DB = {
     if (sqliteDb) {
       sqliteDb.exec('BEGIN IMMEDIATE');
       try {
-        const result = await fn(sqliteDb);
+        const result = await fn(DB);
         sqliteDb.exec('COMMIT');
         return result;
       } catch (err) {
@@ -230,7 +257,28 @@ const DB = {
       const client = await pgPool.connect();
       try {
         await client.query('BEGIN');
-        const result = await fn(client);
+        // All transaction work must use this client, never the shared pool.
+        const tx = {
+          isPostgres: true,
+          prepare(sql) {
+            const pgSql = translateSqlForPostgres(sql);
+            return {
+              async run(...params) {
+                const res = await client.query(pgSql, params);
+                return { changes: res.rowCount };
+              },
+              async get(...params) {
+                const res = await client.query(pgSql, params);
+                return res.rows[0] ? normalizeRow(res.rows[0]) : null;
+              },
+              async all(...params) {
+                const res = await client.query(pgSql, params);
+                return res.rows.map(normalizeRow);
+              }
+            };
+          }
+        };
+        const result = await fn(tx);
         await client.query('COMMIT');
         return result;
       } catch (err) {
@@ -309,6 +357,16 @@ function initSqliteSchema() {
       updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS vehicle_live_locations (
+      vehicle_id TEXT PRIMARY KEY,
+      latitude REAL NOT NULL,
+      longitude REAL NOT NULL,
+      speed REAL DEFAULT 0,
+      current_stop TEXT DEFAULT '',
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (vehicle_id) REFERENCES vehicles (id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS subscriptions (
       id TEXT PRIMARY KEY,
       passengerId TEXT NOT NULL,
@@ -354,6 +412,23 @@ function initSqliteSchema() {
       status TEXT DEFAULT 'BOARDED',
       vehicleId TEXT,
       driverId TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS telebirr_payment_orders (
+      merchant_order_id TEXT PRIMARY KEY,
+      idempotency_key TEXT UNIQUE,
+      prepay_id TEXT,
+      checkout_url TEXT,
+      passenger_id TEXT NOT NULL REFERENCES users(id),
+      subscription_id TEXT NOT NULL REFERENCES subscriptions(id),
+      route_id TEXT NOT NULL REFERENCES routes(id),
+      amount_etb NUMERIC NOT NULL,
+      status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PAID', 'FAILED')),
+      payment_order_id TEXT,
+      transaction_id TEXT,
+      last_query_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS payment_transactions (

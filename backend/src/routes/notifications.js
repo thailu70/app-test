@@ -8,7 +8,7 @@ const { authenticate, requireRole } = require('../middleware/auth');
  * GET /api/notifications
  * Fetch notifications filtered by caller's role
  */
-router.get('/', authenticate, (req, res) => {
+router.get('/', authenticate, async (req, res) => {
   try {
     const role = req.user.role;
     let audienceCondition = "targetAudience = 'ALL'";
@@ -21,7 +21,7 @@ router.get('/', authenticate, (req, res) => {
       audienceCondition = '1=1'; // Admins see all
     }
 
-    const notifications = DB.prepare(`
+    const notifications = await DB.prepare(`
       SELECT * FROM notifications WHERE ${audienceCondition} ORDER BY timestamp DESC LIMIT 50
     `).all();
 
@@ -31,7 +31,8 @@ router.get('/', authenticate, (req, res) => {
       notifications
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 
@@ -39,7 +40,7 @@ router.get('/', authenticate, (req, res) => {
  * POST /api/notifications/broadcast
  * Admin / Operator only: Dispatch service broadcast notification
  */
-router.post('/broadcast', authenticate, requireRole('ADMIN'), (req, res) => {
+router.post('/broadcast', authenticate, requireRole('ADMIN'), async (req, res) => {
   try {
     const {
       title,
@@ -61,18 +62,18 @@ router.post('/broadcast', authenticate, requireRole('ADMIN'), (req, res) => {
 
     const notifId = `notif_${crypto.randomUUID().slice(0, 8)}`;
 
-    DB.prepare(`
+    await DB.prepare(`
       INSERT INTO notifications (id, title, message, targetAudience, type, senderName)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(notifId, title.trim(), message.trim(), finalAudience, type, senderName);
 
     // Audit log
-    DB.prepare(`
+    await DB.prepare(`
       INSERT INTO audit_logs (action, userId, role, details)
       VALUES ('BROADCAST_SENT', ?, 'ADMIN', ?)
     `).run(req.user.id, `Broadcast [${finalAudience}]: '${title}'`);
 
-    const created = DB.prepare('SELECT * FROM notifications WHERE id = ?').get(notifId);
+    const created = await DB.prepare('SELECT * FROM notifications WHERE id = ?').get(notifId);
 
     // Broadcast via WebSockets
     if (req.app.locals.broadcastWs) {
@@ -88,7 +89,8 @@ router.post('/broadcast', authenticate, requireRole('ADMIN'), (req, res) => {
       notification: created
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[RoutePass] request failed:', err);
+    res.status(500).json({ success: false, error: 'Internal server error.' });
   }
 });
 

@@ -146,15 +146,11 @@ object QrSecurityEngine {
                 }
             }
         } catch (e: Exception) {
-            // If offline, validate against local cache
-            repository.validateLocalQr(
-                qrToken = trimmedToken,
-                currentTripId = currentTripId,
-                currentVehicleId = currentVehicleId,
-                currentStopName = currentStopName,
-                driverId = driverId,
-                vehicleCapacity = vehicleCapacity,
-                currentPassengerCount = currentPassengerCount
+            // Never accept a QR using cached/demo state. Boarding requires server-side signature,
+            // subscription, route, duplicate and capacity validation; fail closed when offline.
+            QrValidationResult.Invalid(
+                "reason_qr_server_unavailable",
+                "Cannot reach RoutePass server. This QR pass was not accepted; retry when online."
             )
         }
     }

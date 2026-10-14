@@ -24,6 +24,8 @@ data class RegisterRequest(
     val licenseNumber: String? = null,
     val companyName: String? = null,
     val assignedVehiclePlate: String? = null,
+    val vehicleModel: String? = null,
+    val vehicleType: String? = null,
     val appliedRouteId: String? = null,
     val appliedRouteName: String? = null
 )
@@ -83,6 +85,14 @@ data class RouteStopDto(
     val scheduledMorningTime: String? = null,
     val scheduledEveningTime: String? = null,
     val maxCapacity: Int? = 25
+)
+
+@JsonClass(generateAdapter = true)
+data class RouteDetailsResponse(
+    val success: Boolean,
+    val route: RouteDto? = null,
+    val stops: List<RouteStopDto> = emptyList(),
+    val error: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -171,7 +181,19 @@ data class TelebirrPayResponse(
     val idempotentReplay: Boolean? = false,
     val transaction: PaymentTransactionDto? = null,
     val subscription: SubscriptionDto? = null,
-    val error: String? = null
+    val error: String? = null,
+    val checkoutUrl: String? = null,
+    val merchantOrderId: String? = null,
+    val status: String? = null,
+    val amountEtb: Double? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TelebirrPaymentStatusResponse(
+    val success: Boolean,
+    val status: String? = null,
+    val merchantOrderId: String? = null,
+    val message: String? = null
 )
 
 // -------------------------------------------------------------
@@ -202,6 +224,36 @@ data class VehiclesResponse(
     val count: Int? = 0,
     val vehicles: List<VehicleDto> = emptyList()
 )
+
+@JsonClass(generateAdapter = true)
+data class TrackedVehicleDto(
+    val id: String,
+    val plateNumber: String,
+    val model: String,
+    val vehicleType: String,
+    val capacityLimit: Int,
+    val currentOccupancy: Int = 0,
+    val assignedRouteId: String? = null,
+    val routeName: String? = null,
+    val morningDeparture: String? = null,
+    val driverId: String? = null,
+    val driverName: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val speed: Double? = null,
+    val currentStop: String? = null,
+    val lastGpsAt: String? = null,
+    val hasGpsLocation: Boolean = false
+)
+
+@JsonClass(generateAdapter = true)
+data class TrackingVehicleResponse(
+    val success: Boolean,
+    val vehicle: TrackedVehicleDto? = null,
+    val message: String? = null,
+    val error: String? = null
+)
+
 
 @JsonClass(generateAdapter = true)
 data class UpdateVehicleTypeRequest(

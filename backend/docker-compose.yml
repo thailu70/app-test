@@ -15,7 +15,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-routepass_db}
       POSTGRES_USER: ${POSTGRES_USER:-routepass}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_routepass_pg_2026}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in backend/.env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
@@ -42,18 +42,33 @@ services:
       NODE_ENV: production
       PORT: 3000
       HOST: 0.0.0.0
-      DATABASE_URL: postgres://${POSTGRES_USER:-routepass}:${POSTGRES_PASSWORD:-secure_routepass_pg_2026}@db:5432/${POSTGRES_DB:-routepass_db}
-      JWT_SECRET: ${JWT_SECRET:-routepass_production_jwt_secret_key_vps_2026}
+      DATABASE_URL: postgres://${POSTGRES_USER:-routepass}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in backend/.env}@db:5432/${POSTGRES_DB:-routepass_db}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in backend/.env}
       JWT_EXPIRES_IN: 30d
-      ADMIN_REGISTRATION_SECRET: ${ADMIN_REGISTRATION_SECRET:-routepass_admin_invite_secret_2026}
-      PAYMENT_MODE: ${PAYMENT_MODE:-TEST}
+      ADMIN_REGISTRATION_SECRET: ${ADMIN_REGISTRATION_SECRET:?Set ADMIN_REGISTRATION_SECRET in backend/.env}
+      PAYMENT_MODE: ${PAYMENT_MODE:?Set PAYMENT_MODE explicitly in backend/.env}
+      ALLOW_MANUAL_TEST_RECHARGE: ${ALLOW_MANUAL_TEST_RECHARGE:-false}
+      QR_SIGNING_KEY: ${QR_SIGNING_KEY:?Set QR_SIGNING_KEY in backend/.env}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      TELEBIRR_APP_ID: ${TELEBIRR_APP_ID:-}
+      TELEBIRR_APP_KEY: ${TELEBIRR_APP_KEY:-}
+      TELEBIRR_SHORT_CODE: ${TELEBIRR_SHORT_CODE:-}
+      TELEBIRR_PUBLIC_KEY: ${TELEBIRR_PUBLIC_KEY:-}
+      TELEBIRR_WEBHOOK_SECRET: ${TELEBIRR_WEBHOOK_SECRET:-}
+      TELEBIRR_QUERY_URL: ${TELEBIRR_QUERY_URL:-}
+      TELEBIRR_NOTIFY_URL: ${TELEBIRR_NOTIFY_URL:-}
       DATA_DIR: /app/data
     expose:
       - "3000"
-    volumes:
-      - ./data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/ready"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -75,8 +90,8 @@ services:
       - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - certbot_conf:/etc/letsencrypt:ro
-      - certbot_www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
     depends_on:
       - api
     networks:
@@ -85,10 +100,6 @@ services:
 volumes:
   postgres_data:
     name: routepass_postgres_data
-  certbot_conf:
-    name: routepass_certbot_conf
-  certbot_www:
-    name: routepass_certbot_www
 
 networks:
   routepass_internal:

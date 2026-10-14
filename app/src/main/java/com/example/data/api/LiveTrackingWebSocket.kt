@@ -68,13 +68,9 @@ object LiveTrackingWebSocket {
             .replace("https://", "wss://")
             .let { if (it.endsWith("/")) "${it}ws" else "$it/ws" }
 
-        val finalWsUrl = if (!authToken.isNullOrBlank()) {
-            "$baseWsUrl?token=$authToken"
-        } else {
-            baseWsUrl
-        }
-
-        val request = Request.Builder().url(finalWsUrl).build()
+        // Do not attach bearer tokens as URL query parameters: proxies may log them.
+        // The first in-band AUTHENTICATE message is sent from onOpen below.
+        val request = Request.Builder().url(baseWsUrl).build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {

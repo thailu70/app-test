@@ -1,232 +1,63 @@
-# Transport Navigator - Production VPS Backend
+# RoutePass API backend
 
-Production REST API and Real-Time WebSocket Telemetry Server for the **Transport Navigator** Ethiopian Scheduled Transit Management System.
+Node.js/Express API and WebSocket service for RoutePass. The production topology is Docker Compose: PostgreSQL 16 on a private network, API on port 3000 exposed only to the Docker network, and Nginx on public ports 80/443 terminating HTTPS and proxying REST/WSS.
 
-Built with Node.js 22, Express, Helmet, WebSockets, and embedded SQLite for zero-configuration, high-performance deployment on any Linux Virtual Private Server (VPS).
+## Current safety boundaries
 
----
+- Production refuses to start without a PostgreSQL `DATABASE_URL`, a `PAYMENT_MODE=PRODUCTION`, a sufficiently long `QR_SIGNING_KEY`, and explicit application secrets.
+- Passengers and drivers self-register. A driver must register their own commercial licence and vehicle details; the server creates an owned vehicle with no route. Only an authenticated administrator can assign an active route and assign that driver-owned vehicle to a passenger subscription. Admin bootstrap requires `ADMIN_REGISTRATION_SECRET` and is closed after the first admin.
+- Driver trips, GPS telemetry and boarding checks verify server-side vehicle/trip assignments.
+- PostgreSQL route calls use an asynchronous API. Transaction callbacks must use the transaction-scoped `tx.prepare(...)` interface so locks and writes remain on the same connection.
+- The app now includes an H5 C2B hosted-checkout path using the official token, signed preorder, hosted checkout URL, signed-notification validation and server-side `queryOrder` reconciliation flow. The live path remains fail-closed with `503 LIVE_TELEBIRR_NOT_CONFIGURED` until the merchant settings are configured on the VPS and the approved sandbox has been fully tested. Do not process real customer payments until Ethio Telecom confirms production credentials and acceptance tests pass; see `TELEBIRR_H5_SETUP.md`.
+- Offline `/api/sync/push` boarding imports are disabled (HTTP 409) until a signed, verifiable offline protocol exists.
+- PostgreSQL production initialization omits all default user credentials. The SQLite-only developer test fallback seeds mock accounts for the legacy integration test; never deploy SQLite/test mode publicly.
 
-## Features
+## Browser admin portal and account provisioning
 
-- **Isolated Role Architecture**: Strict authentication and authorization for Passengers, Transporters/Drivers, and Transit Operators/Admins. No cross-viewing or unauthorized data access.
-- **Dynamic Subscription Engine**:
-  - Automatically notifies passengers: *"The passenger is not subscribed. Please pay and subscribe for the selected route to activate your pass."*
-  - Instant activation upon Telebirr checkout.
-  - Cryptographically secure dynamic QR boarding tokens.
-- **Vehicle Type Capacity Limit Enforcement**:
-  - Automatic seat limits based on fleet vehicle type:
-    - **Minivan**: 8 seats
-    - **Minibus Taxi**: 14 seats
-    - **Higer Bus**: 24 seats
-    - **Anbessa City Bus**: 30+ seats
-  - Driver scanner automatically blocks passenger boarding when full with `DENIED_CAPACITY_FULL`.
-- **Live GPS Vehicle Telemetry**:
-  - WebSocket (`ws://your-vps:3000/ws`) streaming vehicle positions, stop check-ins, and passenger occupancy alerts in real-time.
-- **Offline Sync Gateway**:
-  - Mobile apps can queue check-ins and payments offline and sync seamlessly when online.
-- **Embedded Persistent Storage**:
-  - Zero database setup required. Auto-initializes tables and pre-seeds Addis Ababa transit routes (Bole-Merkato, Megenagna-Torhailoch, Mexico-Saris), stops, vehicles, and test credentials.
+After the admin portal files have been deployed, open `https://YOUR-DOMAIN/admin/`. The administrator signs in with the phone number used during first-admin setup (the phone number serves as the username) and their chosen password. To securely create the first administrator on the VPS, use `python3 /var/www/routepass/scripts/bootstrap-admin.py`; it reads the private `ADMIN_REGISTRATION_SECRET` from the deployment environment file and prompts for the password without echoing it. No default admin username/password is shipped.
 
----
+Drivers self-register with their own phone/password, commercial licence, vehicle plate, model and vehicle class. They cannot choose their own route at sign-up; the administrator assigns an active route later through the browser portal. Administrators cannot create driver accounts or transfer vehicle ownership.
 
-## VPS Requirements & Sizing
+## Manual test recharge
 
-| Component | Minimum | Recommended |
-|---|---|---|
-| **OS** | Ubuntu 20.04 / 22.04 / 24.04 LTS, Debian 11/12 | Ubuntu 24.04 LTS |
-| **RAM** | 512 MB | 1 GB - 2 GB |
-| **CPU** | 1 vCPU | 1 - 2 vCPU |
-| **Disk** | 5 GB SSD | 10 GB+ SSD |
-| **Cloud Providers** | Any (DigitalOcean, Hetzner, Linode, AWS EC2, Scaleway, Contabo) | Any |
+The web administrator can temporarily activate a passenger subscription for testing. This creates an audited `ADMIN_TEST` record, issues a signed QR pass and does **not** represent a Telebirr payment. The endpoint is disabled unless `ALLOW_MANUAL_TEST_RECHARGE=true` is explicitly set in the API environment. Keep it false for real public operation and disable it immediately when testing is finished. Entries from `ADMIN_TEST` are excluded from real-revenue totals.
 
----
+## Existing VPS updates
 
-## Deployment Option 1: 1-Click Automated Script (Recommended)
+For an already-running RoutePass installation behind the existing Traefik host, use [Updating an existing RoutePass VPS](UPDATING_EXISTING_VPS.md). Do not rerun the first-install script or delete the PostgreSQL volume.
 
-Upload the `backend/` folder to your VPS and run:
+## Deployment
+
+Follow the root [VPS deployment guide](../DEPLOYMENT.md). It covers DNS, the domain-aware installer, TLS, bootstrap administrator creation, backups, application updates, Android URL configuration, and current feature restrictions.
+
+The container stack files are `docker-compose.yml`, `Dockerfile`, `nginx.conf`, and `nginx.bootstrap.conf`. The bootstrap Nginx configuration is only for initial certificate issuance; the installer replaces it with the HTTPS configuration.
+
+## Local backend checks
+
+Use Node.js 22+ (the current tests rely on `node:sqlite`):
 
 ```bash
-# 1. SSH into your VPS
-ssh root@YOUR_VPS_IP
-
-# 2. Upload or clone backend folder to /var/www/transport-backend
-# (or upload using scp / rsync / git)
-
-# 3. Run the installer
-cd backend
-chmod +x deploy-vps.sh
-sudo bash deploy-vps.sh
+npm ci
+find src test -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+npm test
 ```
 
-The script will automatically:
-1. Update system packages.
-2. Install Node.js 22 LTS.
-3. Configure UFW firewall rules for ports `80`, `443`, and `3000`.
-4. Install all production npm dependencies.
-5. Generate a cryptographically secure random `JWT_SECRET`.
-6. Configure and start the `transport-backend` systemd service.
-7. Verify API health at `http://YOUR_VPS_IP:3000/api/health`.
-
----
-
-## Deployment Option 2: Docker Compose
-
-If your VPS has Docker installed:
+PostgreSQL smoke check (requires a fresh PostgreSQL 16 instance with `init-db.sql` applied):
 
 ```bash
-cd backend
-
-# 1. Start in detached mode
-docker compose up -d --build
-
-# 2. Check container logs
-docker compose logs -f
-
-# 3. Verify healthcheck
-curl http://localhost:3000/api/health
+DATABASE_URL=postgres://routepass:YOUR_PASSWORD@127.0.0.1:5432/routepass_db \
+NODE_ENV=test PAYMENT_MODE=PRODUCTION \
+JWT_SECRET=development-only-secret-change-me \
+ADMIN_REGISTRATION_SECRET=local-test-admin-secret-change-me \
+QR_SIGNING_KEY=local-test-qr-secret-change-me \
+node test/postgres-smoke.js
 ```
 
-Database files are persisted in `./data/transport.db` on your host.
+The test should be run against an isolated database only. The smoke test creates users/vehicle assignments and leaves test records in the database.
 
----
+## Endpoints to verify after deployment
 
-## Deployment Option 3: Manual Systemd Service
-
-```bash
-# 1. Install Node.js 22
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs git
-
-# 2. Install dependencies
-cd backend
-npm install --omit=dev
-
-# 3. Create environment file
-cp .env.example .env
-nano .env # Set your JWT_SECRET
-
-# 4. Copy systemd service file
-sudo cp transport-backend.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now transport-backend
-
-# 5. Check service status
-sudo systemctl status transport-backend
-```
-
----
-
-## Production Nginx & Free SSL (Let's Encrypt) Setup
-
-To connect your custom domain (e.g. `api.transport.et`):
-
-```bash
-# 1. Install Nginx and Certbot
-sudo apt-get install -y nginx certbot python3-certbot-nginx
-
-# 2. Copy Nginx configuration
-sudo cp nginx.conf /etc/nginx/sites-available/transport-backend
-sudo ln -s /etc/nginx/sites-available/transport-backend /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
-
-# 3. Obtain free SSL certificate
-sudo certbot --nginx -d api.yourdomain.et
-```
-
----
-
-## Connecting the Android App to your VPS
-
-In your Android app or `.env`:
-Set your VPS endpoint:
-
-```properties
-# Mobile App .env or BuildConfig
-SERVER_URL=http://YOUR_VPS_IP:3000
-# Or with SSL:
-# SERVER_URL=https://api.yourdomain.et
-```
-
----
-
-## REST API Reference
-
-### 1. Authentication (`/api/auth`)
-
-| Method | Endpoint | Description | Role Required |
-|---|---|---|---|
-| `POST` | `/api/auth/register` | Register Passenger, Driver, or Operator | Public |
-| `POST` | `/api/auth/login` | Login with phone and password/PIN | Public |
-| `GET` | `/api/auth/me` | Fetch authenticated user profile | Bearer Token |
-
-**Pre-seeded Test Credentials**:
-- **Passenger**: Phone `0911223344` / Password `1234`
-- **Driver**: Phone `0922334455` / Password `1234`
-- **Operator/Admin**: Phone `0900000000` / Password `1234`
-
-### 2. Routes & Stops (`/api/routes`)
-
-| Method | Endpoint | Description | Role Required |
-|---|---|---|---|
-| `GET` | `/api/routes` | List all active transit lines | Public |
-| `GET` | `/api/routes/:id` | Get route details with ordered stops | Public |
-| `POST` | `/api/routes` | Create new transit route | `ADMIN` |
-| `DELETE` | `/api/routes/:id` | Remove route | `ADMIN` |
-
-### 3. Subscriptions & Telebirr (`/api/subscriptions`)
-
-| Method | Endpoint | Description | Role Required |
-|---|---|---|---|
-| `GET` | `/api/subscriptions/my-status` | Get subscription status & dynamic QR pass | `PASSENGER` |
-| `POST` | `/api/subscriptions/subscribe` | Select transit route for pass | `PASSENGER` |
-| `POST` | `/api/subscriptions/telebirr/pay` | Pay fare with Telebirr and activate pass | `PASSENGER` |
-| `GET` | `/api/subscriptions/verify-qr/:token` | Validate QR token authenticity | Authenticated |
-
-### 4. Vehicles & Capacity Limits (`/api/vehicles`)
-
-| Method | Endpoint | Description | Role Required |
-|---|---|---|---|
-| `GET` | `/api/vehicles` | List fleet vehicles & occupancy rates | Public |
-| `GET` | `/api/vehicles/:id` | Get vehicle details | Public |
-| `PATCH` | `/api/vehicles/:id/type` | Set vehicle type (8/14/24/30) & limit | `DRIVER` / `ADMIN` |
-| `POST` | `/api/vehicles/:id/location` | Broadcast GPS telemetry via WebSocket | `DRIVER` |
-
-### 5. Check-ins & Attendance (`/api/checkins`)
-
-| Method | Endpoint | Description | Role Required |
-|---|---|---|---|
-| `POST` | `/api/checkins/scan` | Driver scans passenger QR boarding pass with strict capacity enforcement | `DRIVER` |
-| `GET` | `/api/checkins/trip/:tripId` | Get passenger attendance for trip | Authenticated |
-
-### 6. Notifications & Broadcasts (`/api/notifications`)
-
-| Method | Endpoint | Description | Role Required |
-|---|---|---|---|
-| `GET` | `/api/notifications` | Fetch notifications filtered for caller role | Authenticated |
-| `POST` | `/api/notifications/broadcast` | Dispatch transit alerts to ALL, PASSENGERS, or TRANSPORTERS | `ADMIN` |
-
-### 7. Real-Time WebSocket Stream (`/ws`)
-
-Connect to `ws://YOUR_VPS_IP:3000/ws` to receive live events:
-- `VEHICLE_LOCATION_UPDATE`
-- `PASSENGER_BOARDED`
-- `NOTIFICATION_BROADCAST`
-
----
-
-## Server Maintenance Commands
-
-```bash
-# Check service status
-sudo systemctl status transport-backend
-
-# View live application logs
-sudo journalctl -u transport-backend -f
-
-# Restart application
-sudo systemctl restart transport-backend
-
-# Backup SQLite database
-cp /var/www/transport-backend/data/transport.db /var/backups/transport_$(date +%F).db
-```
+- `GET /api/health` — public liveness check with minimal output.
+- `GET /api/ready` — database readiness.
+- `GET /api/routes` — route list.
+- `wss://your-domain/ws` — authenticated live telemetry.
