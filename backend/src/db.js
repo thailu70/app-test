@@ -308,6 +308,7 @@ function initSqliteSchema() {
       status TEXT DEFAULT 'ACTIVE',
       licenseNumber TEXT DEFAULT '',
       companyName TEXT DEFAULT '',
+    companyId TEXT DEFAULT '',
       assignedVehiclePlate TEXT DEFAULT '',
       appliedRouteId TEXT DEFAULT '',
       appliedRouteName TEXT DEFAULT '',
