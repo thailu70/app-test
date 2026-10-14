@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS users (
     status VARCHAR(20) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'SUSPENDED', 'PENDING')),
     license_number VARCHAR(50) DEFAULT '',
     company_name VARCHAR(100) DEFAULT '',
+    companyId VARCHAR(64) DEFAULT '',
     assigned_vehicle_plate VARCHAR(30) DEFAULT '',
     applied_route_id VARCHAR(64) DEFAULT '',
     applied_route_name VARCHAR(120) DEFAULT '',
