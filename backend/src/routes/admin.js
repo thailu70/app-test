@@ -388,4 +388,21 @@ router.get('/audit-logs', async (req, res) => {
   }
 });
 
+
+/** Create a one-time registration code for a new intercity transport company. */
+router.post('/companies/invite', async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim();
+    if (name.length < 2) return res.status(400).json({ success: false, error: 'Company name is required.' });
+    const existing = await DB.prepare('SELECT id FROM transport_companies WHERE LOWER(name)=LOWER(?)').get(name);
+    if (existing) return res.status(409).json({ success: false, error: 'Company already exists or has an outstanding invitation.' });
+    const code = crypto.randomBytes(5).toString('hex').toUpperCase();
+    const id = 'company_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+    const hash = await bcrypt.hash(code, 12);
+    await DB.prepare("INSERT INTO transport_companies (id,name,status,registration_secret_hash) VALUES (?,?,'INVITED',?)").run(id,name,hash);
+    await DB.prepare("INSERT INTO audit_logs (action,userId,role,details) VALUES ('COMPANY_INVITE_CREATED',?,'ADMIN',?)").run(req.user.id,'Created single-use company invitation for '+name);
+    res.status(201).json({ success:true, company:{id,name,status:'INVITED'}, registrationCode:code, message:'Copy this code now. It is shown only once.' });
+  } catch (e) { console.error('[Admin] company invite failed:',e); res.status(500).json({success:false,error:'Could not create company invitation.'}); }
+});
+
 module.exports = router;
