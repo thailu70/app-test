@@ -7,6 +7,7 @@
   const labels = {
     overview: ["Overview", "A live snapshot of RoutePass service operations."],
     drivers: ["Drivers & routes", "Review driver-owned vehicles and assign approved operating routes."],
+    companies: ["Company access", "Invite transport companies and issue one-time registration codes."],
     routes: ["Manage routes", "Create, edit, activate and deactivate RoutePass transit routes."],
     vehicles: ["Vehicles", "Fleet availability and current assignments."],
     subscriptions: ["Subscriptions", "Passenger subscription records and payment state."],
@@ -294,6 +295,46 @@
           { label: "Details", keys: ["details"] }
         ], data));
   }
+  async function renderCompanyAccess() {
+    return pageHeader("Company access", "Create a one-time company invitation. The company representative must register separately at the Company Portal; system-admin credentials are not company credentials.",
+      '<a class="btn btn-secondary" href="/company" target="_blank" rel="noopener">Open Company Portal</a>') +
+      section("Invite a transport company", "The code is displayed only once. Share it securely with the company's authorized representative.",
+        '<form id="company-invite-form" class="form-stack" style="max-width:560px">' +
+        '<label for="company-invite-name">Registered company name</label>' +
+        '<input id="company-invite-name" name="name" minlength="2" maxlength="120" required placeholder="Company legal name">' +
+        '<button class="btn btn-primary" type="submit">Generate one-time registration code</button>' +
+        '</form><div id="company-invite-result" class="notice" hidden style="margin-top:16px"></div>');
+  }
+
+  async function createCompanyInvite(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
+    const output = $("#company-invite-result");
+    button.disabled = true;
+    output.hidden = true;
+    try {
+      const name = String(new FormData(form).get("name") || "").trim();
+      const result = await api("/api/admin/companies/invite", {
+        method: "POST", body: JSON.stringify({ name })
+      });
+      output.hidden = false;
+      output.innerHTML = '<strong>Invitation created for ' + esc(result.company?.name || name) + '.</strong>' +
+        '<p>One-time registration code:</p><p><code id="company-invite-code" style="font-size:1.25rem;font-weight:800;letter-spacing:.12em">' +
+        esc(result.registrationCode) + '</code></p><p>Give this code to the company representative. They must open <a href="/company" target="_blank" rel="noopener">/company</a>, register using this code, and create a separate company password. This code cannot be viewed again.</p>' +
+        '<button class="btn btn-secondary" type="button" id="copy-company-code">Copy code</button>';
+      $("#copy-company-code")?.addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText(result.registrationCode); toast("Registration code copied."); }
+        catch (_) { toast("Copy unavailable. Select and copy the code manually.", true); }
+      });
+      form.reset();
+    } catch (error) {
+      output.hidden = false;
+      output.textContent = error.message;
+      output.classList.add("error");
+    } finally { button.disabled = false; }
+  }
+
   async function renderView() {
     const title = labels[state.view] || labels.overview;
     $("#page-title").textContent = title[0];
@@ -303,6 +344,7 @@
       let html;
       switch (state.view) {
         case "drivers": html = await renderDrivers(); break;
+        case "companies": html = await renderCompanyAccess(); break;
         case "routes": html = await renderRoutes(); break;
         case "vehicles": html = await renderVehicles(); break;
         case "subscriptions": html = await renderSubscriptions(); break;
@@ -315,6 +357,8 @@
       $("#page-content").innerHTML = html;
       const routeForm = $("#create-route-form");
       if (routeForm) routeForm.addEventListener("submit", submitRoute);
+      const companyInviteForm = $("#company-invite-form");
+      if (companyInviteForm) companyInviteForm.addEventListener("submit", createCompanyInvite);
     } catch (error) {
       $("#page-content").innerHTML = '<div class="card empty-note"><strong>Could not load this page.</strong><br>' + esc(error.message) +
         '<div style="margin-top:12px"><button class="btn btn-secondary" id="retry-button">Try again</button></div></div>';
