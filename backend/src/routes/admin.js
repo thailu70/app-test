@@ -399,8 +399,12 @@ router.post('/companies/invite', async (req, res) => {
     const code = crypto.randomBytes(5).toString('hex').toUpperCase();
     const id = 'company_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
     const hash = await bcrypt.hash(code, 12);
-    await DB.prepare("INSERT INTO transport_companies (id,name,status,registration_secret_hash) VALUES (?,?,'INVITED',?)").run(id,name,hash);
-    await DB.prepare("INSERT INTO audit_logs (action,userId,role,details) VALUES ('COMPANY_INVITE_CREATED',?,'ADMIN',?)").run(req.user.id,'Created single-use company invitation for '+name);
+    await DB.transaction(async (tx) => {
+      await tx.prepare("INSERT INTO transport_companies (id,name,status) VALUES (?,?,'INVITED')").run(id,name);
+      await tx.prepare("INSERT INTO transport_company_access_codes (id,company_id,code_hash,created_by,revoked) VALUES (?,?,?,?,0)")
+        .run('ccode_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16), id, hash, req.user.id);
+      await tx.prepare("INSERT INTO audit_logs (action,userId,role,details) VALUES ('COMPANY_INVITE_CREATED',?,'ADMIN',?)").run(req.user.id,'Created single-use company invitation for '+name);
+    });
     res.status(201).json({ success:true, company:{id,name,status:'INVITED'}, registrationCode:code, message:'Copy this code now. It is shown only once.' });
   } catch (e) { console.error('[Admin] company invite failed:',e); res.status(500).json({success:false,error:'Could not create company invitation.'}); }
 });
