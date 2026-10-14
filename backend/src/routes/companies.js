@@ -63,6 +63,22 @@ router.get('/operations/fleet',authenticate,requireRole('COMPANY'),async(req,res
  const drivers=await DB.prepare("SELECT id,fullName,phone,status,licenseNumber FROM users WHERE role='DRIVER' AND companyId=? ORDER BY fullName").all(id);
  res.json({success:true,vehicles,drivers});}catch(e){console.error('[Company] fleet:',e);res.status(500).json({success:false,error:'Fleet unavailable.'});}
 });
+router.post('/operations/vehicles', authenticate, requireRole('COMPANY'), async (req,res)=>{
+  try {
+    const companyId=req.user.companyId||req.user.id;
+    const plateNumber=String(req.body.plateNumber||'').trim().toUpperCase();
+    const model=String(req.body.model||'').trim();
+    const vehicleType=String(req.body.vehicleType||'MINIBUS_14').trim().toUpperCase();
+    const capacities={MINIVAN_8:8,MINIBUS_14:14,HIGER_24:24,ANBESSA_BUS_30:30};
+    if(!plateNumber||!model||!capacities[vehicleType])return res.status(400).json({success:false,error:'Plate, model and supported vehicle type are required.'});
+    const duplicate=await DB.prepare('SELECT id FROM vehicles WHERE plateNumber=?').get(plateNumber);
+    if(duplicate)return res.status(409).json({success:false,error:'Vehicle plate already exists.'});
+    const id='veh_'+crypto.randomUUID().replace(/-/g,'').slice(0,12);
+    await DB.prepare("INSERT INTO vehicles(id,plateNumber,model,vehicleType,capacityLimit,currentOccupancy,assignedRouteId,driverId,driverName,status,companyId) VALUES(?,?,?,?,?,0,NULL,NULL,'','OFF_DUTY',?)").run(id,plateNumber,model,vehicleType,capacities[vehicleType],companyId);
+    res.status(201).json({success:true,vehicle:{id,plateNumber,model,vehicleType,capacityLimit:capacities[vehicleType],companyId,status:'OFF_DUTY'}});
+  }catch(e){console.error('[Company] vehicle registration failed:',e);res.status(500).json({success:false,error:'Could not register company vehicle.'});}
+});
+
 router.get('/operations/routes',authenticate,requireRole('COMPANY'),async(req,res)=>{
  try{const routes=await DB.prepare('SELECT a.id AS assignment_id,a.status AS assignment_status,a.driver_id,a.vehicle_id,r.* FROM company_route_assignments a JOIN routes r ON r.id=a.route_id WHERE a.company_id=? ORDER BY r.name').all(req.user.companyId||req.user.id);res.json({success:true,routes});}
  catch(e){console.error('[Company] routes:',e);res.status(500).json({success:false,error:'Company routes unavailable.'});}
