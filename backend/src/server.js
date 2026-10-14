@@ -132,6 +132,7 @@ app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/sync', require('./routes/sync'));
 
 // Browser-based admin portal. Keep it same-origin with the API and use a strict, portal-specific CSP.
+app.use('/company', express.static(path.join(__dirname, '..', 'public', 'company'), { index: 'index.html', maxAge: 0, etag: false }));
 app.use('/admin', (req, res, next) => {
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' wss:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
   res.setHeader('Cache-Control', 'no-store');
@@ -418,6 +419,14 @@ async function startServer() {
     )
   `).run();
   await DB.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_transport_companies_name_ci ON transport_companies (LOWER(name))').run();
+  await DB.prepare('ALTER TABLE transport_companies ADD COLUMN IF NOT EXISTS phone VARCHAR(40)').run();
+  await DB.prepare('ALTER TABLE transport_companies ADD COLUMN IF NOT EXISTS representative_name VARCHAR(120)').run();
+  await DB.prepare('ALTER TABLE transport_companies ADD COLUMN IF NOT EXISTS password_hash TEXT').run();
+  await DB.prepare('ALTER TABLE transport_companies ADD COLUMN IF NOT EXISTS registration_secret_hash TEXT').run();
+  await DB.prepare('ALTER TABLE users ADD COLUMN IF NOT EXISTS companyId VARCHAR(64)').run();
+  await DB.prepare('ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS companyId VARCHAR(64)').run();
+  await DB.prepare('CREATE TABLE IF NOT EXISTS company_route_assignments (id VARCHAR(64) PRIMARY KEY, company_id VARCHAR(64) NOT NULL REFERENCES transport_companies(id), route_id VARCHAR(64) NOT NULL REFERENCES routes(id), driver_id VARCHAR(64) NOT NULL REFERENCES users(id), vehicle_id VARCHAR(64) NOT NULL REFERENCES vehicles(id), status VARCHAR(20) NOT NULL DEFAULT \'ACTIVE\', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)').run();
+  await DB.prepare('CREATE INDEX IF NOT EXISTS idx_company_assignments_company ON company_route_assignments(company_id, status)').run();
   await DB.prepare(`
     CREATE TABLE IF NOT EXISTS vehicle_live_locations (
       vehicle_id VARCHAR(64) PRIMARY KEY REFERENCES vehicles(id) ON DELETE CASCADE,
