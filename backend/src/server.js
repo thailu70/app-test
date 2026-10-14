@@ -119,6 +119,7 @@ app.get('/api/ready', async (req, res) => {
 
 // Mount Route Modules
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/companies', require('./routes/companies'));
 app.use('/api/routes', require('./routes/routes'));
 app.use('/api/subscriptions/telebirr', require('./routes/telebirr'));
 app.use('/api/subscriptions', require('./routes/subscriptions'));
@@ -407,6 +408,16 @@ app.locals.broadcastWs = broadcastAuthorized;
 // Start only after applying the additive runtime GPS-table migration. This supports existing
 // PostgreSQL installations where init-db.sql was executed before vehicle_live_locations existed.
 async function startServer() {
+  await DB.prepare(`
+    CREATE TABLE IF NOT EXISTS transport_companies (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(120) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+  await DB.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_transport_companies_name_ci ON transport_companies (LOWER(name))').run();
   await DB.prepare(`
     CREATE TABLE IF NOT EXISTS vehicle_live_locations (
       vehicle_id VARCHAR(64) PRIMARY KEY REFERENCES vehicles(id) ON DELETE CASCADE,
