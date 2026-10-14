@@ -22,13 +22,19 @@ router.post('/register', async (req, res) => {
     if (name.length < 2 || fullName.length < 2 || !phone || !code || typeof password !== 'string' || password.length < 10)
       return res.status(400).json({ success: false, error: 'Company, representative, phone, code and password (10+ characters) are required.' });
     const c = await DB.prepare("SELECT * FROM transport_companies WHERE LOWER(name)=LOWER(?) AND status='INVITED'").get(name);
-    if (!c || !c.registration_secret_hash || !(await bcrypt.compare(code, c.registration_secret_hash)))
+    if (!c) return res.status(403).json({ success: false, error: 'Invalid or already-used company registration code.' });
+    const accessCode = await DB.prepare("SELECT id, code_hash FROM transport_company_access_codes WHERE company_id=? AND revoked=0 ORDER BY created_at DESC").get(c.id);
+    if (!accessCode || !accessCode.code_hash || !(await bcrypt.compare(code, accessCode.code_hash)))
       return res.status(403).json({ success: false, error: 'Invalid or already-used company registration code.' });
     const phoneUsed = await DB.prepare('SELECT id FROM transport_companies WHERE phone = ?').get(phone);
     if (phoneUsed) return res.status(409).json({ success: false, error: 'Phone already registered for a company.' });
     const hash = await bcrypt.hash(password, 12);
-    await DB.prepare("UPDATE transport_companies SET phone=?, representative_name=?, password_hash=?, registration_secret_hash=NULL, status='ACTIVE', updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='INVITED' AND registration_secret_hash=?")
-      .run(phone, fullName, hash, c.id, c.registration_secret_hash);
+    await DB.transaction(async (tx) => {
+      const consumed = await tx.prepare("UPDATE transport_company_access_codes SET revoked=1 WHERE id=? AND company_id=? AND revoked=0").run(accessCode.id, c.id);
+      if (consumed.changes === 0 || consumed.rowCount === 0) throw new Error('Company registration code was already used.');
+      await tx.prepare("UPDATE transport_companies SET phone=?, representative_name=?, password_hash=?, status='ACTIVE', updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='INVITED'")
+        .run(phone, fullName, hash, c.id);
+    });
     const token = signToken({ id:c.id, role:'COMPANY', companyId:c.id, companyName:c.name, fullName, phone });
     res.status(201).json({ success:true, token, user:{ id:c.id, role:'COMPANY', companyId:c.id, companyName:c.name, fullName, phone } });
   } catch (e) { console.error('[Company] register failed:', e); res.status(500).json({ success:false, error:'Company registration failed.' }); }
