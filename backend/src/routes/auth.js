@@ -83,6 +83,13 @@ router.post('/register', authLimiter, async (req, res) => {
           error: 'Driver registration requires a commercial licence number, vehicle plate, vehicle model and valid vehicle type.'
         });
       }
+      const requestedCompanyName = String(companyName || '').trim();
+      if (requestedCompanyName) {
+        const registeredCompany = await DB.prepare("SELECT id FROM transport_companies WHERE LOWER(name) = LOWER(?) AND status = 'ACTIVE'").get(requestedCompanyName);
+        if (!registeredCompany) {
+          return res.status(400).json({ success: false, error: 'Select an active company from the registered company dropdown.' });
+        }
+      }
       const existingPlate = await DB.prepare('SELECT id FROM vehicles WHERE plateNumber = ?').get(driverVehiclePlate);
       if (existingPlate) {
         return res.status(409).json({ success: false, error: 'That vehicle plate is already registered. Contact support if you are the legal owner.' });
@@ -140,6 +147,11 @@ router.post('/register', authLimiter, async (req, res) => {
         normalizedRole === 'PASSENGER' ? String(appliedRouteId || '').trim() : '',
         normalizedRole === 'PASSENGER' ? String(appliedRouteName || '').trim() : ''
       );
+
+      if (normalizedRole === 'ADMIN' && String(companyName || '').trim().length >= 2) {
+        const companyId = 'company_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+        await tx.prepare("INSERT INTO transport_companies (id, name, status) VALUES (?, ?, 'ACTIVE') ON CONFLICT (name) DO NOTHING").run(companyId, String(companyName).trim());
+      }
 
       if (normalizedRole === 'DRIVER') {
         const vehicleId = `veh_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
