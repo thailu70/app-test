@@ -458,3 +458,18 @@ data class GenericResponse(
     val message: String? = null,
     val error: String? = null
 )
+
+
+@JsonClass(generateAdapter = true)
+data class TransportCompanyDto(
+    val id: String,
+    val name: String,
+    val status: String? = "ACTIVE"
+)
+
+@JsonClass(generateAdapter = true)
+data class TransportCompaniesResponse(
+    val success: Boolean,
+    val companies: List<TransportCompanyDto> = emptyList(),
+    val error: String? = null
+)
