@@ -62,37 +62,29 @@ router.post('/register', authLimiter, async (req, res) => {
       });
     }
 
-    // Drivers register their own account and the vehicle they own. The server creates
-    // the vehicle with no route; only an administrator may assign an approved route.
-    const vehicleCapacities = {
-      MINIVAN_8: 8,
-      MINIBUS_14: 14,
-      HIGER_24: 24,
-      ANBESSA_BUS_30: 30
-    };
-    let driverVehiclePlate = '';
-    let driverVehicleModel = '';
-    let driverVehicleType = '';
+    // Dual ownership model: no company selected means Daily Commute (driver-owned vehicle);
+    // a selected company means Intercity (company-owned vehicle, assigned later by the company).
+    const vehicleCapacities = { MINIVAN_8: 8, MINIBUS_14: 14, HIGER_24: 24, ANBESSA_BUS_30: 30 };
+    const requestedCompanyName = String(companyName || '').trim();
+    let registeredCompany = null;
+    let driverVehiclePlate = '', driverVehicleModel = '', driverVehicleType = '';
     if (normalizedRole === 'DRIVER') {
-      driverVehiclePlate = String(assignedVehiclePlate || '').trim().toUpperCase();
-      driverVehicleModel = String(vehicleModel || '').trim();
-      driverVehicleType = String(vehicleType || '').trim().toUpperCase();
-      if (!licenseNumber || !String(licenseNumber).trim() || !driverVehiclePlate || !driverVehicleModel || !vehicleCapacities[driverVehicleType]) {
-        return res.status(400).json({
-          success: false,
-          error: 'Driver registration requires a commercial licence number, vehicle plate, vehicle model and valid vehicle type.'
-        });
+      if (!licenseNumber || !String(licenseNumber).trim()) {
+        return res.status(400).json({ success: false, error: 'Driver registration requires a valid driving licence number.' });
       }
-      const requestedCompanyName = String(companyName || '').trim();
       if (requestedCompanyName) {
-        const registeredCompany = await DB.prepare("SELECT id FROM transport_companies WHERE LOWER(name) = LOWER(?) AND status = 'ACTIVE'").get(requestedCompanyName);
-        if (!registeredCompany) {
-          return res.status(400).json({ success: false, error: 'Select an active company from the registered company dropdown.' });
+        registeredCompany = await DB.prepare("SELECT id, name FROM transport_companies WHERE LOWER(name)=LOWER(?) AND status='ACTIVE'").get(requestedCompanyName);
+        if (!registeredCompany) return res.status(400).json({ success: false, error: 'Select an active company from the City Travel company list.' });
+        // Intercity company vehicles are added and assigned by the company, never by the driver.
+      } else {
+        driverVehiclePlate = String(assignedVehiclePlate || '').trim().toUpperCase();
+        driverVehicleModel = String(vehicleModel || '').trim();
+        driverVehicleType = String(vehicleType || '').trim().toUpperCase();
+        if (!driverVehiclePlate || !driverVehicleModel || !vehicleCapacities[driverVehicleType]) {
+          return res.status(400).json({ success: false, error: 'Daily Commute driver registration requires your own vehicle plate, model, and valid vehicle type.' });
         }
-      }
-      const existingPlate = await DB.prepare('SELECT id FROM vehicles WHERE plateNumber = ?').get(driverVehiclePlate);
-      if (existingPlate) {
-        return res.status(409).json({ success: false, error: 'That vehicle plate is already registered. Contact support if you are the legal owner.' });
+        const existingPlate = await DB.prepare('SELECT id FROM vehicles WHERE plateNumber = ?').get(driverVehiclePlate);
+        if (existingPlate) return res.status(409).json({ success: false, error: 'That vehicle plate is already registered.' });
       }
     }
 
@@ -131,8 +123,8 @@ router.post('/register', authLimiter, async (req, res) => {
 
     await DB.transaction(async (tx) => {
       await tx.prepare(`
-        INSERT INTO users (id, role, fullName, phone, email, passwordHash, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO users (id, role, fullName, phone, email, passwordHash, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName, companyId)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         userId,
         normalizedRole,
@@ -145,7 +137,8 @@ router.post('/register', authLimiter, async (req, res) => {
         normalizedRole === 'DRIVER' ? String(companyName || '').trim() : (normalizedRole === 'ADMIN' ? String(companyName || '').trim() : ''),
         driverVehiclePlate,
         normalizedRole === 'PASSENGER' ? String(appliedRouteId || '').trim() : '',
-        normalizedRole === 'PASSENGER' ? String(appliedRouteName || '').trim() : ''
+        normalizedRole === 'PASSENGER' ? String(appliedRouteName || '').trim() : '',
+        normalizedRole === 'DRIVER' && registeredCompany ? registeredCompany.id : null
       );
 
       if (normalizedRole === 'ADMIN' && String(companyName || '').trim().length >= 2) {
@@ -153,20 +146,12 @@ router.post('/register', authLimiter, async (req, res) => {
         await tx.prepare("INSERT INTO transport_companies (id, name, status) VALUES (?, ?, 'ACTIVE')").run(companyId, String(companyName).trim());
       }
 
-      if (normalizedRole === 'DRIVER') {
+      if (normalizedRole === 'DRIVER' && !registeredCompany) {
         const vehicleId = `veh_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
         await tx.prepare(`
           INSERT INTO vehicles (id, plateNumber, model, vehicleType, capacityLimit, currentOccupancy, assignedRouteId, driverId, driverName, status)
           VALUES (?, ?, ?, ?, ?, 0, NULL, ?, ?, 'OFF_DUTY')
-        `).run(
-          vehicleId,
-          driverVehiclePlate,
-          driverVehicleModel,
-          driverVehicleType,
-          vehicleCapacities[driverVehicleType],
-          userId,
-          fullName.trim()
-        );
+        `).run(vehicleId, driverVehiclePlate, driverVehicleModel, driverVehicleType, vehicleCapacities[driverVehicleType], userId, fullName.trim());
       }
     });
 
@@ -222,7 +207,7 @@ router.post('/register', authLimiter, async (req, res) => {
       },
       subscription: initialSub,
       message: normalizedRole === 'DRIVER'
-        ? 'Thank you for registering. An administrator will review your licence and vehicle, approve your account, assign your route, and contact you when your account is ready.'
+        ? (registeredCompany ? 'Thank you for registering for Intercity Travel. Your company will review your driver profile and assign a company-owned vehicle and route.' : 'Thank you for registering for Daily Commute. Your vehicle and driving licence will be reviewed before route assignment.')
         : (normalizedRole === 'PASSENGER' && appliedRouteId
           ? 'Account created. Subscription is PENDING payment; ask an administrator for a manual test recharge during testing.'
           : 'Registration successful.')
