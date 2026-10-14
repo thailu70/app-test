@@ -150,7 +150,7 @@ router.post('/register', authLimiter, async (req, res) => {
 
       if (normalizedRole === 'ADMIN' && String(companyName || '').trim().length >= 2) {
         const companyId = 'company_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
-        await tx.prepare("INSERT INTO transport_companies (id, name, status) VALUES (?, ?, 'ACTIVE') ON CONFLICT (name) DO NOTHING").run(companyId, String(companyName).trim());
+        await tx.prepare("INSERT INTO transport_companies (id, name, status) VALUES (?, ?, 'ACTIVE')").run(companyId, String(companyName).trim());
       }
 
       if (normalizedRole === 'DRIVER') {
