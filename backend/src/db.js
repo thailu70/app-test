@@ -476,6 +476,15 @@ function initSqliteSchema() {
   `);
 }
 
+function migrateSqliteCompanyId() {
+  if (!sqliteDb) return;
+  // CREATE TABLE IF NOT EXISTS does not alter older databases.
+  const userColumns = sqliteDb.prepare('PRAGMA table_info(users)').all();
+  if (!userColumns.some((column) => column.name === 'companyId')) {
+    sqliteDb.exec("ALTER TABLE users ADD COLUMN companyId TEXT DEFAULT ''");
+  }
+}
+
 function seedSqliteData() {
   if (!sqliteDb) return;
   const count = sqliteDb.prepare('SELECT COUNT(*) as c FROM routes').get().c;
@@ -532,6 +541,7 @@ function seedSqliteData() {
 }
 
 initSqliteSchema();
+migrateSqliteCompanyId();
 seedSqliteData();
 
 module.exports = { DB };
