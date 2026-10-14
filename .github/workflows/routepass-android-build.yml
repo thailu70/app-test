@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/routepass-browse-first-ui-2026-10-13
+      - feature/passo-dual-ownership-company-portal-2026-10-14
     paths:
       - ".github/workflows/routepass-android-build.yml"
       - "app/**"
@@ -28,10 +29,10 @@ jobs:
     name: Build installable Android test APK
     runs-on: ubuntu-latest
     steps:
-      - name: Check out browse-first UI feature branch
+      - name: Check out triggering branch
         uses: actions/checkout@v4
         with:
-          ref: feature/routepass-browse-first-ui-2026-10-13
+          ref: ${{ github.ref_name }}
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
