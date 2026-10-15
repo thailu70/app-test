@@ -97,4 +97,69 @@ router.post('/operations/assignments',authenticate,requireRole('COMPANY'),async(
  res.status(201).json({success:true,assignment:{id,companyId:cid,routeId,driverId,vehicleId,status:'ACTIVE'}});
  }catch(e){console.error('[Company] assignment:',e);res.status(500).json({success:false,error:'Could not assign route.'});}
 });
+
+/** Company-scoped driver approvals. */
+router.get('/operations/drivers', authenticate, requireRole('COMPANY'), async (req,res) => {
+  try { const companyId=req.user.companyId||req.user.id;
+    const drivers=await DB.prepare("SELECT id,fullName,phone,licenseNumber,status,createdAt FROM users WHERE role='DRIVER' AND companyId=? ORDER BY createdAt DESC").all(companyId);
+    res.json({success:true,drivers});
+  } catch(e){console.error('[Company] drivers:',e);res.status(500).json({success:false,error:'Could not load drivers.'});}
+});
+router.patch('/operations/drivers/:id/approval', authenticate, requireRole('COMPANY'), async (req,res) => {
+  try { const companyId=req.user.companyId||req.user.id, action=String(req.body.action||'').toUpperCase();
+    if(!['APPROVE','REJECT'].includes(action)) return res.status(400).json({success:false,error:'Choose APPROVE or REJECT.'});
+    const driver=await DB.prepare("SELECT id,status FROM users WHERE id=? AND role='DRIVER' AND companyId=?").get(req.params.id,companyId);
+    if(!driver) return res.status(404).json({success:false,error:'Driver not found in your company.'});
+    if(driver.status!=='PENDING' && action==='APPROVE') return res.status(409).json({success:false,error:'Only pending drivers can be approved.'});
+    const status=action==='APPROVE'?'ACTIVE':'INACTIVE';
+    await DB.prepare("UPDATE users SET status=? WHERE id=? AND companyId=? AND role='DRIVER'").run(status,req.params.id,companyId);
+    res.json({success:true,driver:{id:req.params.id,status},message:action==='APPROVE'?'Driver approved. Assign a company vehicle and route next.':'Driver application rejected.'});
+  } catch(e){console.error('[Company] driver approval:',e);res.status(500).json({success:false,error:'Could not update driver approval.'});}
+});
+
+/** Company-owned routes. */
+router.post('/operations/routes', authenticate, requireRole('COMPANY'), async (req,res) => {
+  try { const companyId=req.user.companyId||req.user.id, name=String(req.body.name||'').trim(), nameAm=String(req.body.nameAm||name).trim();
+    if(name.length<2) return res.status(400).json({success:false,error:'Route name is required.'});
+    const id='route_'+crypto.randomUUID().replace(/-/g,'').slice(0,12);
+    await DB.prepare('INSERT INTO routes (id,name,nameAm,description,morningDeparture,eveningDeparture,distanceKm,basePriceEtb,active,companyId) VALUES (?,?,?,?,?,?,?,?,TRUE,?)')
+      .run(id,name,nameAm,String(req.body.description||'').trim(),String(req.body.morningDeparture||'06:30'),String(req.body.eveningDeparture||'17:30'),Math.max(0.1,Number(req.body.distanceKm)||10),Math.max(0,Number(req.body.basePriceEtb)||0),companyId);
+    res.status(201).json({success:true,route:await DB.prepare('SELECT * FROM routes WHERE id=? AND companyId=?').get(id,companyId)});
+  } catch(e){console.error('[Company] create route:',e);res.status(500).json({success:false,error:'Could not create route. Check that the company route migration has been applied.'});}
+});
+router.put('/operations/routes/:id', authenticate, requireRole('COMPANY'), async (req,res) => {
+  try { const companyId=req.user.companyId||req.user.id, current=await DB.prepare('SELECT * FROM routes WHERE id=? AND companyId=?').get(req.params.id,companyId);
+    if(!current) return res.status(404).json({success:false,error:'Route not found for this company.'});
+    const name=String(req.body.name??current.name).trim(), nameAm=String(req.body.nameAm??current.nameAm??name).trim();
+    if(!name) return res.status(400).json({success:false,error:'Route name is required.'});
+    await DB.prepare('UPDATE routes SET name=?,nameAm=?,description=?,morningDeparture=?,eveningDeparture=?,distanceKm=?,basePriceEtb=?,active=? WHERE id=? AND companyId=?')
+      .run(name,nameAm,String(req.body.description??current.description??''),String(req.body.morningDeparture??current.morningDeparture??'06:30'),String(req.body.eveningDeparture??current.eveningDeparture??'17:30'),Math.max(0.1,Number(req.body.distanceKm??current.distanceKm)||10),Math.max(0,Number(req.body.basePriceEtb??current.basePriceEtb)||0),req.body.active===undefined?current.active:Boolean(req.body.active),req.params.id,companyId);
+    res.json({success:true,route:await DB.prepare('SELECT * FROM routes WHERE id=? AND companyId=?').get(req.params.id,companyId)});
+  } catch(e){console.error('[Company] update route:',e);res.status(500).json({success:false,error:'Could not update route.'});}
+});
+
+/** Bookings and passenger roster limited to this company's active route assignments. */
+router.get('/operations/bookings', authenticate, requireRole('COMPANY'), async (req,res) => {
+  try { const companyId=req.user.companyId||req.user.id;
+    const bookings=await DB.prepare(`
+      SELECT s.id AS subscription_id,s.subscriptionStatus AS subscription_status,s.paymentStatus AS payment_status,
+        s.startDate AS start_date,s.endDate AS end_date,s.daysRemaining AS days_remaining,
+        s.pickupStopId AS pickup_stop_id,s.destinationStopId AS destination_stop_id,
+        u.id AS passenger_id,u.fullName AS passenger_name,u.phone AS passenger_phone,
+        r.id AS route_id,r.name AS route_name,a.driver_id,a.vehicle_id,
+        v.plateNumber AS vehicle_plate,v.model AS vehicle_model
+      FROM subscriptions s JOIN users u ON u.id=s.passengerId JOIN routes r ON r.id=s.routeId
+      JOIN company_route_assignments a ON a.route_id=r.id AND a.company_id=? AND a.status='ACTIVE'
+      LEFT JOIN vehicles v ON v.id=a.vehicle_id ORDER BY r.name,u.fullName
+    `).all(companyId);
+    const roster=await DB.prepare(`
+      SELECT c.id AS checkin_id,c.tripId AS trip_id,c.passengerId AS passenger_id,c.passengerName AS passenger_name,
+        c.routeId AS route_id,c.stopName AS stop_name,c.status,c.timestamp,c.vehicleId AS vehicle_id,c.driverId AS driver_id
+      FROM checkin_records c JOIN company_route_assignments a ON a.route_id=c.routeId AND a.company_id=? AND a.status='ACTIVE'
+      ORDER BY c.timestamp DESC LIMIT 500
+    `).all(companyId);
+    res.json({success:true,bookings,roster});
+  } catch(e){console.error('[Company] bookings/roster:',e);res.status(500).json({success:false,error:'Could not load booking details and passenger roster.'});}
+});
+
 module.exports=router;
