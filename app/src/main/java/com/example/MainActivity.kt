@@ -1,5 +1,7 @@
 package com.example
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -17,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -62,6 +65,7 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainTransportApp(viewModel: MainViewModel) {
+    val context = LocalContext.current
     val isAuthenticated by viewModel.isAuthenticated.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val currentRole by viewModel.currentRole.collectAsState()
@@ -99,7 +103,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                     showPublicHome = false
                 },
                 onDriverAccess = { requestedAuthPortal = AppRole.DRIVER; requestedRegisterFirst = false; requestedRouteId = null; requestedRouteName = null; requestedServiceTier = null; showPublicHome = false },
-                onCompanyAccess = { requestedAuthPortal = AppRole.ADMIN; requestedRegisterFirst = false; requestedRouteId = null; requestedRouteName = null; requestedServiceTier = null; showPublicHome = false }
+                onCompanyAccess = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://routepass.duckdns.org/company/"))) }
             )
         } else {
         // Independent Authentication Screen (Passenger, Driver/Transporter, Operator/Admin)
