@@ -163,8 +163,8 @@ fun AuthScreen(
             .fillMaxSize()
             .padding(horizontal = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(top = 24.dp, bottom = 48.dp)
+        verticalArrangement = Arrangement.spacedBy(if (!isRegisterMode) 8.dp else 16.dp),
+        contentPadding = PaddingValues(top = if (!isRegisterMode) 6.dp else 16.dp, bottom = if (!isRegisterMode) 6.dp else 28.dp)
     ) {
         // PASSO sign-in identity panel, styled to match the supplied reference.
         item {
@@ -181,11 +181,11 @@ fun AuthScreen(
                                 listOf(Color(0xFF172D58), Color(0xFF075A78), Color(0xFF078875))
                             )
                         )
-                        .padding(horizontal = 18.dp, vertical = 20.dp),
+                        .padding(horizontal = 14.dp, vertical = if (!isRegisterMode) 10.dp else 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(9.dp)
+                    verticalArrangement = Arrangement.spacedBy(if (!isRegisterMode) 4.dp else 8.dp)
                 ) {
-                    Surface(color = Color.White.copy(alpha = 0.16f), shape = CircleShape, modifier = Modifier.size(62.dp)) {
+                    Surface(color = Color.White.copy(alpha = 0.16f), shape = CircleShape, modifier = Modifier.size(if (!isRegisterMode) 42.dp else 58.dp)) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp))
                         }
@@ -202,12 +202,12 @@ fun AuthScreen(
                             "የተቀናጀ የኢትዮጵያ የትራንስፖርት መግቢያ • ገለልተኛ ፖርታሎች"
                         else
                             "Ethiopian Scheduled Transit • Independent Portals",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = if (!isRegisterMode) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.88f),
                         textAlign = TextAlign.Center
                     )
                     Surface(color = Color.White.copy(alpha = 0.94f), shape = RoundedCornerShape(50.dp)) {
-                        Text("PASSENGER PORTAL", color = Color(0xFF154A3A), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp))
+                        Text("PASSENGER PORTAL", color = Color(0xFF154A3A), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = if (!isRegisterMode) 4.dp else 7.dp))
                     }
                 }
             }
@@ -850,6 +850,7 @@ fun AuthScreen(
                             singleLine = true,
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .then(if (!isRegisterMode) Modifier.height(54.dp) else Modifier)
                                 .testTag("auth_phone_input")
                         )
 
@@ -865,12 +866,16 @@ fun AuthScreen(
                             singleLine = true,
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .then(if (!isRegisterMode) Modifier.height(54.dp) else Modifier)
                                 .testTag("auth_password_input")
                         )
 
                         if (!isRegisterMode) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                TextButton(onClick = { showPasswordHelp = true }) { Text("Forgot password?", color = if (portal == AppRole.DRIVER) Color(0xFF1769C2) else TransportGreenPrimary) }
+                            Row(Modifier.fillMaxWidth().height(28.dp), horizontalArrangement = Arrangement.End) {
+                                TextButton(
+                                    modifier = Modifier.defaultMinSize(minHeight = 28.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                    onClick = { showPasswordHelp = true }) { Text("Forgot password?", color = if (portal == AppRole.DRIVER) Color(0xFF1769C2) else TransportGreenPrimary) }
                             }
                         }
 
@@ -985,12 +990,13 @@ fun AuthScreen(
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(50.dp)
+                                .height(if (!isRegisterMode) 44.dp else 50.dp)
                                 .testTag("auth_submit_button")
                         ) {
                             Text(
                                 text = if (isRegisterMode && portal == AppRole.DRIVER) "SUBMIT DRIVER REGISTRATION" else if (isRegisterMode) "COMPLETE REGISTRATION & ENTER" else "SIGN IN TO PORTAL",
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                fontSize = if (!isRegisterMode) 13.sp else 14.sp
                             )
                         }
                     }
