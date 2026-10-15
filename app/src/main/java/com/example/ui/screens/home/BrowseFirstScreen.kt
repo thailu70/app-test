@@ -62,6 +62,17 @@ fun BrowseFirstScreen(
     var selectedRoute by remember { mutableStateOf<RouteEntity?>(null) }
     var selectedTier by remember { mutableStateOf("Economy") }
     var routeFilter by remember { mutableStateOf(0) }
+    var routeSearch by remember { mutableStateOf("") }
+    val commuterRoutes = routes.filter { route ->
+        route.active &&
+            route.name.contains(routeSearch.trim(), ignoreCase = true).let { nameMatches ->
+                nameMatches && when (routeFilter) {
+                    1 -> route.morningDeparture.isNotBlank()
+                    2 -> route.eveningDeparture.isNotBlank()
+                    else -> true
+                }
+            }
+    }
     var intercityTripType by remember { mutableStateOf("One-way") }
     var intercityPassengers by remember { mutableIntStateOf(1) }
     var intercityDepartureDate by remember { mutableStateOf<Long?>(null) }
@@ -138,40 +149,70 @@ fun BrowseFirstScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         if (selectedSection == 0) {
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                Surface(shape = RoundedCornerShape(14.dp), color = HomeGreen, modifier = Modifier.size(54.dp)) {
-                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp)) }
-                }
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                    Text("PASSO", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = HomeInk)
-                    Text("Tap. Move. Clear.", style = MaterialTheme.typography.bodySmall, color = Slate600)
-                }
-                TextButton(onClick = { onPassengerContinue(false, null, null, null) }) { Text("Sign in", color = HomeGreen, fontWeight = FontWeight.Bold) }
-            }
-        }
-        item {
-            Surface(shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp, bottomStart = 26.dp, bottomEnd = 26.dp), color = HomeBlue, modifier = Modifier.fillMaxWidth()) {
-                Box(modifier = Modifier.fillMaxWidth().height(252.dp)) {
-                    Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(Color(0xFF0757B8), Color(0xFF06356D), Color(0xFF00A982)))))
-                    Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0x22000000), Color(0x33000000), Color(0x55000000)))))
-                    Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color.White, modifier = Modifier.size(48.dp))
-                            Text("PASSO", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                            Text("Tap. Move. Clear.", style = MaterialTheme.typography.bodyMedium, color = Color.White)
+            item {
+                Surface(
+                    shape = RoundedCornerShape(28.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    color = HomeBlue
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(188.dp)
+                            .background(
+                                androidx.compose.ui.graphics.Brush.linearGradient(
+                                    listOf(Color(0xFF142D55), Color(0xFF075B83), Color(0xFF008F78))
+                                )
+                            )
+                            .padding(20.dp)
+                    ) {
+                        Column(
+                            Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Surface(color = Color.White.copy(alpha = 0.16f), shape = RoundedCornerShape(13.dp)) {
+                                        Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color.White, modifier = Modifier.padding(10.dp).size(26.dp))
+                                    }
+                                    Column {
+                                        Text("PASSO", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                                        Text("Tap. Move. Clear.", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.86f))
+                                    }
+                                }
+                                TextButton(onClick = { onPassengerContinue(false, null, null, null) }) {
+                                    Text("Sign in", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                Text("Your journey starts here", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                                Surface(color = Color.White.copy(alpha = 0.92f), shape = RoundedCornerShape(50.dp)) {
+                                    Text("Passenger Portal", color = HomeInk, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp))
+                                }
+                            }
                         }
-                        Text("Travel across your city and Ethiopia", style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold)
                     }
                 }
             }
-        }
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ServiceHomeCard("Daily Commuter", "Monthly or daily", "Work • School • Office", Icons.Default.DirectionsBus, HomeGreen, false) { selectedSection = 1; selectedService = 0 }
-                ServiceHomeCard("Intercity Travel", "One-way or return tickets", "Across Ethiopia", Icons.Default.Map, HomeBlue, false) { selectedSection = 2; selectedService = 1 }
+            item {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    ServiceHomeCard("Daily Commuter", "Monthly commute", "Work • School • Office", Icons.Default.DirectionsBus, HomeGreen, false) {
+                        selectedSection = 1
+                        selectedService = 0
+                    }
+                    ServiceHomeCard("Intercity Travel", "One-way or return", "Across Ethiopia", Icons.Default.Map, HomeBlue, false) {
+                        selectedSection = 2
+                        selectedService = 1
+                    }
+                }
             }
-        }
         } else {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -190,20 +231,50 @@ fun BrowseFirstScreen(
                 }
             }
             item {
-                Row(modifier = Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    listOf("All Routes", "Near Me", "Popular").forEachIndexed { index, label ->
-                        Column(Modifier.weight(1f).clickable { routeFilter = index }.padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(label, color = if (routeFilter == index) HomeGreen else Slate600, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
-                            Spacer(Modifier.height(8.dp))
-                            Box(Modifier.fillMaxWidth().height(if (routeFilter == index) 3.dp else 1.dp).background(if (routeFilter == index) HomeGreen else Color(0xFFE5E9E7)))
+                OutlinedTextField(
+                    value = routeSearch,
+                    onValueChange = { routeSearch = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(18.dp),
+                    placeholder = { Text("Search by route") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = HomeGreen) },
+                    trailingIcon = {
+                        if (routeSearch.isNotEmpty()) {
+                            IconButton(onClick = { routeSearch = "" }) {
+                                Icon(Icons.Default.Info, contentDescription = "Clear search")
+                            }
                         }
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = HomeGreen,
+                        unfocusedBorderColor = Color(0xFFE1E8E3),
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White
+                    )
+                )
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(16.dp)).padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    listOf("All routes", "Morning", "Evening").forEachIndexed { index, label ->
+                        FilterChip(
+                            selected = routeFilter == index,
+                            onClick = { routeFilter = index },
+                            label = { Text(label, maxLines = 1) },
+                            modifier = Modifier.weight(1f),
+                            leadingIcon = if (routeFilter == index) ({ Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) }) else null,
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = HomeMint, selectedLabelColor = HomeGreen)
+                        )
                     }
                 }
             }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Find your daily route", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = HomeInk)
-                    Text("Compare routes, departure times and configured monthly fares. Sign in only when you are ready to request a service.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                    Text("Available routes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = HomeInk)
+                    Text("Compare departure times and monthly fares. Sign in only when you are ready to request a service.", style = MaterialTheme.typography.bodySmall, color = Slate600)
                 }
             }
             if (routes.filter { it.active }.isEmpty()) {
@@ -215,9 +286,20 @@ fun BrowseFirstScreen(
                         }
                     }
                 }
+            } else if (commuterRoutes.isEmpty()) {
+                item {
+                    Surface(color = Color.White, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.Search, contentDescription = null, tint = HomeGreen, modifier = Modifier.size(30.dp))
+                            Text("No matching routes", fontWeight = FontWeight.Bold, color = HomeInk)
+                            Text("Try another route name or clear the search.", color = Slate600, style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { routeSearch = ""; routeFilter = 0 }) { Text("Clear filters", color = HomeGreen) }
+                        }
+                    }
+                }
             } else {
-                items(routes.filter { it.active }.size) { index ->
-                    val route = routes.filter { it.active }[index]
+                items(commuterRoutes.size) { index ->
+                    val route = commuterRoutes[index]
                     CommuterRouteCard(route = route, selectedTier = selectedTier, onTierSelected = { tier -> selectedTier = tier; selectedRoute = route }, onClick = { selectedRoute = route })
                 }
             }
@@ -331,17 +413,26 @@ fun BrowseFirstScreen(
 
 @Composable
 private fun ServiceHomeCard(title: String, subtitle: String, description: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, selected: Boolean, onClick: () -> Unit) {
-    Surface(color = Color.White, shape = RoundedCornerShape(18.dp), tonalElevation = 2.dp, border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) tint.copy(alpha = 0.35f) else Color(0xFFE5E9E7)), modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Surface(color = tint, shape = RoundedCornerShape(16.dp), modifier = Modifier.size(64.dp)) {
-                Box(contentAlignment = Alignment.Center) { Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(38.dp)) }
+    Surface(
+        color = Color.White,
+        shape = RoundedCornerShape(20.dp),
+        tonalElevation = 1.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) tint.copy(alpha = 0.45f) else Color(0xFFE5E9E7)),
+        modifier = Modifier.weight(1f).heightIn(min = 152.dp).clickable(onClick = onClick)
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 15.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+            horizontalAlignment = Alignment.Start
+        ) {
+            Surface(color = tint.copy(alpha = 0.12f), shape = RoundedCornerShape(14.dp)) {
+                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.padding(10.dp).size(28.dp))
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = tint)
-                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = HomeInk)
-                Text(description, style = MaterialTheme.typography.bodySmall, color = Slate600)
-            }
-            Icon(Icons.Default.ArrowForward, contentDescription = "Open $title", tint = tint)
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = HomeInk, maxLines = 2)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = tint, fontWeight = FontWeight.SemiBold, maxLines = 2)
+            Text(description, style = MaterialTheme.typography.labelSmall, color = Slate600, maxLines = 2)
+            Spacer(Modifier.height(1.dp))
+            Icon(Icons.Default.ArrowForward, contentDescription = "Open $title", tint = tint, modifier = Modifier.size(19.dp))
         }
     }
 }
