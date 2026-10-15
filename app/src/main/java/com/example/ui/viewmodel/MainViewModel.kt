@@ -686,7 +686,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     fun verifyQrToken(rawToken: String) {
         viewModelScope.launch {
             val stops = routeStops.value
-            val currentStop = stops.getOrNull(_driverTrip.value.currentStopIndex)?.stopName ?: "Bole Atlas"
+            val currentStop = stops.getOrNull(_driverTrip.value.currentStopIndex)?.stopName ?: "No assigned pickup"
             val tripState = _driverTrip.value
             if (!tripState.isNavigating || tripState.tripId.isBlank() || tripState.vehicleId.isBlank()) {
                 _scanResult.value = QrValidationResult.Invalid(
