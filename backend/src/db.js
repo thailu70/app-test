@@ -61,6 +61,8 @@ function normalizeRow(row) {
     if (lowerKey === 'tripid' || lowerKey === 'trip_id') normalized.tripId = val;
     if (lowerKey === 'currentstop' || lowerKey === 'current_stop') normalized.currentStop = val;
     if (lowerKey === 'distancekm' || lowerKey === 'distance_km') normalized.distanceKm = val;
+    if (lowerKey === 'routetype' || lowerKey === 'route_type') normalized.routeType = val;
+    if (lowerKey === 'departuretime' || lowerKey === 'departure_time') normalized.departureTime = val;
     if (lowerKey === 'scheduledmorningtime' || lowerKey === 'scheduled_morning_time') normalized.scheduledMorningTime = val;
     if (lowerKey === 'scheduledeveningtime' || lowerKey === 'scheduled_evening_time') normalized.scheduledEveningTime = val;
     if (lowerKey === 'maxcapacity' || lowerKey === 'max_capacity') normalized.maxCapacity = val;
