@@ -300,7 +300,7 @@ fun BrowseFirstScreen(
             } else {
                 items(commuterRoutes.size) { index ->
                     val route = commuterRoutes[index]
-                    CommuterRouteCard(route = route, selectedTier = selectedTier, onTierSelected = { tier -> selectedTier = tier; selectedRoute = route }, onClick = { selectedRoute = route })
+                    CommuterRouteCard(route = route, onClick = { selectedRoute = route })
                 }
             }
 
@@ -536,24 +536,44 @@ private fun RouteInfoTile(label: String, value: String, modifier: Modifier = Mod
 }
 
 @Composable
-private fun CommuterRouteCard(route: RouteEntity, selectedTier: String, onTierSelected: (String) -> Unit, onClick: () -> Unit) {
-    Surface(color = Color.White, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().clickable(onClick = onClick), tonalElevation = 1.dp) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(route.name, color = HomeInk, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
-                    Text("Mon – Fri • Two way", color = Slate600, style = MaterialTheme.typography.bodyMedium)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = HomeBlue, modifier = Modifier.size(17.dp))
-                        Text(route.morningDeparture + " & " + route.eveningDeparture, color = Slate600, style = MaterialTheme.typography.bodySmall)
-                    }
+private fun CommuterRouteCard(route: RouteEntity, onClick: () -> Unit) {
+    Surface(
+        color = Color.White,
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        tonalElevation = 1.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE5E9E7))
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                Surface(color = HomeMint, shape = RoundedCornerShape(13.dp)) {
+                    Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = HomeGreen, modifier = Modifier.padding(10.dp).size(25.dp))
                 }
-                Icon(Icons.Default.KeyboardArrowRight, contentDescription = "View route", tint = HomeInk, modifier = Modifier.size(25.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(route.name, color = HomeInk, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                    if (route.nameAm.isNotBlank()) Text(route.nameAm, color = Slate600, style = MaterialTheme.typography.bodySmall)
+                }
+                Icon(Icons.Default.KeyboardArrowRight, contentDescription = "View route details", tint = HomeGreen, modifier = Modifier.size(26.dp))
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-                TierPriceCard("VIP", "Premium", "Fare not set", "Awaiting assignment", selectedTier == "VIP", Color(0xFFFFF3D6), Color(0xFFB87500), Modifier.weight(1f)) { onTierSelected("VIP") }
-                TierPriceCard("Deluxe", "Comfort", "Fare not set", "Awaiting assignment", selectedTier == "Deluxe", Color(0xFFEAF1FF), HomeBlue, Modifier.weight(1f)) { onTierSelected("Deluxe") }
-                TierPriceCard("Economy", "Standard", "ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), "Awaiting assignment", selectedTier == "Economy", HomeMint, HomeGreen, Modifier.weight(1f)) { onTierSelected("Economy") }
+            HorizontalDivider(color = Color(0xFFE9EEEB))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Morning pickup", color = Slate600, style = MaterialTheme.typography.labelSmall)
+                    Text(route.morningDeparture.ifBlank { "Not set" }, color = HomeInk, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Evening return", color = Slate600, style = MaterialTheme.typography.labelSmall)
+                    Text(route.eveningDeparture.ifBlank { "Not set" }, color = HomeInk, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                }
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Monthly from", color = Slate600, style = MaterialTheme.typography.labelSmall)
+                    Text("ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), color = HomeGreen, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                Text("View details", color = HomeGreen, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.width(5.dp))
+                Icon(Icons.Default.ArrowForward, contentDescription = null, tint = HomeGreen, modifier = Modifier.size(16.dp))
             }
         }
     }
