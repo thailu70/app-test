@@ -339,9 +339,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
 }
 
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private @Composable
 private fun CompanyPortalField(
     label: String,
     value: String,
@@ -645,7 +643,7 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
                     OutlinedButton(onClick = { loadSection() }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Refresh dashboard") }
                 }
                 "Fleet" -> {
-                    Text("Fleet management", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = TransportNavy)
+                    Text("Fleet management", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Color(0xFF17233C))
                     Text("Register vehicles owned by your company and assign them to approved drivers.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     CompanyPortalField("Plate number", plate, { plate = it })
                     CompanyPortalField("Vehicle model", model, { model = it })
@@ -705,7 +703,7 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
                     }, enabled = !busy && assignRouteId.isNotBlank() && assignDriverId.isNotBlank() && assignVehicleId.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Assign driver, vehicle and route") }
                 }
                 "Drivers" -> {
-                    Text("Drivers and approvals", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = TransportNavy)
+                    Text("Drivers and approvals", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Color(0xFF17233C))
                     Text("Review applications and manage your approved driving team.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     drivers.forEach { d -> Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(d["fullName"]?.toString() ?: "Driver", fontWeight = FontWeight.Bold)
@@ -719,7 +717,7 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
                     if (drivers.isEmpty()) Text("No drivers registered with this company yet.")
                 }
                 "Routes" -> {
-                    Text("Routes and schedules", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = TransportNavy)
+                    Text("Routes and schedules", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Color(0xFF17233C))
                     Text("Set departure times, distance and fare for each company route.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     CompanyPortalField("Route name", routeName, { routeName = it })
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) { CompanyPortalField("Morning departure", morning, { morning = it }, modifier = Modifier.weight(1f)); CompanyPortalField("Evening departure", evening, { evening = it }, modifier = Modifier.weight(1f)) }
@@ -751,7 +749,7 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
                     if (routes.isEmpty()) Text("No company routes yet.")
                 }
                 "Bookings" -> {
-                    Text("Passenger bookings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = TransportNavy)
+                    Text("Passenger bookings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Color(0xFF17233C))
                     Text("Review passenger subscriptions, route assignments and vehicle details.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     bookings.forEach { b -> Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.padding(14.dp)) {
                         Text(b["passenger_name"]?.toString() ?: "Passenger", fontWeight = FontWeight.Bold)
