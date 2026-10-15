@@ -203,11 +203,11 @@ fun BrowseFirstScreen(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    ServiceHomeCard("Daily Commuter", "Monthly commute", "Work • School • Office", Icons.Default.DirectionsBus, HomeGreen, false) {
+                    ServiceHomeCard("Daily Commuter", "Monthly commute", "Work • School • Office", Icons.Default.DirectionsBus, HomeGreen, false, modifier = Modifier.weight(1f)) {
                         selectedSection = 1
                         selectedService = 0
                     }
-                    ServiceHomeCard("Intercity Travel", "One-way or return", "Across Ethiopia", Icons.Default.Map, HomeBlue, false) {
+                    ServiceHomeCard("Intercity Travel", "One-way or return", "Across Ethiopia", Icons.Default.Map, HomeBlue, false, modifier = Modifier.weight(1f)) {
                         selectedSection = 2
                         selectedService = 1
                     }
@@ -412,13 +412,13 @@ fun BrowseFirstScreen(
 }
 
 @Composable
-private fun ServiceHomeCard(title: String, subtitle: String, description: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, selected: Boolean, onClick: () -> Unit) {
+private fun ServiceHomeCard(title: String, subtitle: String, description: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(
         color = Color.White,
         shape = RoundedCornerShape(20.dp),
         tonalElevation = 1.dp,
         border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) tint.copy(alpha = 0.45f) else Color(0xFFE5E9E7)),
-        modifier = Modifier.weight(1f).heightIn(min = 152.dp).clickable(onClick = onClick)
+        modifier = modifier.fillMaxWidth().heightIn(min = 152.dp).clickable(onClick = onClick)
     ) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 15.dp),
