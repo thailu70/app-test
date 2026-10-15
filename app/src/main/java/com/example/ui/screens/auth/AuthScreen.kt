@@ -946,8 +946,9 @@ fun AuthScreen(
                                             role = portal,
                                             licenseNumber = licenseNumber,
                                             companyName = if (portal == AppRole.DRIVER && driverServiceMode == "Intercity") driverTransportCompany.trim() else companyName,
-                                            assignedVehiclePlate = vehiclePlate,
-                                            vehicleModel = vehicleModel,
+                                            // City Travel drivers use company-owned vehicles; never submit stale personal vehicle fields.
+                                            assignedVehiclePlate = if (portal == AppRole.DRIVER && driverServiceMode == "Intercity") "" else vehiclePlate,
+                                            vehicleModel = if (portal == AppRole.DRIVER && driverServiceMode == "Intercity") "" else vehicleModel,
                                             vehicleType = vehicleType,
                                             appliedRouteId = when { portal == AppRole.DRIVER && (driverServiceMode == "Intercity" || driverRouteMode == "custom") -> ""; isCustomCommuterRequest -> ""; else -> selectedRouteId },
                                             appliedRouteName = when {
