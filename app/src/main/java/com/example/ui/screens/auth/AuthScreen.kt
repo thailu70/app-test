@@ -1,5 +1,7 @@
 package com.example.ui.screens.auth
 
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -20,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -45,6 +48,7 @@ fun AuthScreen(
     initialRouteName: String? = null,
     initialServiceTier: String? = null
 ) {
+    val context = LocalContext.current
     val lang by viewModel.currentLanguage.collectAsState()
     val authError by viewModel.authError.collectAsState()
     val registrationMessage by viewModel.registrationMessage.collectAsState()
@@ -286,6 +290,25 @@ fun AuthScreen(
                 )
             }
 
+            // Company sign-up and login use the secured company portal.
+            item {
+                PortalOptionCard(
+                    title = if (lang == AppLanguage.AMHARIC) "የትራንስፖርት ድርጅት ፖርታል" else "Transport Company Portal",
+                    subtitle = if (lang == AppLanguage.AMHARIC)
+                        "የድርጅት ምዝገባ፣ መግቢያ፣ ተሽከርካሪዎች እና የጉዞ ምደባ"
+                    else
+                        "Company sign-up with an admin invitation code, secure login, fleet and trip assignments.",
+                    badge = "COMPANY ACCESS",
+                    icon = Icons.Default.Business,
+                    accentColor = Color(0xFF53677F),
+                    buttonText = if (lang == AppLanguage.AMHARIC) "የድርጅት ፖርታል ክፈት →" else "Open Company Sign-up / Login →",
+                    testTag = "open_company_portal_button",
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://routepass.duckdns.org/company/"))
+                        context.startActivity(intent)
+                    }
+                )
+            }
 
         }
 
@@ -414,7 +437,7 @@ fun AuthScreen(
 
                         if (isRegisterMode && portal == AppRole.DRIVER) {
                             Text(
-                                text = "Create your driver account and register the vehicle you own. Choose Daily Commuter, Intercity, or Both. Your account and documents may need review before trips are assigned.",
+                                text = "Daily Commute drivers register their own vehicle. For Intercity, the transport company owns and assigns the vehicle, so you do not enter a plate number here. Your driver profile must be approved before trips are assigned.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color(0xFF92400E),
                                 modifier = Modifier
@@ -473,6 +496,7 @@ fun AuthScreen(
                                         .testTag("auth_license_input")
                                 )
 
+                                if (driverServiceMode != "Intercity") {
                                 OutlinedTextField(
                                     value = vehiclePlate,
                                     onValueChange = { vehiclePlate = it.uppercase() },
@@ -530,6 +554,7 @@ fun AuthScreen(
                                             }
                                         }
                                     }
+                                }
                                 }
                             }
 
