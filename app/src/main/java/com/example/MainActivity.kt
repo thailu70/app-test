@@ -341,7 +341,73 @@ fun MainTransportApp(viewModel: MainViewModel) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CompanyPortalScreen(onExit: () -> Unit) {
+private @Composable
+private fun LiveFleetMap(vehicles: List<Map<String, Any>>) {
+    val points = vehicles.mapNotNull { vehicle ->
+        val latitude = vehicle["latitude"]?.toString()?.toDoubleOrNull()
+        val longitude = vehicle["longitude"]?.toString()?.toDoubleOrNull()
+        if (latitude != null && longitude != null && latitude in -90.0..90.0 && longitude in -180.0..180.0) {
+            Triple(latitude, longitude, (vehicle["plateNumber"] ?: vehicle["model"] ?: "Company vehicle").toString())
+        } else null
+    }
+    val markerJs = points.joinToString(",") { (lat, lon, label) ->
+        "{lat:$lat,lon:$lon,label:${org.json.JSONObject.quote(label)}}"
+    }
+    val html = """
+        <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+        <style>html,body,#map{height:100%;margin:0;background:#edf2f7}.leaflet-control-attribution{font-size:9px}</style>
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script></head><body><div id="map"></div>
+        <script>
+        var pts=[${markerJs}];
+        var map=L.map('map').setView(pts.length?[pts[0].lat,pts[0].lon]:[8.9806,38.7578],pts.length?12:11);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+        pts.forEach(function(p){L.marker([p.lat,p.lon]).addTo(map).bindPopup(p.label)});
+        if(pts.length>1){var group=L.featureGroup(pts.map(function(p){return L.marker([p.lat,p.lon])}));map.fitBounds(group.getBounds().pad(0.2))}
+        </script></body></html>
+    """.trimIndent()
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(shape = CircleShape, color = TransportGreenPrimary.copy(alpha = 0.12f)) {
+                    Icon(Icons.Default.MyLocation, contentDescription = null, tint = TransportGreenPrimary, modifier = Modifier.padding(10.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("Live fleet map", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("Vehicle positions refresh every 15 seconds", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(points.size.toString(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = TransportGreenPrimary)
+            }
+            if (points.isNotEmpty()) {
+                AndroidView(
+                    modifier = Modifier.fillMaxWidth().height(280.dp).clip(RoundedCornerShape(16.dp)),
+                    factory = { context ->
+                        WebView(context).apply {
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            webViewClient = WebViewClient()
+                            setBackgroundColor(AndroidColor.rgb(237, 242, 247))
+                        }
+                    },
+                    update = { webView ->
+                        val page = html.replace("${markerJs}", markerJs)
+                        webView.loadDataWithBaseURL("https://routepass.duckdns.org", page, "text/html", "UTF-8", null)
+                    }
+                )
+            } else {
+                Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(16.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.LocationSearching, contentDescription = null, modifier = Modifier.size(38.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Waiting for vehicle GPS", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("The map will show a vehicle when its driver sends valid GPS coordinates.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
+fun CompanyPortalScreen(onExit: () -> Unit) {
     val scope = rememberCoroutineScope()
     var registerMode by remember { mutableStateOf(false) }
     var companyName by remember { mutableStateOf("") }
@@ -549,14 +615,21 @@ private fun CompanyPortalScreen(onExit: () -> Unit) {
             message?.let { Text(it, color = StatusErrorRed) }
             when (section) {
                 "Overview" -> {
-                    Text("Operations overview", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Drivers" to "drivers", "Vehicles" to "vehicles", "Active routes" to "activeAssignments", "Live GPS" to "vehiclesReportingGps").forEach { (label, key) ->
-                            Card(Modifier.weight(1f)) { Column(Modifier.padding(10.dp)) { Text(label, style = MaterialTheme.typography.labelSmall); Text(summary[key]?.toString() ?: "—", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) } }
+                    Text("Operations overview", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = TransportNavy)
+                    Text("Your fleet at a glance", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        listOf("Drivers" to "drivers", "Vehicles" to "vehicles", "Assignments" to "activeAssignments", "GPS live" to "vehiclesReportingGps").forEach { (label, key) ->
+                            Card(Modifier.weight(1f), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(summary[key]?.toString() ?: "0", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = TransportGreenPrimary)
+                                }
+                            }
                         }
                     }
-                    Text("Manage your fleet, approve drivers, maintain routes, and review passenger bookings and check-ins.")
-                    OutlinedButton(onClick = { loadSection() }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Refresh overview") }
+                    LiveFleetMap(gpsVehicles)
+                    Text("Manage drivers, assign company vehicles and routes, and review passenger check-ins.", style = MaterialTheme.typography.bodyLarge)
+                    OutlinedButton(onClick = { loadSection() }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Refresh dashboard") }
                 }
                 "Fleet" -> {
                     Text("Company-owned vehicles", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
