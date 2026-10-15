@@ -463,8 +463,8 @@ fun DriverCockpitHeaderCard(
 ) {
     fun t(key: String) = AppStrings.get(key, lang)
 
-    val isFull = tripState.checkedInCount >= tripState.vehicleCapacity
-    val fillFraction = (tripState.checkedInCount.toFloat() / tripState.vehicleCapacity.toFloat()).coerceIn(0f, 1f)
+    val isFull = tripState.vehicleCapacity > 0 && tripState.checkedInCount >= tripState.vehicleCapacity
+    val fillFraction = if (tripState.vehicleCapacity > 0) (tripState.checkedInCount.toFloat() / tripState.vehicleCapacity.toFloat()).coerceIn(0f, 1f) else 0f
 
     Card(
         modifier = Modifier
@@ -492,7 +492,7 @@ fun DriverCockpitHeaderCard(
                         color = Color.White
                     )
                     Text(
-                        text = "${tripState.vehicleType} • Plate: $vehiclePlate",
+                        text = "${tripState.vehicleType} • Plate: ${vehiclePlate.ifBlank { "Not assigned" }}",
                         style = MaterialTheme.typography.bodySmall,
                         color = TransportGold
                     )
@@ -568,13 +568,13 @@ fun DriverCockpitHeaderCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = tripState.vehicleType.replace('_', ' '),
+                        text = if (tripState.vehicleCapacity > 0) tripState.vehicleType.replace('_', ' ') else "Awaiting company vehicle assignment",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Maximum ${tripState.vehicleCapacity} seats",
+                        text = if (tripState.vehicleCapacity > 0) "Maximum ${tripState.vehicleCapacity} seats" else "Capacity pending",
                         style = MaterialTheme.typography.labelMedium,
                         color = TransportGold,
                         fontWeight = FontWeight.Bold
@@ -596,7 +596,7 @@ fun DriverCockpitHeaderCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(text = t("todays_trips"), style = MaterialTheme.typography.labelSmall, color = Slate400)
-                    Text(text = "Scheduled trip (${tripState.departureTime})", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = TransportGold)
+                    Text(text = if (tripState.routeId.isBlank() || tripState.vehicleId.isBlank()) "No trip assigned" else "Scheduled trip (${tripState.departureTime})", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = TransportGold)
                     Text(text = routeName, style = MaterialTheme.typography.bodySmall, color = Color.White)
                 }
                 Column(horizontalAlignment = Alignment.End) {
@@ -606,7 +606,7 @@ fun DriverCockpitHeaderCard(
                         color = Slate400
                     )
                     Text(
-                        text = "${tripState.checkedInCount} / ${tripState.vehicleCapacity}",
+                        text = if (tripState.vehicleCapacity > 0) "${tripState.checkedInCount} / ${tripState.vehicleCapacity}" else "Not assigned",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.ExtraBold,
                         color = if (isFull) StatusErrorRed else StatusActiveGreen
@@ -615,7 +615,7 @@ fun DriverCockpitHeaderCard(
                         text = if (isFull)
                             "0 seats available (FULL)"
                         else
-                            "${tripState.vehicleCapacity - tripState.checkedInCount} seats available",
+                            if (tripState.vehicleCapacity > 0) "${tripState.vehicleCapacity - tripState.checkedInCount} seats available" else "Vehicle assignment pending",
                         style = MaterialTheme.typography.labelSmall,
                         color = if (isFull) StatusErrorRed else TransportGold,
                         fontWeight = FontWeight.Bold
