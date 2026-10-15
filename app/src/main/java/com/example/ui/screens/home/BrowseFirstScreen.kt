@@ -110,7 +110,7 @@ fun BrowseFirstScreen(
                             Text("Review the schedule and fare before continuing", style = MaterialTheme.typography.bodySmall, color = Slate600)
                         }
                         IconButton(onClick = { selectedRoute = null }) {
-                            Icon(Icons.Default.Close, contentDescription = "Close route details", tint = Slate600)
+                            Icon(Icons.Default.Clear, contentDescription = "Close route details", tint = Slate600)
                         }
                     }
                     HorizontalDivider(color = Color(0xFFE1E8E3))
