@@ -121,6 +121,7 @@ function translateSqlForPostgres(sql) {
     .replace(/\bpasswordHash\b/g, 'password_hash')
     .replace(/\blicenseNumber\b/g, 'license_number')
     .replace(/\bcompanyName\b/g, 'company_name')
+    .replace(/\bcompanyId\b/g, 'company_id')
     .replace(/\bassignedVehiclePlate\b/g, 'assigned_vehicle_plate')
     .replace(/\bappliedRouteId\b/g, 'applied_route_id')
     .replace(/\bappliedRouteName\b/g, 'applied_route_name')
