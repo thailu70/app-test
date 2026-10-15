@@ -78,7 +78,7 @@ router.post('/operations/vehicles', authenticate, requireRole('COMPANY'), async 
 });
 
 router.get('/operations/routes',authenticate,requireRole('COMPANY'),async(req,res)=>{
- try{const routes=await DB.prepare('SELECT a.id AS assignment_id,a.status AS assignment_status,a.driver_id,a.vehicle_id,r.* FROM company_route_assignments a JOIN routes r ON r.id=a.route_id WHERE a.company_id=? ORDER BY r.name').all(req.user.companyId||req.user.id);res.json({success:true,routes});}
+ try{const cid=req.user.companyId||req.user.id; const routes=await DB.prepare("SELECT r.*, a.id AS assignment_id, a.status AS assignment_status, a.driver_id, a.vehicle_id FROM routes r LEFT JOIN company_route_assignments a ON a.route_id=r.id AND a.company_id=? WHERE r.companyId=? OR a.company_id=? ORDER BY r.name").all(cid,cid,cid);res.json({success:true,routes});}
  catch(e){console.error('[Company] routes:',e);res.status(500).json({success:false,error:'Company routes unavailable.'});}
 });
 router.post('/operations/assignments',authenticate,requireRole('COMPANY'),async(req,res)=>{
