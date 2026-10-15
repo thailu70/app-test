@@ -1,6 +1,9 @@
 package com.example
 
 import android.os.Bundle
+import android.graphics.Color as AndroidColor
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -24,6 +27,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
@@ -352,6 +356,7 @@ private fun CompanyPortalScreen(onExit: () -> Unit) {
     var message by remember { mutableStateOf<String?>(null) }
     var summary by remember { mutableStateOf<Map<String, Any>>(emptyMap()) }
     var fleet by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
+    var gpsVehicles by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var drivers by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var routes by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var bookings by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
@@ -389,12 +394,19 @@ private fun CompanyPortalScreen(onExit: () -> Unit) {
                     "Overview" -> {
                         val r = api.getCompanySummary()
                         if (r.isSuccessful) summary = r.body()?.get("summary") as? Map<String, Any> ?: emptyMap() else message = errorText(r)
+                        val gps = api.getCompanyFleet()
+                        if (gps.isSuccessful) {
+                            val b = gps.body().orEmpty()
+                            fleet = (b["vehicles"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList()
+                            gpsVehicles = fleet.filter { (it["latitude"]?.toString()?.toDoubleOrNull() ?: 0.0) != 0.0 && (it["longitude"]?.toString()?.toDoubleOrNull() ?: 0.0) != 0.0 }
+                        }
                     }
                     "Fleet" -> {
                         val r = api.getCompanyFleet()
                         if (r.isSuccessful) {
                             val b = r.body().orEmpty()
                             fleet = (b["vehicles"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList()
+                            gpsVehicles = fleet.filter { (it["latitude"]?.toString()?.toDoubleOrNull() ?: 0.0) != 0.0 && (it["longitude"]?.toString()?.toDoubleOrNull() ?: 0.0) != 0.0 }
                             drivers = (b["drivers"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList()
                             val rr = api.getCompanyRoutes()
                             if (rr.isSuccessful) routes = (rr.body()?.get("routes") as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList()
@@ -419,13 +431,21 @@ private fun CompanyPortalScreen(onExit: () -> Unit) {
         }
     }
 
-    LaunchedEffect(token, section) { loadSection() }
+    LaunchedEffect(token, section) {
+        loadSection()
+        if (token != null && section == "Overview") {
+            while (true) {
+                kotlinx.coroutines.delay(15000)
+                loadSection()
+            }
+        }
+    }
 
     @Composable
-    fun field(label: String, value: String, onValue: (String) -> Unit, secret: Boolean = false) {
+    fun field(label: String, value: String, onValue: (String) -> Unit, secret: Boolean = false, modifier: Modifier = Modifier.fillMaxWidth()) {
         OutlinedTextField(
             value = value, onValueChange = onValue, label = { Text(label) },
-            modifier = Modifier.fillMaxWidth(), singleLine = true,
+            modifier = modifier, singleLine = true,
             visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None
         )
     }
@@ -496,15 +516,17 @@ private fun CompanyPortalScreen(onExit: () -> Unit) {
     }
 
     Scaffold(
+        containerColor = Color(0xFFF4F6FA),
         topBar = {
             TopAppBar(
-                title = { Column { Text("Company Portal", fontWeight = FontWeight.Bold); Text(companyLabel.ifBlank { "Transport operations" }, style = MaterialTheme.typography.labelSmall) } },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White),
+                title = { Column { Text("Company Portal", fontWeight = FontWeight.ExtraBold); Text(companyLabel.ifBlank { "Transport operations" }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
                 navigationIcon = { IconButton(onClick = onExit) { Icon(Icons.Default.ArrowBack, contentDescription = "Exit company portal") } },
                 actions = { IconButton(onClick = { token = null; ApiClient.setAuthToken(null) }) { Icon(Icons.Default.Logout, contentDescription = "Sign out") } }
             )
         },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(containerColor = Color.White, tonalElevation = 8.dp) {
                 listOf("Overview", "Fleet", "Drivers", "Routes", "Bookings").forEach { item ->
                     NavigationBarItem(selected = section == item, onClick = { section = item }, icon = {
                         Icon(when(item) {
@@ -520,8 +542,8 @@ private fun CompanyPortalScreen(onExit: () -> Unit) {
         }
     ) { padding ->
         Column(
-            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            Modifier.fillMaxSize().background(Color(0xFFF4F6FA)).padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             message?.let { Text(it, color = StatusErrorRed) }
@@ -611,15 +633,15 @@ private fun CompanyPortalScreen(onExit: () -> Unit) {
                 "Routes" -> {
                     Text("Routes and schedules", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     field("Route name", routeName, { routeName = it })
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { field("Morning departure", morning, { morning = it }); field("Evening departure", evening, { evening = it }) }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { field("Distance km", distance, { distance = it }); field("Fare ETB", fare, { fare = it }) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) { field("Morning departure", morning, { morning = it }, modifier = Modifier.weight(1f)); field("Evening departure", evening, { evening = it }, modifier = Modifier.weight(1f)) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) { field("Distance km", distance, { distance = it }, modifier = Modifier.weight(1f)); field("Fare ETB", fare, { fare = it }, modifier = Modifier.weight(1f)) }
                     Button(onClick = {
                         scope.launch {
                             busy = true
                             try {
                                 val payload = mapOf("name" to routeName.trim(), "morningDeparture" to morning.trim(), "eveningDeparture" to evening.trim(), "distanceKm" to (distance.toDoubleOrNull() ?: 10.0), "basePriceEtb" to (fare.toDoubleOrNull() ?: 0.0))
                                 val r = if (editingRouteId.isBlank()) ApiClient.getService().createCompanyRoute(payload) else ApiClient.getService().updateCompanyRoute(editingRouteId, payload)
-                                if (r.isSuccessful) { routeName = ""; editingRouteId = ""; message = if (editingRouteId.isBlank()) "Route created." else "Route updated."; loadSection() } else message = errorText(r)
+                                if (r.isSuccessful) { val wasEditing = editingRouteId.isNotBlank(); routeName = ""; editingRouteId = ""; message = if (wasEditing) "Route updated." else "Route created."; loadSection() } else message = errorText(r)
                             } catch (e: Exception) { message = e.message ?: "Could not create route." } finally { busy = false }
                         }
                     }, enabled = !busy && routeName.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text(if (editingRouteId.isBlank()) "Create route" else "Save route changes") }
