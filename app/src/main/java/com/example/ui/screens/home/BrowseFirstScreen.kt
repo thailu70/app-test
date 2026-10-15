@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowForward
@@ -23,7 +25,6 @@ import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
-import androidx.compose.ui.window.Dialog
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,14 +82,18 @@ fun BrowseFirstScreen(
     var showReturnPicker by remember { mutableStateOf(false) }
 
     selectedRoute?.let { route ->
-        Dialog(onDismissRequest = { selectedRoute = null }) {
+        ModalBottomSheet(
+            onDismissRequest = { selectedRoute = null },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+        ) {
             Surface(
                 color = Color.White,
-                shape = RoundedCornerShape(24.dp),
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                modifier = Modifier.fillMaxWidth().navigationBarsPadding()
             ) {
                 Column(
-                    modifier = Modifier.padding(20.dp),
+                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(13.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -100,13 +105,16 @@ fun BrowseFirstScreen(
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text("Route details", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = HomeInk)
-                            Text("Browse first • Sign in only to continue", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                            Text("Review the schedule and fare before continuing", style = MaterialTheme.typography.bodySmall, color = Slate600)
                         }
-                        TextButton(onClick = { selectedRoute = null }) { Text("Close", color = HomeGreen) }
+                        IconButton(onClick = { selectedRoute = null }) {
+                            Icon(Icons.Default.Close, contentDescription = "Close route details", tint = Slate600)
+                        }
                     }
                     HorizontalDivider(color = Color(0xFFE1E8E3))
-                    Text(route.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = HomeInk)
+                    Text(route.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = HomeInk)
                     if (route.nameAm.isNotBlank()) Text(route.nameAm, color = Slate600)
+                    Text("Daily commute • Monthly subscription", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = HomeGreen)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         RouteInfoTile("Morning pickup", route.morningDeparture, Modifier.weight(1f))
                         RouteInfoTile("Evening return", route.eveningDeparture, Modifier.weight(1f))
