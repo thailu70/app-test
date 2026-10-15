@@ -44,9 +44,9 @@ data class DriverTripState(
     val routeId: String = "",
     val routeName: String = "",
     val vehiclePlate: String = "",
-    val vehicleType: String = "MINIBUS_14",
-    val vehicleCapacity: Int = 14,
-    val departureTime: String = "06:30",
+    val vehicleType: String = "Not assigned",
+    val vehicleCapacity: Int = 0,
+    val departureTime: String = "Not assigned",
     val currentStopIndex: Int = 0,
     val isNavigating: Boolean = false,
     val isArrivedAtStop: Boolean = false,
@@ -54,7 +54,7 @@ data class DriverTripState(
     val currentDistanceKm: Double = 0.0,
     val currentEtaMins: Int = 0,
     val checkedInCount: Int = 0,
-    val totalPassengers: Int = 14
+    val totalPassengers: Int = 0
 )
 
 class MainViewModel(private val repository: TransportRepository) : ViewModel() {
