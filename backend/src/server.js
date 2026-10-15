@@ -120,6 +120,7 @@ app.get('/api/ready', async (req, res) => {
 // Mount Route Modules
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/companies', require('./routes/companies'));
+app.use('/api/companies', require('./routes/company-portal'));
 app.use('/api/routes', require('./routes/routes'));
 app.use('/api/subscriptions/telebirr', require('./routes/telebirr'));
 app.use('/api/subscriptions', require('./routes/subscriptions'));
@@ -127,6 +128,7 @@ app.use('/api/vehicles', require('./routes/vehicles'));
 app.use('/api/trips', require('./routes/trips'));
 app.use('/api/checkins', require('./routes/checkins'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/admin', require('./routes/company-admin'));
 app.use('/api/complaints', require('./routes/complaints'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/sync', require('./routes/sync'));
