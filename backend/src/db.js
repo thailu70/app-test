@@ -122,6 +122,8 @@ function translateSqlForPostgres(sql) {
     .replace(/\blicenseNumber\b/g, 'license_number')
     .replace(/\bcompanyName\b/g, 'company_name')
     .replace(/\bcompanyId\b/g, 'company_id')
+    .replace(/\brouteType\b/g, 'route_type')
+    .replace(/\bdepartureTime\b/g, 'departure_time')
     .replace(/\bassignedVehiclePlate\b/g, 'assigned_vehicle_plate')
     .replace(/\bappliedRouteId\b/g, 'applied_route_id')
     .replace(/\bappliedRouteName\b/g, 'applied_route_name')
@@ -323,6 +325,11 @@ function initSqliteSchema() {
       description TEXT,
       morningDeparture TEXT DEFAULT '06:30',
       eveningDeparture TEXT DEFAULT '17:30',
+      routeType TEXT DEFAULT 'DAILY_COMMUTE',
+      origin TEXT DEFAULT '',
+      destination TEXT DEFAULT '',
+      departureTime TEXT DEFAULT '06:30',
+      companyId TEXT DEFAULT '',
       distanceKm REAL DEFAULT 12.0,
       basePriceEtb REAL DEFAULT 2500.0,
       active INTEGER DEFAULT 1,
@@ -480,10 +487,19 @@ function initSqliteSchema() {
 function migrateSqliteCompanyId() {
   if (!sqliteDb) return;
   // CREATE TABLE IF NOT EXISTS does not alter older databases.
-  const userColumns = sqliteDb.prepare('PRAGMA table_info(users)').all();
-  if (!userColumns.some((column) => column.name === 'companyId')) {
-    sqliteDb.exec("ALTER TABLE users ADD COLUMN companyId TEXT DEFAULT ''");
-  }
+  const ensureColumn = (table, name, definition) => {
+    const columns = sqliteDb.prepare(`PRAGMA table_info(${table})`).all();
+    if (!columns.some((column) => column.name.toLowerCase() === name.toLowerCase())) {
+      sqliteDb.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+    }
+  };
+  ensureColumn('users', 'companyId', "TEXT DEFAULT ''");
+  ensureColumn('routes', 'companyId', "TEXT DEFAULT ''");
+  ensureColumn('routes', 'routeType', "TEXT DEFAULT 'DAILY_COMMUTE'");
+  ensureColumn('routes', 'origin', "TEXT DEFAULT ''");
+  ensureColumn('routes', 'destination', "TEXT DEFAULT ''");
+  ensureColumn('routes', 'departureTime', "TEXT DEFAULT '06:30'");
+  ensureColumn('vehicles', 'companyId', "TEXT DEFAULT ''");
 }
 
 function seedSqliteData() {
