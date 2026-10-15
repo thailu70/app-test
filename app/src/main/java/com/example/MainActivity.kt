@@ -1,13 +1,13 @@
 package com.example
 
-import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,8 +26,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.example.core.localization.AppLanguage
 import com.example.core.localization.AppStrings
+import com.example.data.api.ApiClient
 import com.example.data.database.TransportDatabase
 import com.example.data.repository.TransportRepository
 import com.example.ui.components.NotificationTrayDialog
@@ -86,12 +88,19 @@ fun MainTransportApp(viewModel: MainViewModel) {
 
     if (!isAuthenticated) {
         var showPublicHome by remember { mutableStateOf(true) }
+        var showCompanyPortal by remember { mutableStateOf(false) }
         var requestedAuthPortal by remember { mutableStateOf<AppRole?>(null) }
         var requestedRegisterFirst by remember { mutableStateOf(false) }
         var requestedRouteId by remember { mutableStateOf<String?>(null) }
         var requestedRouteName by remember { mutableStateOf<String?>(null) }
         var requestedServiceTier by remember { mutableStateOf<String?>(null) }
-        if (showPublicHome) {
+        if (showCompanyPortal) {
+            CompanyPortalScreen(onExit = {
+                ApiClient.setAuthToken(null)
+                showCompanyPortal = false
+                showPublicHome = true
+            })
+        } else if (showPublicHome) {
             BrowseFirstScreen(
                 viewModel = viewModel,
                 onPassengerContinue = { registerFirst, routeId, routeName, tier ->
@@ -103,7 +112,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                     showPublicHome = false
                 },
                 onDriverAccess = { requestedAuthPortal = AppRole.DRIVER; requestedRegisterFirst = false; requestedRouteId = null; requestedRouteName = null; requestedServiceTier = null; showPublicHome = false },
-                onCompanyAccess = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://routepass.duckdns.org/company/"))) }
+                onCompanyAccess = { showCompanyPortal = true; showPublicHome = false }
             )
         } else {
         // Independent Authentication Screen (Passenger, Driver/Transporter, Operator/Admin)
@@ -321,6 +330,281 @@ fun MainTransportApp(viewModel: MainViewModel) {
                     viewModel.sendBroadcastNotification(title, msg, aud)
                 }
             )
+        }
+    }
+}
+
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CompanyPortalScreen(onExit: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var registerMode by remember { mutableStateOf(false) }
+    var companyName by remember { mutableStateOf("") }
+    var representative by remember { mutableStateOf("") }
+    var phone by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var companyLabel by remember { mutableStateOf("") }
+    var token by remember { mutableStateOf<String?>(null) }
+    var section by remember { mutableStateOf("Overview") }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var summary by remember { mutableStateOf<Map<String, Any>>(emptyMap()) }
+    var fleet by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
+    var drivers by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
+    var routes by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
+    var bookings by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
+    var plate by remember { mutableStateOf("") }
+    var model by remember { mutableStateOf("") }
+    var vehicleType by remember { mutableStateOf("MINIBUS_14") }
+    var routeName by remember { mutableStateOf("") }
+    var morning by remember { mutableStateOf("06:30") }
+    var evening by remember { mutableStateOf("17:30") }
+    var distance by remember { mutableStateOf("10") }
+    var fare by remember { mutableStateOf("0") }
+
+    fun errorText(response: retrofit2.Response<out Any>): String {
+        return try {
+            val body = response.errorBody()?.string().orEmpty()
+            org.json.JSONObject(body).optString("error").ifBlank { "Request failed (${response.code()})." }
+        } catch (_: Exception) { "Request failed (${response.code()})." }
+    }
+
+    fun loadSection() {
+        if (token == null) return
+        scope.launch {
+            busy = true
+            message = null
+            try {
+                val api = ApiClient.getService()
+                when (section) {
+                    "Overview" -> {
+                        val r = api.getCompanySummary()
+                        if (r.isSuccessful) summary = r.body()?.get("summary") as? Map<String, Any> ?: emptyMap() else message = errorText(r)
+                    }
+                    "Fleet" -> {
+                        val r = api.getCompanyFleet()
+                        if (r.isSuccessful) {
+                            val b = r.body().orEmpty()
+                            fleet = (b["vehicles"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList()
+                            drivers = (b["drivers"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList()
+                        } else message = errorText(r)
+                    }
+                    "Drivers" -> {
+                        val r = api.getCompanyDrivers()
+                        if (r.isSuccessful) drivers = (r.body()?.get("drivers") as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList() else message = errorText(r)
+                    }
+                    "Routes" -> {
+                        val r = api.getCompanyRoutes()
+                        if (r.isSuccessful) routes = (r.body()?.get("routes") as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList() else message = errorText(r)
+                    }
+                    "Bookings" -> {
+                        val r = api.getCompanyBookings()
+                        if (r.isSuccessful) bookings = (r.body()?.get("bookings") as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList() else message = errorText(r)
+                    }
+                }
+            } catch (e: Exception) {
+                message = e.message ?: "Could not connect to RoutePass."
+            } finally { busy = false }
+        }
+    }
+
+    LaunchedEffect(token, section) { loadSection() }
+
+    @Composable
+    fun field(label: String, value: String, onValue: (String) -> Unit, secret: Boolean = false) {
+        OutlinedTextField(
+            value = value, onValueChange = onValue, label = { Text(label) },
+            modifier = Modifier.fillMaxWidth(), singleLine = true,
+            visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None
+        )
+    }
+
+    if (token == null) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    navigationIcon = { IconButton(onClick = onExit) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } },
+                    title = { Text("RoutePass Company Portal", fontWeight = FontWeight.Bold) }
+                )
+            }
+        ) { padding ->
+            Column(
+                Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(22.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(color = TransportGreenPrimary, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("COMPANY OPERATIONS", color = TransportGold, fontWeight = FontWeight.ExtraBold)
+                        Text(if (registerMode) "Activate your company account" else "Welcome back", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text("Manage drivers, company vehicles, routes, assignments and passenger bookings in the RoutePass app.", color = Color.White)
+                    }
+                }
+                if (registerMode) {
+                    field("Registered company name", companyName, { companyName = it })
+                    field("Representative full name", representative, { representative = it })
+                }
+                field("Company phone number", phone, { phone = it })
+                if (registerMode) field("One-time company invitation code", code, { code = it })
+                field("Password (minimum 10 characters)", password, { password = it }, true)
+                message?.let { Text(it, color = StatusErrorRed) }
+                Button(
+                    onClick = {
+                        scope.launch {
+                            busy = true; message = null
+                            try {
+                                val api = ApiClient.getService()
+                                val response = if (registerMode) api.registerTransportCompany(mapOf(
+                                    "companyName" to companyName.trim(), "fullName" to representative.trim(),
+                                    "phone" to phone.trim(), "secretCode" to code.trim(), "password" to password
+                                )) else api.loginTransportCompany(mapOf("phone" to phone.trim(), "password" to password))
+                                if (response.isSuccessful) {
+                                    val body = response.body().orEmpty()
+                                    val receivedToken = body["token"] as? String
+                                    if (receivedToken.isNullOrBlank()) message = "The server did not return a company access token."
+                                    else {
+                                        token = receivedToken
+                                        ApiClient.setAuthToken(receivedToken)
+                                        val user = body["user"] as? Map<String, Any>
+                                        companyLabel = user?.get("companyName")?.toString() ?: companyName
+                                    }
+                                } else message = errorText(response)
+                            } catch (e: Exception) { message = e.message ?: "Could not connect to RoutePass." }
+                            finally { busy = false }
+                        }
+                    },
+                    enabled = !busy && phone.isNotBlank() && password.isNotBlank() &&
+                        (!registerMode || (companyName.isNotBlank() && representative.isNotBlank() && code.isNotBlank() && password.length >= 10)),
+                    modifier = Modifier.fillMaxWidth().height(52.dp)
+                ) { Text(if (busy) "Please wait…" else if (registerMode) "Activate Company Account" else "Sign In to Company Portal") }
+                TextButton(onClick = { registerMode = !registerMode; message = null }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (registerMode) "Already activated? Sign in" else "Have an invitation code? Register company")
+                }
+            }
+        }
+        return
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Column { Text("Company Portal", fontWeight = FontWeight.Bold); Text(companyLabel.ifBlank { "Transport operations" }, style = MaterialTheme.typography.labelSmall) } },
+                navigationIcon = { IconButton(onClick = onExit) { Icon(Icons.Default.ArrowBack, contentDescription = "Exit company portal") } },
+                actions = { IconButton(onClick = { token = null; ApiClient.setAuthToken(null) }) { Icon(Icons.Default.Logout, contentDescription = "Sign out") } }
+            )
+        },
+        bottomBar = {
+            NavigationBar {
+                listOf("Overview", "Fleet", "Drivers", "Routes", "Bookings").forEach { item ->
+                    NavigationBarItem(selected = section == item, onClick = { section = item }, icon = {
+                        Icon(when(item) {
+                            "Overview" -> Icons.Default.Dashboard
+                            "Fleet" -> Icons.Default.DirectionsBus
+                            "Drivers" -> Icons.Default.Groups
+                            "Routes" -> Icons.Default.AltRoute
+                            else -> Icons.Default.ConfirmationNumber
+                        }, contentDescription = item)
+                    }, label = { Text(item) })
+                }
+            }
+        }
+    ) { padding ->
+        Column(
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            message?.let { Text(it, color = StatusErrorRed) }
+            when (section) {
+                "Overview" -> {
+                    Text("Operations overview", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("Drivers" to "drivers", "Vehicles" to "vehicles", "Active routes" to "activeAssignments", "Live GPS" to "vehiclesReportingGps").forEach { (label, key) ->
+                            Card(Modifier.weight(1f)) { Column(Modifier.padding(10.dp)) { Text(label, style = MaterialTheme.typography.labelSmall); Text(summary[key]?.toString() ?: "—", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) } }
+                        }
+                    }
+                    Text("Manage your fleet, approve drivers, maintain routes, and review passenger bookings and check-ins.")
+                    OutlinedButton(onClick = { loadSection() }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Refresh overview") }
+                }
+                "Fleet" -> {
+                    Text("Company-owned vehicles", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    field("Plate number", plate, { plate = it })
+                    field("Vehicle model", model, { model = it })
+                    var typeExpanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(expanded = typeExpanded, onExpandedChange = { typeExpanded = it }) {
+                        OutlinedTextField(value = vehicleType, onValueChange = {}, readOnly = true, label = { Text("Vehicle class") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(typeExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())
+                        ExposedDropdownMenu(expanded = typeExpanded, onDismissRequest = { typeExpanded = false }) {
+                            listOf("MINIVAN_8", "MINIBUS_14", "HIGER_24", "ANBESSA_BUS_30").forEach { type ->
+                                DropdownMenuItem(text = { Text(type) }, onClick = { vehicleType = type; typeExpanded = false })
+                            }
+                        }
+                    }
+                    Button(onClick = {
+                        scope.launch {
+                            busy = true
+                            try {
+                                val r = ApiClient.getService().createCompanyVehicle(mapOf("plateNumber" to plate.trim(), "model" to model.trim(), "vehicleType" to vehicleType))
+                                if (r.isSuccessful) { plate = ""; model = ""; message = "Company vehicle registered."; loadSection() } else message = errorText(r)
+                            } catch (e: Exception) { message = e.message ?: "Could not register vehicle." } finally { busy = false }
+                        }
+                    }, enabled = !busy && plate.isNotBlank() && model.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Register company vehicle") }
+                    fleet.forEach { v -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp)) {
+                        Text("${v["plateNumber"] ?: "No plate"} • ${v["model"] ?: ""}", fontWeight = FontWeight.Bold)
+                        Text("${v["vehicleType"] ?: ""} • Seats: ${v["capacityLimit"] ?: "—"}")
+                        Text("Driver: ${v["driverName"] ?: "Unassigned"} • Route: ${v["routeName"] ?: "Unassigned"}")
+                        Text("GPS: ${v["latitude"] ?: "—"}, ${v["longitude"] ?: "—"}")
+                    } } }
+                    if (fleet.isEmpty()) Text("No company vehicles registered yet.")
+                }
+                "Drivers" -> {
+                    Text("Driver applications and team", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    drivers.forEach { d -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(d["fullName"]?.toString() ?: "Driver", fontWeight = FontWeight.Bold)
+                        Text("Phone: ${d["phone"] ?: "—"} • Licence: ${d["licenseNumber"] ?: "—"}")
+                        Text("Status: ${d["status"] ?: "Unknown"}")
+                        if (d["status"]?.toString().equals("PENDING", true)) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { scope.launch { try { val r = ApiClient.getService().updateCompanyDriverApproval(d["id"].toString(), mapOf("action" to "APPROVE")); message = if (r.isSuccessful) "Driver approved. Assign a vehicle and route." else errorText(r); loadSection() } catch (e: Exception) { message = e.message } } }, modifier = Modifier.weight(1f)) { Text("Approve") }
+                            OutlinedButton(onClick = { scope.launch { try { val r = ApiClient.getService().updateCompanyDriverApproval(d["id"].toString(), mapOf("action" to "REJECT")); message = if (r.isSuccessful) "Driver application rejected." else errorText(r); loadSection() } catch (e: Exception) { message = e.message } } }, modifier = Modifier.weight(1f)) { Text("Reject") }
+                        }
+                    } } }
+                    if (drivers.isEmpty()) Text("No drivers registered with this company yet.")
+                }
+                "Routes" -> {
+                    Text("Routes and schedules", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    field("Route name", routeName, { routeName = it })
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { field("Morning departure", morning, { morning = it }); field("Evening departure", evening, { evening = it }) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { field("Distance km", distance, { distance = it }); field("Fare ETB", fare, { fare = it }) }
+                    Button(onClick = {
+                        scope.launch {
+                            busy = true
+                            try {
+                                val r = ApiClient.getService().createCompanyRoute(mapOf("name" to routeName.trim(), "morningDeparture" to morning.trim(), "eveningDeparture" to evening.trim(), "distanceKm" to (distance.toDoubleOrNull() ?: 10.0), "basePriceEtb" to (fare.toDoubleOrNull() ?: 0.0)))
+                                if (r.isSuccessful) { routeName = ""; message = "Route created."; loadSection() } else message = errorText(r)
+                            } catch (e: Exception) { message = e.message ?: "Could not create route." } finally { busy = false }
+                        }
+                    }, enabled = !busy && routeName.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Create route") }
+                    routes.forEach { r -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp)) {
+                        Text(r["name"]?.toString() ?: "Route", fontWeight = FontWeight.Bold)
+                        Text("${r["morningDeparture"] ?: "06:30"} • ${r["eveningDeparture"] ?: "17:30"} • ${r["distanceKm"] ?: "—"} km")
+                        Text("Fare: ${r["basePriceEtb"] ?: "—"} ETB • Status: ${r["active"] ?: "Active"}")
+                        Text("Route ID: ${r["id"] ?: "—"}", style = MaterialTheme.typography.labelSmall)
+                    } } }
+                    if (routes.isEmpty()) Text("No company routes yet.")
+                }
+                "Bookings" -> {
+                    Text("Passenger bookings and roster", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    bookings.forEach { b -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp)) {
+                        Text(b["passenger_name"]?.toString() ?: "Passenger", fontWeight = FontWeight.Bold)
+                        Text("Route: ${b["route_name"] ?: "—"}")
+                        Text("Phone: ${b["passenger_phone"] ?: "—"}")
+                        Text("Pickup: ${b["pickup_stop_id"] ?: "—"} • Destination: ${b["destination_stop_id"] ?: "—"}")
+                        Text("Subscription: ${b["subscription_status"] ?: "—"} • Payment: ${b["payment_status"] ?: "—"}")
+                        Text("Vehicle: ${b["vehicle_plate"] ?: "Not assigned"}")
+                    } } }
+                    if (bookings.isEmpty()) Text("No bookings found for your active company route assignments.")
+                }
+            }
         }
     }
 }
