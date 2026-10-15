@@ -166,41 +166,50 @@ fun AuthScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(top = 24.dp, bottom = 48.dp)
     ) {
-        // App Identity Header
+        // PASSO sign-in identity panel, styled to match the supplied reference.
         item {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+            Surface(
+                color = Color(0xFF172D58),
+                shape = RoundedCornerShape(26.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Surface(
-                    color = TransportGreenPrimary,
-                    shape = CircleShape,
-                    modifier = Modifier.size(64.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.DirectionsBus,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(36.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            androidx.compose.ui.graphics.Brush.linearGradient(
+                                listOf(Color(0xFF172D58), Color(0xFF075A78), Color(0xFF078875))
+                            )
                         )
+                        .padding(horizontal = 18.dp, vertical = 20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(9.dp)
+                ) {
+                    Surface(color = Color.White.copy(alpha = 0.16f), shape = CircleShape, modifier = Modifier.size(62.dp)) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp))
+                        }
+                    }
+                    Text(
+                        text = "PASSO • Tap. Move. Clear.",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = if (lang == AppLanguage.AMHARIC)
+                            "የተቀናጀ የኢትዮጵያ የትራንስፖርት መግቢያ • ገለልተኛ ፖርታሎች"
+                        else
+                            "Ethiopian Scheduled Transit • Independent Portals",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.88f),
+                        textAlign = TextAlign.Center
+                    )
+                    Surface(color = Color.White.copy(alpha = 0.94f), shape = RoundedCornerShape(50.dp)) {
+                        Text("PASSENGER PORTAL", color = Color(0xFF154A3A), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp))
                     }
                 }
-                Text(
-                    text = "PASSO • Tap. Move. Clear.",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Text(
-                    text = if (lang == AppLanguage.AMHARIC)
-                        "የተቀናጀ የኢትዮጵያ የትራንስፖርት መግቢያ • ገለልተኛ ፖርታሎች"
-                    else
-                        "Ethiopian Scheduled Transit • Isolated Independent Portals",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Slate600,
-                    textAlign = TextAlign.Center
-                )
             }
         }
 
