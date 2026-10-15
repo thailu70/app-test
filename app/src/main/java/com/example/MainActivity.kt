@@ -632,7 +632,8 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
                     OutlinedButton(onClick = { loadSection() }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Refresh dashboard") }
                 }
                 "Fleet" -> {
-                    Text("Company-owned vehicles", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("Fleet management", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = TransportNavy)
+                    Text("Register vehicles owned by your company and assign them to approved drivers.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     field("Plate number", plate, { plate = it })
                     field("Vehicle model", model, { model = it })
                     var typeExpanded by remember { mutableStateOf(false) }
@@ -653,7 +654,7 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
                             } catch (e: Exception) { message = e.message ?: "Could not register vehicle." } finally { busy = false }
                         }
                     }, enabled = !busy && plate.isNotBlank() && model.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Register company vehicle") }
-                    fleet.forEach { v -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp)) {
+                    fleet.forEach { v -> Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.padding(14.dp)) {
                         Text("${v["plateNumber"] ?: "No plate"} • ${v["model"] ?: ""}", fontWeight = FontWeight.Bold)
                         Text("${v["vehicleType"] ?: ""} • Seats: ${v["capacityLimit"] ?: "—"}")
                         Text("Driver: ${v["driverName"] ?: "Unassigned"} • Route: ${v["routeName"] ?: "Unassigned"}")
@@ -691,8 +692,9 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
                     }, enabled = !busy && assignRouteId.isNotBlank() && assignDriverId.isNotBlank() && assignVehicleId.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Assign driver, vehicle and route") }
                 }
                 "Drivers" -> {
-                    Text("Driver applications and team", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    drivers.forEach { d -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Drivers and approvals", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = TransportNavy)
+                    Text("Review applications and manage your approved driving team.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    drivers.forEach { d -> Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(d["fullName"]?.toString() ?: "Driver", fontWeight = FontWeight.Bold)
                         Text("Phone: ${d["phone"] ?: "—"} • Licence: ${d["licenseNumber"] ?: "—"}")
                         Text("Status: ${d["status"] ?: "Unknown"}")
@@ -704,7 +706,8 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
                     if (drivers.isEmpty()) Text("No drivers registered with this company yet.")
                 }
                 "Routes" -> {
-                    Text("Routes and schedules", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("Routes and schedules", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = TransportNavy)
+                    Text("Set departure times, distance and fare for each company route.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     field("Route name", routeName, { routeName = it })
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) { field("Morning departure", morning, { morning = it }, modifier = Modifier.weight(1f)); field("Evening departure", evening, { evening = it }, modifier = Modifier.weight(1f)) }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) { field("Distance km", distance, { distance = it }, modifier = Modifier.weight(1f)); field("Fare ETB", fare, { fare = it }, modifier = Modifier.weight(1f)) }
@@ -718,7 +721,7 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
                             } catch (e: Exception) { message = e.message ?: "Could not create route." } finally { busy = false }
                         }
                     }, enabled = !busy && routeName.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text(if (editingRouteId.isBlank()) "Create route" else "Save route changes") }
-                    routes.forEach { r -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp)) {
+                    routes.forEach { r -> Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.padding(14.dp)) {
                         Text(r["name"]?.toString() ?: "Route", fontWeight = FontWeight.Bold)
                         Text("${r["morningDeparture"] ?: "06:30"} • ${r["eveningDeparture"] ?: "17:30"} • ${r["distanceKm"] ?: "—"} km")
                         Text("Fare: ${r["basePriceEtb"] ?: "—"} ETB • Status: ${r["active"] ?: "Active"}")
@@ -735,8 +738,9 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
                     if (routes.isEmpty()) Text("No company routes yet.")
                 }
                 "Bookings" -> {
-                    Text("Passenger bookings and roster", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    bookings.forEach { b -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp)) {
+                    Text("Passenger bookings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = TransportNavy)
+                    Text("Review passenger subscriptions, route assignments and vehicle details.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    bookings.forEach { b -> Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.padding(14.dp)) {
                         Text(b["passenger_name"]?.toString() ?: "Passenger", fontWeight = FontWeight.Bold)
                         Text("Route: ${b["route_name"] ?: "—"}")
                         Text("Phone: ${b["passenger_phone"] ?: "—"}")
