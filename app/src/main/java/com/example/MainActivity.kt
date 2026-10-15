@@ -363,6 +363,13 @@ private fun CompanyPortalScreen(onExit: () -> Unit) {
     var evening by remember { mutableStateOf("17:30") }
     var distance by remember { mutableStateOf("10") }
     var fare by remember { mutableStateOf("0") }
+    var editingRouteId by remember { mutableStateOf("") }
+    var assignRouteId by remember { mutableStateOf("") }
+    var assignDriverId by remember { mutableStateOf("") }
+    var assignVehicleId by remember { mutableStateOf("") }
+    var routeMenuOpen by remember { mutableStateOf(false) }
+    var driverMenuOpen by remember { mutableStateOf(false) }
+    var vehicleMenuOpen by remember { mutableStateOf(false) }
 
     fun errorText(response: retrofit2.Response<out Any>): String {
         return try {
@@ -389,6 +396,8 @@ private fun CompanyPortalScreen(onExit: () -> Unit) {
                             val b = r.body().orEmpty()
                             fleet = (b["vehicles"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList()
                             drivers = (b["drivers"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList()
+                            val rr = api.getCompanyRoutes()
+                            if (rr.isSuccessful) routes = (rr.body()?.get("routes") as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList()
                         } else message = errorText(r)
                     }
                     "Drivers" -> {
@@ -556,6 +565,35 @@ private fun CompanyPortalScreen(onExit: () -> Unit) {
                         Text("GPS: ${v["latitude"] ?: "—"}, ${v["longitude"] ?: "—"}")
                     } } }
                     if (fleet.isEmpty()) Text("No company vehicles registered yet.")
+                    HorizontalDivider()
+                    Text("Assign route and company vehicle to an approved driver", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    ExposedDropdownMenuBox(expanded = routeMenuOpen, onExpandedChange = { routeMenuOpen = it }) {
+                        OutlinedTextField(value = routes.firstOrNull { it["id"]?.toString() == assignRouteId }?.get("name")?.toString() ?: "Select company route", onValueChange = {}, readOnly = true, label = { Text("Route") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(routeMenuOpen) }, modifier = Modifier.menuAnchor().fillMaxWidth())
+                        ExposedDropdownMenu(expanded = routeMenuOpen, onDismissRequest = { routeMenuOpen = false }) {
+                            routes.forEach { r -> DropdownMenuItem(text = { Text(r["name"]?.toString() ?: "Route") }, onClick = { assignRouteId = r["id"]?.toString().orEmpty(); routeMenuOpen = false }) }
+                        }
+                    }
+                    ExposedDropdownMenuBox(expanded = driverMenuOpen, onExpandedChange = { driverMenuOpen = it }) {
+                        OutlinedTextField(value = drivers.firstOrNull { it["id"]?.toString() == assignDriverId }?.get("fullName")?.toString() ?: "Select approved driver", onValueChange = {}, readOnly = true, label = { Text("Driver") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(driverMenuOpen) }, modifier = Modifier.menuAnchor().fillMaxWidth())
+                        ExposedDropdownMenu(expanded = driverMenuOpen, onDismissRequest = { driverMenuOpen = false }) {
+                            drivers.filter { it["status"]?.toString().equals("ACTIVE", true) }.forEach { d -> DropdownMenuItem(text = { Text(d["fullName"]?.toString() ?: "Driver") }, onClick = { assignDriverId = d["id"]?.toString().orEmpty(); driverMenuOpen = false }) }
+                        }
+                    }
+                    ExposedDropdownMenuBox(expanded = vehicleMenuOpen, onExpandedChange = { vehicleMenuOpen = it }) {
+                        OutlinedTextField(value = fleet.firstOrNull { it["id"]?.toString() == assignVehicleId }?.get("plateNumber")?.toString() ?: "Select company vehicle", onValueChange = {}, readOnly = true, label = { Text("Vehicle") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(vehicleMenuOpen) }, modifier = Modifier.menuAnchor().fillMaxWidth())
+                        ExposedDropdownMenu(expanded = vehicleMenuOpen, onDismissRequest = { vehicleMenuOpen = false }) {
+                            fleet.forEach { v -> DropdownMenuItem(text = { Text("${v["plateNumber"] ?: "Vehicle"} • ${v["model"] ?: ""}") }, onClick = { assignVehicleId = v["id"]?.toString().orEmpty(); vehicleMenuOpen = false }) }
+                        }
+                    }
+                    Button(onClick = {
+                        scope.launch {
+                            busy = true
+                            try {
+                                val r = ApiClient.getService().assignCompanyDriverVehicleRoute(mapOf("routeId" to assignRouteId, "driverId" to assignDriverId, "vehicleId" to assignVehicleId))
+                                if (r.isSuccessful) { message = "Driver, vehicle and route assigned successfully."; assignRouteId = ""; assignDriverId = ""; assignVehicleId = ""; loadSection() } else message = errorText(r)
+                            } catch (e: Exception) { message = e.message ?: "Could not assign driver and vehicle." } finally { busy = false }
+                        }
+                    }, enabled = !busy && assignRouteId.isNotBlank() && assignDriverId.isNotBlank() && assignVehicleId.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Assign driver, vehicle and route") }
                 }
                 "Drivers" -> {
                     Text("Driver applications and team", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -579,16 +617,25 @@ private fun CompanyPortalScreen(onExit: () -> Unit) {
                         scope.launch {
                             busy = true
                             try {
-                                val r = ApiClient.getService().createCompanyRoute(mapOf("name" to routeName.trim(), "morningDeparture" to morning.trim(), "eveningDeparture" to evening.trim(), "distanceKm" to (distance.toDoubleOrNull() ?: 10.0), "basePriceEtb" to (fare.toDoubleOrNull() ?: 0.0)))
-                                if (r.isSuccessful) { routeName = ""; message = "Route created."; loadSection() } else message = errorText(r)
+                                val payload = mapOf("name" to routeName.trim(), "morningDeparture" to morning.trim(), "eveningDeparture" to evening.trim(), "distanceKm" to (distance.toDoubleOrNull() ?: 10.0), "basePriceEtb" to (fare.toDoubleOrNull() ?: 0.0))
+                                val r = if (editingRouteId.isBlank()) ApiClient.getService().createCompanyRoute(payload) else ApiClient.getService().updateCompanyRoute(editingRouteId, payload)
+                                if (r.isSuccessful) { routeName = ""; editingRouteId = ""; message = if (editingRouteId.isBlank()) "Route created." else "Route updated."; loadSection() } else message = errorText(r)
                             } catch (e: Exception) { message = e.message ?: "Could not create route." } finally { busy = false }
                         }
-                    }, enabled = !busy && routeName.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Create route") }
+                    }, enabled = !busy && routeName.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text(if (editingRouteId.isBlank()) "Create route" else "Save route changes") }
                     routes.forEach { r -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp)) {
                         Text(r["name"]?.toString() ?: "Route", fontWeight = FontWeight.Bold)
                         Text("${r["morningDeparture"] ?: "06:30"} • ${r["eveningDeparture"] ?: "17:30"} • ${r["distanceKm"] ?: "—"} km")
                         Text("Fare: ${r["basePriceEtb"] ?: "—"} ETB • Status: ${r["active"] ?: "Active"}")
                         Text("Route ID: ${r["id"] ?: "—"}", style = MaterialTheme.typography.labelSmall)
+                        OutlinedButton(onClick = {
+                            editingRouteId = r["id"]?.toString().orEmpty()
+                            routeName = r["name"]?.toString().orEmpty()
+                            morning = r["morningDeparture"]?.toString() ?: "06:30"
+                            evening = r["eveningDeparture"]?.toString() ?: "17:30"
+                            distance = r["distanceKm"]?.toString() ?: "10"
+                            fare = r["basePriceEtb"]?.toString() ?: "0"
+                        }, modifier = Modifier.fillMaxWidth()) { Text("Edit this route") }
                     } } }
                     if (routes.isEmpty()) Text("No company routes yet.")
                 }
