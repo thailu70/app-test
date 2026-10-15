@@ -26,6 +26,46 @@ interface RoutePassApiService {
     @GET("api/companies")
     suspend fun getTransportCompanies(): Response<TransportCompaniesResponse>
 
+    // Native transport-company portal (kept separate from system admin auth)
+    @POST("api/companies/register")
+    suspend fun registerTransportCompany(@Body request: Map<String, @JvmSuppressWildcards Any>): Response<Map<String, Any>>
+
+    @POST("api/companies/login")
+    suspend fun loginTransportCompany(@Body request: Map<String, @JvmSuppressWildcards Any>): Response<Map<String, Any>>
+
+    @GET("api/companies/me")
+    suspend fun getCompanyProfile(): Response<Map<String, Any>>
+
+    @GET("api/companies/operations/summary")
+    suspend fun getCompanySummary(): Response<Map<String, Any>>
+
+    @GET("api/companies/operations/fleet")
+    suspend fun getCompanyFleet(): Response<Map<String, Any>>
+
+    @GET("api/companies/operations/drivers")
+    suspend fun getCompanyDrivers(): Response<Map<String, Any>>
+
+    @PATCH("api/companies/operations/drivers/{id}/approval")
+    suspend fun updateCompanyDriverApproval(@Path("id") driverId: String, @Body request: Map<String, @JvmSuppressWildcards Any>): Response<Map<String, Any>>
+
+    @GET("api/companies/operations/routes")
+    suspend fun getCompanyRoutes(): Response<Map<String, Any>>
+
+    @POST("api/companies/operations/routes")
+    suspend fun createCompanyRoute(@Body request: Map<String, @JvmSuppressWildcards Any>): Response<Map<String, Any>>
+
+    @PUT("api/companies/operations/routes/{id}")
+    suspend fun updateCompanyRoute(@Path("id") routeId: String, @Body request: Map<String, @JvmSuppressWildcards Any>): Response<Map<String, Any>>
+
+    @POST("api/companies/operations/vehicles")
+    suspend fun createCompanyVehicle(@Body request: Map<String, @JvmSuppressWildcards Any>): Response<Map<String, Any>>
+
+    @POST("api/companies/operations/assignments")
+    suspend fun assignCompanyDriverVehicleRoute(@Body request: Map<String, @JvmSuppressWildcards Any>): Response<Map<String, Any>>
+
+    @GET("api/companies/operations/bookings")
+    suspend fun getCompanyBookings(): Response<Map<String, Any>>
+
     @GET("api/routes/{id}")
     suspend fun getRouteById(@Path("id") routeId: String): Response<RouteDetailsResponse>
 
