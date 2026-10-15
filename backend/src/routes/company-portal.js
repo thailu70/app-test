@@ -101,7 +101,7 @@ router.post('/operations/assignments',authenticate,requireRole('COMPANY'),async(
 /** Company-scoped driver approvals. */
 router.get('/operations/drivers', authenticate, requireRole('COMPANY'), async (req,res) => {
   try { const companyId=req.user.companyId||req.user.id;
-    const drivers=await DB.prepare("SELECT id,fullName,phone,licenseNumber,status,createdAt FROM users WHERE role='DRIVER' AND companyId=? ORDER BY createdAt DESC").all(companyId);
+    const drivers=await DB.prepare("SELECT id,fullName,phone,licenseNumber,status,companyName,companyId,createdAt FROM users WHERE role='DRIVER' AND companyId=? ORDER BY id DESC").all(companyId);
     res.json({success:true,drivers});
   } catch(e){console.error('[Company] drivers:',e);res.status(500).json({success:false,error:'Could not load drivers.'});}
 });
