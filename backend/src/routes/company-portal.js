@@ -119,21 +119,40 @@ router.patch('/operations/drivers/:id/approval', authenticate, requireRole('COMP
 
 /** Company-owned routes. */
 router.post('/operations/routes', authenticate, requireRole('COMPANY'), async (req,res) => {
-  try { const companyId=req.user.companyId||req.user.id, name=String(req.body.name||'').trim(), nameAm=String(req.body.nameAm||name).trim();
+  try {
+    const companyId=req.user.companyId||req.user.id;
+    const name=String(req.body.name||'').trim(), nameAm=String(req.body.nameAm||name).trim();
+    const routeType=String(req.body.routeType||'DAILY_COMMUTE').toUpperCase();
+    const origin=String(req.body.origin||'').trim(), destination=String(req.body.destination||'').trim();
+    const departureTime=String(req.body.departureTime||req.body.morningDeparture||(routeType==='INTERCITY'?'08:00':'06:30')).trim();
     if(name.length<2) return res.status(400).json({success:false,error:'Route name is required.'});
+    if(!['INTERCITY','DAILY_COMMUTE'].includes(routeType)) return res.status(400).json({success:false,error:'Choose Intercity or Daily commute.'});
+    if(origin.length<2||destination.length<2) return res.status(400).json({success:false,error:'Departure/origin and destination are required.'});
+    if(origin.toLowerCase()===destination.toLowerCase()) return res.status(400).json({success:false,error:'Departure and destination must be different.'});
+    const morningDeparture=routeType==='INTERCITY'?departureTime:String(req.body.morningDeparture||'06:30');
+    const eveningDeparture=routeType==='INTERCITY'?departureTime:String(req.body.eveningDeparture||'17:30');
     const id='route_'+crypto.randomUUID().replace(/-/g,'').slice(0,12);
-    await DB.prepare('INSERT INTO routes (id,name,nameAm,description,morningDeparture,eveningDeparture,distanceKm,basePriceEtb,active,companyId) VALUES (?,?,?,?,?,?,?,?,TRUE,?)')
-      .run(id,name,nameAm,String(req.body.description||'').trim(),String(req.body.morningDeparture||'06:30'),String(req.body.eveningDeparture||'17:30'),Math.max(0.1,Number(req.body.distanceKm)||10),Math.max(0,Number(req.body.basePriceEtb)||0),companyId);
+    await DB.prepare('INSERT INTO routes (id,name,nameAm,description,morningDeparture,eveningDeparture,distanceKm,basePriceEtb,active,companyId,routeType,origin,destination,departureTime) VALUES (?,?,?,?,?,?,?,?,TRUE,?,?,?,?,?)')
+      .run(id,name,nameAm,String(req.body.description||'').trim(),morningDeparture,eveningDeparture,Math.max(0.1,Number(req.body.distanceKm)||10),Math.max(0,Number(req.body.basePriceEtb)||0),companyId,routeType,origin,destination,departureTime);
     res.status(201).json({success:true,route:await DB.prepare('SELECT * FROM routes WHERE id=? AND companyId=?').get(id,companyId)});
   } catch(e){console.error('[Company] create route:',e);res.status(500).json({success:false,error:'Could not create route. Check that the company route migration has been applied.'});}
 });
 router.put('/operations/routes/:id', authenticate, requireRole('COMPANY'), async (req,res) => {
-  try { const companyId=req.user.companyId||req.user.id, current=await DB.prepare('SELECT * FROM routes WHERE id=? AND companyId=?').get(req.params.id,companyId);
+  try {
+    const companyId=req.user.companyId||req.user.id, current=await DB.prepare('SELECT * FROM routes WHERE id=? AND companyId=?').get(req.params.id,companyId);
     if(!current) return res.status(404).json({success:false,error:'Route not found for this company.'});
     const name=String(req.body.name??current.name).trim(), nameAm=String(req.body.nameAm??current.nameAm??name).trim();
+    const routeType=String(req.body.routeType??current.routeType??'DAILY_COMMUTE').toUpperCase();
+    const origin=String(req.body.origin??current.origin??'').trim(), destination=String(req.body.destination??current.destination??'').trim();
+    const departureTime=String(req.body.departureTime??current.departureTime??req.body.morningDeparture??current.morningDeparture??'06:30').trim();
     if(!name) return res.status(400).json({success:false,error:'Route name is required.'});
-    await DB.prepare('UPDATE routes SET name=?,nameAm=?,description=?,morningDeparture=?,eveningDeparture=?,distanceKm=?,basePriceEtb=?,active=? WHERE id=? AND companyId=?')
-      .run(name,nameAm,String(req.body.description??current.description??''),String(req.body.morningDeparture??current.morningDeparture??'06:30'),String(req.body.eveningDeparture??current.eveningDeparture??'17:30'),Math.max(0.1,Number(req.body.distanceKm??current.distanceKm)||10),Math.max(0,Number(req.body.basePriceEtb??current.basePriceEtb)||0),req.body.active===undefined?current.active:Boolean(req.body.active),req.params.id,companyId);
+    if(!['INTERCITY','DAILY_COMMUTE'].includes(routeType)) return res.status(400).json({success:false,error:'Choose Intercity or Daily commute.'});
+    if(origin.length<2||destination.length<2) return res.status(400).json({success:false,error:'Departure/origin and destination are required.'});
+    if(origin.toLowerCase()===destination.toLowerCase()) return res.status(400).json({success:false,error:'Departure and destination must be different.'});
+    const morningDeparture=routeType==='INTERCITY'?departureTime:String(req.body.morningDeparture??current.morningDeparture??'06:30');
+    const eveningDeparture=routeType==='INTERCITY'?departureTime:String(req.body.eveningDeparture??current.eveningDeparture??'17:30');
+    await DB.prepare('UPDATE routes SET name=?,nameAm=?,description=?,morningDeparture=?,eveningDeparture=?,distanceKm=?,basePriceEtb=?,active=?,routeType=?,origin=?,destination=?,departureTime=? WHERE id=? AND companyId=?')
+      .run(name,nameAm,String(req.body.description??current.description??''),morningDeparture,eveningDeparture,Math.max(0.1,Number(req.body.distanceKm??current.distanceKm)||10),Math.max(0,Number(req.body.basePriceEtb??current.basePriceEtb)||0),req.body.active===undefined?current.active:Boolean(req.body.active),routeType,origin,destination,departureTime,req.params.id,companyId);
     res.json({success:true,route:await DB.prepare('SELECT * FROM routes WHERE id=? AND companyId=?').get(req.params.id,companyId)});
   } catch(e){console.error('[Company] update route:',e);res.status(500).json({success:false,error:'Could not update route.'});}
 });
