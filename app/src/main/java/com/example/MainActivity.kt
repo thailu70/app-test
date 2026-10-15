@@ -342,6 +342,26 @@ fun MainTransportApp(viewModel: MainViewModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private @Composable
+private fun CompanyPortalField(
+    label: String,
+    value: String,
+    onValue: (String) -> Unit,
+    secret: Boolean = false,
+    modifier: Modifier = Modifier.fillMaxWidth()
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValue,
+        label = { Text(label) },
+        modifier = modifier,
+        singleLine = true,
+        visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation()
+            else androidx.compose.ui.text.input.VisualTransformation.None
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun LiveFleetMap(vehicles: List<Map<String, Any>>) {
     val points = vehicles.mapNotNull { vehicle ->
         val latitude = vehicle["latitude"]?.toString()?.toDoubleOrNull()
@@ -407,6 +427,8 @@ private fun LiveFleetMap(vehicles: List<Map<String, Any>>) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 fun CompanyPortalScreen(onExit: () -> Unit) {
     val scope = rememberCoroutineScope()
     var registerMode by remember { mutableStateOf(false) }
@@ -507,15 +529,6 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
         }
     }
 
-    @Composable
-    fun field(label: String, value: String, onValue: (String) -> Unit, secret: Boolean = false, modifier: Modifier = Modifier.fillMaxWidth()) {
-        OutlinedTextField(
-            value = value, onValueChange = onValue, label = { Text(label) },
-            modifier = modifier, singleLine = true,
-            visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None
-        )
-    }
-
     if (token == null) {
         Scaffold(
             topBar = {
@@ -537,12 +550,12 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
                     }
                 }
                 if (registerMode) {
-                    field("Registered company name", companyName, { companyName = it })
-                    field("Representative full name", representative, { representative = it })
+                    CompanyPortalField("Registered company name", companyName, { companyName = it })
+                    CompanyPortalField("Representative full name", representative, { representative = it })
                 }
-                field("Company phone number", phone, { phone = it })
-                if (registerMode) field("One-time company invitation code", code, { code = it })
-                field("Password (minimum 10 characters)", password, { password = it }, true)
+                CompanyPortalField("Company phone number", phone, { phone = it })
+                if (registerMode) CompanyPortalField("One-time company invitation code", code, { code = it })
+                CompanyPortalField("Password (minimum 10 characters)", password, { password = it }, true)
                 message?.let { Text(it, color = StatusErrorRed) }
                 Button(
                     onClick = {
@@ -615,7 +628,7 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
             message?.let { Text(it, color = StatusErrorRed) }
             when (section) {
                 "Overview" -> {
-                    Text("Operations overview", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = TransportNavy)
+                    Text("Operations overview", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Color(0xFF17233C))
                     Text("Your fleet at a glance", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         listOf("Drivers" to "drivers", "Vehicles" to "vehicles", "Assignments" to "activeAssignments", "GPS live" to "vehiclesReportingGps").forEach { (label, key) ->
@@ -634,8 +647,8 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
                 "Fleet" -> {
                     Text("Fleet management", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = TransportNavy)
                     Text("Register vehicles owned by your company and assign them to approved drivers.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    field("Plate number", plate, { plate = it })
-                    field("Vehicle model", model, { model = it })
+                    CompanyPortalField("Plate number", plate, { plate = it })
+                    CompanyPortalField("Vehicle model", model, { model = it })
                     var typeExpanded by remember { mutableStateOf(false) }
                     ExposedDropdownMenuBox(expanded = typeExpanded, onExpandedChange = { typeExpanded = it }) {
                         OutlinedTextField(value = vehicleType, onValueChange = {}, readOnly = true, label = { Text("Vehicle class") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(typeExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())
@@ -708,9 +721,9 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
                 "Routes" -> {
                     Text("Routes and schedules", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = TransportNavy)
                     Text("Set departure times, distance and fare for each company route.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    field("Route name", routeName, { routeName = it })
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) { field("Morning departure", morning, { morning = it }, modifier = Modifier.weight(1f)); field("Evening departure", evening, { evening = it }, modifier = Modifier.weight(1f)) }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) { field("Distance km", distance, { distance = it }, modifier = Modifier.weight(1f)); field("Fare ETB", fare, { fare = it }, modifier = Modifier.weight(1f)) }
+                    CompanyPortalField("Route name", routeName, { routeName = it })
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) { CompanyPortalField("Morning departure", morning, { morning = it }, modifier = Modifier.weight(1f)); CompanyPortalField("Evening departure", evening, { evening = it }, modifier = Modifier.weight(1f)) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) { CompanyPortalField("Distance km", distance, { distance = it }, modifier = Modifier.weight(1f)); CompanyPortalField("Fare ETB", fare, { fare = it }, modifier = Modifier.weight(1f)) }
                     Button(onClick = {
                         scope.launch {
                             busy = true
