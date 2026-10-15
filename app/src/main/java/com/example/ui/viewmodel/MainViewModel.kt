@@ -394,10 +394,16 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 _authError.value = "Please select the route you want to subscribe to."
                 return@launch
             }
-            if (role == AppRole.DRIVER &&
-                (licenseNumber.isBlank() || assignedVehiclePlate.isBlank() || vehicleModel.isBlank())
+            if (role == AppRole.DRIVER && licenseNumber.isBlank()) {
+                _authError.value = "Enter your commercial driving licence number."
+                return@launch
+            }
+            // Intercity drivers select a transport company; its vehicles are owned and assigned
+            // by that company, so a plate and vehicle model are not required during driver signup.
+            if (role == AppRole.DRIVER && companyName.isBlank() &&
+                (assignedVehiclePlate.isBlank() || vehicleModel.isBlank())
             ) {
-                _authError.value = "Enter your commercial licence, your own vehicle plate and vehicle model."
+                _authError.value = "For Daily Commute, enter your own vehicle plate and vehicle model."
                 return@launch
             }
             val roleStr = when (role) {
