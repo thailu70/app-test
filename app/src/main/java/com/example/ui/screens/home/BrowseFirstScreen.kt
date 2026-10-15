@@ -159,49 +159,34 @@ fun BrowseFirstScreen(
         if (selectedSection == 0) {
             item {
                 Surface(
-                    shape = RoundedCornerShape(28.dp),
+                    shape = RoundedCornerShape(26.dp),
                     modifier = Modifier.fillMaxWidth(),
                     color = HomeBlue
                 ) {
-                    Box(
-                        Modifier
+                    Column(
+                        modifier = Modifier
                             .fillMaxWidth()
-                            .height(188.dp)
                             .background(
                                 androidx.compose.ui.graphics.Brush.linearGradient(
-                                    listOf(Color(0xFF142D55), Color(0xFF075B83), Color(0xFF008F78))
+                                    listOf(Color(0xFF172D58), Color(0xFF075A78), Color(0xFF078875))
                                 )
                             )
-                            .padding(20.dp)
+                            .padding(horizontal = 20.dp, vertical = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(9.dp)
                     ) {
-                        Column(
-                            Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Row(
-                                    Modifier.weight(1f),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Surface(color = Color.White.copy(alpha = 0.16f), shape = RoundedCornerShape(13.dp)) {
-                                        Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color.White, modifier = Modifier.padding(10.dp).size(26.dp))
-                                    }
-                                    Column {
-                                        Text("PASSO", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                                        Text("Tap. Move. Clear.", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.86f))
-                                    }
-                                }
-                                TextButton(onClick = { onPassengerContinue(false, null, null, null) }) {
-                                    Text("Sign in", color = Color.White, fontWeight = FontWeight.Bold)
-                                }
+                        Surface(color = Color.White.copy(alpha = 0.16f), shape = CircleShape, modifier = Modifier.size(66.dp)) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp))
                             }
-                            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                                Text("Your journey starts here", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                                Surface(color = Color.White.copy(alpha = 0.92f), shape = RoundedCornerShape(50.dp)) {
-                                    Text("Passenger Portal", color = HomeInk, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp))
-                                }
-                            }
+                        }
+                        Text("PASSO", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                        Text("Tap. Move. Clear.", style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.92f))
+                        Surface(color = Color.White.copy(alpha = 0.94f), shape = RoundedCornerShape(50.dp)) {
+                            Text("PASSENGER PORTAL", color = Color(0xFF154A3A), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp))
+                        }
+                        TextButton(onClick = { onPassengerContinue(false, null, null, null) }) {
+                            Text("Already registered? Sign in", color = Color.White, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -552,7 +537,7 @@ private fun CommuterRouteCard(route: RouteEntity, onClick: () -> Unit) {
         tonalElevation = 1.dp,
         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE5E9E7))
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
                 Surface(color = HomeMint, shape = RoundedCornerShape(13.dp)) {
                     Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = HomeGreen, modifier = Modifier.padding(10.dp).size(25.dp))
