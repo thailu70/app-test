@@ -192,7 +192,7 @@ fun AuthScreen(
                     }
                     Text(
                         text = "PASSO • Tap. Move. Clear.",
-                        style = MaterialTheme.typography.headlineSmall,
+                        style = if (selectedPortal == AppRole.PASSENGER && !isRegisterMode) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.ExtraBold,
                         color = Color.White,
                         textAlign = TextAlign.Center
@@ -422,8 +422,8 @@ fun AuthScreen(
                     elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
                 ) {
                     Column(
-                        modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                        modifier = Modifier.padding(if (portal == AppRole.PASSENGER && !isRegisterMode) 12.dp else 20.dp),
+                        verticalArrangement = Arrangement.spacedBy(if (portal == AppRole.PASSENGER && !isRegisterMode) 7.dp else 14.dp)
                     ) {
                         Text(
                             text = if (isRegisterMode) {
@@ -439,7 +439,7 @@ fun AuthScreen(
                                     AppRole.ADMIN -> "Transit Operator Admin Sign In"
                                 }
                             },
-                            style = MaterialTheme.typography.titleMedium,
+                            style = if (portal == AppRole.PASSENGER && !isRegisterMode) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
