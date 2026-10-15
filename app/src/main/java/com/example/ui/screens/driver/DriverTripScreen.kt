@@ -303,7 +303,7 @@ fun DriverTripScreen(
         if (isScannerOpen) {
             DriverQrScannerDialog(
                 scanResult = scanResult,
-                currentStop = stops.getOrNull(tripState.currentStopIndex)?.stopName ?: "Bole Atlas",
+                currentStop = stops.getOrNull(tripState.currentStopIndex)?.stopName ?: "No assigned pickup",
                 tripState = tripState,
                 onScanToken = { token -> viewModel.verifyQrToken(token) },
                 onDismissResult = { viewModel.dismissScanResult() },
@@ -729,13 +729,13 @@ fun DriverNavigationHudCard(
             // Target Stop Name & Scheduled Time
             Column {
                 Text(
-                    text = currentStop?.stopName ?: "Bole Atlas",
+                    text = currentStop?.stopName ?: "No assigned pickup",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Scheduled Pickup: ${currentStop?.scheduledMorningTime ?: "06:30 AM"}",
+                    text = "Scheduled Pickup: ${currentStop?.scheduledMorningTime ?: "Not assigned"}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Slate600
                 )
@@ -771,7 +771,7 @@ fun DriverNavigationHudCard(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(text = "GROUP PASSENGERS", style = MaterialTheme.typography.labelSmall, color = Slate600)
                     Text(
-                        text = "${currentStop?.maxCapacity ?: 4} Persons",
+                        text = currentStop?.maxCapacity?.let { "$it Persons" } ?: "Not assigned",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = Slate900
