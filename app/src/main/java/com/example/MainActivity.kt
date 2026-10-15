@@ -450,6 +450,10 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
     var model by remember { mutableStateOf("") }
     var vehicleType by remember { mutableStateOf("MINIBUS_14") }
     var routeName by remember { mutableStateOf("") }
+    var routeType by remember { mutableStateOf("INTERCITY") }
+    var routeOrigin by remember { mutableStateOf("") }
+    var routeDestination by remember { mutableStateOf("") }
+    var intercityDeparture by remember { mutableStateOf("08:00") }
     var morning by remember { mutableStateOf("06:30") }
     var evening by remember { mutableStateOf("17:30") }
     var distance by remember { mutableStateOf("10") }
@@ -718,28 +722,68 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
                 }
                 "Routes" -> {
                     Text("Routes and schedules", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Color(0xFF17233C))
-                    Text("Set departure times, distance and fare for each company route.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    CompanyPortalField("Route name", routeName, { routeName = it })
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) { CompanyPortalField("Morning departure", morning, { morning = it }, modifier = Modifier.weight(1f)); CompanyPortalField("Evening departure", evening, { evening = it }, modifier = Modifier.weight(1f)) }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) { CompanyPortalField("Distance km", distance, { distance = it }, modifier = Modifier.weight(1f)); CompanyPortalField("Fare ETB", fare, { fare = it }, modifier = Modifier.weight(1f)) }
+                    Text("Define the actual departure city, destination and schedule for every service.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        FilterChip(selected = routeType == "INTERCITY", onClick = { routeType = "INTERCITY" }, label = { Text("Intercity") }, leadingIcon = { Icon(Icons.Default.DirectionsBus, null) })
+                        FilterChip(selected = routeType == "DAILY_COMMUTE", onClick = { routeType = "DAILY_COMMUTE" }, label = { Text("Daily commute") }, leadingIcon = { Icon(Icons.Default.Home, null) })
+                    }
+                    CompanyPortalField("Route name (e.g. Addis Ababa – Hawassa)", routeName, { routeName = it })
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        CompanyPortalField("Departure / origin", routeOrigin, { routeOrigin = it }, modifier = Modifier.weight(1f))
+                        CompanyPortalField("Destination", routeDestination, { routeDestination = it }, modifier = Modifier.weight(1f))
+                    }
+                    if (routeType == "INTERCITY") {
+                        CompanyPortalField("Departure time", intercityDeparture, { intercityDeparture = it })
+                        Text("Intercity routes have one scheduled departure. Return journeys should be created as a separate route if they run at a different time.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                            CompanyPortalField("Morning departure", morning, { morning = it }, modifier = Modifier.weight(1f))
+                            CompanyPortalField("Evening departure", evening, { evening = it }, modifier = Modifier.weight(1f))
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        CompanyPortalField("Distance km", distance, { distance = it }, modifier = Modifier.weight(1f))
+                        CompanyPortalField("Fare ETB", fare, { fare = it }, modifier = Modifier.weight(1f))
+                    }
                     Button(onClick = {
                         scope.launch {
                             busy = true
                             try {
-                                val payload = mapOf("name" to routeName.trim(), "morningDeparture" to morning.trim(), "eveningDeparture" to evening.trim(), "distanceKm" to (distance.toDoubleOrNull() ?: 10.0), "basePriceEtb" to (fare.toDoubleOrNull() ?: 0.0))
+                                val departure = if (routeType == "INTERCITY") intercityDeparture.trim() else morning.trim()
+                                val payload = mapOf(
+                                    "name" to routeName.trim(), "routeType" to routeType,
+                                    "origin" to routeOrigin.trim(), "destination" to routeDestination.trim(),
+                                    "departureTime" to departure,
+                                    "morningDeparture" to departure,
+                                    "eveningDeparture" to if (routeType == "INTERCITY") departure else evening.trim(),
+                                    "distanceKm" to (distance.toDoubleOrNull() ?: 10.0),
+                                    "basePriceEtb" to (fare.toDoubleOrNull() ?: 0.0)
+                                )
                                 val r = if (editingRouteId.isBlank()) ApiClient.getService().createCompanyRoute(payload) else ApiClient.getService().updateCompanyRoute(editingRouteId, payload)
-                                if (r.isSuccessful) { val wasEditing = editingRouteId.isNotBlank(); routeName = ""; editingRouteId = ""; message = if (wasEditing) "Route updated." else "Route created."; loadSection() } else message = errorText(r)
+                                if (r.isSuccessful) {
+                                    val wasEditing = editingRouteId.isNotBlank()
+                                    routeName = ""; routeOrigin = ""; routeDestination = ""; editingRouteId = ""
+                                    message = if (wasEditing) "Route updated." else "Route created."
+                                    loadSection()
+                                } else message = errorText(r)
                             } catch (e: Exception) { message = e.message ?: "Could not create route." } finally { busy = false }
                         }
-                    }, enabled = !busy && routeName.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text(if (editingRouteId.isBlank()) "Create route" else "Save route changes") }
-                    routes.forEach { r -> Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.padding(14.dp)) {
+                    }, enabled = !busy && routeName.isNotBlank() && routeOrigin.isNotBlank() && routeDestination.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+                        Text(if (editingRouteId.isBlank()) "Create route" else "Save route changes")
+                    }
+                    routes.forEach { r -> Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(r["name"]?.toString() ?: "Route", fontWeight = FontWeight.Bold)
-                        Text("${r["morningDeparture"] ?: "06:30"} • ${r["eveningDeparture"] ?: "17:30"} • ${r["distanceKm"] ?: "—"} km")
-                        Text("Fare: ${r["basePriceEtb"] ?: "—"} ETB • Status: ${r["active"] ?: "Active"}")
-                        Text("Route ID: ${r["id"] ?: "—"}", style = MaterialTheme.typography.labelSmall)
+                        Text("${r["origin"] ?: "Origin not set"} → ${r["destination"] ?: "Destination not set"}", style = MaterialTheme.typography.bodyLarge)
+                        val type = r["routeType"]?.toString() ?: "DAILY_COMMUTE"
+                        Text(if (type == "INTERCITY") "Intercity • Departure: ${r["departureTime"] ?: r["morningDeparture"] ?: "—"}" else "Daily commute • Morning: ${r["morningDeparture"] ?: "—"} • Evening: ${r["eveningDeparture"] ?: "—"}")
+                        Text("${r["distanceKm"] ?: "—"} km • Fare: ${r["basePriceEtb"] ?: "—"} ETB")
                         OutlinedButton(onClick = {
                             editingRouteId = r["id"]?.toString().orEmpty()
                             routeName = r["name"]?.toString().orEmpty()
+                            routeType = r["routeType"]?.toString() ?: "DAILY_COMMUTE"
+                            routeOrigin = r["origin"]?.toString().orEmpty()
+                            routeDestination = r["destination"]?.toString().orEmpty()
+                            intercityDeparture = r["departureTime"]?.toString() ?: r["morningDeparture"]?.toString() ?: "08:00"
                             morning = r["morningDeparture"]?.toString() ?: "06:30"
                             evening = r["eveningDeparture"]?.toString() ?: "17:30"
                             distance = r["distanceKm"]?.toString() ?: "10"
