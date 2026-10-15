@@ -784,6 +784,7 @@ fun DriverNavigationHudCard(
                 if (!tripState.isArrivedAtStop) {
                     Button(
                         onClick = onArrived,
+                        enabled = currentStop != null && tripState.routeId.isNotBlank() && tripState.vehicleId.isNotBlank(),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = TransportGreenPrimary),
                         modifier = Modifier.fillMaxWidth().height(56.dp).testTag("driver_arrived_button")
@@ -791,7 +792,7 @@ fun DriverNavigationHudCard(
                         Icon(Icons.Default.PinDrop, contentDescription = null, modifier = Modifier.size(24.dp))
                         Spacer(Modifier.width(10.dp))
                         Text(
-                            text = if (tripState.currentStopIndex == 0) "ARRIVE AT DEPARTURE" else "ARRIVE AT STOP",
+                            text = if (currentStop == null || tripState.routeId.isBlank() || tripState.vehicleId.isBlank()) "WAITING FOR ASSIGNMENT" else if (tripState.currentStopIndex == 0) "ARRIVE AT DEPARTURE" else "ARRIVE AT STOP",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
