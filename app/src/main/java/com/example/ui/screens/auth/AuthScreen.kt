@@ -192,7 +192,7 @@ fun AuthScreen(
                     }
                     Text(
                         text = "PASSO • Tap. Move. Clear.",
-                        style = if (selectedPortal == AppRole.PASSENGER && !isRegisterMode) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
+                        style = if (!isRegisterMode) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.ExtraBold,
                         color = Color.White,
                         textAlign = TextAlign.Center
@@ -207,7 +207,7 @@ fun AuthScreen(
                         textAlign = TextAlign.Center
                     )
                     Surface(color = Color.White.copy(alpha = 0.94f), shape = RoundedCornerShape(50.dp)) {
-                        Text("PASSENGER PORTAL", color = Color(0xFF154A3A), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = if (!isRegisterMode) 4.dp else 7.dp))
+                        Text(text = when (selectedPortal) { AppRole.PASSENGER -> "PASSENGER PORTAL"; AppRole.DRIVER -> "TRANSPORTER CONSOLE"; AppRole.ADMIN -> "OPERATOR CENTER"; null -> "PASSO PORTAL" }, color = when (selectedPortal) { AppRole.PASSENGER -> Color(0xFF154A3A); AppRole.DRIVER -> Color(0xFF145A9E); AppRole.ADMIN -> TelebirrBlue; null -> Color(0xFF154A3A) }, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = if (!isRegisterMode) 4.dp else 7.dp))
                     }
                 }
             }
