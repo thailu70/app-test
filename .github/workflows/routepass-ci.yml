@@ -14,7 +14,7 @@ on:
       api_base_url:
         description: "Public HTTPS RoutePass API base URL (include trailing slash)"
         required: true
-        default: "https://api.example.com/"
+        default: "https://routepass.duckdns.org/"
         type: string
 
 permissions:
@@ -134,7 +134,7 @@ jobs:
         with:
           gradle-version: "9.3.1"
       - name: Assemble debug APK against configured HTTPS host
-        run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://api.example.com/' }}"
+        run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://routepass.duckdns.org/' }}"
       - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:
