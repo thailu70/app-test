@@ -52,6 +52,12 @@ interface TransportDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRoutes(routes: List<RouteEntity>)
 
+    @Query("DELETE FROM routes WHERE id NOT IN (:routeIds)")
+    suspend fun removeRoutesOutsideScope(routeIds: List<String>)
+
+    @Query("DELETE FROM routes")
+    suspend fun clearRouteCache()
+
     @Update
     suspend fun updateRoute(route: RouteEntity)
 

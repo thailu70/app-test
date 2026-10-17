@@ -38,10 +38,12 @@ import com.example.ui.components.QrCodeCanvas
 import com.example.ui.components.MiniVehicleMap
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.MainViewModel
+import com.example.ui.screens.profile.ProfileCompletionPrompt
 
 @Composable
 fun PassengerDashboardScreen(
     viewModel: MainViewModel,
+    onOpenProfile: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val lang by viewModel.currentLanguage.collectAsState()
@@ -121,6 +123,8 @@ fun PassengerDashboardScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp)
         ) {
+            item { ProfileCompletionPrompt(onOpen = onOpenProfile) }
+            if (passengerSection == "Home") item { AssignedDriverCard() }
             when (passengerSection) {
                 "Home" -> {
                     item {

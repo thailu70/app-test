@@ -140,7 +140,7 @@ router.post('/subscribe', authenticate, requireRole('PASSENGER'), async (req, re
       return res.status(400).json({ success: false, error: 'Route ID is required.' });
     }
 
-    const route = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(routeId);
+    const route = await DB.prepare("SELECT * FROM routes WHERE id = ? AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'").get(routeId);
     if (!route) {
       return res.status(404).json({ success: false, error: 'Route not found.' });
     }
@@ -346,7 +346,7 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
 
     const user = await DB.prepare('SELECT * FROM users WHERE id = ?').get(passengerId);
     const targetRouteId = routeId || user?.appliedRouteId || 'route_bole_merkato';
-    const route = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(targetRouteId);
+    const route = await DB.prepare("SELECT * FROM routes WHERE id = ? AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'").get(targetRouteId);
 
     if (!route) {
       return res.status(404).json({ success: false, error: 'Route not found.' });
@@ -483,6 +483,7 @@ router.get('/all', authenticate, requireRole('ADMIN'), async (req, res) => {
       FROM subscriptions s
       LEFT JOIN users u ON s.passengerId = u.id
       LEFT JOIN routes r ON s.routeId = r.id
+      WHERE COALESCE(r.companyId,'')='' AND COALESCE(r.routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'
       ORDER BY s.updatedAt DESC
     `).all();
 

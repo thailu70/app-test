@@ -100,7 +100,7 @@ router.post('/pay', authenticate, requireRole('PASSENGER'), async (req, res, nex
     if (!passenger) return res.status(404).json({ success: false, error: 'Passenger account not found.' });
     const routeId = String(request.routeId || passenger.appliedRouteId || '').trim();
     if (!routeId) return res.status(400).json({ success: false, error: 'Select a route before checkout.' });
-    const route = await DB.prepare('SELECT * FROM routes WHERE id=? AND active=TRUE').get(routeId);
+    const route = await DB.prepare("SELECT * FROM routes WHERE id=? AND active=TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'").get(routeId);
     if (!route) return res.status(404).json({ success: false, error: 'Active route not found.' });
     const amount = Number(route.basePriceEtb);
     if (!Number.isFinite(amount) || amount <= 0) return res.status(409).json({ success: false, error: 'Invalid route fare.' });

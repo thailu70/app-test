@@ -128,6 +128,11 @@ app.use('/api/vehicles', require('./routes/vehicles'));
 app.use('/api/trips', require('./routes/trips'));
 app.use('/api/checkins', require('./routes/checkins'));
 app.use('/api/admin', require('./routes/company-admin'));
+app.use('/api/admin', require('./routes/commute-operations'));
+app.use('/api/profiles', require('./routes/profiles'));
+app.use('/api/intercity', require('./routes/intercity'));
+app.use('/api/commute', require('./routes/commute-passenger'));
+app.use('/travel', express.static(path.join(__dirname, '..', 'public', 'travel'), { maxAge: 0, etag: false }));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/complaints', require('./routes/complaints'));
 app.use('/api/notifications', require('./routes/notifications'));
@@ -470,6 +475,7 @@ function broadcastAuthorized(payload, targetRouteId = null) {
     // 2. Per-Recipient Authorization:
     const role = (client.user.role || '').toUpperCase();
     if (role === 'ADMIN') {
+      if (payload.companyId) continue;
       client.send(json);
     } else if (role === 'COMPANY') {
       if (!payload.companyId || client.user.companyId !== payload.companyId) continue;
@@ -510,6 +516,13 @@ async function backfillCompanyInvitationExpirations() {
 // Apply additive schema migrations before accepting traffic. This keeps existing VPS databases
 // compatible with newer GPS, company-portal, and route types without replacing their data.
 async function runDatabaseMigrations() {
+  if (!DB.isPostgres) {
+    await DB.exec(`CREATE TABLE IF NOT EXISTS transport_companies(id TEXT PRIMARY KEY,name TEXT NOT NULL,status TEXT DEFAULT 'ACTIVE',phone TEXT,representative_name TEXT,password_hash TEXT,registration_secret_hash TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
+      CREATE TABLE IF NOT EXISTS transport_company_access_codes(id TEXT PRIMARY KEY,company_id TEXT NOT NULL,code_hash TEXT NOT NULL,created_by TEXT,revoked INTEGER DEFAULT 0,expires_at TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+      CREATE TABLE IF NOT EXISTS company_route_assignments(id TEXT PRIMARY KEY,company_id TEXT,route_id TEXT,driver_id TEXT,vehicle_id TEXT,status TEXT DEFAULT 'ACTIVE',created_at TEXT DEFAULT CURRENT_TIMESTAMP);`);
+    await initializeFeatureSchemas();
+    return;
+  }
   await DB.prepare(`
     CREATE TABLE IF NOT EXISTS transport_companies (
       id VARCHAR(64) PRIMARY KEY,
@@ -554,6 +567,14 @@ async function runDatabaseMigrations() {
 
   await DB.prepare("CREATE TABLE IF NOT EXISTS telebirr_payment_orders (merchant_order_id VARCHAR(100) PRIMARY KEY, idempotency_key VARCHAR(100) UNIQUE, prepay_id VARCHAR(200), checkout_url TEXT, passenger_id VARCHAR(64) NOT NULL REFERENCES users(id), subscription_id VARCHAR(64) NOT NULL REFERENCES subscriptions(id), route_id VARCHAR(64) NOT NULL REFERENCES routes(id), amount_etb NUMERIC(10,2) NOT NULL, status VARCHAR(20) NOT NULL DEFAULT 'PENDING', payment_order_id VARCHAR(200), transaction_id VARCHAR(200), last_query_at TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)").run();
   await DB.prepare('CREATE INDEX IF NOT EXISTS idx_telebirr_payment_orders_passenger ON telebirr_payment_orders(passenger_id, created_at)').run();
+  await initializeFeatureSchemas();
+}
+
+async function initializeFeatureSchemas() {
+  await require('./services/profile-schema').initProfileSchema();
+  await require('./services/ops-schema').initOpsSchema(DB);
+  await require('./services/intercity-schema').initIntercitySchema();
+  await DB.exec('CREATE INDEX IF NOT EXISTS idx_reports_trip_time ON trips(startTime); CREATE INDEX IF NOT EXISTS idx_reports_checkin_time ON checkin_records(timestamp); CREATE INDEX IF NOT EXISTS idx_reports_payment_date ON payment_transactions(date);');
 }
 
 async function startServer() {
@@ -584,4 +605,4 @@ function gracefulShutdown(signal) {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-module.exports = { app, server, runDatabaseMigrations };
+module.exports = { app, server, runDatabaseMigrations, initializeFeatureSchemas };

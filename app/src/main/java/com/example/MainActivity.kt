@@ -39,6 +39,8 @@ import com.example.data.repository.TransportRepository
 import com.example.ui.components.NotificationTrayDialog
 import com.example.ui.screens.auth.AuthScreen
 import com.example.ui.screens.home.BrowseFirstScreen
+import com.example.ui.screens.home.HostedPortalScreen
+import com.example.ui.screens.profile.ProfileCompletionScreen
 import com.example.ui.screens.driver.DriverTripScreen
 import com.example.ui.screens.passenger.PassengerDashboardScreen
 import com.example.ui.theme.*
@@ -81,6 +83,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
     val passengerNotifs by viewModel.passengerNotifications.collectAsState()
     val transporterNotifs by viewModel.transporterNotifications.collectAsState()
     val allNotifs by viewModel.allNotifications.collectAsState()
+    var showProfile by remember(currentUser?.id) { mutableStateOf(false) }
 
     fun t(key: String) = AppStrings.get(key, currentLang)
 
@@ -93,12 +96,15 @@ fun MainTransportApp(viewModel: MainViewModel) {
     if (!isAuthenticated) {
         var showPublicHome by remember { mutableStateOf(true) }
         var showCompanyPortal by remember { mutableStateOf(false) }
+        var showIntercityPortal by remember { mutableStateOf(false) }
         var requestedAuthPortal by remember { mutableStateOf<AppRole?>(null) }
         var requestedRegisterFirst by remember { mutableStateOf(false) }
         var requestedRouteId by remember { mutableStateOf<String?>(null) }
         var requestedRouteName by remember { mutableStateOf<String?>(null) }
         var requestedServiceTier by remember { mutableStateOf<String?>(null) }
-        if (showCompanyPortal) {
+        if (showIntercityPortal) {
+            HostedPortalScreen("/travel/", "Intercity travel", onExit = { showIntercityPortal = false; showPublicHome = true })
+        } else if (showCompanyPortal) {
             CompanyPortalScreen(onExit = {
                 ApiClient.setAuthToken(null)
                 showCompanyPortal = false
@@ -107,6 +113,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
         } else if (showPublicHome) {
             BrowseFirstScreen(
                 viewModel = viewModel,
+                onIntercityTravel = { showIntercityPortal = true; showPublicHome = false },
                 onPassengerContinue = { registerFirst, routeId, routeName, tier ->
                     requestedAuthPortal = AppRole.PASSENGER
                     requestedRegisterFirst = registerFirst
@@ -208,6 +215,9 @@ fun MainTransportApp(viewModel: MainViewModel) {
                     },
                     actions = {
                         // Notifications Bell with Badge
+                        if (currentRole != AppRole.ADMIN) {
+                            IconButton(onClick = { showProfile = true }) { Icon(Icons.Default.AccountCircle, contentDescription = "Profile, documents and emergency contact") }
+                        }
                         IconButton(
                             onClick = { viewModel.openNotificationTray() },
                             modifier = Modifier.testTag("top_bar_notifications_button")
@@ -298,9 +308,11 @@ fun MainTransportApp(viewModel: MainViewModel) {
                     .padding(innerPadding)
                     .background(MaterialTheme.colorScheme.background)
             ) {
-                when (currentRole) {
+                if (showProfile) {
+                    ProfileCompletionScreen(role = currentRole.name, onBack = { showProfile = false })
+                } else when (currentRole) {
                     AppRole.PASSENGER -> {
-                        PassengerDashboardScreen(viewModel = viewModel)
+                        PassengerDashboardScreen(viewModel = viewModel, onOpenProfile = { showProfile = true })
                     }
                     AppRole.DRIVER -> {
                         DriverTripScreen(viewModel = viewModel)
@@ -428,6 +440,12 @@ private fun LiveFleetMap(vehicles: List<Map<String, Any>>) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CompanyPortalScreen(onExit: () -> Unit) {
+    HostedPortalScreen("/company/", "Company portal", onExit)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LegacyCompanyPortalScreen(onExit: () -> Unit) {
     val scope = rememberCoroutineScope()
     var registerMode by remember { mutableStateOf(false) }
     var companyName by remember { mutableStateOf("") }

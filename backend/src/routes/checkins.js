@@ -70,6 +70,8 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
     if (!trip || trip.driverId !== driverId || trip.vehicleId !== vehicle.id) {
       return res.status(403).json({ success: false, status: 'TRIP_NOT_ASSIGNED', error: 'This active trip is not assigned to your driver and vehicle.' });
     }
+    const departureConfirmed = await DB.prepare('SELECT trip_id FROM trip_departure_confirmations WHERE trip_id = ? AND driver_id = ?').get(tripId, driverId);
+    if (!departureConfirmed) return res.status(403).json({ success: false, status: 'DEPARTURE_NOT_CONFIRMED', error: 'Confirm arrival at the departure point with a fresh GPS fix and within the scheduled departure window before boarding passengers.' });
 
     // 2. Validate QR authenticity & Subscription
     let sub = await DB.prepare('SELECT * FROM subscriptions WHERE qrToken = ?').get(qrToken);
@@ -94,6 +96,9 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
     if (sub.routeId !== trip.routeId) {
       return res.status(403).json({ success: false, status: 'ROUTE_MISMATCH', error: 'Passenger subscription route does not match the active trip.' });
     }
+    if (!sub.vehicleId || sub.vehicleId !== vehicle.id) return res.status(403).json({ success: false, status: 'PASSENGER_NOT_ASSIGNED', error: 'This passenger is not assigned to your vehicle. Ask the administrator to update the passenger assignment.' });
+    const activePassenger = await DB.prepare("SELECT id FROM users WHERE id = ? AND role = 'PASSENGER' AND status = 'ACTIVE'").get(sub.passengerId);
+    if (!activePassenger) return res.status(403).json({ success: false, status: 'PASSENGER_INACTIVE', error: 'This passenger account is inactive.' });
     if (sub.subscriptionStatus !== 'ACTIVE' || sub.paymentStatus !== 'PAID' || sub.daysRemaining <= 0) {
       return res.status(403).json({
         success: false,
@@ -125,8 +130,14 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
         : 'SELECT * FROM trips WHERE id = ?').get(tripId);
       if (!currentTrip || currentTrip.status !== 'IN_PROGRESS' ||
           currentTrip.driverId !== driverId || currentTrip.vehicleId !== currentVehicle.id ||
-          currentTrip.routeId !== sub.routeId) {
+          currentTrip.routeId !== sub.routeId || currentVehicle.assignedRouteId !== currentTrip.routeId || currentVehicle.companyId) {
         return { allowed: false, reason: 'TRIP_NOT_ACTIVE' };
+      }
+      const confirmed = await tx.prepare('SELECT trip_id FROM trip_departure_confirmations WHERE trip_id = ? AND driver_id = ?').get(tripId, driverId);
+      const currentSub = await tx.prepare('SELECT s.*, u.status AS user_status FROM subscriptions s JOIN users u ON u.id = s.passengerId WHERE s.id = ?').get(sub.id);
+      if (!confirmed || !currentSub || currentSub.vehicleId !== currentVehicle.id || currentSub.routeId !== currentTrip.routeId ||
+          currentSub.subscriptionStatus !== 'ACTIVE' || currentSub.paymentStatus !== 'PAID' || currentSub.daysRemaining <= 0 || currentSub.user_status !== 'ACTIVE') {
+        return { allowed: false, reason: 'PASSENGER_NOT_ASSIGNED' };
       }
       // Re-check inside the same transaction so two concurrent scans cannot board the same
       // passenger twice even when they arrived before either request committed.
@@ -204,6 +215,7 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
         error: 'The trip ended or changed during this check-in. Refresh and retry only on the assigned active trip.'
       });
     }
+    if (!result.allowed && result.reason === 'PASSENGER_NOT_ASSIGNED') return res.status(403).json({ success: false, status: result.reason, error: 'The passenger assignment or pass changed. Refresh the roster before retrying.' });
     if (!result.allowed && result.reason === 'ALREADY_CHECKED_IN') {
       return res.status(409).json({
         success: false,
@@ -284,6 +296,7 @@ router.get('/recent', authenticate, requireRole('ADMIN'), async (req, res) => {
       SELECT c.*, v.plateNumber as vehiclePlate
       FROM checkin_records c
       LEFT JOIN vehicles v ON c.vehicleId = v.id
+      JOIN routes r ON r.id = c.routeId AND COALESCE(r.routeType, 'DAILY_COMMUTE') = 'DAILY_COMMUTE' AND COALESCE(r.companyId, '') = ''
       ORDER BY c.timestamp DESC LIMIT 50
     `).all();
 
@@ -306,6 +319,9 @@ router.get('/trip/:tripId', authenticate, requireRole('ADMIN', 'DRIVER'), async 
       if (!authorizedTrip) {
         return res.status(403).json({ success: false, error: 'Access denied for this trip.' });
       }
+    } else {
+      const commuteTrip = await DB.prepare("SELECT t.id FROM trips t JOIN routes r ON r.id=t.routeId WHERE t.id=? AND COALESCE(r.routeType,'DAILY_COMMUTE')='DAILY_COMMUTE' AND COALESCE(r.companyId,'')=''").get(tripId);
+      if (!commuteTrip) return res.status(403).json({ success: false, error: 'Access denied for this trip.' });
     }
     const records = await DB.prepare(`
       SELECT * FROM checkin_records

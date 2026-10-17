@@ -55,6 +55,7 @@ fun BrowseFirstScreen(
     onPassengerContinue: (registerFirst: Boolean, routeId: String?, routeName: String?, serviceTier: String?) -> Unit,
     onDriverAccess: () -> Unit,
     onCompanyAccess: () -> Unit,
+    onIntercityTravel: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val routes by viewModel.activeRoutes.collectAsState()
@@ -193,8 +194,7 @@ fun BrowseFirstScreen(
                         selectedService = 0
                     }
                     ServiceHomeCard("Intercity Travel", "One-way or return", "Across Ethiopia", Icons.Default.Map, HomeBlue, false, modifier = Modifier.weight(1f)) {
-                        selectedSection = 2
-                        selectedService = 1
+                        onIntercityTravel()
                     }
                 }
             }

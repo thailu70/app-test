@@ -210,6 +210,8 @@ class TransportRepository(
             if (!response.isSuccessful || response.body()?.success != true) return
 
             val routeList = response.body()?.routes ?: emptyList()
+            if (routeList.isEmpty()) dao.clearRouteCache()
+            else dao.removeRoutesOutsideScope(routeList.map { it.id })
             for (summary in routeList) {
                 // GET /api/routes/:id returns { success, route, stops }, not a bare RouteDto.
                 // Fetch this authoritative detail response so newly created/edited stop lists

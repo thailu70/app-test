@@ -51,7 +51,7 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun MyApplicationTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = false,
     dynamicColor: Boolean = false, // Keep custom brand palette consistent
     content: @Composable () -> Unit
 ) {

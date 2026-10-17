@@ -6,6 +6,7 @@
   const state = { token: sessionStorage.getItem(TOKEN_KEY) || "", user: null, view: "overview", cache: {} };
   const labels = {
     overview: ["Overview", "A live snapshot of RoutePass service operations."],
+    reports: ["Performance reports", "Daily commute performance in Addis Ababa time."],
     drivers: ["Drivers & routes", "Review driver-owned vehicles and assign approved operating routes."],
     companies: ["Company access", "Invite transport companies and issue one-time registration codes."],
     routes: ["Manage routes", "Create, edit, activate and deactivate RoutePass transit routes."],
@@ -185,7 +186,7 @@
           { label: "Distance", render: r => esc(value(r, "distanceKm", "distance_km")) + " km" },
           { label: "Monthly tariff", render: r => esc(money(value(r, "basePriceEtb", "base_price_etb"))) },
           { label: "Status", render: r => pill(value(r, "active") === false || value(r, "active") === 0 ? "INACTIVE" : "ACTIVE") },
-          { label: "Actions", render: r => '<div class="inline-actions"><button class="btn btn-secondary" data-edit-route="' + esc(r.id) + '">Edit</button><button class="btn btn-secondary" data-toggle-route="' + esc(r.id) + '">' + (r.active === false || r.active === 0 ? "Activate" : "Deactivate") + '</button></div>' }
+          { label: "Actions", render: r => '<div class="inline-actions"><button class="btn btn-secondary" data-edit-route="' + esc(r.id) + '">Edit</button><button class="btn btn-secondary" data-geofence-route="' + esc(r.id) + '">Departure area</button><button class="btn btn-secondary" data-toggle-route="' + esc(r.id) + '">' + (r.active === false || r.active === 0 ? "Activate" : "Deactivate") + '</button></div>' }
         ], routes));
   }
 
@@ -356,6 +357,7 @@
     try {
       let html;
       switch (state.view) {
+        case "reports": html = pageHeader("Performance reports", "Daily, weekly and monthly commute performance. Admin grants are excluded from revenue."); break;
         case "drivers": html = await renderDrivers(); break;
         case "companies": html = await renderCompanyAccess(); break;
         case "routes": html = await renderRoutes(); break;
@@ -368,6 +370,10 @@
         default: html = await renderOverview();
       }
       $("#page-content").innerHTML = html;
+      if ((state.view === "overview" || state.view === "reports") && window.RoutepassReports) {
+        $("#page-content").insertAdjacentHTML('beforeend', window.RoutepassReports.markup());
+        window.RoutepassReports.load(api);
+      }
       const routeForm = $("#create-route-form");
       if (routeForm) {
         routeForm.addEventListener("submit", submitRoute);
@@ -489,6 +495,23 @@
       toast(result.message || "Passenger pass activated.");
       await renderView();
     } catch (error) { toast(error.message, true); button.disabled = false; }
+  }
+
+  async function configureDeparture(button) {
+    button.disabled = true;
+    try {
+      const result = await api('/api/admin/routes/' + encodeURIComponent(button.dataset.geofenceRoute) + '/departure-settings');
+      const settings = result.settings;
+      const latitude = window.prompt('Departure latitude (-90 to 90)', settings.latitude ?? '');
+      if (latitude === null) return;
+      const longitude = window.prompt('Departure longitude (-180 to 180)', settings.longitude ?? '');
+      if (longitude === null) return;
+      const radius = window.prompt('Allowed radius in metres (25–5000). Diameter is twice the radius. Drivers must also be within 30 minutes of departure.', settings.radius_m || 300);
+      if (radius === null) return;
+      if (![latitude,longitude,radius].every(v => v.trim() !== '' && Number.isFinite(Number(v)))) throw Error('Enter numeric coordinates and a radius.');
+      const saved = await api('/api/admin/routes/' + encodeURIComponent(button.dataset.geofenceRoute) + '/departure-settings', {method:'PUT',body:JSON.stringify({latitude:Number(latitude),longitude:Number(longitude),radiusMeters:Number(radius)})});
+      toast(saved.message);
+    } catch(e) { toast(e.message,true); } finally { button.disabled=false; }
   }
 
   async function rechargeSubscription(button) {
@@ -613,6 +636,8 @@
     const assignVehicleButton = event.target.closest("[data-assign-vehicle]");
     if (assignVehicleButton) { assignSubscriptionVehicle(assignVehicleButton); return; }
     const rechargeButton = event.target.closest("[data-recharge]");
+    const geofenceButton = event.target.closest('[data-geofence-route]');
+    if (geofenceButton) { configureDeparture(geofenceButton); return; }
     const activateButton = event.target.closest("[data-activate-pass]");
     if (activateButton) { activatePass(activateButton); return; }
     if (rechargeButton) { rechargeSubscription(rechargeButton); return; }

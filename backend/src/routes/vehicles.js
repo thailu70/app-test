@@ -97,9 +97,9 @@ router.get('/', async (req, res) => {
       SELECT v.*, r.name as routeName, r.nameAm as routeNameAm
       FROM vehicles v
       LEFT JOIN routes r ON v.assignedRouteId = r.id
-      ${isCompany ? 'WHERE v.companyId = ?' : ''}
+      ${isCompany ? 'WHERE v.companyId = ?' : principal?.role==='DRIVER' && principal.companyId ? 'WHERE v.driverId = ?' : "WHERE COALESCE(v.companyId,'')=''"}
       ORDER BY v.plateNumber ASC
-    `).all(...(isCompany ? [principal.companyId] : []));
+    `).all(...(isCompany ? [principal.companyId] : principal?.role==='DRIVER' && principal.companyId ? [principal.id] : []));
 
     res.json({
       success: true,
@@ -214,8 +214,8 @@ router.get('/:id', async (req, res) => {
       SELECT v.*, r.name as routeName, r.nameAm as routeNameAm
       FROM vehicles v
       LEFT JOIN routes r ON v.assignedRouteId = r.id
-      WHERE v.id = ? ${isCompany ? 'AND v.companyId = ?' : ''}
-    `).get(...(isCompany ? [req.params.id, principal.companyId] : [req.params.id]));
+      WHERE v.id = ? ${isCompany ? 'AND v.companyId = ?' : principal?.role==='DRIVER' && principal.companyId ? 'AND v.driverId = ?' : "AND COALESCE(v.companyId,'')=''"}
+    `).get(...(isCompany ? [req.params.id, principal.companyId] : principal?.role==='DRIVER' && principal.companyId ? [req.params.id,principal.id] : [req.params.id]));
 
     if (!vehicle) {
       return res.status(404).json({ success: false, error: 'Vehicle not found' });
@@ -242,7 +242,7 @@ router.get('/:id', async (req, res) => {
 router.patch('/:id/type', authenticate, requireRole('ADMIN'), async (req, res) => {
   try {
     const { vehicleType, capacityLimit } = req.body;
-    const vehicle = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
+    const vehicle = await DB.prepare("SELECT * FROM vehicles WHERE id = ? AND COALESCE(companyId,'')=''").get(req.params.id);
 
     if (!vehicle) {
       return res.status(404).json({ success: false, error: 'Vehicle not found' });
@@ -263,7 +263,7 @@ router.patch('/:id/type', authenticate, requireRole('ADMIN'), async (req, res) =
       VALUES ('VEHICLE_TYPE_UPDATED', ?, ?, ?)
     `).run(req.user.id, req.user.role, `Updated vehicle ${vehicle.plateNumber} to ${vehicleType} (Limit: ${standardCapacity} seats)`);
 
-    const updated = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
+    const updated = await DB.prepare("SELECT * FROM vehicles WHERE id = ? AND COALESCE(companyId,'')=''").get(req.params.id);
 
     res.json({
       success: true,
@@ -329,7 +329,7 @@ router.post('/my-location', authenticate, requireRole('DRIVER'), async (req, res
 router.post('/:id/location', authenticate, requireRole('DRIVER'), async (req, res) => {
   try {
     const { latitude, longitude, speed = 0, currentStop = '' } = req.body;
-    const vehicle = await DB.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id);
+    const vehicle = await DB.prepare("SELECT * FROM vehicles WHERE id = ? AND COALESCE(companyId,'')=''").get(req.params.id);
     if (!vehicle) return res.status(404).json({ success: false, error: 'Vehicle not found.' });
     if (vehicle.driverId !== req.user.id) {
       return res.status(403).json({ success: false, error: 'Vehicle is not assigned to this driver.' });

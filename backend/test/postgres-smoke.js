@@ -207,18 +207,27 @@ async function run() {
     result = await requestJson(baseUrl, '/api/trips/start', 'POST', {
       routeId: companyRouteId, vehicleId: companyVehicleId
     }, companyDriverToken);
-    assert.equal(result.status, 200, 'Company driver should start a trip using the company-assigned vehicle');
-    const companyTripId = result.data.trip.id;
-
-    result = await requestJson(baseUrl, '/api/vehicles/my-location', 'POST', {
-      latitude: 9.02, longitude: 38.77, speed: 2, currentStop: 'Company CI Stop'
+    assert.ok([403, 404].includes(result.status), 'Company intercity journeys must not enter the commute trip workflow');
+    result = await requestJson(baseUrl, '/api/intercity/company/departures', 'POST', {
+      routeId: companyRouteId, vehicleId: companyVehicleId, driverId: companyDriver.id,
+      departureAt: new Date(Date.now() + 5 * 60000).toISOString(), latitude: 9.02, longitude: 38.77,
+      radiusMeters: 300, seats: 14, fareEtb: 500
+    }, companyToken);
+    assert.equal(result.status, 201, 'Company should schedule a dated intercity departure');
+    const companyDepartureId = result.data.departure.id;
+    result = await requestJson(baseUrl, `/api/intercity/driver/departures/${companyDepartureId}/arrival`, 'POST', {
+      location: { latitude: 9.02, longitude: 38.77, accuracyMeters: 5, timestamp: Date.now() }
     }, companyDriverToken);
-    assert.equal(result.status, 200, 'Active company driver trip should persist a GPS location');
+    assert.equal(result.status, 200, 'Assigned driver should confirm fresh GPS within the departure time window');
+    assert.equal(result.data.departure.status, 'BOARDING');
+    result = await requestJson(baseUrl, `/api/intercity/driver/departures/${companyDepartureId}/roster`, 'GET', null, companyDriverToken);
+    assert.equal(result.status, 200, 'Assigned company driver should see the intercity roster');
+    assert.deepEqual(result.data.roster, []);
 
     result = await requestJson(baseUrl, `/api/companies/operations/assignments/${encodeURIComponent(companyAssignmentId)}`, 'DELETE', null, companyToken);
     assert.equal(result.status, 409, 'Company cannot unassign a vehicle while its trip is active');
-    result = await requestJson(baseUrl, `/api/trips/${encodeURIComponent(companyTripId)}/end`, 'POST', {}, companyDriverToken);
-    assert.equal(result.status, 200, 'Company driver should end the active trip');
+    result = await requestJson(baseUrl, `/api/intercity/driver/departures/${companyDepartureId}/complete`, 'POST', {}, companyDriverToken);
+    assert.equal(result.status, 200, 'Company driver should complete the active journey without destination GPS');
     result = await requestJson(baseUrl, `/api/companies/operations/assignments/${encodeURIComponent(companyAssignmentId)}`, 'DELETE', null, companyToken);
     assert.equal(result.status, 200, 'Company should be able to remove an idle assignment without deleting its vehicle');
 
@@ -231,7 +240,9 @@ async function run() {
     assert.equal(Object.hasOwn(result.data.vehicles[0], 'driverId'), true);
 
     result = await requestJson(baseUrl, `/api/admin/drivers/${encodeURIComponent(companyDriver.id)}/approval`, 'PATCH', { status: 'SUSPENDED' }, adminToken);
-    assert.equal(result.status, 200, 'Administrator should be able to suspend the company driver');
+    assert.ok([403, 404].includes(result.status), 'Commute administrator must not manage a company intercity driver');
+    result = await requestJson(baseUrl, `/api/companies/operations/drivers/${encodeURIComponent(companyDriver.id)}/approval`, 'PATCH', { action: 'REJECT' }, companyToken);
+    assert.equal(result.status, 200, 'Company should be able to deactivate its own driver');
     result = await requestJson(baseUrl, '/api/trips/active', 'GET', null, companyDriverToken);
     assert.equal(result.status, 401, 'Previously issued bearer token must stop working after driver suspension');
 
@@ -291,9 +302,12 @@ async function run() {
     }, driverToken);
     assert.equal(result.status, 409, 'Driver must not publish live GPS before starting an assigned trip');
 
+    await DB.prepare('UPDATE routes SET morningDeparture=? WHERE id=?').run(new Date(Date.now() + 3 * 3600000).toISOString().slice(11, 16), 'route_bole_merkato');
+
     result = await requestJson(baseUrl, '/api/trips/start', 'POST', {
       routeId: 'route_bole_merkato',
-      vehicleId: driverVehicleId
+      vehicleId: driverVehicleId,
+      location: { latitude: 8.995, longitude: 38.788, accuracyMeters: 5, timestamp: Date.now() }
     }, driverToken);
     assert.equal(result.status, 200, 'Approved driver with an assigned route must be able to start trip');
     assert.equal(result.data.trip.status, 'IN_PROGRESS');

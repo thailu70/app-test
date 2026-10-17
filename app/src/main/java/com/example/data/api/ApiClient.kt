@@ -79,6 +79,8 @@ object ApiClient {
         }
     }
 
+    fun <T> createFeatureService(serviceClass: Class<T>): T = createRetrofit().create(serviceClass)
+
     private fun createRetrofit(): Retrofit {
         val sanitizedBaseUrl = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
         return Retrofit.Builder()

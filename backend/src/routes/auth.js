@@ -108,6 +108,10 @@ router.post('/register', authLimiter, async (req, res) => {
     }
 
     // Check if phone is already registered
+    if (normalizedRole === 'PASSENGER' && appliedRouteId) {
+      const commuteRoute = await DB.prepare("SELECT id FROM routes WHERE id=? AND active=TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'").get(appliedRouteId);
+      if (!commuteRoute) return res.status(400).json({success:false,error:'Choose an active daily commute route. Intercity tickets do not require registration.'});
+    }
     const existing = await DB.prepare('SELECT id FROM users WHERE phone = ?').get(phone.trim());
     if (existing) {
       return res.status(409).json({
@@ -172,7 +176,7 @@ router.post('/register', authLimiter, async (req, res) => {
     // If passenger selected a route during signup, create a PENDING unpaid subscription.
     let initialSub = null;
     if (normalizedRole === 'PASSENGER' && appliedRouteId) {
-      const route = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(appliedRouteId);
+      const route = await DB.prepare("SELECT * FROM routes WHERE id = ? AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'").get(appliedRouteId);
       const subId = `sub_${userId}_${Date.now().toString(36)}`;
 
       await DB.prepare(`

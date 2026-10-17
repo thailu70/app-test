@@ -3,12 +3,13 @@ const router = express.Router();
 const crypto = require('crypto');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { adminScope } = require('../services/commute-scope');
 const { generateSignedQrToken } = require('./subscriptions');
 
 /**
  * All endpoints here require ADMIN role
  */
-router.use(authenticate, requireRole('ADMIN'));
+router.use(authenticate, requireRole('ADMIN'), adminScope);
 
 router.get('/features', (_req, res) => {
   res.json({
@@ -23,13 +24,13 @@ router.get('/features', (_req, res) => {
  */
 router.get('/stats', async (req, res) => {
   try {
-    const totalPassengers = (await DB.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'PASSENGER'").get()).c;
-    const totalDrivers = (await DB.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'DRIVER'").get()).c;
-    const activeRoutes = (await DB.prepare('SELECT COUNT(*) as c FROM routes WHERE active = TRUE').get()).c;
-    const activeVehicles = (await DB.prepare("SELECT COUNT(*) as c FROM vehicles WHERE status != 'MAINTENANCE'").get()).c;
-    const activeSubscriptions = (await DB.prepare("SELECT COUNT(*) as c FROM subscriptions WHERE subscriptionStatus = 'ACTIVE'").get()).c;
-    const totalRevenue = (await DB.prepare("SELECT COALESCE(SUM(amountEtb), 0) as s FROM payment_transactions WHERE status = 'COMPLETED' AND provider <> 'ADMIN_TEST'").get()).s;
-    const todayCheckins = (await DB.prepare("SELECT COUNT(*) as c FROM checkin_records WHERE status = 'BOARDED'").get()).c;
+    const totalPassengers = (await DB.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'PASSENGER' AND COALESCE(companyId,'')=''").get()).c;
+    const totalDrivers = (await DB.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'DRIVER' AND COALESCE(companyId,'')=''").get()).c;
+    const activeRoutes = (await DB.prepare(`SELECT COUNT(*) as c FROM routes WHERE active = TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'`).get()).c;
+    const activeVehicles = (await DB.prepare("SELECT COUNT(*) as c FROM vehicles WHERE status != 'MAINTENANCE' AND COALESCE(companyId,'')=''").get()).c;
+    const activeSubscriptions = (await DB.prepare("SELECT COUNT(*) as c FROM subscriptions WHERE subscriptionStatus = 'ACTIVE' AND routeId IN (SELECT id FROM routes WHERE COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE')").get()).c;
+    const totalRevenue = (await DB.prepare("SELECT COALESCE(SUM(amountEtb), 0) as s FROM payment_transactions WHERE status = 'COMPLETED' AND provider <> 'ADMIN_TEST' AND passengerId IN (SELECT id FROM users WHERE COALESCE(companyId,'')='')").get()).s;
+    const todayCheckins = (await DB.prepare("SELECT COUNT(*) as c FROM checkin_records WHERE status = 'BOARDED' AND routeId IN (SELECT id FROM routes WHERE COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE')").get()).c;
     const openComplaints = (await DB.prepare("SELECT COUNT(*) as c FROM complaints WHERE status = 'OPEN'").get()).c;
 
     res.json({
@@ -72,11 +73,11 @@ router.patch('/drivers/:id/approval', async (req, res) => {
     if (!['ACTIVE', 'SUSPENDED'].includes(status)) {
       return res.status(400).json({ success: false, error: 'Set driver status to ACTIVE to approve or SUSPENDED to reject/suspend.' });
     }
-    const driver = await DB.prepare("SELECT * FROM users WHERE id = ? AND role = 'DRIVER'").get(req.params.id);
+    const driver = await DB.prepare("SELECT * FROM users WHERE id = ? AND role = 'DRIVER' AND COALESCE(companyId,'')=''").get(req.params.id);
     if (!driver) return res.status(404).json({ success: false, error: 'Driver account not found.' });
 
     await DB.transaction(async (tx) => {
-      await tx.prepare("UPDATE users SET status = ? WHERE id = ? AND role = 'DRIVER'").run(status, driver.id);
+      await tx.prepare("UPDATE users SET status = ? WHERE id = ? AND role = 'DRIVER' AND COALESCE(companyId,'')=''").run(status, driver.id);
       await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
         .run(status === 'ACTIVE' ? 'DRIVER_APPROVED' : 'DRIVER_REJECTED', req.user.id, 'ADMIN', `${status === 'ACTIVE' ? 'Approved' : 'Rejected/suspended'} driver ${driver.id} (${driver.phone})`);
     });
@@ -97,12 +98,12 @@ router.patch('/drivers/:id/route', async (req, res) => {
     const routeId = String(req.body.routeId || '').trim();
     if (!routeId) return res.status(400).json({ success: false, error: 'An active route is required.' });
 
-    const driver = await DB.prepare("SELECT * FROM users WHERE id = ? AND role = 'DRIVER'").get(req.params.id);
+    const driver = await DB.prepare("SELECT * FROM users WHERE id = ? AND role = 'DRIVER' AND COALESCE(companyId,'')=''").get(req.params.id);
     if (!driver) return res.status(404).json({ success: false, error: 'Driver account not found.' });
     if (driver.status !== 'ACTIVE') return res.status(409).json({ success: false, error: 'Approve this driver before assigning a route.' });
-    const route = await DB.prepare('SELECT * FROM routes WHERE id = ? AND active = TRUE').get(routeId);
+    const route = await DB.prepare(`SELECT * FROM routes WHERE id = ? AND active = TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'`).get(routeId);
     if (!route) return res.status(404).json({ success: false, error: 'Active route not found.' });
-    const vehicle = await DB.prepare('SELECT * FROM vehicles WHERE driverId = ? LIMIT 1').get(driver.id);
+    const vehicle = await DB.prepare(`SELECT * FROM vehicles WHERE driverId = ? LIMIT 1`).get(driver.id);
     if (!vehicle) return res.status(409).json({ success: false, error: 'This driver has not registered an owned vehicle yet.' });
 
     await DB.transaction(async (tx) => {
@@ -135,7 +136,7 @@ router.patch('/drivers/:id/route', async (req, res) => {
  */
 router.get('/routes', async (req, res) => {
   try {
-    const routes = await DB.prepare('SELECT * FROM routes ORDER BY active DESC, name ASC').all();
+    const routes = await DB.prepare(`SELECT * FROM routes WHERE COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE' ORDER BY active DESC, name ASC`).all();
     res.json({ success: true, routes });
   } catch (err) {
     console.error('[Admin] route list failed:', err);
@@ -152,7 +153,7 @@ router.get('/drivers', async (req, res) => {
     const drivers = await DB.prepare(`
       SELECT id, fullName, phone, email, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName, createdAt
       FROM users
-      WHERE role = 'DRIVER'
+      WHERE role = 'DRIVER' AND COALESCE(companyId,'')=''
       ORDER BY createdAt DESC
     `).all();
 
@@ -177,6 +178,7 @@ router.get('/subscriptions', async (req, res) => {
       LEFT JOIN users u ON s.passengerId = u.id
       LEFT JOIN routes r ON s.routeId = r.id
       LEFT JOIN vehicles v ON s.vehicleId = v.id
+      WHERE COALESCE(r.companyId,'')='' AND COALESCE(r.routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'
       ORDER BY s.updatedAt DESC
     `).all();
 
@@ -211,7 +213,7 @@ router.post('/subscriptions/:id/activate', async (req, res) => {
       if (!sub) reject(404, 'SUBSCRIPTION_NOT_FOUND', 'Subscription not found.');
       const passenger = await tx.prepare("SELECT id FROM users WHERE id = ? AND role = 'PASSENGER' AND status = 'ACTIVE'").get(sub.passengerId);
       if (!passenger) reject(409, 'PASSENGER_INACTIVE', 'An active passenger account is required.');
-      const route = await tx.prepare('SELECT id FROM routes WHERE id = ? AND active = TRUE').get(sub.routeId);
+      const route = await tx.prepare("SELECT id FROM routes WHERE id = ? AND active = TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'").get(sub.routeId);
       if (!route) reject(409, 'ROUTE_INACTIVE', 'An active route is required.');
       const now = new Date();
       if (sub.subscriptionStatus === 'ACTIVE' && sub.paymentStatus === 'PAID' && new Date(sub.endDate).getTime() > now.getTime()) {
@@ -255,7 +257,7 @@ router.post('/subscriptions/:id/recharge', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Test recharge days must be between 1 and 90.' });
     }
 
-    const sub = await DB.prepare('SELECT * FROM subscriptions WHERE id = ?').get(req.params.id);
+    const sub = await DB.prepare(`SELECT * FROM subscriptions WHERE id = ?`).get(req.params.id);
     if (!sub) return res.status(404).json({ success: false, error: 'Subscription not found.' });
     const passenger = await DB.prepare("SELECT id, phone FROM users WHERE id = ? AND role = 'PASSENGER'").get(sub.passengerId);
     if (!passenger) return res.status(404).json({ success: false, error: 'Passenger account not found.' });
@@ -316,11 +318,11 @@ router.post('/subscriptions/:id/recharge', async (req, res) => {
 router.patch('/subscriptions/:id/assignment', async (req, res) => {
   try {
     const vehicleId = String(req.body.vehicleId || '').trim();
-    const sub = await DB.prepare('SELECT * FROM subscriptions WHERE id = ?').get(req.params.id);
+    const sub = await DB.prepare(`SELECT * FROM subscriptions WHERE id = ?`).get(req.params.id);
     if (!sub) return res.status(404).json({ success: false, error: 'Subscription not found.' });
 
     if (!vehicleId) {
-      await DB.prepare('UPDATE subscriptions SET vehicleId = NULL, updatedAt = CURRENT_TIMESTAMP WHERE id = ?').run(sub.id);
+      await DB.prepare(`UPDATE subscriptions SET vehicleId = NULL, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`).run(sub.id);
       await DB.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
         .run('SUBSCRIPTION_VEHICLE_UNASSIGNED', req.user.id, 'ADMIN', `Unassigned vehicle from subscription ${sub.id}`);
       return res.json({ success: true, vehicle: null, subscriptionId: sub.id });
@@ -359,6 +361,7 @@ router.get('/payments', async (req, res) => {
       SELECT p.*, u.fullName as passengerName, u.phone as passengerPhone
       FROM payment_transactions p
       LEFT JOIN users u ON p.passengerId = u.id
+      WHERE COALESCE(u.companyId,'')=''
       ORDER BY p.date DESC
     `).all();
 
@@ -380,6 +383,7 @@ router.get('/checkins', async (req, res) => {
       FROM checkin_records c
       LEFT JOIN vehicles v ON c.vehicleId = v.id
       LEFT JOIN routes r ON c.routeId = r.id
+      WHERE COALESCE(r.companyId,'')='' AND COALESCE(r.routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'
       ORDER BY c.timestamp DESC LIMIT 100
     `).all();
 
@@ -419,7 +423,7 @@ router.patch('/complaints/:id', async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    await DB.prepare('UPDATE complaints SET status = ? WHERE id = ?').run(status, id);
+    await DB.prepare(`UPDATE complaints SET status = ? WHERE id = ?`).run(status, id);
     res.json({ success: true, message: 'Complaint status updated.', id, status });
   } catch (err) {
     console.error('[RoutePass] request failed:', err);
@@ -434,7 +438,7 @@ router.patch('/complaints/:id', async (req, res) => {
 router.get('/audit-logs', async (req, res) => {
   try {
     const logs = await DB.prepare(`
-      SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT 100
+      SELECT * FROM audit_logs WHERE role<>'COMPANY' AND (userId IS NULL OR userId NOT IN (SELECT id FROM users WHERE COALESCE(companyId,'')<>'')) AND action NOT LIKE 'INTERCITY_%' ORDER BY timestamp DESC LIMIT 100
     `).all();
 
     res.json({ success: true, logs });

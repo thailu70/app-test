@@ -11,6 +11,7 @@ const { authenticate, requireRole } = require('../middleware/auth');
 router.get('/', authenticate, async (req, res) => {
   try {
     const role = req.user.role;
+    if(req.user.role==='COMPANY'||req.user.companyId)return res.json({success:true,count:0,notifications:[]});
     let audienceCondition = "targetAudience = 'ALL'";
 
     if (role === 'PASSENGER') {
