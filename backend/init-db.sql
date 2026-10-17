@@ -23,6 +23,28 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Company portal accounts and single-use registration invitations.
+CREATE TABLE IF NOT EXISTS transport_companies (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE', 'INVITED')),
+    phone VARCHAR(40),
+    representative_name VARCHAR(120),
+    password_hash TEXT,
+    registration_secret_hash TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_transport_companies_name_ci ON transport_companies (LOWER(name));
+CREATE TABLE IF NOT EXISTS transport_company_access_codes (
+    id VARCHAR(64) PRIMARY KEY,
+    company_id VARCHAR(64) NOT NULL REFERENCES transport_companies(id) ON DELETE CASCADE,
+    code_hash TEXT NOT NULL,
+    created_by VARCHAR(64),
+    revoked BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Normalize legacy unquoted companyId column (stored by PostgreSQL as companyid).
 DO $$
 BEGIN
@@ -47,6 +69,11 @@ CREATE TABLE IF NOT EXISTS routes (
     evening_departure VARCHAR(10) DEFAULT '17:30',
     distance_km NUMERIC(5,2) DEFAULT 12.0,
     base_price_etb NUMERIC(10,2) DEFAULT 2500.0,
+    company_id VARCHAR(64),
+    route_type VARCHAR(30) NOT NULL DEFAULT 'DAILY_COMMUTE',
+    origin VARCHAR(120) NOT NULL DEFAULT '',
+    destination VARCHAR(120) NOT NULL DEFAULT '',
+    departure_time VARCHAR(10) NOT NULL DEFAULT '06:30',
     active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -75,12 +102,24 @@ CREATE TABLE IF NOT EXISTS vehicles (
     current_occupancy INTEGER DEFAULT 0 CHECK (current_occupancy >= 0),
     assigned_route_id VARCHAR(64) REFERENCES routes(id) ON DELETE SET NULL,
     driver_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+    company_id VARCHAR(64),
     driver_name VARCHAR(120),
     current_lat NUMERIC(10,6) DEFAULT 9.010000,
     current_lng NUMERIC(10,6) DEFAULT 38.760000,
     status VARCHAR(20) DEFAULT 'IN_SERVICE' CHECK (status IN ('IN_SERVICE', 'FULL', 'MAINTENANCE', 'OFF_DUTY')),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS company_route_assignments (
+    id VARCHAR(64) PRIMARY KEY,
+    company_id VARCHAR(64) NOT NULL REFERENCES transport_companies(id),
+    route_id VARCHAR(64) NOT NULL REFERENCES routes(id),
+    driver_id VARCHAR(64) NOT NULL REFERENCES users(id),
+    vehicle_id VARCHAR(64) NOT NULL REFERENCES vehicles(id),
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_company_assignments_company ON company_route_assignments(company_id, status);
 
 -- Actual GPS reports are kept separately from seeded/default display coordinates.
 CREATE TABLE IF NOT EXISTS vehicle_live_locations (
