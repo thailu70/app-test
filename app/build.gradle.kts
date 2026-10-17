@@ -10,7 +10,7 @@ plugins {
 
 // Configure for each deployment with -PROUTEPASS_API_BASE_URL=https://api.yourdomain.com/
 val routePassApiBaseUrl = providers.gradleProperty("ROUTEPASS_API_BASE_URL")
-  .orElse("https://api.example.com/")
+  .orElse("https://routepass.duckdns.org/")
   .get()
   .let { if (it.endsWith("/")) it else "$it/" }
 
@@ -22,8 +22,8 @@ android {
     applicationId = "com.aistudio.transportnavigator.edxpkq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = 2
+    versionName = "1.0.1"
     buildConfigField("String", "ROUTEPASS_API_BASE_URL", "\"$routePassApiBaseUrl\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
