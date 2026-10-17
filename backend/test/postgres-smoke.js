@@ -98,7 +98,6 @@ async function run() {
       password: 'CI_Driver_Password#2026',
       role: 'DRIVER',
       licenseNumber: 'CI-DL-1',
-      companyName: 'CI Transport',
       assignedVehiclePlate: '3-CI-0001',
       vehicleModel: 'CI Minibus',
       vehicleType: 'MINIBUS_14'
@@ -175,3 +174,4 @@ run().catch((err) => {
   process.exitCode = 1;
   server.close(() => {});
 });
+
