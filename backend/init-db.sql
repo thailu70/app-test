@@ -16,12 +16,26 @@ CREATE TABLE IF NOT EXISTS users (
     status VARCHAR(20) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'SUSPENDED', 'PENDING')),
     license_number VARCHAR(50) DEFAULT '',
     company_name VARCHAR(100) DEFAULT '',
-    companyId VARCHAR(64) DEFAULT '',
+    company_id VARCHAR(64) DEFAULT '',
     assigned_vehicle_plate VARCHAR(30) DEFAULT '',
     applied_route_id VARCHAR(64) DEFAULT '',
     applied_route_name VARCHAR(120) DEFAULT '',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Normalize legacy unquoted companyId column (stored by PostgreSQL as companyid).
+DO $
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'users' AND column_name = 'companyid'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'users' AND column_name = 'company_id'
+    ) THEN
+        ALTER TABLE users RENAME COLUMN companyid TO company_id;
+    END IF;
+END $;
 
 -- 2. Transit Routes
 CREATE TABLE IF NOT EXISTS routes (
