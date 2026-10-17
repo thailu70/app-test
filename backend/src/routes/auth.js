@@ -164,7 +164,7 @@ router.post('/register', authLimiter, async (req, res) => {
 
       await DB.prepare(`
         INSERT INTO subscriptions (id, passengerId, routeId, pickupStopId, destinationStopId, morningSchedule, eveningSchedule, startDate, endDate, priceEtb, paymentStatus, subscriptionStatus, vehicleId, qrToken, daysRemaining)
-        VALUES (?, ?, ?, 'stop_atlas', 'stop_merkato', ?, ?, '', '', ?, 'UNPAID', 'PENDING', '', NULL, 0)
+        VALUES (?, ?, ?, NULL, NULL, ?, ?, '', '', ?, 'UNPAID', 'PENDING', '', NULL, 0)
       `).run(
         subId,
         userId,
