@@ -3,14 +3,18 @@ const router = express.Router();
 const crypto = require('crypto');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { routeSearch } = require('../services/route-search');
 
 /**
  * GET /api/routes
  * List all active transit lines
  */
 router.get('/', async (req, res) => {
+  let search;
+  try { search = routeSearch(req.query); }
+  catch (err) { return res.status(400).json({ success: false, error: err.message }); }
   try {
-    const routes = await DB.prepare('SELECT * FROM routes WHERE active = TRUE ORDER BY name ASC').all();
+    const routes = await DB.prepare(`SELECT r.* FROM routes r WHERE ${search.where} ORDER BY ${search.order}`).all(...search.params);
     res.json({
       success: true,
       count: routes.length,

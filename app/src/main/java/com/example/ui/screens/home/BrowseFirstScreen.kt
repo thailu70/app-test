@@ -43,9 +43,9 @@ import com.example.ui.theme.TransportGreenPrimary
 import com.example.ui.theme.Slate600
 import com.example.ui.theme.Slate900
 
-private val HomeGreen = Color(0xFF00A982)
+private val HomeGreen = Color(0xFF087F68)
 private val HomeMint = Color(0xFFE8F6EE)
-private val HomeBlue = Color(0xFF0757B8)
+private val HomeBlue = Color(0xFF17212B)
 private val HomeInk = Color(0xFF17212B)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,9 +66,10 @@ fun BrowseFirstScreen(
     var selectedTier by remember { mutableStateOf("Economy") }
     var routeFilter by remember { mutableStateOf(0) }
     var routeSearch by remember { mutableStateOf("") }
+    var sortByFare by remember { mutableStateOf(false) }
     val commuterRoutes = routes.filter { route ->
         route.active &&
-            route.name.contains(routeSearch.trim(), ignoreCase = true).let { nameMatches ->
+            listOf(route.name, route.nameAm, route.description).any { it.contains(routeSearch.trim(), ignoreCase = true) }.let { nameMatches ->
                 nameMatches && when (routeFilter) {
                     1 -> route.morningDeparture.isNotBlank()
                     2 -> route.eveningDeparture.isNotBlank()
@@ -76,6 +77,7 @@ fun BrowseFirstScreen(
                 }
             }
     }
+    val displayedRoutes = if (sortByFare) commuterRoutes.sortedBy { it.basePriceEtb } else commuterRoutes
     var intercityTripType by remember { mutableStateOf("One-way") }
     var intercityPassengers by remember { mutableIntStateOf(1) }
     var intercityDepartureDate by remember { mutableStateOf<Long?>(null) }
@@ -140,7 +142,7 @@ fun BrowseFirstScreen(
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = HomeGreen)
                     ) {
-                        Text("Request / Continue")
+                        Text("Continue with $selectedTier")
                         Spacer(Modifier.width(8.dp))
                         Icon(Icons.Default.ArrowForward, contentDescription = null)
                     }
@@ -160,39 +162,27 @@ fun BrowseFirstScreen(
     ) {
         if (selectedSection == 0) {
             item {
-                Surface(
-                    shape = RoundedCornerShape(26.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                    color = HomeBlue
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                androidx.compose.ui.graphics.Brush.linearGradient(
-                                    listOf(Color(0xFF172D58), Color(0xFF075A78), Color(0xFF078875))
-                                )
-                            )
-                            .padding(horizontal = 20.dp, vertical = 20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(9.dp)
-                    ) {
-                        Surface(color = Color.White.copy(alpha = 0.16f), shape = CircleShape, modifier = Modifier.size(66.dp)) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp))
-                            }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("PASSO", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = HomeInk, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { onPassengerContinue(false, null, null, null) }) { Text("Sign in", color = HomeInk, fontWeight = FontWeight.Bold) }
+                }
+            }
+            item {
+                Surface(color = HomeInk, shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Text("Your everyday.\nA better way there.", color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold)
+                        Text("Find your commute. Compare fares. Move with PASSO.", color = Color(0xFFD3E3DF), style = MaterialTheme.typography.bodyMedium)
+                        Button(onClick = { selectedSection = 1 }, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = HomeInk), modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+                            Icon(Icons.Default.Search, contentDescription = null)
+                            Spacer(Modifier.width(12.dp))
+                            Text("Where are you headed?", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            Icon(Icons.Default.ArrowForward, contentDescription = null)
                         }
-                        Text("PASSO", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                        Text("Tap. Move. Clear.", style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.92f))
-                        Surface(color = Color.White.copy(alpha = 0.94f), shape = RoundedCornerShape(50.dp)) {
-                            Text("PASSENGER PORTAL", color = Color(0xFF154A3A), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp))
-                        }
-                        TextButton(onClick = { onPassengerContinue(false, null, null, null) }) {
-                            Text("Already registered? Sign in", color = Color.White, fontWeight = FontWeight.Bold)
-                        }
+                        Text("Browse routes before signing up", color = Color(0xFFD3E3DF), style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
+            item { Text("Choose your ride", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = HomeInk) }
             item {
                 Row(
                     Modifier.fillMaxWidth(),
@@ -232,12 +222,12 @@ fun BrowseFirstScreen(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     shape = RoundedCornerShape(18.dp),
-                    placeholder = { Text("Search by route") },
+                    placeholder = { Text("Route, area or destination") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = HomeGreen) },
                     trailingIcon = {
                         if (routeSearch.isNotEmpty()) {
                             IconButton(onClick = { routeSearch = "" }) {
-                                Icon(Icons.Default.Info, contentDescription = "Clear search")
+                                Icon(Icons.Default.Close, contentDescription = "Clear search")
                             }
                         }
                     },
@@ -268,16 +258,19 @@ fun BrowseFirstScreen(
             }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Available routes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = HomeInk)
+                    Text("${commuterRoutes.size} matching routes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = HomeInk)
                     Text("Compare departure times and monthly fares. Sign in only when you are ready to request a service.", style = MaterialTheme.typography.bodySmall, color = Slate600)
                 }
+            }
+            item {
+                FilterChip(selected = sortByFare, onClick = { sortByFare = !sortByFare }, label = { Text("Lowest fare first") })
             }
             if (routes.filter { it.active }.isEmpty()) {
                 item {
                     Surface(color = Color.White, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Loading available routes", fontWeight = FontWeight.Bold, color = HomeInk)
-                            Text("PASSO is checking routes configured by the transport operator. Please try again shortly.", color = Slate600, style = MaterialTheme.typography.bodySmall)
+                            Text("No routes available yet", fontWeight = FontWeight.Bold, color = HomeInk)
+                            Text("Routes may not have loaded or the operator has not published a service yet. Check your connection and try again.", color = Slate600, style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -293,8 +286,8 @@ fun BrowseFirstScreen(
                     }
                 }
             } else {
-                items(commuterRoutes.size) { index ->
-                    val route = commuterRoutes[index]
+                items(displayedRoutes.size) { index ->
+                    val route = displayedRoutes[index]
                     CommuterRouteCard(route = route, onClick = { selectedRoute = route })
                 }
             }
@@ -399,7 +392,7 @@ fun BrowseFirstScreen(
     }
     NavigationBar(containerColor = Color.White, tonalElevation = 8.dp) {
         NavigationBarItem(selected = selectedSection == 0, onClick = { selectedSection = 0 }, icon = { Icon(Icons.Default.Work, contentDescription = "Home") }, label = { Text("Home") })
-        NavigationBarItem(selected = false, onClick = { selectedSection = 1 }, icon = { Icon(Icons.Default.Search, contentDescription = "Search") }, label = { Text("Search") })
+        NavigationBarItem(selected = selectedSection == 1 || selectedSection == 2 || selectedSection == 3, onClick = { selectedSection = 1 }, icon = { Icon(Icons.Default.Search, contentDescription = "Search") }, label = { Text("Search") })
         NavigationBarItem(selected = false, onClick = { onPassengerContinue(false, null, null, null) }, icon = { Icon(Icons.Default.CalendarMonth, contentDescription = "Tickets") }, label = { Text("Tickets") })
         NavigationBarItem(selected = false, onClick = { onPassengerContinue(false, null, null, null) }, icon = { Icon(Icons.Default.Luggage, contentDescription = "More") }, label = { Text("More") })
     }
