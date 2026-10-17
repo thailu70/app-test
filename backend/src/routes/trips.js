@@ -86,6 +86,8 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
       req.app.locals.broadcastWs({
         type: 'TRIP_STARTED',
         tripId,
+        driverId,
+        companyId: vehicle.companyId || '',
         routeId,
         vehicleId: vehicle.id,
         plateNumber: vehicle.plateNumber,
@@ -177,7 +179,7 @@ router.post('/:id/stop-arrival', authenticate, requireRole('DRIVER'), async (req
       return res.status(400).json({ success: false, error: 'Stop name is required.' });
     }
 
-    const trip = await DB.prepare('SELECT * FROM trips WHERE id = ?').get(id);
+    const trip = await DB.prepare('SELECT t.*, v.companyId FROM trips t JOIN vehicles v ON v.id=t.vehicleId WHERE t.id = ?').get(id);
     if (!trip) {
       return res.status(404).json({ success: false, error: 'Trip not found.' });
     }
@@ -195,6 +197,8 @@ router.post('/:id/stop-arrival', authenticate, requireRole('DRIVER'), async (req
         type: 'VEHICLE_STOP_ARRIVAL',
         tripId: id,
         vehicleId: trip.vehicleId,
+        driverId: trip.driverId,
+        companyId: trip.companyId || '',
         routeId: trip.routeId,
         stopName,
         timestamp: new Date().toISOString()
@@ -220,7 +224,7 @@ router.post('/:id/stop-arrival', authenticate, requireRole('DRIVER'), async (req
 router.post('/:id/end', authenticate, requireRole('DRIVER'), async (req, res) => {
   try {
     const { id } = req.params;
-    const trip = await DB.prepare('SELECT * FROM trips WHERE id = ?').get(id);
+    const trip = await DB.prepare('SELECT t.*, v.companyId FROM trips t JOIN vehicles v ON v.id=t.vehicleId WHERE t.id = ?').get(id);
 
     if (!trip) {
       return res.status(404).json({ success: false, error: 'Trip not found.' });
@@ -245,6 +249,9 @@ router.post('/:id/end', authenticate, requireRole('DRIVER'), async (req, res) =>
       req.app.locals.broadcastWs({
         type: 'TRIP_COMPLETED',
         tripId: id,
+        driverId: trip.driverId,
+        companyId: trip.companyId || '',
+        routeId: trip.routeId,
         vehicleId: trip.vehicleId,
         timestamp: new Date().toISOString()
       });

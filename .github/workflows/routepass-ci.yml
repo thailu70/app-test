@@ -60,6 +60,9 @@ jobs:
       - name: Check admin portal JavaScript syntax
         run: node --check public/admin/admin.js
         working-directory: backend
+      - name: Check company portal JavaScript syntax
+        run: node --check public/company/company.js
+        working-directory: backend
       - name: Check first-admin bootstrap helper syntax
         run: python3 -m py_compile scripts/bootstrap-admin.py
         working-directory: backend

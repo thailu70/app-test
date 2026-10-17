@@ -166,7 +166,7 @@
     const routes = asArray(result, "routes");
     state.cache.routes = routes;
     return pageHeader("Manage routes", "Create a route, update its timetable and tariff, or deactivate it without deleting history.") +
-      section("Create a route", "New routes are active by default.",
+      section("Create or edit a route", "Route changes are reviewed here before saving. New routes are active by default.",
         '<form id="create-route-form" class="form-card"><div class="driver-form-grid">' +
         '<div class="field"><label for="route-name">Route name (English) *</label><input id="route-name" name="name" required maxlength="120" placeholder="Bole - Merkato Express"></div>' +
         '<div class="field"><label for="route-name-am">Route name (Amharic) *</label><input id="route-name-am" name="nameAm" required maxlength="120" placeholder="ቦሌ - መርካቶ"></div>' +
@@ -176,7 +176,7 @@
         '<div class="field"><label for="route-evening">Evening departure</label><input id="route-evening" name="eveningDeparture" type="time" value="17:30" required></div>' +
         '<div class="field"><label for="route-price">Monthly tariff (ETB)</label><input id="route-price" name="basePriceEtb" type="number" min="0" step="1" value="2500" required></div>' +
         '</div><div class="field" style="margin-top:14px"><label for="route-stops">Ordered route stops *</label><textarea id="route-stops" name="stopsText" rows="5" required placeholder="Bole Medhanialem | ቦሌ መድኃኔዓለም | 8.995000 | 38.788000&#10;Bole Atlas | ቦሌ አትላስ | 9.006000 | 38.780000&#10;Merkato Bus Terminal | መርካቶ ተርሚናል | 9.031000 | 38.736000"></textarea><span class="hint">One stop per line: English name | Amharic name | latitude | longitude. Keep stops in travel order and use real coordinates from a map.</span></div>' +
-        '<div class="form-actions"><button class="btn btn-primary" type="submit">Create route</button></div><p id="route-form-message" class="form-message" hidden role="status"></p></form>') +
+        '<input name="routeId" type="hidden"><div class="form-actions"><button class="btn btn-primary" type="submit">Create route</button><button class="btn btn-secondary" id="route-cancel" type="button" hidden>Cancel edit</button></div><p id="route-form-message" class="form-message" hidden role="status"></p></form>') +
       section("Existing routes", routes.length + " route(s)",
         table([
           { label: "Route", render: r => "<strong>" + esc(value(r, "name")) + "</strong><br><span class=\"muted\">" + esc(value(r, "nameAm", "name_am")) + "</span>" },
@@ -206,9 +206,13 @@
   }
   async function renderSubscriptions() {
     await loadLookups();
-    const data = asArray(await api("/api/admin/subscriptions"), "subscriptions");
+    const [subscriptions, features] = await Promise.all([api("/api/admin/subscriptions"), api("/api/admin/features")]);
+    const data = asArray(subscriptions, "subscriptions");
+    const testRechargeEnabled = features.manualTestRechargeEnabled === true;
     const eligibleVehicles = state.cache.vehicles || [];
-    return pageHeader("Subscriptions & passenger assignments", "Assign a driver-owned vehicle on the same route and manually activate passes for testing. Manual recharges are NOT real payments.") +
+    return pageHeader("Subscriptions & passenger assignments", testRechargeEnabled
+      ? "Assign a driver-owned vehicle on the same route. Test recharges are available only in the isolated test environment and are not real payments."
+      : "Assign a driver-owned vehicle on the same route. Payment activation is unavailable until the payment provider integration is enabled.") +
       section("Passenger subscriptions", data.length + " record(s)",
         table([
           { label: "Passenger", render: r => "<strong>" + esc(value(r, "passengerName", "passenger_name")) + "</strong>" },
@@ -232,7 +236,9 @@
           { label: "Payment", render: r => pill(value(r, "paymentStatus", "payment_status")) },
           { label: "Subscription", render: r => pill(value(r, "subscriptionStatus", "subscription_status")) },
           { label: "End date", keys: ["endDate", "end_date"] },
-          { label: "Testing action", render: r => '<button class="btn btn-primary" data-recharge="' + esc(value(r, "id")) + '">Recharge 30 days (test)</button>' }
+          { label: testRechargeEnabled ? "Testing action" : "Pass activation", render: r => testRechargeEnabled
+            ? '<button class="btn btn-primary" data-recharge="' + esc(value(r, "id")) + '">Recharge 30 days (test)</button>'
+            : pill("DISABLED") }
         ], data));
   }
   async function renderPayments() {
@@ -356,7 +362,11 @@
       }
       $("#page-content").innerHTML = html;
       const routeForm = $("#create-route-form");
-      if (routeForm) routeForm.addEventListener("submit", submitRoute);
+      if (routeForm) {
+        routeForm.addEventListener("submit", submitRoute);
+        const cancelButton = $("#route-cancel");
+        if (cancelButton) cancelButton.addEventListener("click", cancelRouteEdit);
+      }
       const companyInviteForm = $("#company-invite-form");
       if (companyInviteForm) companyInviteForm.addEventListener("submit", createCompanyInvite);
     } catch (error) {
@@ -389,6 +399,8 @@
     const button = form.querySelector('button[type="submit"]');
     const message = $("#route-form-message");
     const data = Object.fromEntries(new FormData(form).entries());
+    const routeId = data.routeId;
+    delete data.routeId;
     try {
       data.stops = parseStopsText(data.stopsText);
     } catch (error) {
@@ -403,8 +415,10 @@
     button.disabled = true;
     message.hidden = true;
     try {
-      await api("/api/routes", { method: "POST", body: JSON.stringify(data) });
-      toast("Route created.");
+      await api(routeId ? "/api/routes/" + encodeURIComponent(routeId) : "/api/routes", {
+        method: routeId ? "PUT" : "POST", body: JSON.stringify(data)
+      });
+      toast(routeId ? "Route updated." : "Route created.");
       form.reset();
       await renderView();
     } catch (error) {
@@ -482,35 +496,40 @@
         [value(stop, "stopName", "stop_name"), value(stop, "stopNameAm", "stop_name_am"),
           value(stop, "latitude"), value(stop, "longitude")].join(" | ")
       ).join("\n");
-      const name = window.prompt("Route name (English):", value(route, "name"));
-      if (name === null) return;
-      const nameAm = window.prompt("Route name (Amharic):", value(route, "nameAm", "name_am"));
-      if (nameAm === null) return;
-      const description = window.prompt("Description:", value(route, "description") === "—" ? "" : value(route, "description"));
-      if (description === null) return;
-      const morningDeparture = window.prompt("Morning departure (HH:MM):", value(route, "morningDeparture", "morning_departure"));
-      if (morningDeparture === null) return;
-      const eveningDeparture = window.prompt("Evening departure (HH:MM):", value(route, "eveningDeparture", "evening_departure"));
-      if (eveningDeparture === null) return;
-      const basePriceEtb = Number(window.prompt("Monthly tariff in ETB:", value(route, "basePriceEtb", "base_price_etb")));
-      if (!Number.isFinite(basePriceEtb) || basePriceEtb < 0) return toast("Tariff must be a valid non-negative number.", true);
-      const editedStopsText = window.prompt(
-        "Stops, one per line: English | Amharic | latitude | longitude. Edit the existing list as needed:",
-        stopsTextDefault
-      );
-      if (editedStopsText === null) return;
-      const stops = parseStopsText(editedStopsText);
-      await api("/api/routes/" + encodeURIComponent(id), {
-        method: "PUT",
-        body: JSON.stringify({ ...route, name, nameAm, description, morningDeparture, eveningDeparture, basePriceEtb, stops })
-      });
-      toast("Route and stops updated.");
-      await renderView();
+      await renderRoutesIntoEditForm(route, stopsTextDefault, id);
     } catch (error) {
       toast(error.message, true);
     } finally {
       button.disabled = false;
     }
+  }
+
+  async function renderRoutesIntoEditForm(route, stopsText, routeId) {
+    const form = $("#create-route-form");
+    if (!form) return;
+    for (const [name, keys] of Object.entries({
+      name: ["name"], nameAm: ["nameAm", "name_am"], description: ["description"],
+      distanceKm: ["distanceKm", "distance_km"], morningDeparture: ["morningDeparture", "morning_departure"],
+      eveningDeparture: ["eveningDeparture", "evening_departure"], basePriceEtb: ["basePriceEtb", "base_price_etb"]
+    })) {
+      const field = form.elements.namedItem(name);
+      if (field) field.value = value(route, ...keys) === "—" ? "" : value(route, ...keys);
+    }
+    form.elements.namedItem("routeId").value = routeId;
+    form.elements.namedItem("stopsText").value = stopsText;
+    form.querySelector('button[type="submit"]').textContent = "Save route changes";
+    $("#route-cancel").hidden = false;
+    form.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function cancelRouteEdit() {
+    const form = $("#create-route-form");
+    if (!form) return;
+    form.reset();
+    form.elements.namedItem("routeId").value = "";
+    form.querySelector('button[type="submit"]').textContent = "Create route";
+    $("#route-cancel").hidden = true;
+    $("#route-form-message").hidden = true;
   }
 
   async function toggleRoute(button) {

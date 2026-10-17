@@ -13,7 +13,7 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const { WebSocketServer, WebSocket } = require('ws');
 const { DB } = require('./db');
-const { verifyToken } = require('./middleware/auth');
+const { resolveActivePrincipal } = require('./middleware/auth');
 
 if (process.env.NODE_ENV === 'production') {
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
@@ -127,14 +127,18 @@ app.use('/api/subscriptions', require('./routes/subscriptions'));
 app.use('/api/vehicles', require('./routes/vehicles'));
 app.use('/api/trips', require('./routes/trips'));
 app.use('/api/checkins', require('./routes/checkins'));
-app.use('/api/admin', require('./routes/admin'));
 app.use('/api/admin', require('./routes/company-admin'));
+app.use('/api/admin', require('./routes/admin'));
 app.use('/api/complaints', require('./routes/complaints'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/sync', require('./routes/sync'));
 
-// Browser-based admin portal. Keep it same-origin with the API and use a strict, portal-specific CSP.
-app.use('/company', express.static(path.join(__dirname, '..', 'public', 'company'), { index: 'index.html', maxAge: 0, etag: false }));
+// Browser portals are same-origin. External scripts let their route-specific CSP reject inline JS.
+app.use('/company', (req, res, next) => {
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' wss:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+}, express.static(path.join(__dirname, '..', 'public', 'company'), { index: 'index.html', maxAge: 0, etag: false }));
 app.use('/admin', (req, res, next) => {
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' wss:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
   res.setHeader('Cache-Control', 'no-store');
@@ -172,16 +176,34 @@ const driverLastGpsTime = new Map();
 const FLUSH_INTERVAL_MS = 30000;
 const locationFlushTimer = setInterval(async () => {
   if (inMemoryVehicleLocations.size === 0) return;
-  for (const [vehicleId, loc] of inMemoryVehicleLocations.entries()) {
-    try {
-      await DB.prepare(`
-        UPDATE vehicles
-        SET currentLat = ?, currentLng = ?, updatedAt = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(loc.latitude, loc.longitude, vehicleId);
-    } catch (err) {
-      // In-memory update succeeded; ignore temporary DB busy
+  const snapshot = Array.from(inMemoryVehicleLocations.entries());
+  try {
+    await DB.transaction(async (tx) => {
+      for (const [vehicleId, loc] of snapshot) {
+        const activeTrip = await tx.prepare("SELECT id FROM trips WHERE id=? AND vehicleId=? AND driverId=? AND routeId=? AND status='IN_PROGRESS'").get(loc.tripId, vehicleId, loc.driverId, loc.routeId);
+        if (!activeTrip) continue;
+        await tx.prepare(`
+          INSERT INTO vehicle_live_locations (vehicle_id, latitude, longitude, speed, current_stop, updated_at)
+          VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT (vehicle_id) DO UPDATE SET
+            latitude = excluded.latitude,
+            longitude = excluded.longitude,
+            speed = excluded.speed,
+            current_stop = excluded.current_stop,
+            updated_at = CURRENT_TIMESTAMP
+        `).run(vehicleId, loc.latitude, loc.longitude, loc.speed, loc.currentStop);
+        await tx.prepare(`
+          UPDATE vehicles
+          SET currentLat = ?, currentLng = ?, updatedAt = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(loc.latitude, loc.longitude, vehicleId);
+      }
+    });
+    for (const [vehicleId, loc] of snapshot) {
+      if (inMemoryVehicleLocations.get(vehicleId)?.timestamp === loc.timestamp) inMemoryVehicleLocations.delete(vehicleId);
     }
+  } catch (err) {
+    // Keep the newest in-memory sample for the next retry if persistence is temporarily unavailable.
   }
 }, FLUSH_INTERVAL_MS);
 
@@ -189,7 +211,7 @@ if (locationFlushTimer.unref) {
   locationFlushTimer.unref();
 }
 
-wss.on('connection', (ws, req) => {
+wss.on('connection', async (ws, req) => {
   // Avoid JWT query parameters: reverse proxies commonly log full request URLs.
   // The Android client authenticates using the first in-band AUTHENTICATE message.
   let token = null;
@@ -201,7 +223,12 @@ wss.on('connection', (ws, req) => {
   }
 
   // Check initial authentication state
-  ws.user = token ? verifyToken(token) : null;
+  ws.token = token;
+  try {
+    ws.user = token ? await resolveActivePrincipal(token) : null;
+  } catch (err) {
+    ws.user = null;
+  }
   ws.authenticated = Boolean(ws.user);
 
   clients.add(ws);
@@ -217,6 +244,26 @@ wss.on('connection', (ws, req) => {
     timestamp: new Date().toISOString()
   }));
 
+  const authRefreshTimer = setInterval(async () => {
+    if (!ws.authenticated || !ws.token) return;
+    try {
+      const principal = await resolveActivePrincipal(ws.token);
+      if (!principal) {
+        ws.authenticated = false;
+        ws.user = null;
+        ws.monitoredRouteId = null;
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'AUTHENTICATION_FAILED', error: 'Account is no longer active.' }));
+      } else {
+        ws.user = principal;
+      }
+    } catch (_) {
+      ws.authenticated = false;
+      ws.user = null;
+      ws.monitoredRouteId = null;
+    }
+  }, 60000);
+  if (authRefreshTimer.unref) authRefreshTimer.unref();
+
   ws.on('message', async (message) => {
     try {
       const data = JSON.parse(message);
@@ -228,8 +275,9 @@ wss.on('connection', (ws, req) => {
 
       // Handle In-band Authentication
       if (data.type === 'AUTHENTICATE') {
-        const decoded = verifyToken(data.token);
+        const decoded = await resolveActivePrincipal(data.token);
         if (decoded) {
+          ws.token = data.token;
           ws.user = decoded;
           ws.authenticated = true;
           return ws.send(JSON.stringify({
@@ -239,6 +287,10 @@ wss.on('connection', (ws, req) => {
             timestamp: Date.now()
           }));
         } else {
+          ws.authenticated = false;
+          ws.user = null;
+          ws.token = null;
+          ws.monitoredRouteId = null;
           return ws.send(JSON.stringify({
             type: 'AUTHENTICATION_FAILED',
             error: 'Invalid or expired token.',
@@ -255,6 +307,15 @@ wss.on('connection', (ws, req) => {
             reason: 'AUTHENTICATION_REQUIRED'
           }));
         }
+        const principal = await resolveActivePrincipal(ws.token);
+        if (!principal) {
+          ws.authenticated = false;
+          ws.user = null;
+          ws.token = null;
+          ws.monitoredRouteId = null;
+          return ws.send(JSON.stringify({ type: 'SUBSCRIPTION_REJECTED', reason: 'ACCOUNT_INACTIVE' }));
+        }
+        ws.user = principal;
         if (ws.user.role !== 'PASSENGER') {
           return ws.send(JSON.stringify({ type: 'SUBSCRIPTION_REJECTED', reason: 'PASSENGER_ROLE_REQUIRED' }));
         }
@@ -285,6 +346,14 @@ wss.on('connection', (ws, req) => {
             message: 'Only authenticated drivers or administrators may transmit live GPS telemetry.'
           }));
         }
+
+        // Re-check account state as well as ownership for already-open WebSocket sessions.
+        const principal = await resolveActivePrincipal(ws.token);
+        if (!principal || principal.role !== 'DRIVER') {
+          ws.authenticated = false;
+          return ws.send(JSON.stringify({ type: 'GPS_REJECTED', reason: 'ACCOUNT_INACTIVE' }));
+        }
+        ws.user = principal;
 
         // Vehicle and route ownership are server-side facts, not client-controlled fields.
         const vehicleId = data.vehicleId;
@@ -341,6 +410,10 @@ wss.on('connection', (ws, req) => {
           longitude: lng,
           speed: speed,
           currentStop: data.currentStop || '',
+          tripId: activeTrip.id,
+          routeId,
+          driverId,
+          companyId: vehicle.companyId || '',
           timestamp: now
         });
 
@@ -351,6 +424,8 @@ wss.on('connection', (ws, req) => {
           type: 'VEHICLE_LOCATION_UPDATE',
           vehicleId: vehicleId,
           routeId: routeId || '',
+          driverId,
+          companyId: vehicle.companyId || '',
           latitude: lat,
           longitude: lng,
           speed: speed,
@@ -370,18 +445,21 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
+    clearInterval(authRefreshTimer);
     clients.delete(ws);
     console.log(`[WebSocket] Client disconnected. Total active clients: ${clients.size}`);
   });
 
   ws.on('error', (err) => {
     console.error('[WebSocket Error]:', err.message);
+    clearInterval(authRefreshTimer);
     clients.delete(ws);
   });
 });
 
 // Broadcast Helper: Distributes live telemetry strictly to authorized recipients
 function broadcastAuthorized(payload, targetRouteId = null) {
+  const routeId = targetRouteId || payload.routeId || null;
   const json = JSON.stringify(payload);
   for (const client of clients) {
     if (client.readyState !== WebSocket.OPEN) continue;
@@ -391,17 +469,31 @@ function broadcastAuthorized(payload, targetRouteId = null) {
 
     // 2. Per-Recipient Authorization:
     const role = (client.user.role || '').toUpperCase();
-    if (role === 'ADMIN' || role === 'DRIVER') {
-      // Operations dispatchers and commercial drivers have fleet-wide telemetry visibility
+    if (role === 'ADMIN') {
+      client.send(json);
+    } else if (role === 'COMPANY') {
+      if (!payload.companyId || client.user.companyId !== payload.companyId) continue;
+      client.send(json);
+    } else if (role === 'DRIVER') {
+      if (!payload.driverId || client.user.id !== payload.driverId) continue;
       client.send(json);
     } else if (role === 'PASSENGER') {
       // Commuters receive GPS telemetry strictly for their authorized/monitored transit corridor
       const commuterCorridor = client.monitoredRouteId;
-      if (!commuterCorridor || (targetRouteId && commuterCorridor !== targetRouteId)) {
+      if (!commuterCorridor || !routeId || commuterCorridor !== routeId) {
         // Drop broadcast: recipient is not authorized/subscribed to this vehicle's corridor
         continue;
       }
-      client.send(json);
+      if (payload.type === 'PASSENGER_BOARDED') {
+        const commuterSafePayload = { ...payload };
+        delete commuterSafePayload.passengerName;
+        delete commuterSafePayload.passengerId;
+        delete commuterSafePayload.passengerPhone;
+        delete commuterSafePayload.checkinId;
+        client.send(JSON.stringify(commuterSafePayload));
+      } else {
+        client.send(json);
+      }
     }
   }
 }
@@ -430,7 +522,12 @@ async function startServer() {
   await DB.prepare('ALTER TABLE transport_companies ADD COLUMN IF NOT EXISTS representative_name VARCHAR(120)').run();
   await DB.prepare('ALTER TABLE transport_companies ADD COLUMN IF NOT EXISTS password_hash TEXT').run();
   await DB.prepare('ALTER TABLE transport_companies ADD COLUMN IF NOT EXISTS registration_secret_hash TEXT').run();
-  await DB.prepare('CREATE TABLE IF NOT EXISTS transport_company_access_codes (id VARCHAR(64) PRIMARY KEY, company_id VARCHAR(64) NOT NULL REFERENCES transport_companies(id) ON DELETE CASCADE, code_hash TEXT NOT NULL, created_by VARCHAR(64), revoked BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)').run();
+  await DB.prepare('CREATE TABLE IF NOT EXISTS transport_company_access_codes (id VARCHAR(64) PRIMARY KEY, company_id VARCHAR(64) NOT NULL REFERENCES transport_companies(id) ON DELETE CASCADE, code_hash TEXT NOT NULL, created_by VARCHAR(64), revoked BOOLEAN NOT NULL DEFAULT FALSE, expires_at TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)').run();
+  await DB.prepare('ALTER TABLE transport_company_access_codes ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP').run();
+  const invitationExpiryBackfill = DB.isPostgres
+    ? "UPDATE transport_company_access_codes SET expires_at = created_at + INTERVAL '7 days' WHERE expires_at IS NULL"
+    : "UPDATE transport_company_access_codes SET expires_at = datetime(created_at, '+7 days') WHERE expires_at IS NULL";
+  await DB.prepare(invitationExpiryBackfill).run();
   await DB.prepare('ALTER TABLE users ADD COLUMN IF NOT EXISTS companyId VARCHAR(64)').run();
   await DB.prepare('ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS companyId VARCHAR(64)').run();
   await DB.prepare('ALTER TABLE routes ADD COLUMN IF NOT EXISTS companyId VARCHAR(64)').run();

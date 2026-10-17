@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const { server } = require('../src/server');
+const { DB } = require('../src/db');
 
 const host = '127.0.0.1';
 const bootstrapSecret = process.env.ADMIN_REGISTRATION_SECRET;
@@ -91,6 +92,125 @@ async function run() {
     assert.equal(result.data.transaction.provider, 'ADMIN_TEST', 'Manual recharge must not masquerade as Telebirr');
     assert.match(result.data.subscription.qrToken, /^RP1:/, 'Manual recharge must issue a signed QR pass');
 
+    const priorNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    result = await requestJson(baseUrl, `/api/admin/subscriptions/${encodeURIComponent(passengerSubscriptionId)}/recharge`, 'POST', { days: 30 }, adminToken);
+    process.env.NODE_ENV = priorNodeEnv;
+    assert.equal(result.status, 403, 'Manual test recharge must stay disabled if production has the test flag set');
+
+    // Company portal signup must hit the current route, consume a PostgreSQL boolean
+    // access code once, and reject invitations that have expired.
+    result = await requestJson(baseUrl, '/api/admin/companies/invite', 'POST', { name: 'CI Passo Company' }, adminToken);
+    assert.equal(result.status, 201, 'Administrator should issue a company invitation');
+    const companyId = result.data.company.id;
+    const companyCode = result.data.registrationCode;
+    assert.equal(result.data.company.invitationExpiresInDays, 7);
+
+    result = await requestJson(baseUrl, '/api/companies/register', 'POST', {
+      companyName: 'CI Passo Company', fullName: 'CI Company Admin', phone: '+251900000120',
+      password: 'CI_Company_Password#2026', secretCode: companyCode
+    });
+    assert.equal(result.status, 201, 'Invited company should register using its unexpired single-use code');
+    const companyToken = result.data.token;
+    result = await requestJson(baseUrl, '/api/companies/me', 'GET', null, companyToken);
+    assert.equal(result.status, 200, 'Company portal profile route must resolve to its authenticated implementation');
+    assert.equal(result.data.company.id, companyId);
+
+    result = await requestJson(baseUrl, '/api/admin/companies/invite', 'POST', { name: 'CI Expired Company' }, adminToken);
+    assert.equal(result.status, 201, 'Administrator should issue a second company invitation');
+    const expiredInvite = result.data;
+    await DB.prepare("UPDATE transport_company_access_codes SET expires_at=CURRENT_TIMESTAMP - INTERVAL '1 day' WHERE company_id=?").run(expiredInvite.company.id);
+    result = await requestJson(baseUrl, '/api/companies/register', 'POST', {
+      companyName: 'CI Expired Company', fullName: 'Expired Company Admin', phone: '+251900000121',
+      password: 'CI_Expired_Company#2026', secretCode: expiredInvite.registrationCode
+    });
+    assert.equal(result.status, 403, 'Expired company invitations must be rejected');
+    result = await requestJson(baseUrl, '/api/admin/companies/invite', 'POST', { name: 'CI Expired Company' }, adminToken);
+    assert.equal(result.status, 201, 'Administrator should be able to reissue an expired invitation');
+    assert.notEqual(result.data.registrationCode, expiredInvite.registrationCode, 'Reissue must replace the expired code');
+    result = await requestJson(baseUrl, '/api/companies/register', 'POST', {
+      companyName: 'CI Expired Company', fullName: 'Renewed Company Admin', phone: '+251900000123',
+      password: 'CI_Renewed_Company#2026', secretCode: result.data.registrationCode
+    });
+    assert.equal(result.status, 201, 'Reissued company invitation should register successfully');
+
+    result = await requestJson(baseUrl, '/api/auth/register', 'POST', {
+      fullName: 'CI Company Driver', phone: '+251900000122', password: 'CI_Company_Driver#2026',
+      role: 'DRIVER', licenseNumber: 'CI-COMPANY-DL-1', companyName: 'CI Passo Company'
+    });
+    assert.equal(result.status, 201, 'Company driver self-registration should create a pending driver without a personal vehicle');
+    const companyDriver = result.data.user;
+    result = await requestJson(baseUrl, `/api/companies/operations/drivers/${encodeURIComponent(companyDriver.id)}/approval`, 'PATCH', { action: 'APPROVE' }, companyToken);
+    assert.equal(result.status, 200, 'Company should approve its own driver');
+
+    result = await requestJson(baseUrl, '/api/companies/operations/vehicles', 'POST', {
+      plateNumber: '3-CI-0200', model: 'CI Company Minibus', vehicleType: 'MINIBUS_14'
+    }, companyToken);
+    assert.equal(result.status, 201, 'Company should register its own vehicle');
+    const companyVehicleId = result.data.vehicle.id;
+
+    result = await requestJson(baseUrl, '/api/companies/operations/routes', 'POST', {
+      name: 'CI Company Route', nameAm: 'የኩባንያ መስመር', routeType: 'INTERCITY',
+      origin: 'Addis Ababa', destination: 'Hawassa', departureTime: '08:00', distanceKm: 270, basePriceEtb: 500
+    }, companyToken);
+    assert.equal(result.status, 201, 'Company should create a route under its own tenant ID');
+    const companyRouteId = result.data.route.id;
+
+    result = await requestJson(baseUrl, '/api/companies/operations/assignments', 'POST', {
+      routeId: createdRouteId, driverId: companyDriver.id, vehicleId: companyVehicleId
+    }, companyToken);
+    assert.equal(result.status, 403, 'Company must not assign its assets to another tenant’s route');
+
+    result = await requestJson(baseUrl, '/api/companies/operations/assignments', 'POST', {
+      routeId: companyRouteId, driverId: companyDriver.id, vehicleId: companyVehicleId
+    }, companyToken);
+    assert.equal(result.status, 201, 'Company may assign its own active driver and vehicle to its route');
+    const companyAssignmentId = result.data.assignment.id;
+    result = await requestJson(baseUrl, '/api/companies/operations/assignments', 'POST', {
+      routeId: companyRouteId, driverId: companyDriver.id, vehicleId: companyVehicleId
+    }, companyToken);
+    assert.equal(result.status, 409, 'Company must not create duplicate active assignments');
+
+    result = await requestJson(baseUrl, '/api/auth/login', 'POST', {
+      phone: '+251900000122', password: 'CI_Company_Driver#2026', role: 'DRIVER'
+    });
+    assert.equal(result.status, 200, 'Approved company driver should be able to log in');
+    const companyDriverToken = result.data.token;
+    result = await requestJson(baseUrl, '/api/trips/start', 'POST', {
+      routeId: companyRouteId, vehicleId: companyVehicleId
+    }, companyDriverToken);
+    assert.equal(result.status, 200, 'Company driver should start a trip using the company-assigned vehicle');
+    const companyTripId = result.data.trip.id;
+
+    result = await requestJson(baseUrl, '/api/vehicles/my-location', 'POST', {
+      latitude: 9.02, longitude: 38.77, speed: 2, currentStop: 'Company CI Stop'
+    }, companyDriverToken);
+    assert.equal(result.status, 200, 'Active company driver trip should persist a GPS location');
+
+    result = await requestJson(baseUrl, `/api/companies/operations/assignments/${encodeURIComponent(companyAssignmentId)}`, 'DELETE', null, companyToken);
+    assert.equal(result.status, 409, 'Company cannot unassign a vehicle while its trip is active');
+    result = await requestJson(baseUrl, `/api/trips/${encodeURIComponent(companyTripId)}/end`, 'POST', {}, companyDriverToken);
+    assert.equal(result.status, 200, 'Company driver should end the active trip');
+    result = await requestJson(baseUrl, `/api/companies/operations/assignments/${encodeURIComponent(companyAssignmentId)}`, 'DELETE', null, companyToken);
+    assert.equal(result.status, 200, 'Company should be able to remove an idle assignment without deleting its vehicle');
+
+    result = await requestJson(baseUrl, '/api/vehicles', 'GET');
+    assert.equal(result.status, 200, 'Public vehicle directory should remain available');
+    assert.equal(Object.hasOwn(result.data.vehicles[0], 'driverId'), false, 'Public vehicle directory must not expose driver IDs');
+    assert.equal(Object.hasOwn(result.data.vehicles[0], 'currentLat'), false, 'Public vehicle directory must not expose precise coordinates');
+    result = await requestJson(baseUrl, '/api/vehicles', 'GET', null, adminToken);
+    assert.equal(result.status, 200, 'Administrator fleet view should retain authorized driver details');
+    assert.equal(Object.hasOwn(result.data.vehicles[0], 'driverId'), true);
+
+    result = await requestJson(baseUrl, `/api/admin/drivers/${encodeURIComponent(companyDriver.id)}/approval`, 'PATCH', { status: 'SUSPENDED' }, adminToken);
+    assert.equal(result.status, 200, 'Administrator should be able to suspend the company driver');
+    result = await requestJson(baseUrl, '/api/trips/active', 'GET', null, companyDriverToken);
+    assert.equal(result.status, 401, 'Previously issued bearer token must stop working after driver suspension');
+
+    await DB.prepare("UPDATE transport_companies SET status='INACTIVE' WHERE id=?").run(companyId);
+    result = await requestJson(baseUrl, '/api/companies/me', 'GET', null, companyToken);
+    assert.equal(result.status, 401, 'Previously issued company token must stop working after company suspension');
+
     // A driver self-registers, awaits admin approval, then receives a route assignment.
     result = await requestJson(baseUrl, '/api/auth/register', 'POST', {
       fullName: 'CI Driver Owner',
@@ -137,6 +257,11 @@ async function run() {
     });
     assert.equal(result.status, 200, 'Approved driver must be able to log in');
     const driverToken = result.data.token;
+
+    result = await requestJson(baseUrl, '/api/vehicles/my-location', 'POST', {
+      latitude: 9.01, longitude: 38.76, speed: 1.2, currentStop: 'Off-duty attempt'
+    }, driverToken);
+    assert.equal(result.status, 409, 'Driver must not publish live GPS before starting an assigned trip');
 
     result = await requestJson(baseUrl, '/api/trips/start', 'POST', {
       routeId: 'route_bole_merkato',

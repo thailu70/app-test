@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { DB } = require('../db');
 
 function resolveJwtSecret() {
   if (process.env.JWT_SECRET && process.env.JWT_SECRET.trim().length > 0) {
@@ -29,7 +30,31 @@ function verifyToken(token) {
 /**
  * Authentication Middleware: Extracts and validates Bearer token
  */
-function authenticate(req, res, next) {
+async function resolveActivePrincipal(token) {
+  const decoded = verifyToken(token);
+  if (!decoded || typeof decoded.id !== 'string' || !decoded.id) return null;
+
+  if (String(decoded.role || '').toUpperCase() === 'COMPANY') {
+    const company = await DB.prepare("SELECT id, name, phone, representative_name, status FROM transport_companies WHERE id = ? AND status = 'ACTIVE'").get(decoded.id);
+    if (!company) return null;
+    return {
+      ...decoded,
+      id: company.id,
+      role: 'COMPANY',
+      companyId: company.id,
+      companyName: company.name,
+      fullName: company.representative_name || company.name,
+      phone: company.phone || ''
+    };
+  }
+
+  const user = await DB.prepare("SELECT id, role, fullName, phone, status, companyId FROM users WHERE id = ? AND status = 'ACTIVE'").get(decoded.id);
+  if (!user || !['ADMIN', 'DRIVER', 'PASSENGER'].includes(String(user.role || '').toUpperCase())) return null;
+  if (String(decoded.role || '').toUpperCase() !== String(user.role).toUpperCase()) return null;
+  return { ...decoded, ...user, role: String(user.role).toUpperCase() };
+}
+
+async function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({
@@ -39,17 +64,23 @@ function authenticate(req, res, next) {
   }
 
   const token = authHeader.split(' ')[1];
-  const decoded = verifyToken(token);
-
-  if (!decoded) {
-    return res.status(401).json({
+  try {
+    const principal = await resolveActivePrincipal(token);
+    if (!principal) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid, expired, or inactive account.'
+      });
+    }
+    req.user = principal;
+    return next();
+  } catch (err) {
+    console.error('[Auth] active-account check failed:', err);
+    return res.status(503).json({
       success: false,
-      error: 'Invalid or expired authentication token.'
+      error: 'Authentication is temporarily unavailable.'
     });
   }
-
-  req.user = decoded;
-  next();
 }
 
 /**
@@ -82,6 +113,7 @@ module.exports = {
   JWT_SECRET,
   signToken,
   verifyToken,
+  resolveActivePrincipal,
   authenticate,
   requireRole
 };

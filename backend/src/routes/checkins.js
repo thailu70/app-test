@@ -233,7 +233,10 @@ router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
         checkinId: result.checkinId,
         passengerName: result.passengerName,
         stopName: currentStop,
+        routeId: trip.routeId,
         vehicleId: vehicle.id,
+        driverId: req.user.id,
+        companyId: vehicle.companyId || '',
         currentOccupancy: result.newOccupancy,
         capacityLimit: result.capacity,
         isFull: result.isNowFull

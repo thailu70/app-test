@@ -705,6 +705,39 @@ fun CompanyPortalScreen(onExit: () -> Unit) {
                             } catch (e: Exception) { message = e.message ?: "Could not assign driver and vehicle." } finally { busy = false }
                         }
                     }, enabled = !busy && assignRouteId.isNotBlank() && assignDriverId.isNotBlank() && assignVehicleId.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Assign driver, vehicle and route") }
+                    HorizontalDivider()
+                    Text("Current assignments", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    val activeAssignments = routes.filter { it["assignment_status"]?.toString() == "ACTIVE" && !it["assignment_id"]?.toString().isNullOrBlank() }
+                    if (activeAssignments.isEmpty()) Text("No active route assignments yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    activeAssignments.forEach { assignment ->
+                        val assignmentId = assignment["assignment_id"]?.toString().orEmpty()
+                        val assignedDriver = drivers.firstOrNull { it["id"]?.toString() == assignment["driver_id"]?.toString() }
+                        val assignedVehicle = fleet.firstOrNull { it["id"]?.toString() == assignment["vehicle_id"]?.toString() }
+                        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(assignment["name"]?.toString() ?: "Company route", fontWeight = FontWeight.Bold)
+                                Text("Driver: ${assignedDriver?.get("fullName") ?: "—"} • Vehicle: ${assignedVehicle?.get("plateNumber") ?: "—"}")
+                                OutlinedButton(
+                                    onClick = {
+                                        scope.launch {
+                                            busy = true
+                                            try {
+                                                val response = ApiClient.getService().unassignCompanyVehicle(assignmentId)
+                                                if (response.isSuccessful) {
+                                                    message = "Assignment removed. The vehicle remains in your fleet."
+                                                    loadSection()
+                                                } else message = errorText(response)
+                                            } catch (e: Exception) {
+                                                message = e.message ?: "Could not remove assignment."
+                                            } finally { busy = false }
+                                        }
+                                    },
+                                    enabled = !busy && assignmentId.isNotBlank(),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("Remove assignment") }
+                            }
+                        }
+                    }
                 }
                 "Drivers" -> {
                     Text("Drivers and approvals", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Color(0xFF17233C))

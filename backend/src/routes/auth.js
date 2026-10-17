@@ -121,7 +121,16 @@ router.post('/register', authLimiter, async (req, res) => {
     const userId = `usr_${normalizedRole.toLowerCase().slice(0, 3)}_${crypto.randomUUID().slice(0, 8)}`;
     const finalEmail = email?.trim() || `${phone.trim()}@transport.et`;
 
-    await DB.transaction(async (tx) => {
+    const registration = await DB.transaction(async (tx) => {
+      if (normalizedRole === 'ADMIN') {
+        // A table has no row to lock while the first admin is absent. A transaction lock
+        // serializes concurrent bootstrap attempts on PostgreSQL; SQLite's IMMEDIATE
+        // transaction already serializes writers.
+        if (tx.isPostgres) await tx.prepare("SELECT pg_advisory_xact_lock(hashtext('routepass-first-admin-bootstrap'))").get();
+        const existingAdmin = await tx.prepare("SELECT id FROM users WHERE role = 'ADMIN' LIMIT 1").get();
+        if (existingAdmin) return { status: 'ADMIN_EXISTS' };
+      }
+
       await tx.prepare(`
         INSERT INTO users (id, role, fullName, phone, email, passwordHash, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName, companyId)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -153,7 +162,11 @@ router.post('/register', authLimiter, async (req, res) => {
           VALUES (?, ?, ?, ?, ?, 0, NULL, ?, ?, 'OFF_DUTY')
         `).run(vehicleId, driverVehiclePlate, driverVehicleModel, driverVehicleType, vehicleCapacities[driverVehicleType], userId, fullName.trim());
       }
+      return { status: 'CREATED' };
     });
+    if (registration.status === 'ADMIN_EXISTS') {
+      return res.status(403).json({ success: false, error: 'An administrator already exists. Additional admin access must be provisioned offline.' });
+    }
 
     // CRITICAL: Registration does NOT activate a subscription!
     // If passenger selected a route during signup, create a PENDING unpaid subscription.
@@ -226,7 +239,7 @@ router.post('/login', authLimiter, async (req, res) => {
   try {
     const { phone, password, role } = req.body;
 
-    if (!phone || !password) {
+    if (typeof phone !== 'string' || typeof password !== 'string' || !phone.trim() || !password) {
       return res.status(400).json({
         success: false,
         error: 'Phone number and password are required.'
@@ -263,7 +276,7 @@ router.post('/login', authLimiter, async (req, res) => {
       });
     }
 
-    const isMatch = bcrypt.compareSync(password, user.passwordHash);
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
       return res.status(401).json({
         success: false,

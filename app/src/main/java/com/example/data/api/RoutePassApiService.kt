@@ -63,6 +63,9 @@ interface RoutePassApiService {
     @POST("api/companies/operations/assignments")
     suspend fun assignCompanyDriverVehicleRoute(@Body request: Map<String, @JvmSuppressWildcards Any>): Response<Map<String, Any>>
 
+    @DELETE("api/companies/operations/assignments/{id}")
+    suspend fun unassignCompanyVehicle(@Path("id") assignmentId: String): Response<Map<String, Any>>
+
     @GET("api/companies/operations/bookings")
     suspend fun getCompanyBookings(): Response<Map<String, Any>>
 
