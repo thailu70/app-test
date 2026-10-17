@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { server, backfillCompanyInvitationExpirations } = require('../src/server');
+const { server, runDatabaseMigrations } = require('../src/server');
 const { DB } = require('../src/db');
 
 const host = '127.0.0.1';
@@ -29,7 +29,7 @@ async function run() {
   await DB.prepare('ALTER TABLE transport_company_access_codes ALTER COLUMN created_at TYPE TEXT USING created_at::text').run();
   await DB.prepare('ALTER TABLE transport_company_access_codes ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP::text').run();
   await DB.prepare("INSERT INTO transport_company_access_codes (id,company_id,code_hash,created_by,revoked,expires_at,created_at) VALUES ('ci_legacy_expiry_code','ci_legacy_expiry_company','ci-legacy-hash',NULL,FALSE,NULL,'2026-10-01 12:00:00+00')").run();
-  await backfillCompanyInvitationExpirations();
+  await runDatabaseMigrations();
   const legacyExpiry = await DB.prepare("SELECT EXTRACT(EPOCH FROM (CAST(expires_at AS TIMESTAMP) - CAST(created_at AS TIMESTAMP))) / 86400 AS days FROM transport_company_access_codes WHERE id='ci_legacy_expiry_code'").get();
   assert.equal(Number(legacyExpiry.days), 7, 'Invitation expiry migration must support legacy text created_at columns');
 
