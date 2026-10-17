@@ -500,6 +500,13 @@ function broadcastAuthorized(payload, targetRouteId = null) {
 
 app.locals.broadcastWs = broadcastAuthorized;
 
+async function backfillCompanyInvitationExpirations() {
+  const query = DB.isPostgres
+    ? "UPDATE transport_company_access_codes SET expires_at = CAST(created_at AS TIMESTAMP) + INTERVAL '7 days' WHERE expires_at IS NULL"
+    : "UPDATE transport_company_access_codes SET expires_at = datetime(created_at, '+7 days') WHERE expires_at IS NULL";
+  return DB.prepare(query).run();
+}
+
 // Apply additive schema migrations before accepting traffic. This keeps existing VPS databases
 // compatible with newer GPS, company-portal, and route types without replacing their data.
 async function startServer() {
@@ -524,10 +531,7 @@ async function startServer() {
   await DB.prepare('ALTER TABLE transport_companies ADD COLUMN IF NOT EXISTS registration_secret_hash TEXT').run();
   await DB.prepare('CREATE TABLE IF NOT EXISTS transport_company_access_codes (id VARCHAR(64) PRIMARY KEY, company_id VARCHAR(64) NOT NULL REFERENCES transport_companies(id) ON DELETE CASCADE, code_hash TEXT NOT NULL, created_by VARCHAR(64), revoked BOOLEAN NOT NULL DEFAULT FALSE, expires_at TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)').run();
   await DB.prepare('ALTER TABLE transport_company_access_codes ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP').run();
-  const invitationExpiryBackfill = DB.isPostgres
-    ? "UPDATE transport_company_access_codes SET expires_at = created_at + INTERVAL '7 days' WHERE expires_at IS NULL"
-    : "UPDATE transport_company_access_codes SET expires_at = datetime(created_at, '+7 days') WHERE expires_at IS NULL";
-  await DB.prepare(invitationExpiryBackfill).run();
+  await backfillCompanyInvitationExpirations();
   await DB.prepare('ALTER TABLE users ADD COLUMN IF NOT EXISTS companyId VARCHAR(64)').run();
   await DB.prepare('ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS companyId VARCHAR(64)').run();
   await DB.prepare('ALTER TABLE routes ADD COLUMN IF NOT EXISTS companyId VARCHAR(64)').run();
@@ -577,4 +581,4 @@ function gracefulShutdown(signal) {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-module.exports = { app, server };
+module.exports = { app, server, backfillCompanyInvitationExpirations };
