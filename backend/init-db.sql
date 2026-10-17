@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS transport_company_access_codes (
     code_hash TEXT NOT NULL,
     created_by VARCHAR(64),
     revoked BOOLEAN NOT NULL DEFAULT FALSE,
+    expires_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
