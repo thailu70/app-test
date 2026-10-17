@@ -104,17 +104,17 @@ router.post('/operations/assignments',authenticate,requireRole('COMPANY'),async(
    const activeTrip=await tx.prepare("SELECT id FROM trips WHERE vehicleId=? AND status='IN_PROGRESS' LIMIT 1").get(vehicleId);
    if(activeTrip)return {status:'ACTIVE_TRIP'};
    const conflict=await tx.prepare("SELECT id FROM company_route_assignments WHERE status='ACTIVE' AND (driver_id=? OR vehicle_id=?) LIMIT 1").get(driverId,vehicleId);
-   if(conflict)return {status:'ASSIGNED'};
+   if(conflict)return {status:'CONFLICT'};
    await tx.prepare("INSERT INTO company_route_assignments(id,company_id,route_id,driver_id,vehicle_id,status) VALUES(?,?,?,?,?,'ACTIVE')").run(id,cid,routeId,driverId,vehicleId);
    await tx.prepare("UPDATE vehicles SET driverId=?,driverName=(SELECT fullName FROM users WHERE id=?),assignedRouteId=?,status='IN_SERVICE',updatedAt=CURRENT_TIMESTAMP WHERE id=? AND companyId=?")
      .run(driverId,driverId,routeId,vehicleId,cid);
    await tx.prepare('INSERT INTO audit_logs (action,userId,role,details) VALUES (?,?,?,?)')
      .run('COMPANY_ROUTE_ASSIGNED',req.user.id,'COMPANY',`Assigned driver ${driverId} and vehicle ${vehicleId} to route ${routeId}`);
-   return {status:'ASSIGNED'};
+   return {status:'CREATED'};
  });
  if(result.status==='INVALID_SCOPE')return res.status(403).json({success:false,error:'Route, driver and vehicle must be active and belong to this company.'});
  if(result.status==='ACTIVE_TRIP')return res.status(409).json({success:false,error:'End the vehicle’s active trip before assigning it.'});
- if(result.status==='ASSIGNED')return res.status(409).json({success:false,error:'Driver or vehicle already has an active assignment.'});
+ if(result.status==='CONFLICT')return res.status(409).json({success:false,error:'Driver or vehicle already has an active assignment.'});
  res.status(201).json({success:true,assignment:{id,companyId:cid,routeId,driverId,vehicleId,status:'ACTIVE'}});
  }catch(e){console.error('[Company] assignment:',e);res.status(500).json({success:false,error:'Could not assign route.'});}
 });
