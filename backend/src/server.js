@@ -408,8 +408,8 @@ function broadcastAuthorized(payload, targetRouteId = null) {
 
 app.locals.broadcastWs = broadcastAuthorized;
 
-// Start only after applying the additive runtime GPS-table migration. This supports existing
-// PostgreSQL installations where init-db.sql was executed before vehicle_live_locations existed.
+// Apply additive schema migrations before accepting traffic. This keeps existing VPS databases
+// compatible with newer GPS, company-portal, and route types without replacing their data.
 async function startServer() {
   await DB.prepare(`
     CREATE TABLE IF NOT EXISTS transport_companies (
@@ -430,8 +430,14 @@ async function startServer() {
   await DB.prepare('ALTER TABLE transport_companies ADD COLUMN IF NOT EXISTS representative_name VARCHAR(120)').run();
   await DB.prepare('ALTER TABLE transport_companies ADD COLUMN IF NOT EXISTS password_hash TEXT').run();
   await DB.prepare('ALTER TABLE transport_companies ADD COLUMN IF NOT EXISTS registration_secret_hash TEXT').run();
+  await DB.prepare('CREATE TABLE IF NOT EXISTS transport_company_access_codes (id VARCHAR(64) PRIMARY KEY, company_id VARCHAR(64) NOT NULL REFERENCES transport_companies(id) ON DELETE CASCADE, code_hash TEXT NOT NULL, created_by VARCHAR(64), revoked BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)').run();
   await DB.prepare('ALTER TABLE users ADD COLUMN IF NOT EXISTS companyId VARCHAR(64)').run();
   await DB.prepare('ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS companyId VARCHAR(64)').run();
+  await DB.prepare('ALTER TABLE routes ADD COLUMN IF NOT EXISTS companyId VARCHAR(64)').run();
+  await DB.prepare("ALTER TABLE routes ADD COLUMN IF NOT EXISTS routeType VARCHAR(30) NOT NULL DEFAULT 'DAILY_COMMUTE'").run();
+  await DB.prepare("ALTER TABLE routes ADD COLUMN IF NOT EXISTS origin VARCHAR(120) NOT NULL DEFAULT ''").run();
+  await DB.prepare("ALTER TABLE routes ADD COLUMN IF NOT EXISTS destination VARCHAR(120) NOT NULL DEFAULT ''").run();
+  await DB.prepare("ALTER TABLE routes ADD COLUMN IF NOT EXISTS departureTime VARCHAR(10) NOT NULL DEFAULT '06:30'").run();
   await DB.prepare('CREATE TABLE IF NOT EXISTS company_route_assignments (id VARCHAR(64) PRIMARY KEY, company_id VARCHAR(64) NOT NULL REFERENCES transport_companies(id), route_id VARCHAR(64) NOT NULL REFERENCES routes(id), driver_id VARCHAR(64) NOT NULL REFERENCES users(id), vehicle_id VARCHAR(64) NOT NULL REFERENCES vehicles(id), status VARCHAR(20) NOT NULL DEFAULT \'ACTIVE\', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)').run();
   await DB.prepare('CREATE INDEX IF NOT EXISTS idx_company_assignments_company ON company_route_assignments(company_id, status)').run();
   await DB.prepare(`
