@@ -74,8 +74,8 @@ fun AuthScreen(
     var adminSecret by remember { mutableStateOf("") }
 
     // Applied Route Selection for Passenger and Driver
-    var selectedRouteId by remember { mutableStateOf(initialRouteId ?: if (initialRouteName == "Requested commuter route") "" else "route_bole_merkato") }
-    var selectedRouteName by remember { mutableStateOf(initialRouteName ?: "Bole → Merkato") }
+    var selectedRouteId by remember { mutableStateOf(initialRouteId ?: "") }
+    var selectedRouteName by remember { mutableStateOf(initialRouteName ?: "") }
     var requestPickup by remember { mutableStateOf("") }
     var requestDestination by remember { mutableStateOf("") }
     var commuteDirection by remember { mutableStateOf("Two way") }
