@@ -209,8 +209,11 @@
     const [subscriptions, features] = await Promise.all([api("/api/admin/subscriptions"), api("/api/admin/features")]);
     const data = asArray(subscriptions, "subscriptions");
     const testRechargeEnabled = features.manualTestRechargeEnabled === true;
+    const adminActivationEnabled = features.adminPassActivationEnabled === true;
     const eligibleVehicles = state.cache.vehicles || [];
-    return pageHeader("Subscriptions & passenger assignments", testRechargeEnabled
+    return pageHeader("Subscriptions & passenger assignments", adminActivationEnabled
+      ? "Temporary admin activation is enabled. Activate a passenger pass for 30 days with a reason. No payment is collected or added to revenue."
+      : testRechargeEnabled
       ? "Assign a driver-owned vehicle on the same route. Test recharges are available only in the isolated test environment and are not real payments."
       : "Assign a driver-owned vehicle on the same route. Payment activation is unavailable until the payment provider integration is enabled.") +
       section("Passenger subscriptions", data.length + " record(s)",
@@ -236,7 +239,11 @@
           { label: "Payment", render: r => pill(value(r, "paymentStatus", "payment_status")) },
           { label: "Subscription", render: r => pill(value(r, "subscriptionStatus", "subscription_status")) },
           { label: "End date", keys: ["endDate", "end_date"] },
-          { label: testRechargeEnabled ? "Testing action" : "Pass activation", render: r => testRechargeEnabled
+          { label: "Pass activation", render: r => adminActivationEnabled
+            ? (value(r, "subscriptionStatus", "subscription_status") === "ACTIVE" && value(r, "paymentStatus", "payment_status") === "PAID" && new Date(value(r, "endDate", "end_date")).getTime() > Date.now()
+              ? pill("ACTIVE")
+              : '<button class="btn btn-primary" data-activate-pass="' + esc(value(r, "id")) + '">Activate 30 days</button>')
+            : testRechargeEnabled
             ? '<button class="btn btn-primary" data-recharge="' + esc(value(r, "id")) + '">Recharge 30 days (test)</button>'
             : pill("DISABLED") }
         ], data));
@@ -470,6 +477,20 @@
     } catch (error) { toast(error.message, true); button.disabled = false; }
   }
 
+  async function activatePass(button) {
+    const reason = window.prompt("Reason for this 30-day admin activation (3–200 characters). No payment will be collected:");
+    if (reason === null) return;
+    if (reason.trim().length < 3 || reason.trim().length > 200) return toast("Enter a reason of 3 to 200 characters.", true);
+    button.disabled = true;
+    try {
+      const result = await api("/api/admin/subscriptions/" + encodeURIComponent(button.dataset.activatePass) + "/activate", {
+        method: "POST", body: JSON.stringify({ days: 30, reason: reason.trim() })
+      });
+      toast(result.message || "Passenger pass activated.");
+      await renderView();
+    } catch (error) { toast(error.message, true); button.disabled = false; }
+  }
+
   async function rechargeSubscription(button) {
     const id = button.dataset.recharge;
     if (!window.confirm("Activate this passenger subscription for 30 test days? This is an ADMIN_TEST entry, not a real Telebirr payment.")) return;
@@ -592,6 +613,8 @@
     const assignVehicleButton = event.target.closest("[data-assign-vehicle]");
     if (assignVehicleButton) { assignSubscriptionVehicle(assignVehicleButton); return; }
     const rechargeButton = event.target.closest("[data-recharge]");
+    const activateButton = event.target.closest("[data-activate-pass]");
+    if (activateButton) { activatePass(activateButton); return; }
     if (rechargeButton) { rechargeSubscription(rechargeButton); return; }
     const editRouteButton = event.target.closest("[data-edit-route]");
     if (editRouteButton) { editRoute(editRouteButton); return; }

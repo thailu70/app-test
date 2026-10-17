@@ -109,6 +109,23 @@ async function run() {
     process.env.NODE_ENV = priorNodeEnv;
     assert.equal(result.status, 403, 'Manual test recharge must stay disabled if production has the test flag set');
 
+    // Explicit admin grants also work in production without creating payment records.
+    await DB.prepare("UPDATE subscriptions SET subscriptionStatus='PENDING', paymentStatus='UNPAID', qrToken=NULL WHERE id=?").run(passengerSubscriptionId);
+    const beforeGrantPayments = (await DB.prepare('SELECT COUNT(*) AS c FROM payment_transactions').get()).c;
+    process.env.ALLOW_ADMIN_PASS_ACTIVATION = 'true';
+    process.env.NODE_ENV = 'production';
+    result = await requestJson(baseUrl, `/api/admin/subscriptions/${encodeURIComponent(passengerSubscriptionId)}/activate`, 'POST', { days: 30, reason: 'CI temporary administrator grant' }, adminToken);
+    assert.equal(result.status, 200, 'Explicit admin grant must work in production');
+    assert.equal(result.data.noPaymentCollected, true);
+    assert.match(result.data.subscription.qrToken, /^RP1:/);
+    const firstGrantEnd = result.data.subscription.endDate;
+    result = await requestJson(baseUrl, `/api/admin/subscriptions/${encodeURIComponent(passengerSubscriptionId)}/activate`, 'POST', { days: 30, reason: 'CI duplicate grant attempt' }, adminToken);
+    assert.equal(result.status, 409, 'Duplicate grants must not extend an active pass');
+    assert.equal((await DB.prepare('SELECT endDate FROM subscriptions WHERE id=?').get(passengerSubscriptionId)).endDate, firstGrantEnd);
+    assert.equal((await DB.prepare('SELECT COUNT(*) AS c FROM payment_transactions').get()).c, beforeGrantPayments, 'Admin grant must not create a payment');
+    delete process.env.ALLOW_ADMIN_PASS_ACTIVATION;
+    process.env.NODE_ENV = priorNodeEnv;
+
     // Company portal signup must hit the current route, consume a PostgreSQL boolean
     // access code once, and reject invitations that have expired.
     result = await requestJson(baseUrl, '/api/admin/companies/invite', 'POST', { name: 'CI Passo Company' }, adminToken);

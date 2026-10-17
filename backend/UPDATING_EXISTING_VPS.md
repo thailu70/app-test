@@ -53,6 +53,8 @@ Do not replace or publish `/var/www/routepass/.env`. It contains production data
 
 ## 4. Keep manual subscription recharge disabled in production
 
+For temporary live admin grants, use the separate `ALLOW_ADMIN_PASS_ACTIVATION` switch described in [ADMIN_PASS_ACTIVATION.md](ADMIN_PASS_ACTIVATION.md). It supports production while recording no payment or revenue. The test recharge switch below must remain disabled on the live instance.
+
 The admin portal includes **Recharge 30 days (test)**. This is a test-only activation, not a Telebirr transaction. It writes provider `ADMIN_TEST`, emits an audit log, signs a QR pass and is excluded from the real-revenue total. The backend requires an explicit environment flag; manual recharge is disabled by default.
 
 Keep `ALLOW_MANUAL_TEST_RECHARGE=false` for production. If you deliberately need the test-only button in a non-production test, enable it temporarily with the following command, then set it back to `false` and rebuild the API:

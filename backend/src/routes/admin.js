@@ -11,7 +11,10 @@ const { generateSignedQrToken } = require('./subscriptions');
 router.use(authenticate, requireRole('ADMIN'));
 
 router.get('/features', (_req, res) => {
-  res.json({ manualTestRechargeEnabled: process.env.NODE_ENV === 'test' && process.env.ALLOW_MANUAL_TEST_RECHARGE === 'true' });
+  res.json({
+    manualTestRechargeEnabled: process.env.NODE_ENV === 'test' && process.env.ALLOW_MANUAL_TEST_RECHARGE === 'true',
+    adminPassActivationEnabled: process.env.ALLOW_ADMIN_PASS_ACTIVATION === 'true'
+  });
 });
 
 /**
@@ -181,6 +184,56 @@ router.get('/subscriptions', async (req, res) => {
   } catch (err) {
     console.error('[RoutePass] request failed:', err);
     res.status(500).json({ success: false, error: 'Internal server error.' });
+  }
+});
+
+/**
+ * Temporary, explicitly enabled admin grants. These do not collect money or
+ * create a payment transaction. Keep the legacy PAID eligibility marker so the
+ * deployed Android clients and boarding validators accept an authorized pass.
+ */
+router.post('/subscriptions/:id/activate', async (req, res) => {
+  if (process.env.ALLOW_ADMIN_PASS_ACTIVATION !== 'true') {
+    return res.status(403).json({ success: false, code: 'ADMIN_ACTIVATION_DISABLED', error: 'Manual admin pass activation is disabled.' });
+  }
+  const days = req.body.days === undefined ? 30 : req.body.days;
+  const reason = typeof req.body.reason === 'string' ? req.body.reason.trim() : '';
+  if (!Number.isInteger(days) || days < 1 || days > 90) {
+    return res.status(400).json({ success: false, error: 'Activation days must be an integer between 1 and 90.' });
+  }
+  if (reason.length < 3 || reason.length > 200) {
+    return res.status(400).json({ success: false, error: 'Enter an activation reason of 3 to 200 characters.' });
+  }
+  const reject = (status, code, message) => { throw Object.assign(new Error(message), { status, code }); };
+  try {
+    const subscription = await DB.transaction(async tx => {
+      const sub = await tx.prepare('SELECT * FROM subscriptions WHERE id = ?' + (DB.isPostgres ? ' FOR UPDATE' : '')).get(req.params.id);
+      if (!sub) reject(404, 'SUBSCRIPTION_NOT_FOUND', 'Subscription not found.');
+      const passenger = await tx.prepare("SELECT id FROM users WHERE id = ? AND role = 'PASSENGER' AND status = 'ACTIVE'").get(sub.passengerId);
+      if (!passenger) reject(409, 'PASSENGER_INACTIVE', 'An active passenger account is required.');
+      const route = await tx.prepare('SELECT id FROM routes WHERE id = ? AND active = TRUE').get(sub.routeId);
+      if (!route) reject(409, 'ROUTE_INACTIVE', 'An active route is required.');
+      const now = new Date();
+      if (sub.subscriptionStatus === 'ACTIVE' && sub.paymentStatus === 'PAID' && new Date(sub.endDate).getTime() > now.getTime()) {
+        reject(409, 'PASS_ALREADY_ACTIVE', 'This pass is already active. No extra days were added.');
+      }
+      const startDate = now.toISOString().slice(0, 10);
+      const endDate = new Date(now.getTime() + days * 86400000).toISOString().slice(0, 10);
+      const expiresAt = new Date(endDate + 'T00:00:00.000Z').getTime();
+      const daysRemaining = Math.max(1, Math.ceil((expiresAt - now.getTime()) / 86400000));
+      const qrToken = generateSignedQrToken(sub.id, sub.passengerId, sub.routeId, expiresAt);
+      await tx.prepare(`UPDATE subscriptions SET paymentStatus = 'PAID', subscriptionStatus = 'ACTIVE',
+        startDate = ?, endDate = ?, daysRemaining = ?, qrToken = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`)
+        .run(startDate, endDate, daysRemaining, qrToken, sub.id);
+      await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
+        .run('SUBSCRIPTION_ADMIN_ACTIVATED', req.user.id, 'ADMIN', JSON.stringify({ subscriptionId: sub.id, days, reason, noPaymentCollected: true }));
+      return { id: sub.id, passengerId: sub.passengerId, routeId: sub.routeId, subscriptionStatus: 'ACTIVE', paymentStatus: 'PAID', startDate, endDate, daysRemaining, qrToken };
+    });
+    res.json({ success: true, activationSource: 'ADMIN_GRANT', noPaymentCollected: true, message: `Pass activated for ${days} days by an administrator. No payment was collected.`, subscription });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ success: false, code: err.code, error: err.message });
+    console.error('[Admin] pass activation failed:', err);
+    res.status(500).json({ success: false, error: 'Could not activate the passenger pass.' });
   }
 });
 
