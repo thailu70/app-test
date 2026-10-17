@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- Normalize legacy unquoted companyId column (stored by PostgreSQL as companyid).
-DO $
+DO $$
 BEGIN
     IF EXISTS (
         SELECT 1 FROM information_schema.columns
@@ -35,7 +35,7 @@ BEGIN
     ) THEN
         ALTER TABLE users RENAME COLUMN companyid TO company_id;
     END IF;
-END $;
+END $$;
 
 -- 2. Transit Routes
 CREATE TABLE IF NOT EXISTS routes (
