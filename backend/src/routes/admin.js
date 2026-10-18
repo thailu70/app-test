@@ -20,13 +20,15 @@ router.get('/features', (_req, res) => {
 });
 
 router.get('/integrations/afro-sms', async (_req, res) => {
-  const rows = await DB.prepare("SELECT key, CASE WHEN value='' THEN FALSE ELSE TRUE END AS configured FROM app_settings WHERE key IN ('AFRO_SMS_API_TOKEN','AFRO_SMS_URL','AFRO_SMS_SENDER')").all();
+  const rows = await DB.prepare("SELECT key, CASE WHEN value='' THEN FALSE ELSE TRUE END AS configured FROM app_settings WHERE key IN ('AFRO_SMS_API_TOKEN','AFRO_SMS_IDENTIFIER','AFRO_SMS_URL','AFRO_SMS_SENDER')").all();
   res.json({ success: true, provider: 'AFRO_SMS', configured: Object.fromEntries(rows.map(row => [row.key, Boolean(row.configured)])) });
 });
 router.put('/integrations/afro-sms', async (req, res) => {
   const token = String(req.body.apiToken || '').trim().slice(0, 500);
+  const identifier = String(req.body.identifier || '').trim().slice(0, 120);
   if (!token) return res.status(400).json({ success: false, error: 'Afro SMS API token is required.' });
-  const values = [['AFRO_SMS_API_TOKEN', token], ['AFRO_SMS_URL', String(req.body.url || 'https://api.afromessage.com/api/send').trim().slice(0, 500)], ['AFRO_SMS_SENDER', String(req.body.sender || 'RoutePass').trim().slice(0, 40)]];
+  if (!identifier) return res.status(400).json({ success: false, error: 'AfroMessage Identifier ID is required.' });
+  const values = [['AFRO_SMS_API_TOKEN', token], ['AFRO_SMS_IDENTIFIER', identifier], ['AFRO_SMS_URL', String(req.body.url || 'https://api.afromessage.com/api/send').trim().slice(0, 500)], ['AFRO_SMS_SENDER', String(req.body.sender || 'RoutePass').trim().slice(0, 40)]];
   for (const [key, value] of values) await DB.prepare("INSERT INTO app_settings(key,value,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP").run(key, value);
   res.json({ success: true, provider: 'AFRO_SMS', message: 'Afro SMS settings saved securely.' });
 });
@@ -35,8 +37,8 @@ router.post('/integrations/afro-sms/test', async (req, res) => {
   const message = String(req.body.message || 'RoutePass test SMS: Afro SMS is connected.').trim().slice(0, 320);
   if (!phone) return res.status(400).json({ success: false, error: 'A test phone number is required.' });
   const result = await sendSms(phone, message);
-  if (!result.sent) return res.status(502).json({ success: false, error: result.skipped ? 'Save an Afro SMS API token before testing.' : 'Afro SMS could not deliver the test message.' });
-  res.json({ success: true, message: 'Test SMS sent.' });
+  if (!result.sent) return res.status(502).json({ success: false, error: result.reason || result.error || (result.skipped ? 'Save the Afro SMS token and Identifier ID before testing.' : 'Afro SMS rejected the test message.') });
+  res.json({ success: true, message: 'AfroMessage accepted the test SMS for delivery.', messageId: result.messageId || null });
 });
 
 /**
