@@ -430,7 +430,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         vehicleModel: String = "",
         vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
-        appliedRouteName: String = ""
+        appliedRouteName: String = "",
+        otpVerificationToken: String = ""
     ) {
         viewModelScope.launch {
             _authError.value = null
@@ -474,7 +475,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     vehicleModel = vehicleModel,
                     vehicleType = vehicleType,
                     appliedRouteId = appliedRouteId,
-                    appliedRouteName = appliedRouteName
+                    appliedRouteName = appliedRouteName,
+                    otpVerificationToken = otpVerificationToken
                 )
                 if (role == AppRole.DRIVER) {
                     _registrationMessage.value = "Thank you for registering. We will review your licence and vehicle, authorize your account, assign your route, and connect appropriate passenger subscriptions to your vehicle. We will contact you when it is ready. You can sign in after approval."
@@ -513,6 +515,20 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
             } catch (e: Exception) {
                 _authError.value = e.message ?: "Registration failed. Check the information and try again."
             }
+        }
+    }
+
+    fun requestRegistrationOtp(phone: String, onResult: (String?, String?) -> Unit) {
+        viewModelScope.launch {
+            try { onResult(repository.requestRegistrationOtp(phone), null) }
+            catch (e: Exception) { onResult(null, e.message ?: "Could not send the verification SMS.") }
+        }
+    }
+
+    fun verifyRegistrationOtp(phone: String, code: String, onResult: (String?, String?) -> Unit) {
+        viewModelScope.launch {
+            try { onResult(repository.verifyRegistrationOtp(phone, code), null) }
+            catch (e: Exception) { onResult(null, e.message ?: "The verification code is invalid.") }
         }
     }
 

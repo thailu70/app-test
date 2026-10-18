@@ -64,6 +64,10 @@ fun AuthScreen(
     var phone by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
+    var otpCode by remember { mutableStateOf("") }
+    var otpVerificationToken by remember { mutableStateOf("") }
+    var otpSent by remember { mutableStateOf(false) }
+    var otpMessage by remember { mutableStateOf<String?>(null) }
     var registrationValidationMessage by remember { mutableStateOf<String?>(null) }
     var licenseNumber by remember { mutableStateOf("") }
     var companyName by remember { mutableStateOf("") }
@@ -137,6 +141,10 @@ fun AuthScreen(
         phone = ""
         password = ""
         confirmPassword = ""
+        otpCode = ""
+        otpVerificationToken = ""
+        otpSent = false
+        otpMessage = null
         registrationValidationMessage = null
         if (isRegisterMode) fullName = ""
     }
@@ -854,6 +862,34 @@ fun AuthScreen(
                                 .testTag("auth_phone_input")
                         )
 
+                        if (isRegisterMode && portal != AppRole.ADMIN) {
+                            OutlinedTextField(
+                                value = otpCode,
+                                onValueChange = { otpCode = it.take(6); otpVerificationToken = "" },
+                                label = { Text("SMS verification code") },
+                                placeholder = { Text("6 digits") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = {
+                                    otpMessage = null
+                                    viewModel.requestRegistrationOtp(phone) { message, error ->
+                                        otpSent = error == null
+                                        otpMessage = error ?: message
+                                    }
+                                }, enabled = phone.isNotBlank()) { Text(if (otpSent) "Resend code" else "Send SMS code") }
+                                Button(onClick = {
+                                    viewModel.verifyRegistrationOtp(phone, otpCode) { token, error ->
+                                        otpVerificationToken = token.orEmpty()
+                                        otpMessage = error ?: "Phone verified. You can complete registration."
+                                    }
+                                }, enabled = otpSent && otpCode.length == 6) { Text("Verify") }
+                            }
+                            otpMessage?.let { Text(it, color = if (otpVerificationToken.isNotBlank()) TransportGreenPrimary else Slate600, style = MaterialTheme.typography.bodySmall) }
+                        }
+
                         OutlinedTextField(
                             value = password,
                             onValueChange = {
@@ -944,7 +980,8 @@ fun AuthScreen(
                                          portal == AppRole.DRIVER && isRegisterMode && driverServiceMode == "Daily Commuter" && driverRouteMode == "custom" && driverDestination.isBlank() -> "Enter the proposed route destination."
                                          portal == AppRole.DRIVER && isRegisterMode && driverServiceMode == "Daily Commuter" && driverRouteMode == "custom" && driverDepartureTime.isBlank() -> "Enter a preferred departure time."
                                          portal == AppRole.DRIVER && isRegisterMode && driverServiceMode == "Intercity" && driverTransportCompany.isBlank() -> "Select or enter your transport company."
-                                         password.length < 10 -> "Use a password with at least 10 characters."
+                                        password.length < 10 -> "Use a password with at least 10 characters."
+                                        portal != AppRole.ADMIN && otpVerificationToken.isBlank() -> "Verify your phone number by SMS before registering."
                                         password != confirmPassword -> "The two passwords do not match. Please re-enter them."
                                         else -> null
                                     }
@@ -972,7 +1009,8 @@ fun AuthScreen(
                                                 isCustomCommuterRequest -> "Requested commuter route | Pickup: $requestPickup | Destination: $requestDestination | Journey: $commuteDirection | Tier: $selectedServiceTier"
                                                 else -> selectedRouteName
                                             },
-                                            adminSecret = adminSecret
+                                            adminSecret = adminSecret,
+                                            otpVerificationToken = otpVerificationToken
                                         )
                                     }
                                 } else {

@@ -105,7 +105,8 @@ class TransportRepository(
         vehicleModel: String = "",
         vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
-        appliedRouteName: String = ""
+        appliedRouteName: String = "",
+        otpVerificationToken: String = ""
     ): UserEntity {
         val normalizedRole = role.trim().uppercase()
         val cleanPhone = phone.trim()
@@ -123,7 +124,8 @@ class TransportRepository(
             vehicleModel = vehicleModel.ifBlank { null },
             vehicleType = vehicleType.ifBlank { null },
             appliedRouteId = appliedRouteId.ifBlank { null },
-            appliedRouteName = appliedRouteName.ifBlank { null }
+            appliedRouteName = appliedRouteName.ifBlank { null },
+            otpVerificationToken = otpVerificationToken.ifBlank { null }
         )
 
         val response = try {
@@ -192,6 +194,18 @@ class TransportRepository(
             val errorMsg = parsedMsg ?: response.message().ifBlank { "Registration rejected by VPS server." }
             throw IllegalStateException(errorMsg)
         }
+    }
+
+    suspend fun requestRegistrationOtp(phone: String): String {
+        val response = apiService.requestOtp(mapOf("phone" to phone.trim(), "purpose" to "REGISTRATION"))
+        if (!response.isSuccessful || response.body()?.success != true) throw IllegalStateException(response.body()?.error ?: "Could not send the verification SMS.")
+        return response.body()?.message ?: "Verification code sent by SMS."
+    }
+
+    suspend fun verifyRegistrationOtp(phone: String, code: String): String {
+        val response = apiService.verifyOtp(mapOf("phone" to phone.trim(), "purpose" to "REGISTRATION", "code" to code.trim()))
+        if (!response.isSuccessful || response.body()?.success != true) throw IllegalStateException(response.body()?.error ?: "The verification code is invalid.")
+        return response.body()?.verificationToken ?: throw IllegalStateException("The verification code could not be confirmed.")
     }
 
     // Routes & Stops

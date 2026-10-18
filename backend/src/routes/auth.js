@@ -6,6 +6,9 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { DB } = require('../db');
 const { signToken, authenticate } = require('../middleware/auth');
+const { sendSms } = require('../services/afro-sms');
+const sha256 = value => crypto.createHash('sha256').update(String(value)).digest('hex');
+const normalizePhone = value => String(value || '').trim();
 
 function resolveAdminSecret() {
   if (process.env.ADMIN_REGISTRATION_SECRET && process.env.ADMIN_REGISTRATION_SECRET.trim().length > 0) {
@@ -18,6 +21,29 @@ function resolveAdminSecret() {
 }
 
 const ADMIN_REGISTRATION_SECRET = resolveAdminSecret();
+
+router.post('/request-otp', authLimiter, async (req, res) => {
+  const phone = normalizePhone(req.body.phone), purpose = String(req.body.purpose || 'REGISTRATION').toUpperCase();
+  if (!phone || !['REGISTRATION', 'LOGIN'].includes(purpose)) return res.status(400).json({ success: false, error: 'Phone number and OTP purpose are required.' });
+  const code = String(crypto.randomInt(100000, 1000000));
+  const id = 'otp_' + crypto.randomUUID().replace(/-/g, '').slice(0, 20);
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  await DB.prepare("UPDATE auth_otps SET expires_at=CURRENT_TIMESTAMP WHERE phone=? AND purpose=? AND verified_at IS NULL").run(phone, purpose);
+  await DB.prepare('INSERT INTO auth_otps(id,phone,purpose,code_hash,expires_at) VALUES(?,?,?,?,?)').run(id, phone, purpose, sha256(code), expiresAt);
+  const delivery = await sendSms(phone, `RoutePass verification code: ${code}. It expires in 10 minutes.`);
+  res.json({ success: true, message: delivery.sent ? 'Verification code sent by SMS.' : 'Verification code created, but SMS delivery is not configured.', delivery: delivery.sent ? 'SENT' : 'NOT_CONFIGURED', testCode: process.env.NODE_ENV === 'test' ? code : undefined });
+});
+
+router.post('/verify-otp', authLimiter, async (req, res) => {
+  const phone = normalizePhone(req.body.phone), purpose = String(req.body.purpose || 'REGISTRATION').toUpperCase(), code = String(req.body.code || '').trim();
+  const otp = await DB.prepare('SELECT * FROM auth_otps WHERE phone=? AND purpose=? AND verified_at IS NULL ORDER BY created_at DESC LIMIT 1').get(phone, purpose);
+  if (!otp || Date.parse(otp.expires_at) < Date.now() || otp.attempts >= 5) return res.status(400).json({ success: false, error: 'This verification code is expired. Request a new code.' });
+  await DB.prepare('UPDATE auth_otps SET attempts=attempts+1 WHERE id=?').run(otp.id);
+  if (sha256(code) !== otp.code_hash) return res.status(400).json({ success: false, error: 'Incorrect verification code.' });
+  const token = crypto.randomBytes(32).toString('hex');
+  await DB.prepare('UPDATE auth_otps SET verified_at=CURRENT_TIMESTAMP, verification_token_hash=? WHERE id=?').run(sha256(token), otp.id);
+  res.json({ success: true, verificationToken: token });
+});
 
 /**
  * POST /api/auth/register
@@ -41,6 +67,7 @@ router.post('/register', authLimiter, async (req, res) => {
       vehicleType = 'MINIBUS_14',
       appliedRouteId = '',
       appliedRouteName = ''
+      ,otpVerificationToken = ''
     } = req.body;
 
     if (!fullName || !phone || !password || !role) {
@@ -48,6 +75,12 @@ router.post('/register', authLimiter, async (req, res) => {
         success: false,
         error: 'Missing required fields: fullName, phone, password, role are mandatory.'
       });
+    }
+
+    if (['PASSENGER', 'DRIVER'].includes(String(role).toUpperCase())) {
+      const otp = await DB.prepare('SELECT id FROM auth_otps WHERE phone=? AND purpose=? AND verification_token_hash=? AND verified_at IS NOT NULL AND expires_at>CURRENT_TIMESTAMP ORDER BY created_at DESC LIMIT 1').get(String(phone).trim(), 'REGISTRATION', sha256(otpVerificationToken));
+      if (!otp) return res.status(428).json({ success: false, error: 'Verify your phone number by SMS before completing registration.' });
+      await DB.prepare('UPDATE auth_otps SET verification_token_hash=NULL WHERE id=?').run(otp.id);
     }
 
     if (typeof password !== 'string' || password.length < 10) {

@@ -9,6 +9,7 @@ const rateLimit = require('express-rate-limit');
 const { DB } = require('../db');
 const { authenticate, requireRole, JWT_SECRET } = require('../middleware/auth');
 const telebirr = require('../services/telebirr');
+const { sendSms } = require('../services/afro-sms');
 const router = express.Router();
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const uuid = () => crypto.randomUUID();
@@ -51,10 +52,16 @@ function ticketDownloadUrl(b) {
   const token = jwt.sign({ kind: 'INTERCITY_PDF', bookingId: b.id }, JWT_SECRET, { expiresIn: '5m', audience: 'intercity-pdf-download', issuer: 'routepass' });
   return '/api/intercity/tickets/' + encodeURIComponent(b.id) + '.pdf?token=' + encodeURIComponent(token);
 }
+function shortTicketNumber(b) { return 'RP-' + String(b.id).replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase(); }
+async function notifyPaidTicket(b, d) {
+  if (!b?.passenger_phone) return;
+  const when = new Date(d.departure_at).toLocaleString('en-GB', { timeZone: 'Africa/Addis_Ababa', dateStyle: 'medium', timeStyle: 'short' });
+  await sendSms(b.passenger_phone, `RoutePass ticket confirmed. Ticket ${shortTicketNumber(b)} for ${d.origin} to ${d.destination}, seat ${b.seat_number}, ${when}. Board with this number or your QR code.`);
+}
 function bookingView(b, d, includePersonal = true) {
   return { id: b.id, departureId: b.departure_id, seatNumber: b.seat_number, amountEtb: Number(b.amount_etb), status: b.status, paymentStatus: b.payment_status, paymentMethod: b.payment_method, expiresAt: b.expires_at,
     ...(includePersonal ? { passengerName: b.passenger_name, passengerPhone: b.passenger_phone } : {}),
-    ...(b.payment_status === 'PAID' ? { qrToken: ticketToken(b, d), ticketDownloadUrl: ticketDownloadUrl(b) } : {}), departure: detail(d) };
+    ...(b.payment_status === 'PAID' ? { ticketNumber: shortTicketNumber(b), qrToken: ticketToken(b, d), ticketDownloadUrl: ticketDownloadUrl(b) } : {}), departure: detail(d) };
 }
 async function guestBooking(req, tx = DB) {
   const b = await tx.prepare('SELECT * FROM intercity_bookings WHERE id = ?').get(req.params.id);
@@ -95,6 +102,7 @@ async function reconcile(b) {
     if (result.paid) await tx.prepare("UPDATE intercity_bookings SET payment_status='PAID',status='CONFIRMED',payment_method='TELEBIRR',payment_reference=? WHERE id=?").run(result.transactionId || result.paymentOrderId || b.order_id, b.id);
     else { await tx.prepare("UPDATE intercity_bookings SET payment_status='FAILED',status='CANCELLED' WHERE id=?").run(b.id); await tx.prepare('DELETE FROM intercity_seats WHERE booking_id=?').run(b.id); }
   });
+  if (result.paid) await notifyPaidTicket(await DB.prepare('SELECT * FROM intercity_bookings WHERE id=?').get(b.id), await departure(DB, b.departure_id));
 }
 
 router.use((req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
@@ -154,7 +162,9 @@ router.post('/bookings/:id/checkout', publicLimiter, asyncRoute(async (req, res)
   if (p.phone.replace(/\D/g, '') === '09000000') {
     await write(async tx => { await tx.prepare("UPDATE intercity_bookings SET passenger_name=?,passenger_phone=?,status='CONFIRMED',payment_status='PAID',payment_method='TEST_AUTO',payment_reference='TEST-09000000' WHERE id=?").run(p.name, p.phone, b.id); });
     b = await guestBooking(req);
-    return res.json({ success: true, paid: true, paymentMode: 'TEST_AUTO', booking: bookingView(b, await departure(DB, b.departure_id)) });
+    const d = await departure(DB, b.departure_id);
+    await notifyPaidTicket(b, d);
+    return res.json({ success: true, paid: true, paymentMode: 'TEST_AUTO', booking: bookingView(b, d) });
   }
   if (telebirr.missingConfiguration().length || telebirr.config().environment !== 'production' && process.env.NODE_ENV === 'production') throw fail(503, 'Online payment is not available yet. Contact the transport company to book and pay at its office.');
   if (b.checkout_url) return res.json({ success: true, checkoutUrl: b.checkout_url });
@@ -245,6 +255,7 @@ router.post('/company/departures/:id/bookings', ...companyGuard, asyncRoute(asyn
   const p = person(req.body), note = clean(req.body.paymentNote, 250);
   if (req.body.paymentCollected !== true || note.length < 3) throw fail(400, 'Confirm the payment was collected and enter its cash receipt or collection reference.');
   const result = await write(async tx => { const d = await departure(tx, req.params.id, true); own(d, req.user); const { b } = await holdSeat(tx, d, req.body.seatNumber, p); await tx.prepare("UPDATE intercity_bookings SET status='CONFIRMED',payment_status='PAID',payment_method='CASH_COLLECTED',payment_reference=?,collected_by=?,collected_note=? WHERE id=?").run(note, req.user.id, note, b.id); return { b: await tx.prepare('SELECT * FROM intercity_bookings WHERE id=?').get(b.id), d }; });
+  await notifyPaidTicket(result.b, result.d);
   res.status(201).json({ success: true, booking: bookingView(result.b, result.d), ticketUrl: '/api/intercity/company/bookings/' + result.b.id + '/ticket.pdf' });
 }));
 router.get('/company/bookings/:id/ticket.pdf', ...companyGuard, asyncRoute(async (req, res) => { const b = await DB.prepare('SELECT * FROM intercity_bookings WHERE id=? AND company_id=?').get(req.params.id, req.user.id); if (!b) throw fail(404, 'Ticket not found.'); return pdfTicket(req, res, b); }));

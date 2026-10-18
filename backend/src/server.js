@@ -580,6 +580,8 @@ async function initializeFeatureSchemas() {
   await require('./services/intercity-schema').initIntercitySchema();
   await DB.exec('CREATE INDEX IF NOT EXISTS idx_reports_trip_time ON trips(startTime); CREATE INDEX IF NOT EXISTS idx_reports_checkin_time ON checkin_records(timestamp); CREATE INDEX IF NOT EXISTS idx_reports_payment_date ON payment_transactions(date);');
   await DB.prepare("CREATE TABLE IF NOT EXISTS app_settings (key VARCHAR(100) PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)").run();
+  await DB.prepare("CREATE TABLE IF NOT EXISTS auth_otps (id VARCHAR(100) PRIMARY KEY, phone VARCHAR(40) NOT NULL, purpose VARCHAR(40) NOT NULL, code_hash VARCHAR(128) NOT NULL, verification_token_hash VARCHAR(128), expires_at TIMESTAMP NOT NULL, verified_at TIMESTAMP, attempts INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)").run();
+  await DB.prepare("CREATE INDEX IF NOT EXISTS idx_auth_otps_phone ON auth_otps(phone, purpose, created_at)").run();
 }
 
 async function startServer() {

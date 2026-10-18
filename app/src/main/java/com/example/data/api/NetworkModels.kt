@@ -27,7 +27,16 @@ data class RegisterRequest(
     val vehicleModel: String? = null,
     val vehicleType: String? = null,
     val appliedRouteId: String? = null,
-    val appliedRouteName: String? = null
+    val appliedRouteName: String? = null,
+    val otpVerificationToken: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class OtpResponse(
+    val success: Boolean,
+    val message: String? = null,
+    val error: String? = null,
+    val verificationToken: String? = null
 )
 
 @JsonClass(generateAdapter = true)

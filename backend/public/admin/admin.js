@@ -146,7 +146,7 @@
         '<div class="field"><label for="afro-sms-token">API token</label><input id="afro-sms-token" name="apiToken" type="password" autocomplete="new-password" placeholder="Paste Afro SMS API token" required><span class="hint">' + (configured.AFRO_SMS_API_TOKEN ? 'A token is already saved. Enter a new token only when rotating it.' : 'Required before RoutePass can send SMS notifications.') + '</span></div>' +
         '<div class="field"><label for="afro-sms-sender">Sender name</label><input id="afro-sms-sender" name="sender" maxlength="40" value="RoutePass"><span class="hint">Shown as the SMS sender where supported.</span></div>' +
         '<div class="field"><label for="afro-sms-url">API URL</label><input id="afro-sms-url" name="url" type="url" value="https://api.afromessage.com/api/send"><span class="hint">Leave the default Afro SMS endpoint unless your account uses another URL.</span></div>' +
-        '</div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Afro SMS settings</button></div><p id="afro-sms-message" class="form-message" hidden></p></form>') ;
+        '</div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Afro SMS settings</button></div><div class="driver-form-grid" style="margin-top:16px"><div class="field"><label for="afro-sms-test-phone">Test phone number</label><input id="afro-sms-test-phone" type="tel" placeholder="09XXXXXXXX"></div><div class="field"><label for="afro-sms-test-message">Test message</label><input id="afro-sms-test-message" maxlength="320" value="RoutePass test SMS: Afro SMS is connected."></div></div><div class="form-actions"><button class="btn btn-secondary" type="button" id="afro-sms-test">Send test message</button></div><p id="afro-sms-message" class="form-message" hidden></p></form>') ;
   }
   async function saveAfroSms(event) {
     event.preventDefault();
@@ -436,6 +436,16 @@
       if (companyInviteForm) companyInviteForm.addEventListener("submit", createCompanyInvite);
       const afroSmsForm = $("#afro-sms-form");
       if (afroSmsForm) afroSmsForm.addEventListener("submit", saveAfroSms);
+      $("#afro-sms-test")?.addEventListener("click", async event => {
+        const button = event.currentTarget;
+        const message = $("#afro-sms-message");
+        button.disabled = true;
+        try {
+          await api("/api/admin/integrations/afro-sms/test", { method: "POST", body: JSON.stringify({ phone: $("#afro-sms-test-phone").value, message: $("#afro-sms-test-message").value }) });
+          message.textContent = "Test SMS sent."; message.className = "form-message"; message.hidden = false; toast("Test SMS sent.");
+        } catch (error) { message.textContent = error.message; message.className = "form-message error"; message.hidden = false; }
+        finally { button.disabled = false; }
+      });
     } catch (error) {
       if (revision !== renderRevision) return;
       $("#page-content").innerHTML = '<div class="card empty-note"><strong>Could not load this page.</strong><br>' + esc(error.message) +

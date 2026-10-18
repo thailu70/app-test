@@ -5,6 +5,7 @@ const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { adminScope } = require('../services/commute-scope');
 const { generateSignedQrToken } = require('./subscriptions');
+const { sendSms } = require('../services/afro-sms');
 
 /**
  * All endpoints here require ADMIN role
@@ -28,6 +29,14 @@ router.put('/integrations/afro-sms', async (req, res) => {
   const values = [['AFRO_SMS_API_TOKEN', token], ['AFRO_SMS_URL', String(req.body.url || 'https://api.afromessage.com/api/send').trim().slice(0, 500)], ['AFRO_SMS_SENDER', String(req.body.sender || 'RoutePass').trim().slice(0, 40)]];
   for (const [key, value] of values) await DB.prepare("INSERT INTO app_settings(key,value,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP").run(key, value);
   res.json({ success: true, provider: 'AFRO_SMS', message: 'Afro SMS settings saved securely.' });
+});
+router.post('/integrations/afro-sms/test', async (req, res) => {
+  const phone = String(req.body.phone || '').trim();
+  const message = String(req.body.message || 'RoutePass test SMS: Afro SMS is connected.').trim().slice(0, 320);
+  if (!phone) return res.status(400).json({ success: false, error: 'A test phone number is required.' });
+  const result = await sendSms(phone, message);
+  if (!result.sent) return res.status(502).json({ success: false, error: result.skipped ? 'Save an Afro SMS API token before testing.' : 'Afro SMS could not deliver the test message.' });
+  res.json({ success: true, message: 'Test SMS sent.' });
 });
 
 /**
