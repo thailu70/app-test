@@ -18,7 +18,7 @@ async function sendSms(phone, message) {
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: 'Bearer ' + token },
-      body: JSON.stringify({ from: identifier, to: normalizePhone(phone), message, sender }),
+      body: JSON.stringify({ from: identifier, to: normalizePhone(phone), message, ...(sender ? { sender } : {}) }),
       signal: AbortSignal.timeout(10000)
     });
     let payload = null;
