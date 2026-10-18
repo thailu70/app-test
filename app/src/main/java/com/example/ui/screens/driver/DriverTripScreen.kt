@@ -212,6 +212,9 @@ fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                                 }
                                 val scheduled = if (vehicle != null) { if (direction == "OUTBOUND") vehicle.morningDeparture else vehicle.eveningDeparture } else journey?.departure_at.orEmpty()
                                 Text("Departure: ${driverLocalTime(scheduled)} · Addis Ababa time", color = Slate600)
+                                Surface(color = TransportGold.copy(alpha = .14f), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                                    Text(departureReadinessNotice(scheduled), modifier = Modifier.padding(10.dp), color = Slate900, style = MaterialTheme.typography.bodySmall)
+                                }
                                 Text("Confirm arrival within 30 minutes before or after departure, inside the configured radius.", style = MaterialTheme.typography.bodySmall, color = Slate600)
                                 Text(gpsStatus, style = MaterialTheme.typography.bodySmall, color = Slate600)
                                 validation?.let { gate ->
@@ -306,6 +309,20 @@ fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         }
     }
 }
+
+private fun departureReadinessNotice(value: String): String = runCatching {
+    val parts = value.trim().split(":")
+    val hour = parts.getOrNull(0)?.toIntOrNull() ?: return@runCatching "Start boarding opens within 30 minutes of departure when your GPS is inside the departure area."
+    val minute = parts.getOrNull(1)?.take(2)?.toIntOrNull() ?: 0
+    val now = java.time.ZonedDateTime.now(java.time.ZoneId.of("Africa/Addis_Ababa"))
+    val departure = now.withHour(hour).withMinute(minute).withSecond(0).withNano(0)
+    val minutes = java.time.Duration.between(now, departure).toMinutes()
+    when {
+        minutes > 30 -> "Boarding opens in about $minutes minutes. Move to the departure area before confirming arrival."
+        minutes >= -30 -> "Boarding window is open. Confirm arrival only inside the configured GPS radius."
+        else -> "The scheduled departure window has passed. Contact your administrator before starting boarding."
+    }
+}.getOrElse { "Start boarding opens within 30 minutes of departure when your GPS is inside the departure area." }
 
 private fun driverLocalTime(value: String): String = runCatching {
     val parser = java.text.SimpleDateFormat(if (value.contains('.')) "yyyy-MM-dd'T'HH:mm:ss.SSSX" else "yyyy-MM-dd'T'HH:mm:ssX", java.util.Locale.US)

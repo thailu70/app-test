@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { checkCommuteDeparture } = require('../services/departure-rules');
+const { sendSms } = require('../services/afro-sms');
 
 async function assignedCommuteVehicle(driverId, vehicleId) {
   const query = `SELECT v.*, r.name AS routeName, r.morningDeparture, r.eveningDeparture
@@ -165,6 +166,8 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
         timestamp: new Date().toISOString()
       });
     }
+    const passengers = await DB.prepare("SELECT u.phone FROM subscriptions s JOIN users u ON u.id=s.passengerId WHERE s.vehicleId=? AND s.subscriptionStatus='ACTIVE' AND s.paymentStatus='PAID' AND s.daysRemaining>0 AND u.phone IS NOT NULL").all(vehicle.id);
+    for (const passenger of passengers) sendSms(passenger.phone, `RoutePass: your ${route.name} transport has arrived. Please board now using your boarding QR code.`).catch(() => {});
 
     res.json({
       success: true,

@@ -105,6 +105,19 @@ router.post('/pay', authenticate, requireRole('PASSENGER'), async (req, res, nex
     const amount = Number(route.basePriceEtb);
     if (!Number.isFinite(amount) || amount <= 0) return res.status(409).json({ success: false, error: 'Invalid route fare.' });
 
+    if (String(passenger.phone || '').replace(/\D/g, '') === '09000000') {
+      const current = await DB.prepare('SELECT * FROM subscriptions WHERE passengerId=? ORDER BY updatedAt DESC LIMIT 1').get(passengerId);
+      const subId = current?.id || ('sub_' + passengerId + '_' + Date.now().toString(36));
+      const expiry = Date.now() + 30 * 86400000;
+      const qr = signedQr(subId, passengerId, route.id, expiry);
+      const start = new Date().toISOString().slice(0, 10), end = new Date(expiry).toISOString().slice(0, 10);
+      if (current) await DB.prepare("UPDATE subscriptions SET routeId=?,priceEtb=?,paymentStatus='PAID',subscriptionStatus='ACTIVE',startDate=?,endDate=?,daysRemaining=30,qrToken=?,updatedAt=CURRENT_TIMESTAMP WHERE id=?").run(route.id, amount, start, end, qr, subId);
+      else await DB.prepare("INSERT INTO subscriptions (id,passengerId,routeId,pickupStopId,destinationStopId,morningSchedule,eveningSchedule,startDate,endDate,priceEtb,paymentStatus,subscriptionStatus,daysRemaining,qrToken) VALUES (?,?,?,'','',?,?,?,?,?,'PAID','ACTIVE',30,?)").run(subId, passengerId, route.id, route.morningDeparture, route.eveningDeparture, start, end, amount, qr);
+      const reference = 'TEST-09000000-' + Date.now().toString(36);
+      await DB.prepare("INSERT INTO payment_transactions (id,passengerId,referenceNumber,idempotencyKey,amountEtb,provider,phoneNumber,status,notes) VALUES (?,?,?,?,?,?,?,'VERIFIED',?)").run('tx_' + crypto.randomUUID().slice(0, 8), passengerId, reference, key, amount, 'TEST_AUTO', passenger.phone, 'Auto-confirmed test payment for 09000000');
+      return res.status(201).json({ success: true, status: 'PAID', paymentMode: 'TEST_AUTO', message: 'Test payment confirmed automatically for 09000000.' });
+    }
+
     const prior = await DB.prepare('SELECT * FROM telebirr_payment_orders WHERE idempotency_key=?').get(key);
     if (prior) {
       if (String(prior.passenger_id) !== String(passengerId) || String(prior.route_id) !== String(route.id) || Math.abs(Number(prior.amount_etb) - amount) > 0.01) {
