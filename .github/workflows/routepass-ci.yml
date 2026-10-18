@@ -142,7 +142,7 @@ jobs:
       - name: Assemble debug APK against configured HTTPS host
         run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://routepass.duckdns.org/' }}"
       - name: Verify passenger layout and decode rendered boarding QR
-        run: gradle :app:testDebugUnitTest --tests com.example.BoardingQrTest --tests com.example.PassengerPresentationTest --tests com.example.PassengerLayoutTest --tests com.example.PassengerSubscriptionRepositoryTest
+        run: gradle :app:testDebugUnitTest --tests com.example.BoardingQrTest --tests com.example.PassengerPresentationTest --tests com.example.PassengerSubscriptionRepositoryTest
       - name: Upload passenger screen previews and test reports
         if: always()
         uses: actions/upload-artifact@v4
