@@ -13,12 +13,12 @@ async function sendSms(phone, message) {
   const url = (await setting('AFRO_SMS_URL')) || process.env.AFRO_SMS_URL || 'https://api.afromessage.com/api/send';
   const sender = (await setting('AFRO_SMS_SENDER')) || process.env.AFRO_SMS_SENDER || 'RoutePass';
   const identifier = (await setting('AFRO_SMS_IDENTIFIER')) || process.env.AFRO_SMS_IDENTIFIER || '';
-  if (!token || !phone || !message || !identifier) return { sent: false, skipped: true, reason: !identifier ? 'AfroMessage Identifier ID is required.' : 'SMS token, phone, and message are required.' };
+  if (!token || !phone || !message) return { sent: false, skipped: true, reason: 'SMS token, phone, and message are required.' };
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: 'Bearer ' + token },
-      body: JSON.stringify({ from: identifier, to: normalizePhone(phone), message, ...(sender ? { sender } : {}) }),
+      body: JSON.stringify({ to: normalizePhone(phone), message, ...(identifier ? { from: identifier } : {}), ...(sender ? { sender } : {}) }),
       signal: AbortSignal.timeout(10000)
     });
     let payload = null;

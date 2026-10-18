@@ -27,7 +27,6 @@ router.put('/integrations/afro-sms', async (req, res) => {
   const token = String(req.body.apiToken || '').trim().slice(0, 500);
   const identifier = String(req.body.identifier || '').trim().slice(0, 120);
   if (!token) return res.status(400).json({ success: false, error: 'Afro SMS API token is required.' });
-  if (!identifier) return res.status(400).json({ success: false, error: 'AfroMessage Identifier ID is required.' });
   const values = [['AFRO_SMS_API_TOKEN', token], ['AFRO_SMS_IDENTIFIER', identifier], ['AFRO_SMS_URL', String(req.body.url || 'https://api.afromessage.com/api/send').trim().slice(0, 500)], ['AFRO_SMS_SENDER', String(req.body.sender || '').trim().slice(0, 40)]];
   for (const [key, value] of values) await DB.prepare("INSERT INTO app_settings(key,value,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP").run(key, value);
   res.json({ success: true, provider: 'AFRO_SMS', message: 'Afro SMS settings saved securely.' });
