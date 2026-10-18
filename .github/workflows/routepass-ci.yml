@@ -58,13 +58,13 @@ jobs:
         run: node test/telebirr-service-test.js
         working-directory: backend
       - name: Test route discovery and portal recovery
-        run: node --test test/route-search-test.js test/company-portal-test.js test/admin-activation-test.js test/profiles-test.js test/departure-test.js test/intercity-test.js test/scope-report-test.js
+        run: node --test test/route-search-test.js test/company-portal-test.js test/company-ui-test.js test/admin-activation-test.js test/profiles-test.js test/departure-test.js test/intercity-test.js test/scope-report-test.js test/fleet-tracking-test.js
         working-directory: backend
       - name: Check admin portal JavaScript syntax
         run: node --check public/admin/admin.js
         working-directory: backend
       - name: Check company portal JavaScript syntax
-        run: node --check public/company/company.js
+        run: node --check public/company/company.js && node --check public/company/intercity.js && node --check public/shared/fleet-map.js
         working-directory: backend
       - name: Check first-admin bootstrap helper syntax
         run: python3 -m py_compile scripts/bootstrap-admin.py

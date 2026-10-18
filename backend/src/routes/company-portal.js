@@ -60,7 +60,8 @@ router.get('/operations/summary',authenticate,requireRole('COMPANY'),async(req,r
     const drivers=await DB.prepare("SELECT COUNT(*) AS count FROM users WHERE role='DRIVER' AND companyId=?").get(id);
     const vehicles=await DB.prepare('SELECT COUNT(*) AS count FROM vehicles WHERE companyId=?').get(id);
     const assignments=await DB.prepare("SELECT COUNT(*) AS count FROM company_route_assignments WHERE company_id=? AND status='ACTIVE'").get(id);
-    const gps=await DB.prepare("SELECT COUNT(*) AS count FROM vehicles v JOIN vehicle_live_locations l ON l.vehicle_id=v.id WHERE v.companyId=? AND l.updated_at >= CURRENT_TIMESTAMP - INTERVAL '5 minutes'").get(id);
+    const cutoff = new Date(Date.now() - 120000).toISOString().replace('T', ' ').replace('Z', '');
+    const gps=await DB.prepare("SELECT COUNT(*) AS count FROM vehicles v JOIN vehicle_live_locations l ON l.vehicle_id=v.id WHERE v.companyId=? AND l.updated_at >= ?").get(id,cutoff);
     res.json({success:true,summary:{drivers:+drivers.count,vehicles:+vehicles.count,activeAssignments:+assignments.count,vehiclesReportingGps:+gps.count}});
   } catch(e){console.error('[Company] summary:',e);res.status(500).json({success:false,error:'Company summary unavailable.'});}
 });

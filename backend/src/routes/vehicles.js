@@ -83,6 +83,27 @@ async function persistLocation(vehicleId, latitude, longitude, speed, currentSto
   });
 }
 
+async function activeGpsAssignment(driver) {
+  if (driver.companyId) {
+    return DB.prepare(`
+      SELECT v.id, v.companyId, d.route_id AS routeId
+      FROM intercity_departures d
+      JOIN vehicles v ON v.id=d.vehicle_id AND v.driverId=d.driver_id AND v.assignedRouteId=d.route_id AND v.companyId=d.company_id
+      JOIN routes r ON r.id=d.route_id AND r.companyId=d.company_id AND r.routeType='INTERCITY'
+      WHERE d.driver_id=? AND d.company_id=? AND d.status='BOARDING'
+      ORDER BY d.departure_at DESC LIMIT 1
+    `).get(driver.id, driver.companyId);
+  }
+  return DB.prepare(`
+    SELECT v.id, v.companyId, t.routeId
+    FROM trips t
+    JOIN vehicles v ON v.id=t.vehicleId AND v.driverId=t.driverId AND v.assignedRouteId=t.routeId AND COALESCE(v.companyId,'')=''
+    JOIN routes r ON r.id=t.routeId AND COALESCE(r.companyId,'')='' AND r.routeType='DAILY_COMMUTE'
+    WHERE t.driverId=? AND t.status='IN_PROGRESS'
+    ORDER BY t.startTime DESC LIMIT 1
+  `).get(driver.id);
+}
+
 /**
  * GET /api/vehicles
  * List all active vehicles with capacity metrics
@@ -286,16 +307,18 @@ router.post('/my-location', authenticate, requireRole('DRIVER'), async (req, res
     const lat = Number(latitude);
     const lng = Number(longitude);
     const velocity = Number(speed || 0);
-    if (!Number.isFinite(lat) || lat < -90 || lat > 90 ||
+    if (latitude == null || longitude == null || latitude === '' || longitude === '' ||
+        !Number.isFinite(lat) || lat < -90 || lat > 90 ||
         !Number.isFinite(lng) || lng < -180 || lng > 180 ||
         !Number.isFinite(velocity) || velocity < 0 || velocity > 300) {
       return res.status(400).json({ success: false, error: 'Valid latitude, longitude and speed are required.' });
     }
 
-    const vehicle = await DB.prepare('SELECT * FROM vehicles WHERE driverId = ? LIMIT 1').get(req.user.id);
-    if (!vehicle) return res.status(409).json({ success: false, error: 'Register your own vehicle before sharing GPS.' });
-    const trip = await DB.prepare("SELECT id, routeId FROM trips WHERE vehicleId=? AND driverId=? AND status='IN_PROGRESS' ORDER BY startTime DESC LIMIT 1").get(vehicle.id, req.user.id);
-    if (!trip) return res.status(409).json({ success: false, error: 'Start an assigned trip before sharing live GPS.' });
+    // Resolve the active scheduled vehicle, rather than an arbitrary first vehicle
+    // owned by the driver. Intercity journeys remain active through BOARDING until
+    // route completion, without creating unrelated commuter trips.
+    const vehicle = await activeGpsAssignment(req.user);
+    if (!vehicle) return res.status(409).json({ success: false, error: 'Confirm arrival for an assigned departure before sharing live GPS.' });
     if (!consumeGpsRateLimit(req.user.id)) return res.status(429).json({ success: false, error: 'GPS updates are limited to one per second.' });
     const stop = String(currentStop || '').slice(0, 100);
     await persistLocation(vehicle.id, lat, lng, velocity, stop);
@@ -304,7 +327,7 @@ router.post('/my-location', authenticate, requireRole('DRIVER'), async (req, res
       req.app.locals.broadcastWs({
         type: 'VEHICLE_LOCATION_UPDATE',
         vehicleId: vehicle.id,
-        routeId: trip.routeId,
+        routeId: vehicle.routeId,
         driverId: req.user.id,
         companyId: vehicle.companyId || '',
         latitude: lat,
@@ -312,7 +335,7 @@ router.post('/my-location', authenticate, requireRole('DRIVER'), async (req, res
         speed: velocity,
         currentStop: stop,
         timestamp: new Date().toISOString()
-      }, trip.routeId);
+      }, vehicle.routeId);
     }
 
     res.json({ success: true, vehicleId: vehicle.id, latitude: lat, longitude: lng, timestamp: new Date().toISOString() });
@@ -335,7 +358,7 @@ router.post('/:id/location', authenticate, requireRole('DRIVER'), async (req, re
       return res.status(403).json({ success: false, error: 'Vehicle is not assigned to this driver.' });
     }
 
-    if (latitude === undefined || longitude === undefined || !Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude)) || Number(latitude) < -90 || Number(latitude) > 90 || Number(longitude) < -180 || Number(longitude) > 180) {
+    if (latitude == null || longitude == null || latitude === '' || longitude === '' || !Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude)) || Number(latitude) < -90 || Number(latitude) > 90 || Number(longitude) < -180 || Number(longitude) > 180) {
       return res.status(400).json({ success: false, error: 'Latitude and longitude are required.' });
     }
 

@@ -150,7 +150,13 @@ fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         return
     }
     Box(modifier.fillMaxSize()) {
-        DriverLocationReporter(viewModel, commuteTrip?.currentStop.orEmpty(), { gpsStatus = it }, onFix = { freshFix = it })
+        DriverLocationReporter(
+            viewModel,
+            commuteTrip?.currentStop ?: journey?.takeIf { it.status == "BOARDING" }?.origin.orEmpty(),
+            { gpsStatus = it },
+            onFix = { freshFix = it },
+            uploadEnabled = activeTrip != null || journeys.any { it.status == "BOARDING" }
+        )
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -339,13 +345,17 @@ private fun DriverLocationReporter(
     viewModel: MainViewModel,
     currentStop: String,
     onStatusChanged: (String) -> Unit,
-    onFix: (com.example.data.api.DriverGpsFix) -> Unit = {}
+    onFix: (com.example.data.api.DriverGpsFix) -> Unit = {},
+    uploadEnabled: Boolean = false
 ) {
     val context = LocalContext.current
     val locationManager = remember(context) {
         context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     }
     val latestStop = rememberUpdatedState(currentStop)
+    val latestUploadEnabled = rememberUpdatedState(uploadEnabled)
+    val latestOnFix = rememberUpdatedState(onFix)
+    val latestOnStatusChanged = rememberUpdatedState(onStatusChanged)
     var hasPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
@@ -373,25 +383,28 @@ private fun DriverLocationReporter(
             val listener = object : LocationListener {
                 override fun onLocationChanged(location: Location) {
                     if (location.isFromMockProvider) {
-                        onStatusChanged("Use your phone's precise GPS location to confirm departure.")
+                        latestOnStatusChanged.value("Use your phone's precise GPS location to confirm departure.")
                         return
                     }
+                    // A last-known fix may be hours old. Do not stamp it as a new
+                    // live server report when the screen first opens.
+                    if (System.currentTimeMillis() - location.time !in 0L..120000L) return
                     if (location.hasAccuracy()) {
-                        onFix(com.example.data.api.DriverGpsFix(location.latitude, location.longitude, location.accuracy.toDouble(), location.time))
+                        latestOnFix.value(com.example.data.api.DriverGpsFix(location.latitude, location.longitude, location.accuracy.toDouble(), location.time))
                     }
                     val coordinates = String.format(java.util.Locale.US, "%.5f, %.5f", location.latitude, location.longitude)
-                    if (latestStop.value.isBlank()) {
-                        onStatusChanged("GPS ready · accuracy ${location.accuracy.toInt()} m · $coordinates")
+                    if (!latestUploadEnabled.value) {
+                        latestOnStatusChanged.value("GPS ready · accuracy ${location.accuracy.toInt()} m · $coordinates")
                         return
                     }
-                    onStatusChanged("Phone GPS fix received; uploading to RoutePass server… · $coordinates")
+                    latestOnStatusChanged.value("Phone GPS fix received; uploading to RoutePass server… · $coordinates")
                     viewModel.submitDriverLocation(
                         latitude = location.latitude,
                         longitude = location.longitude,
-                        speed = location.speed.toDouble().coerceAtLeast(0.0),
+                        speed = (location.speed.toDouble() * 3.6).coerceAtLeast(0.0),
                         currentStop = latestStop.value,
                         onResult = { accepted, message ->
-                            onStatusChanged(
+                            latestOnStatusChanged.value(
                                 if (accepted) "GPS uploaded successfully to RoutePass server · $coordinates"
                                 else "Phone GPS works, but server upload failed: $message · $coordinates"
                             )
@@ -406,7 +419,7 @@ private fun DriverLocationReporter(
             } else {
                 providers.forEach { provider ->
                     try {
-                        locationManager.requestLocationUpdates(provider, 5000L, 5f, listener, Looper.getMainLooper())
+                        locationManager.requestLocationUpdates(provider, 5000L, 0f, listener, Looper.getMainLooper())
                         locationManager.getLastKnownLocation(provider)?.let(listener::onLocationChanged)
                     } catch (_: SecurityException) {
                         onStatusChanged("Location access was denied. Re-enable permission in Android settings.")

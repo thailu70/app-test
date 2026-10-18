@@ -17,7 +17,7 @@ test('company portal keeps rendering and permits retry after summary failure', a
       ok: !(fail && url.endsWith('/summary')), status: fail && url.endsWith('/summary') ? 503 : 200,
       json: async () => url.endsWith('/summary') ? { summary: { activeAssignments: 3 } } : url.endsWith('/fleet') ? { vehicles: [{ plateNumber: 'TEST-001', model: 'Bus' }] } : {}
     }),
-    Date, console
+    Date, console, AbortController, setTimeout, clearTimeout
   });
   // Flush the async startup refresh without introducing a wall-clock delay.
   await new Promise(resolve => setImmediate(resolve));

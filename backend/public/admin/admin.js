@@ -4,10 +4,13 @@
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
   const TOKEN_KEY = "routepass_admin_token";
   const state = { token: sessionStorage.getItem(TOKEN_KEY) || "", user: null, view: "overview", cache: {} };
+  let fleetMapCleanup = null;
+  let renderRevision = 0;
   const labels = {
     overview: ["Overview", "A live snapshot of RoutePass service operations."],
     reports: ["Performance reports", "Daily commute performance in Addis Ababa time."],
     drivers: ["Drivers & routes", "Review driver-owned vehicles and assign approved operating routes."],
+    gps: ["Driver GPS", "Live and last reported GPS locations for daily commute drivers."],
     companies: ["Company access", "Invite transport companies and issue one-time registration codes."],
     routes: ["Manage routes", "Create, edit, activate and deactivate RoutePass transit routes."],
     vehicles: ["Vehicles", "Fleet availability and current assignments."],
@@ -76,6 +79,9 @@
     toast.timer = window.setTimeout(() => { el.hidden = true; }, 4500);
   }
   function logout(show = true) {
+    fleetMapCleanup?.();
+    fleetMapCleanup = null;
+    renderRevision++;
     sessionStorage.removeItem(TOKEN_KEY);
     state.token = "";
     state.user = null;
@@ -108,7 +114,7 @@
     const result = await api("/api/admin/stats");
     const s = result.stats || {};
     const drivers = asArray(await api("/api/admin/drivers"), "drivers");
-    return pageHeader("Operations at a glance", "Use the left menu to manage the fleet and operations.") +
+    return pageHeader("Operations at a glance", "Use the left menu to manage the fleet and operations.", '<button class="btn btn-secondary" data-go="gps">View driver GPS</button>') +
       '<div class="stats-grid">' +
       statCard("Passengers", value(s, "totalPassengers"), "Registered commuter accounts") +
       statCard("Drivers", value(s, "totalDrivers"), "Provisioned driver accounts") +
@@ -350,13 +356,18 @@
   }
 
   async function renderView() {
+    const revision = ++renderRevision;
+    const view = state.view;
+    fleetMapCleanup?.();
+    fleetMapCleanup = null;
     const title = labels[state.view] || labels.overview;
     $("#page-title").textContent = title[0];
     $$(".nav-item").forEach(button => button.classList.toggle("active", button.dataset.view === state.view));
     $("#page-content").innerHTML = '<div class="loading">Loading ' + esc(title[0].toLowerCase()) + "…</div>";
     try {
       let html;
-      switch (state.view) {
+      switch (view) {
+        case "gps": html = pageHeader("Driver GPS", "Track your daily commute fleet. Company intercity vehicles are visible only to their company.") + '<section class="card section-card"><div id="admin-fleet-map"></div></section>'; break;
         case "reports": html = pageHeader("Performance reports", "Daily, weekly and monthly commute performance. Admin grants are excluded from revenue."); break;
         case "drivers": html = await renderDrivers(); break;
         case "companies": html = await renderCompanyAccess(); break;
@@ -369,7 +380,11 @@
         case "audit-logs": html = await renderAuditLogs(); break;
         default: html = await renderOverview();
       }
+      if (revision !== renderRevision) return;
       $("#page-content").innerHTML = html;
+      if (view === "gps" && window.RoutepassFleetMap) {
+        fleetMapCleanup = window.RoutepassFleetMap.mount({ container: $("#admin-fleet-map"), apiUrl: "/api/fleet/tracking", token: state.token });
+      }
       if ((state.view === "overview" || state.view === "reports") && window.RoutepassReports) {
         $("#page-content").insertAdjacentHTML('beforeend', window.RoutepassReports.markup());
         window.RoutepassReports.load(api);
@@ -383,6 +398,7 @@
       const companyInviteForm = $("#company-invite-form");
       if (companyInviteForm) companyInviteForm.addEventListener("submit", createCompanyInvite);
     } catch (error) {
+      if (revision !== renderRevision) return;
       $("#page-content").innerHTML = '<div class="card empty-note"><strong>Could not load this page.</strong><br>' + esc(error.message) +
         '<div style="margin-top:12px"><button class="btn btn-secondary" id="retry-button">Try again</button></div></div>';
       $("#retry-button")?.addEventListener("click", renderView);

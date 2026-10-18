@@ -194,6 +194,19 @@ async function run() {
     }, companyToken);
     assert.equal(result.status, 201, 'Company may assign its own active driver and vehicle to its route');
     const companyAssignmentId = result.data.assignment.id;
+    // Read every dataset used by the company portal against the production adapter.
+    for (const [path, key, expectedId] of [
+      ['/api/companies/operations/fleet', 'vehicles', companyVehicleId],
+      ['/api/companies/operations/drivers', 'drivers', companyDriver.id],
+      ['/api/companies/operations/routes', 'routes', companyRouteId]
+    ]) {
+      const dataset = await requestJson(baseUrl, path, 'GET', null, companyToken);
+      assert.equal(dataset.status, 200, path + ' must load independently');
+      assert.ok(dataset.data[key].some(row => row.id === expectedId), path + ' must include the company record');
+    }
+    result = await requestJson(baseUrl, '/api/companies/operations/summary', 'GET', null, companyToken);
+    assert.equal(result.status, 200, 'Company summary must load on PostgreSQL');
+    assert.equal(result.data.summary.activeAssignments, 1);
     result = await requestJson(baseUrl, '/api/companies/operations/assignments', 'POST', {
       routeId: companyRouteId, driverId: companyDriver.id, vehicleId: companyVehicleId
     }, companyToken);
@@ -204,6 +217,9 @@ async function run() {
     });
     assert.equal(result.status, 200, 'Approved company driver should be able to log in');
     const companyDriverToken = result.data.token;
+    assert.equal((await DB.prepare('SELECT companyId FROM users WHERE id=?').get(companyDriver.id)).companyId, companyId, 'PostgreSQL must expose company ownership in the shared API shape');
+    const minimalDriverToken = require('../src/middleware/auth').signToken({ id: companyDriver.id, role: 'DRIVER' });
+    assert.equal((await require('../src/middleware/auth').resolveActivePrincipal(minimalDriverToken)).companyId, companyId, 'Driver company scope must come from the database, including tokens without a company claim');
     result = await requestJson(baseUrl, '/api/trips/start', 'POST', {
       routeId: companyRouteId, vehicleId: companyVehicleId
     }, companyDriverToken);
@@ -220,6 +236,16 @@ async function run() {
     }, companyDriverToken);
     assert.equal(result.status, 200, 'Assigned driver should confirm fresh GPS within the departure time window');
     assert.equal(result.data.departure.status, 'BOARDING');
+    result = await requestJson(baseUrl, '/api/vehicles/my-location', 'POST', {
+      latitude: 9.02, longitude: 38.77, speed: 0, currentStop: 'Company departure'
+    }, companyDriverToken);
+    assert.equal(result.status, 200, 'Intercity driver must publish GPS while boarding');
+    result = await requestJson(baseUrl, '/api/fleet/tracking', 'GET', null, companyToken);
+    assert.equal(result.status, 200, 'Company GPS map must load');
+    assert.ok(result.data.vehicles.some(v => v.id === companyVehicleId && v.location.status === 'LIVE'));
+    result = await requestJson(baseUrl, '/api/fleet/tracking', 'GET', null, adminToken);
+    assert.equal(result.status, 200, 'Administrator GPS map must load');
+    assert.equal(result.data.vehicles.some(v => v.id === companyVehicleId), false, 'Company GPS must remain private from commute admin');
     result = await requestJson(baseUrl, `/api/intercity/driver/departures/${companyDepartureId}/roster`, 'GET', null, companyDriverToken);
     assert.equal(result.status, 200, 'Assigned company driver should see the intercity roster');
     assert.deepEqual(result.data.roster, []);

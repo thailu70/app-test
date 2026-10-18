@@ -132,6 +132,8 @@ app.use('/api/admin', require('./routes/commute-operations'));
 app.use('/api/profiles', require('./routes/profiles'));
 app.use('/api/intercity', require('./routes/intercity'));
 app.use('/api/commute', require('./routes/commute-passenger'));
+app.use('/api/fleet', require('./routes/fleet-tracking'));
+app.use('/shared', express.static(path.join(__dirname, '..', 'public', 'shared'), { maxAge: 0, etag: false }));
 app.use('/travel', express.static(path.join(__dirname, '..', 'public', 'travel'), { maxAge: 0, etag: false }));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/complaints', require('./routes/complaints'));
@@ -140,12 +142,14 @@ app.use('/api/sync', require('./routes/sync'));
 
 // Browser portals are same-origin. External scripts let their route-specific CSP reject inline JS.
 app.use('/company', (req, res, next) => {
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' wss:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org; font-src 'self'; connect-src 'self' wss:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
   res.setHeader('Cache-Control', 'no-store');
   next();
 }, express.static(path.join(__dirname, '..', 'public', 'company'), { index: 'index.html', maxAge: 0, etag: false }));
 app.use('/admin', (req, res, next) => {
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' wss:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org; font-src 'self'; connect-src 'self' wss:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
   res.setHeader('Cache-Control', 'no-store');
   next();
 }, express.static(path.join(__dirname, '..', 'public', 'admin'), { index: 'index.html', maxAge: 0, etag: false }));
