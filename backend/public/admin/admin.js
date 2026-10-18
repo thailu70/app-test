@@ -18,7 +18,8 @@
     payments: ["Payments", "Transaction history for operational review."],
     checkins: ["Check-ins", "Recent passenger boarding records."],
     complaints: ["Complaints", "Review passenger reports and update case status."],
-    "audit-logs": ["Audit log", "Recent administrative and operational changes."]
+    "audit-logs": ["Audit log", "Recent administrative and operational changes."],
+    settings: ["Settings", "Configure integrations used by RoutePass operations."]
   };
 
   function esc(value) {
@@ -134,6 +135,41 @@
           { label: "Status", render: r => pill(value(r, "status")) }
         ], drivers.slice(0, 5)),
         '<button class="btn btn-secondary" data-go="drivers">View all drivers</button>');
+  }
+  async function renderSettings() {
+    const result = await api("/api/admin/integrations/afro-sms");
+    const configured = result.configured || {};
+    return pageHeader("Settings", "Manage the SMS provider used for passenger arrival notifications.") +
+      section("Afro SMS", "Enter the Afro SMS API token once. The token is stored securely and is never displayed after saving.",
+        '<form id="afro-sms-form" class="form-card" style="padding:0;border:0;box-shadow:none">' +
+        '<div class="driver-form-grid">' +
+        '<div class="field"><label for="afro-sms-token">API token</label><input id="afro-sms-token" name="apiToken" type="password" autocomplete="new-password" placeholder="Paste Afro SMS API token" required><span class="hint">' + (configured.AFRO_SMS_API_TOKEN ? 'A token is already saved. Enter a new token only when rotating it.' : 'Required before RoutePass can send SMS notifications.') + '</span></div>' +
+        '<div class="field"><label for="afro-sms-sender">Sender name</label><input id="afro-sms-sender" name="sender" maxlength="40" value="RoutePass"><span class="hint">Shown as the SMS sender where supported.</span></div>' +
+        '<div class="field"><label for="afro-sms-url">API URL</label><input id="afro-sms-url" name="url" type="url" value="https://api.afromessage.com/api/send"><span class="hint">Leave the default Afro SMS endpoint unless your account uses another URL.</span></div>' +
+        '</div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Afro SMS settings</button></div><p id="afro-sms-message" class="form-message" hidden></p></form>') ;
+  }
+  async function saveAfroSms(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
+    const message = $("#afro-sms-message");
+    button.disabled = true;
+    message.hidden = true;
+    try {
+      const data = Object.fromEntries(new FormData(form).entries());
+      await api("/api/admin/integrations/afro-sms", { method: "PUT", body: JSON.stringify(data) });
+      form.reset();
+      $("#afro-sms-sender").value = "RoutePass";
+      $("#afro-sms-url").value = "https://api.afromessage.com/api/send";
+      message.textContent = "Afro SMS settings saved securely.";
+      message.className = "form-message";
+      message.hidden = false;
+      toast("Afro SMS settings saved.");
+    } catch (error) {
+      message.textContent = error.message;
+      message.className = "form-message error";
+      message.hidden = false;
+    } finally { button.disabled = false; }
   }
   async function renderDrivers() {
     await loadLookups();
@@ -378,6 +414,7 @@
         case "checkins": html = await renderCheckins(); break;
         case "complaints": html = await renderComplaints(); break;
         case "audit-logs": html = await renderAuditLogs(); break;
+        case "settings": html = await renderSettings(); break;
         default: html = await renderOverview();
       }
       if (revision !== renderRevision) return;
@@ -397,6 +434,8 @@
       }
       const companyInviteForm = $("#company-invite-form");
       if (companyInviteForm) companyInviteForm.addEventListener("submit", createCompanyInvite);
+      const afroSmsForm = $("#afro-sms-form");
+      if (afroSmsForm) afroSmsForm.addEventListener("submit", saveAfroSms);
     } catch (error) {
       if (revision !== renderRevision) return;
       $("#page-content").innerHTML = '<div class="card empty-note"><strong>Could not load this page.</strong><br>' + esc(error.message) +
