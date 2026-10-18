@@ -19,6 +19,7 @@ test('intercity guest tickets, tenant isolation, seat locks and boarding lifecyc
   await DB.prepare("INSERT INTO users(id,role,fullName,phone,passwordHash,status,companyId) VALUES('icdriver','DRIVER','Intercity Driver','0999001111','test','ACTIVE','co1')").run();
   await DB.prepare("INSERT INTO routes(id,name,nameAm,routeType,companyId,origin,destination,active) VALUES('icroute','Addis to Hawassa','Addis to Hawassa','INTERCITY','co1','Addis Ababa','Hawassa',1)").run();
   await DB.prepare("INSERT INTO vehicles(id,plateNumber,model,vehicleType,capacityLimit,companyId) VALUES('icbus','TEST-IC-1','Touring Bus','MINIBUS_14',14,'co1')").run();
+  await DB.prepare("UPDATE vehicles SET driverId='icdriver',assignedRouteId='icroute' WHERE id='icbus'").run();
   await initIntercitySchema();
   const app=express();app.use(express.json());app.use('/api/intercity',require('../src/routes/intercity'));
   const server=app.listen(0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));t.after(()=>new Promise(resolve=>server.close(resolve)));
@@ -104,5 +105,35 @@ test('intercity guest tickets, tenant isolation, seat locks and boarding lifecyc
     const h=(await req('/departures/'+d.id+'/hold','POST',{seatNumber:1})).body;await DB.prepare('UPDATE intercity_bookings SET expires_at=? WHERE id=?').run(new Date(Date.now()-1000).toISOString(),h.booking.id);
     assert.equal((await req('/departures/'+d.id+'/hold','POST',{seatNumber:1})).status,201);
     const r=await req('/driver/departures/'+d.id+'/arrival','POST',{location:{latitude:9,longitude:38,accuracyMeters:5,timestamp:new Date().toISOString()}},'driver');assert.equal(r.status,403);assert.equal(r.body.code,'OUTSIDE_DEPARTURE_WINDOW');
+  });
+  await t.test('arrival rechecks the live assignment after a departure was scheduled',async()=>{
+    const d=(await req('/company/departures','POST',{...payload,departureAt:new Date(Date.now()+600000).toISOString()},'company')).body.departure;
+    const location={latitude:9,longitude:38,accuracyMeters:5,timestamp:new Date().toISOString()};
+    for (const change of ["driverId=NULL", "assignedRouteId=NULL", "companyId='co2'"]) {
+      await DB.prepare('UPDATE vehicles SET '+change+" WHERE id='icbus'").run();
+      const r=await req('/driver/departures/'+d.id+'/arrival','POST',{location},'driver');assert.equal(r.status,409);assert.match(r.body.error,/assignment/i);
+      assert.equal((await DB.prepare('SELECT status FROM intercity_departures WHERE id=?').get(d.id)).status,'SCHEDULED');
+      await DB.prepare("UPDATE vehicles SET driverId='icdriver',assignedRouteId='icroute',companyId='co1' WHERE id='icbus'").run();
+    }
+    await DB.prepare("UPDATE users SET companyId='co2' WHERE id='icdriver'").run();
+    assert.equal((await req('/driver/departures/'+d.id+'/arrival','POST',{location},'driver')).status,409);
+    await DB.prepare("UPDATE users SET companyId='co1',status='SUSPENDED' WHERE id='icdriver'").run();
+    assert.equal((await req('/driver/departures/'+d.id+'/arrival','POST',{location},'driver')).status,401);
+    await DB.prepare("UPDATE users SET status='ACTIVE' WHERE id='icdriver'").run();
+  });
+  await t.test('simultaneous departures cannot both open boarding for the same vehicle or driver',async()=>{
+    const p={...payload,departureAt:new Date(Date.now()+600000).toISOString()};
+    const first=(await req('/company/departures','POST',p,'company')).body.departure;
+    const second=(await req('/company/departures','POST',p,'company')).body.departure;
+    const location={latitude:9,longitude:38,accuracyMeters:5,timestamp:new Date().toISOString()};
+    const competing=await Promise.all([req('/driver/departures/'+first.id+'/arrival','POST',{location},'driver'),req('/driver/departures/'+second.id+'/arrival','POST',{location},'driver')]);
+    assert.deepEqual(competing.map(r=>r.status).sort(),[200,409]);
+    assert.equal((await DB.prepare("SELECT COUNT(*) AS count FROM intercity_departures WHERE status='BOARDING' AND (vehicle_id='icbus' OR driver_id='icdriver')").get()).count,1);
+    const active=competing.find(r=>r.status===200).body.departure;
+    // Completion remains available to the scheduled owner, even if legacy
+    // assignment state was changed outside the guarded company workflow.
+    await DB.prepare("UPDATE vehicles SET driverId=NULL,assignedRouteId=NULL WHERE id='icbus'").run();
+    assert.equal((await req('/driver/departures/'+active.id+'/complete','POST',{},'driver')).status,200);
+    await DB.prepare("UPDATE vehicles SET driverId='icdriver',assignedRouteId='icroute' WHERE id='icbus'").run();
   });
 });

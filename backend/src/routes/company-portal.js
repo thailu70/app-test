@@ -160,7 +160,7 @@ router.patch('/operations/drivers/:id/approval', authenticate, requireRole('COMP
     const driver=await DB.prepare("SELECT id,status FROM users WHERE id=? AND role='DRIVER' AND companyId=?").get(req.params.id,companyId);
     if(!driver) return res.status(404).json({success:false,error:'Driver not found in your company.'});
     if(driver.status!=='PENDING' && action==='APPROVE') return res.status(409).json({success:false,error:'Only pending drivers can be approved.'});
-    const status=action==='APPROVE'?'ACTIVE':'INACTIVE';
+    const status=action==='APPROVE'?'ACTIVE':'SUSPENDED';
     await DB.prepare("UPDATE users SET status=? WHERE id=? AND companyId=? AND role='DRIVER'").run(status,req.params.id,companyId);
     res.json({success:true,driver:{id:req.params.id,status},message:action==='APPROVE'?'Driver approved. Assign a company vehicle and route next.':'Driver application rejected.'});
   } catch(e){console.error('[Company] driver approval:',e);res.status(500).json({success:false,error:'Could not update driver approval.'});}
