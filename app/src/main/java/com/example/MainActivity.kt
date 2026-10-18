@@ -24,7 +24,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -68,6 +71,65 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun PassengerTopBar(
+    fullName: String,
+    initials: String,
+    language: AppLanguage,
+    profileOpen: Boolean = false,
+    notificationCount: Int = 0,
+    onProfile: () -> Unit,
+    onBack: () -> Unit,
+    onNotifications: () -> Unit,
+    onLanguage: () -> Unit,
+    onLogout: () -> Unit
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    TopAppBar(
+        title = {
+            Column {
+                Text(
+                    if (profileOpen) "Your profile" else fullName.ifBlank { "RoutePass" },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (!profileOpen) Text("Your daily commute", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            }
+        },
+        navigationIcon = {
+            IconButton(onClick = if (profileOpen) onBack else onProfile, modifier = Modifier.testTag("top_bar_profile_button").semantics { contentDescription = if (profileOpen) "Back to your commute" else "Open profile" }) {
+                if (profileOpen) Icon(Icons.Default.ArrowBack, contentDescription = "Back to your commute")
+                else Surface(shape = CircleShape, color = TransportGreenPrimary, modifier = Modifier.size(34.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(initials.ifBlank { "P" }.take(2), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+            }
+        },
+        actions = {
+            IconButton(onClick = onNotifications, modifier = Modifier.testTag("top_bar_notifications_button")) {
+                BadgedBox(badge = { if (notificationCount > 0) Badge { Text(if (notificationCount > 9) "9+" else notificationCount.toString()) } }) {
+                    Icon(Icons.Default.NotificationsNone, contentDescription = "Notifications")
+                }
+            }
+            Box {
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("passenger_account_menu")) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Account options")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(text = { Text("Profile & documents") }, leadingIcon = { Icon(Icons.Default.AccountCircle, null) }, onClick = { menuOpen = false; onProfile() })
+                    DropdownMenuItem(text = { Text(if (language == AppLanguage.ENGLISH) "አማርኛ" else "English") }, leadingIcon = { Icon(Icons.Default.Language, null) }, onClick = { menuOpen = false; onLanguage() }, modifier = Modifier.testTag("top_bar_language_button"))
+                    DropdownMenuItem(text = { Text("Sign out") }, leadingIcon = { Icon(Icons.Default.Logout, null) }, onClick = { menuOpen = false; onLogout() }, modifier = Modifier.testTag("top_bar_logout_button"))
+                }
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -174,7 +236,20 @@ fun MainTransportApp(viewModel: MainViewModel) {
             modifier = Modifier.fillMaxSize(),
             contentWindowInsets = WindowInsets.safeDrawing,
             topBar = {
-                TopAppBar(
+                if (currentRole == AppRole.PASSENGER) {
+                    PassengerTopBar(
+                        fullName = currentUser?.fullName.orEmpty(),
+                        initials = currentUser?.avatarInitials.orEmpty(),
+                        language = currentLang,
+                        profileOpen = showProfile,
+                        notificationCount = relevantNotifications.size,
+                        onProfile = { showProfile = true },
+                        onBack = { showProfile = false },
+                        onNotifications = { viewModel.openNotificationTray() },
+                        onLanguage = { viewModel.toggleLanguage() },
+                        onLogout = { viewModel.logout() }
+                    )
+                } else TopAppBar(
                     title = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -299,13 +374,14 @@ fun MainTransportApp(viewModel: MainViewModel) {
             // A passenger ONLY sees their passenger account, a driver ONLY sees their driver account,
             // and an operator ONLY sees their operator dashboard.
         ) { innerPadding ->
-            androidx.activity.compose.BackHandler {
-                viewModel.logout()
+            androidx.activity.compose.BackHandler(enabled = showProfile || currentRole != AppRole.PASSENGER) {
+                if (showProfile) showProfile = false else viewModel.logout()
             }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
+                    .consumeWindowInsets(innerPadding)
                     .background(MaterialTheme.colorScheme.background)
             ) {
                 if (showProfile) {

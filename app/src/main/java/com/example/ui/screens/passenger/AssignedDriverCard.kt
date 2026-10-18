@@ -2,46 +2,154 @@ package com.example.ui.screens.passenger
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.api.ApiClient
 import com.example.ui.screens.profile.AuthenticatedProfilePhoto
+import com.example.ui.theme.Slate600
+import com.example.ui.theme.Slate900
+import com.example.ui.theme.TransportGreenPrimary
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import retrofit2.http.GET
 
-data class AssignedDriver(val userId:String,val fullName:String,val phone:String,val vehicleType:String,val vehicleColor:String,val plateNumber:String,val model:String,val routeName:String)
-data class AssignedDriverResponse(val success:Boolean,val driver:AssignedDriver?=null)
-interface AssignedDriverApi { @GET("api/commute/my-driver") suspend fun getDriver():retrofit2.Response<AssignedDriverResponse> }
+data class AssignedDriver(
+    val userId: String,
+    val fullName: String,
+    val phone: String,
+    val vehicleType: String,
+    val vehicleColor: String,
+    val plateNumber: String,
+    val model: String,
+    val routeName: String
+)
+
+data class AssignedDriverResponse(val success: Boolean, val driver: AssignedDriver? = null)
+interface AssignedDriverApi {
+    @GET("api/commute/my-driver")
+    suspend fun getDriver(): retrofit2.Response<AssignedDriverResponse>
+}
+
+private fun String.availableDetail(): String? = trim().takeUnless {
+    it.lowercase() in setOf("", "not provided", "not set", "unknown", "null", "undefined", "n/a", "-")
+}
+
+private fun friendlyVehicleType(raw: String): String? = when (raw.uppercase()) {
+    "MINIVAN_8" -> "Minivan · 8 seats"
+    "MINIBUS_14" -> "Minibus · 14 seats"
+    "HIGER_24" -> "Bus · 24 seats"
+    "ANBESSA_BUS_30" -> "Bus · 30 seats"
+    else -> raw.availableDetail()?.replace('_', ' ')?.lowercase()?.replaceFirstChar { it.titlecase() }
+}
 
 @Composable
 fun AssignedDriverCard() {
     var driver by remember { mutableStateOf<AssignedDriver?>(null) }
-    var message by remember { mutableStateOf("Loading your assigned driver…") }
-    val context=LocalContext.current
-    LaunchedEffect(Unit) {
-        while(true) {
-            try { val response=ApiClient.createFeatureService(AssignedDriverApi::class.java).getDriver(); if(response.isSuccessful) { driver=response.body()?.driver;message="Your driver will appear here after a vehicle is assigned." } else message="Could not load your driver. Please try again." } catch (_:Exception) { message="Check your connection to load your driver." }
-            kotlinx.coroutines.delay(30000)
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var retry by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
+    val api = remember { ApiClient.createFeatureService(AssignedDriverApi::class.java) }
+    LaunchedEffect(retry) {
+        while (true) {
+            try {
+                val response = api.getDriver()
+                val body = response.body()
+                if (response.isSuccessful && body?.success == true) {
+                    driver = body.driver
+                    error = null
+                } else {
+                    if (response.code() == 401 || response.code() == 403) driver = null
+                    error = if (response.code() == 401) "Sign in again to see your driver." else "Could not load your driver. Try again."
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                error = "Check your connection to load your driver."
+            } finally {
+                loading = false
+            }
+            delay(30_000)
         }
     }
-    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-        Text("Your assigned driver",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
-        val d=driver
-        if(d==null) Text(message) else {
-            Row(horizontalArrangement=Arrangement.spacedBy(14.dp)) {
-                AuthenticatedProfilePhoto(userId=d.userId,modifier=Modifier.size(72.dp))
-                Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                    Text(d.fullName,fontWeight=FontWeight.Bold)
-                    Text(d.routeName)
-                    Text("${d.vehicleColor} • ${d.model} • ${d.vehicleType}",style=MaterialTheme.typography.bodySmall)
-                    Text(d.plateNumber,fontWeight=FontWeight.SemiBold)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFE4E8E7))
+    ) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Your driver", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Slate900)
+            val assigned = driver
+            if (assigned == null) {
+                Text(
+                    when {
+                        loading -> "Loading driver details…"
+                        error != null -> error.orEmpty()
+                        else -> "Your driver will appear here once your vehicle is assigned."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Slate600
+                )
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AuthenticatedProfilePhoto(userId = assigned.userId, modifier = Modifier.size(56.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(assigned.fullName.availableDetail() ?: "Assigned driver", fontWeight = FontWeight.SemiBold, color = Slate900)
+                        assigned.routeName.availableDetail()?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Slate600) }
+                        assigned.phone.availableDetail()?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Slate600) }
+                    }
                 }
+                val vehicleDetails = listOfNotNull(
+                    assigned.vehicleColor.availableDetail(),
+                    assigned.model.availableDetail(),
+                    friendlyVehicleType(assigned.vehicleType)
+                ).joinToString(" • ")
+                if (vehicleDetails.isNotBlank()) Text(vehicleDetails, style = MaterialTheme.typography.bodyMedium, color = Slate600)
+                assigned.plateNumber.availableDetail()?.let { Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Slate900) }
+                assigned.phone.availableDetail()?.takeIf { phone -> phone.any(Char::isDigit) }?.let { phone ->
+                    OutlinedButton(
+                        onClick = { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", phone, null))) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFFD9E4DF))
+                    ) {
+                        Icon(Icons.Default.Call, contentDescription = null, modifier = Modifier.size(18.dp), tint = TransportGreenPrimary)
+                        Text("Call driver", modifier = Modifier.padding(start = 8.dp), color = TransportGreenPrimary)
+                    }
+                }
+                error?.let { Text("Driver details could not be refreshed.", style = MaterialTheme.typography.bodySmall, color = Slate600) }
             }
-            OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:${d.phone}")))},modifier=Modifier.fillMaxWidth()) {Text("Call ${d.phone}")}
+            if (error != null) TextButton(onClick = { retry++ }) { Text("Try again", color = TransportGreenPrimary) }
         }
-    } }
+    }
 }

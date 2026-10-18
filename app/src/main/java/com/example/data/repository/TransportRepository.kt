@@ -164,16 +164,16 @@ class TransportRepository(
                     id = subDto.id,
                     passengerId = user.id,
                     routeId = subDto.routeId,
-                    pickupStopId = "stop_atlas",
-                    destinationStopId = "stop_merkato",
-                    morningSchedule = "06:30",
-                    eveningSchedule = "17:30",
+                    pickupStopId = subDto.pickupStopId.orEmpty(),
+                    destinationStopId = subDto.destinationStopId.orEmpty(),
+                    morningSchedule = subDto.morningSchedule.orEmpty(),
+                    eveningSchedule = subDto.eveningSchedule.orEmpty(),
                     startDate = "",
                     endDate = "",
-                    priceEtb = subDto.priceEtb ?: 2500.0,
+                    priceEtb = subDto.priceEtb ?: 0.0,
                     paymentStatus = subDto.paymentStatus ?: "UNPAID",
                     subscriptionStatus = subDto.status ?: "PENDING",
-                    vehicleId = "",
+                    vehicleId = subDto.vehicleId.orEmpty(),
                     qrToken = subDto.qrToken ?: "",
                     daysRemaining = subDto.daysRemaining
                 )
@@ -334,6 +334,7 @@ class TransportRepository(
         if (response.isSuccessful && response.body()?.success == true) {
             return response.body()!!
         }
+        if (response.code() == 401 || response.code() == 403) throw retrofit2.HttpException(response)
         val errorBody = response.errorBody()?.string()
         val message = try {
             if (!errorBody.isNullOrBlank()) org.json.JSONObject(errorBody).optString("error") else null
@@ -410,36 +411,26 @@ class TransportRepository(
     /**
      * Refresh passenger subscription status from VPS Backend.
      */
-    suspend fun refreshSubscriptionFromBackend(passengerId: String) {
-        try {
-            val response = apiService.getMySubscriptionStatus()
-            if (response.isSuccessful && response.body()?.success == true) {
-                val body = response.body()!!
-                val subDto = body.subscription
-                if (subDto != null) {
-                    val entity = SubscriptionEntity(
-                        id = subDto.id,
-                        passengerId = passengerId,
-                        routeId = subDto.routeId,
-                        pickupStopId = "stop_atlas",
-                        destinationStopId = "stop_merkato",
-                        morningSchedule = subDto.morningSchedule ?: "06:30",
-                        eveningSchedule = subDto.eveningSchedule ?: "17:30",
-                        startDate = subDto.startDate ?: "",
-                        endDate = subDto.endDate ?: "",
-                        priceEtb = subDto.priceEtb ?: 2500.0,
-                        paymentStatus = subDto.paymentStatus ?: "UNPAID",
-                        subscriptionStatus = subDto.status ?: "PENDING",
-                        vehicleId = subDto.vehicleId ?: "",
-                        qrToken = subDto.qrToken ?: "",
-                        daysRemaining = subDto.daysRemaining
-                    )
-                    dao.insertSubscription(entity)
-                }
-            }
-        } catch (e: Exception) {
-            // Keep Room cache
+    suspend fun refreshSubscriptionFromBackend(passengerId: String): SubscriptionEntity? {
+        val response = apiService.getMySubscriptionStatus()
+        if (!response.isSuccessful) throw retrofit2.HttpException(response)
+        val body = response.body()?.takeIf { it.success }
+            ?: throw IllegalStateException("Could not refresh your pass. Please try again.")
+        val entity = body.subscription?.let { sub ->
+            SubscriptionEntity(
+                id = sub.id, passengerId = passengerId, routeId = sub.routeId,
+                pickupStopId = sub.pickupStopId.orEmpty(), destinationStopId = sub.destinationStopId.orEmpty(),
+                morningSchedule = sub.morningSchedule.orEmpty(), eveningSchedule = sub.eveningSchedule.orEmpty(),
+                startDate = sub.startDate.orEmpty(), endDate = sub.endDate.orEmpty(),
+                priceEtb = sub.priceEtb ?: 0.0, paymentStatus = sub.paymentStatus ?: "UNPAID",
+                subscriptionStatus = sub.status ?: "PENDING", vehicleId = sub.vehicleId.orEmpty(),
+                qrToken = if (body.isSubscribed) sub.qrToken.orEmpty() else "", daysRemaining = sub.daysRemaining
+            )
         }
+        // A successful empty response revokes the cached pass too; a failed request
+        // must never resurrect a demo/older subscription from Room.
+        dao.replacePassengerSubscription(passengerId, entity)
+        return entity
     }
 
     // Telebirr hosted checkout status is always read from the VPS, never inferred from a browser redirect.

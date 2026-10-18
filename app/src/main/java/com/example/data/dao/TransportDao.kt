@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Transaction
 import com.example.data.entity.*
 import kotlinx.coroutines.flow.Flow
 
@@ -120,6 +121,15 @@ interface TransportDao {
 
     @Update
     suspend fun updateSubscription(subscription: SubscriptionEntity)
+
+    @Query("DELETE FROM subscriptions WHERE passengerId = :passengerId")
+    suspend fun deleteSubscriptionsForPassenger(passengerId: String)
+
+    @Transaction
+    suspend fun replacePassengerSubscription(passengerId: String, subscription: SubscriptionEntity?) {
+        deleteSubscriptionsForPassenger(passengerId)
+        if (subscription != null) insertSubscription(subscription)
+    }
 
     // Plans
     @Query("SELECT * FROM subscription_plans")

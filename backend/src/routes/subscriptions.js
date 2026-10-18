@@ -3,6 +3,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { passengerAssignment } = require('../services/passenger-assignment');
 
 function resolveQrSigningKey() {
   if (process.env.QR_SIGNING_KEY && process.env.QR_SIGNING_KEY.trim().length > 0) {
@@ -66,13 +67,8 @@ function verifySignedQrToken(token) {
 router.get('/my-status', authenticate, requireRole('PASSENGER'), async (req, res) => {
   try {
     const passengerId = req.user.id;
-    const sub = await DB.prepare(`
-      SELECT s.*, r.name as routeName, r.nameAm as routeNameAm, r.basePriceEtb, r.morningDeparture, r.eveningDeparture
-      FROM subscriptions s
-      LEFT JOIN routes r ON s.routeId = r.id
-      WHERE s.passengerId = ?
-      ORDER BY s.updatedAt DESC LIMIT 1
-    `).get(passengerId);
+    res.set('Cache-Control', 'private, no-store');
+    const { subscription: sub } = await passengerAssignment(passengerId);
 
     if (!sub || sub.subscriptionStatus !== 'ACTIVE' || sub.paymentStatus !== 'PAID' || sub.daysRemaining <= 0) {
       return res.json({
@@ -92,6 +88,11 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), async (req, res
           paymentStatus: sub.paymentStatus,
           priceEtb: sub.priceEtb,
           daysRemaining: sub.daysRemaining,
+          pickupStopId: sub.pickupStopId,
+          destinationStopId: sub.destinationStopId,
+          morningSchedule: sub.morningSchedule || sub.morningDeparture,
+          eveningSchedule: sub.eveningSchedule || sub.eveningDeparture,
+          startDate: sub.startDate, endDate: sub.endDate, vehicleId: sub.vehicleId,
           qrToken: null
         } : null
       });
@@ -115,8 +116,10 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), async (req, res
         endDate: sub.endDate,
         daysRemaining: sub.daysRemaining,
         qrToken: sub.qrToken,
-        morningSchedule: sub.morningSchedule,
-        eveningSchedule: sub.eveningSchedule,
+        pickupStopId: sub.pickupStopId,
+        destinationStopId: sub.destinationStopId,
+        morningSchedule: sub.morningSchedule || sub.morningDeparture,
+        eveningSchedule: sub.eveningSchedule || sub.eveningDeparture,
         vehicleId: sub.vehicleId
       }
     });

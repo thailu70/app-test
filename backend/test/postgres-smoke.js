@@ -355,6 +355,17 @@ async function run() {
     assert.equal(result.data.vehicle.hasGpsLocation, true, 'Passenger tracking must return server-confirmed GPS coordinates');
     assert.equal(result.data.vehicle.latitude, 9.01);
 
+    result = await requestJson(baseUrl, '/api/commute/my-driver', 'GET', null, passengerToken);
+    assert.equal(result.status, 200);
+    assert.equal(result.data.driver.vehicleId, driverVehicleId, 'Driver card must match the tracked vehicle');
+    result = await requestJson(baseUrl, '/api/subscriptions/my-status', 'GET', null, passengerToken);
+    assert.equal(result.data.subscription.vehicleId, driverVehicleId, 'Pass, driver card and tracking must share the assignment');
+    await DB.prepare("UPDATE trips SET status='COMPLETED' WHERE vehicleId=? AND status='IN_PROGRESS'").run(driverVehicleId);
+    result = await requestJson(baseUrl, '/api/vehicles/tracking', 'GET', null, passengerToken);
+    assert.equal(result.status, 200);
+    assert.equal(result.data.vehicle.id, driverVehicleId, 'Completing a trip must not pretend the passenger is unassigned');
+    assert.equal(result.data.vehicle.trackingStatus, 'OFFLINE');
+
     // No test should produce a server-confirmed live payment in production mode.
     console.log('PostgreSQL API smoke test passed: readiness, read, write, transaction, auth, and payment fail-closed.');
   } finally {

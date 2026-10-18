@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { DB } = require('../db');
 const { authenticate, requireRole, resolveActivePrincipal } = require('../middleware/auth');
+const { passengerAssignment } = require('../services/passenger-assignment');
 
 // Vehicle Type Standard Capacities
 const VEHICLE_TYPE_CAPACITIES = {
@@ -143,81 +144,73 @@ router.get('/', async (req, res) => {
  * Return only the caller's owned vehicle (driver) or the vehicle for the caller's active
  * paid subscription (passenger). Only genuine GPS reports are returned as a live location.
  */
+function trackingLocation(row, activeTrip) {
+  const timestamp = row.lastGpsAt instanceof Date ? row.lastGpsAt.getTime() : Date.parse(
+    /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(String(row.lastGpsAt))
+      ? String(row.lastGpsAt).replace(' ', 'T') + 'Z' : row.lastGpsAt);
+  const lat = row.latitude == null ? NaN : Number(row.latitude);
+  const lng = row.longitude == null ? NaN : Number(row.longitude);
+  const now = Date.now();
+  const valid = Number.isFinite(timestamp) && timestamp <= now && Number.isFinite(lat) && lat >= -90 && lat <= 90 && Number.isFinite(lng) && lng >= -180 && lng <= 180;
+  const gpsAgeSeconds = valid ? Math.floor((now - timestamp) / 1000) : null;
+  return {
+    latitude: valid ? lat : null, longitude: valid ? lng : null,
+    speed: valid && row.speed != null ? Number(row.speed) : null,
+    currentStop: valid ? row.currentStop || '' : '',
+    lastGpsAt: valid ? new Date(timestamp).toISOString() : null,
+    hasGpsLocation: valid, gpsAgeSeconds,
+    trackingStatus: !valid ? 'NO_GPS' : !activeTrip ? 'OFFLINE' : gpsAgeSeconds > 120 ? 'STALE' : 'LIVE'
+  };
+}
+
 router.get('/tracking', authenticate, async (req, res) => {
   try {
+    res.set('Cache-Control', 'private, no-store');
     let row = null;
     if (req.user.role === 'DRIVER') {
+      // Assignment exists before departure too. A stopped trip is not an unassigned vehicle.
       row = await DB.prepare(`
-        SELECT v.*, r.name AS routeName, r.morningDeparture AS morningDeparture, l.latitude, l.longitude, l.speed,
-               l.current_stop AS currentStop, l.updated_at AS lastGpsAt
+        SELECT v.*, r.name AS routeName, r.morningDeparture,
+          u.fullName AS driverName, l.latitude, l.longitude, l.speed,
+          l.current_stop AS currentStop, l.updated_at AS lastGpsAt,
+          t.id AS assignment_trip_id
         FROM vehicles v
-        JOIN trips t ON t.vehicleId = v.id AND t.status = 'IN_PROGRESS' AND t.driverId = ?
-        LEFT JOIN routes r ON r.id = t.routeId
-        LEFT JOIN vehicle_live_locations l ON l.vehicle_id = v.id
-        WHERE v.driverId = ?
-        ORDER BY t.startTime DESC LIMIT 1
-      `).get(req.user.id, req.user.id);
+        JOIN users u ON u.id=v.driverId AND u.role='DRIVER' AND u.status='ACTIVE'
+        JOIN routes r ON r.id=v.assignedRouteId AND COALESCE(r.companyId,'')=COALESCE(v.companyId,'')
+        LEFT JOIN trips t ON t.vehicleId=v.id AND t.driverId=v.driverId AND t.routeId=v.assignedRouteId AND t.status='IN_PROGRESS'
+        LEFT JOIN vehicle_live_locations l ON l.vehicle_id=v.id
+        WHERE v.driverId=? AND COALESCE(v.companyId,'')=?
+        ORDER BY t.startTime DESC, v.updatedAt DESC LIMIT 1
+      `).get(req.user.id, req.user.companyId || '');
     } else if (req.user.role === 'PASSENGER') {
-      const sub = await DB.prepare(`
-        SELECT * FROM subscriptions
-        WHERE passengerId = ? AND subscriptionStatus = 'ACTIVE'
-          AND paymentStatus = 'PAID' AND daysRemaining > 0
-        ORDER BY updatedAt DESC LIMIT 1
-      `).get(req.user.id);
-      if (!sub) {
-        return res.json({ success: true, vehicle: null, message: 'An active paid subscription is required to track a vehicle.' });
-      }
-
-      if (sub.vehicleId) {
-        row = await DB.prepare(`
-          SELECT v.*, t.routeId AS activeRouteId, r.name AS routeName, r.morningDeparture AS morningDeparture, l.latitude, l.longitude, l.speed,
-                 l.current_stop AS currentStop, l.updated_at AS lastGpsAt
-          FROM vehicles v
-          JOIN trips t ON t.vehicleId = v.id AND t.routeId = ? AND t.status = 'IN_PROGRESS'
-          LEFT JOIN routes r ON r.id = t.routeId
-          LEFT JOIN vehicle_live_locations l ON l.vehicle_id = v.id
-          WHERE v.id = ? AND v.assignedRouteId = ? AND v.driverId IS NOT NULL
-          LIMIT 1
-        `).get(sub.routeId, sub.vehicleId, sub.routeId);
-      } else {
-        return res.json({
-          success: true,
-          vehicle: null,
-          message: 'The administrator has not assigned a driver-owned vehicle to your subscription yet.'
-        });
-      }
+      const assignment = await passengerAssignment(req.user.id);
+      if (!assignment.subscription) return res.json({ success: true, status: 'UNASSIGNED', vehicle: null,
+        message: 'Choose a commute route to get started.' });
+      if (!assignment.active) return res.json({ success: true, status: 'INACTIVE', vehicle: null,
+        message: 'Live tracking is available when your commute pass is active.' });
+      row = assignment.vehicle;
     } else {
       return res.status(403).json({ success: false, error: 'Only drivers and passengers can access vehicle tracking.' });
     }
-
-    if (!row) return res.json({ success: true, vehicle: null, message: 'No driver vehicle is assigned yet.' });
-    const gpsAt = row.lastGpsAt ? Date.parse(row.lastGpsAt) : NaN;
-    const hasFreshGps = Number.isFinite(gpsAt) && Date.now() - gpsAt <= 2 * 60 * 1000 && Date.now() >= gpsAt;
-    res.json({
-      success: true,
-      vehicle: {
-        id: row.id,
-        plateNumber: row.plateNumber,
-        model: row.model,
-        vehicleType: row.vehicleType,
-        capacityLimit: row.capacityLimit,
-        currentOccupancy: row.currentOccupancy,
-        assignedRouteId: row.activeRouteId || row.assignedRouteId,
-        routeName: row.routeName || '',
-        morningDeparture: row.morningDeparture || '06:30',
-        driverId: row.driverId,
-        driverName: row.driverName || '',
-        latitude: !hasFreshGps || row.latitude == null ? null : Number(row.latitude),
-        longitude: !hasFreshGps || row.longitude == null ? null : Number(row.longitude),
-        speed: !hasFreshGps || row.speed == null ? null : Number(row.speed),
-        currentStop: row.currentStop || '',
-        lastGpsAt: row.lastGpsAt || null,
-        hasGpsLocation: hasFreshGps && row.latitude != null && row.longitude != null
-      }
-    });
+    if (!row) return res.json({ success: true, status: 'UNASSIGNED', vehicle: null,
+      message: 'Your driver and vehicle have not been assigned yet.' });
+    const location = trackingLocation(row, Boolean(row.assignment_trip_id));
+    const messages = {
+      LIVE: 'Your driver is sharing their live location.',
+      STALE: 'The last location is shown. Waiting for a fresh driver update.',
+      OFFLINE: 'Your driver is assigned. The trip has not started; the last known location is shown.',
+      NO_GPS: row.assignment_trip_id ? 'Your trip has started. Waiting for the driver’s location.' : 'Your driver is assigned. Location will appear when the trip starts.'
+    };
+    res.json({ success: true, status: location.trackingStatus, message: messages[location.trackingStatus], vehicle: {
+      id: row.id, plateNumber: row.plateNumber, model: row.model, vehicleType: row.vehicleType,
+      capacityLimit: row.capacityLimit, currentOccupancy: row.currentOccupancy,
+      assignedRouteId: row.assignedRouteId, routeName: row.routeName || '',
+      morningDeparture: row.morningDeparture || null,
+      driverId: row.driverId, driverName: row.driverName || '', ...location
+    } });
   } catch (err) {
     console.error('[RoutePass] vehicle tracking query failed:', err);
-    res.status(500).json({ success: false, error: 'Could not load vehicle tracking.' });
+    res.status(500).json({ success: false, error: 'Could not load vehicle tracking. Try again.' });
   }
 });
 

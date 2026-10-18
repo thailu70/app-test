@@ -5,7 +5,9 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +27,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
@@ -54,6 +57,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -103,7 +107,7 @@ private fun checkedProfile(response: Response<ProfileResponse>): CompletionProfi
     throw IllegalStateException(message?.takeIf { it.isNotBlank() } ?: body?.error ?: "Unable to update profile. Please try again.")
 }
 
-/** A lightweight sign-in reminder; failures retain an actionable registration link. */
+/** A compact reminder for a confirmed incomplete profile; the profile menu handles retries. */
 @Composable
 fun ProfileCompletionPrompt(onOpen: () -> Unit, modifier: Modifier = Modifier) {
     var profile by remember { mutableStateOf<CompletionProfile?>(null) }
@@ -114,12 +118,20 @@ fun ProfileCompletionPrompt(onOpen: () -> Unit, modifier: Modifier = Modifier) {
         catch (_: Exception) { /* The profile menu remains available for retry. */ }
         finally { finishedLoading = true }
     }
-    if (finishedLoading && profile?.complete != true) {
-        Surface(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = Color.Black, contentColor = Color.White) {
-            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Complete your registration", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                Text("Add your photo and identity document for your daily commute.", style = MaterialTheme.typography.bodyMedium)
-                Button(onClick = onOpen, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)) { Text("Complete profile") }
+    if (finishedLoading && profile != null && profile?.complete == false) {
+        Surface(
+            modifier = modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onOpen),
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xFFF0F7F3),
+            border = BorderStroke(1.dp, Color(0xFFDCEAE2))
+        ) {
+            Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF087F68), modifier = Modifier.size(24.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Complete your profile", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF17212B))
+                    Text("Add your photo and ID.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF475569))
+                }
+                Icon(Icons.Default.ChevronRight, contentDescription = "Open your profile", tint = Color(0xFF087F68), modifier = Modifier.size(22.dp))
             }
         }
     }
@@ -293,6 +305,6 @@ fun AuthenticatedProfilePhoto(userId: String, modifier: Modifier = Modifier, ref
     Box(modifier = modifier.clip(CircleShape).background(Color(0xFFE4E6E8)), contentAlignment = Alignment.Center) {
         val loaded = bitmap
         if (loaded != null) Image(loaded, contentDescription = "Profile photo", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-        else Icon(Icons.Default.Person, contentDescription = "Profile photo not uploaded", tint = Color(0xFF73777B), modifier = Modifier.fillMaxSize().padding(12.dp))
+        else Icon(Icons.Default.Person, contentDescription = "Profile photo unavailable", tint = Color(0xFF73777B), modifier = Modifier.fillMaxSize().padding(12.dp))
     }
 }
