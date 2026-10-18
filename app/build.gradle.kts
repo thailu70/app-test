@@ -22,8 +22,8 @@ android {
     applicationId = "com.aistudio.transportnavigator.edxpkq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 6
-    versionName = "1.1.2"
+    versionCode = 7
+    versionName = "1.1.3"
     buildConfigField("String", "ROUTEPASS_API_BASE_URL", "\"$routePassApiBaseUrl\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
