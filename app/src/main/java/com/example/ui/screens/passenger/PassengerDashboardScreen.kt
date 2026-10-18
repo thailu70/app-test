@@ -30,6 +30,7 @@ import com.example.data.entity.RouteEntity
 import com.example.data.entity.SubscriptionEntity
 import com.example.ui.components.QrCodeCanvas
 import com.example.ui.components.MiniVehicleMap
+import com.example.ui.components.PassoBrandHeader
 import com.example.ui.screens.profile.ProfileCompletionPrompt
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.MainViewModel
@@ -160,6 +161,12 @@ fun PassengerDashboardScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp)
         ) {
+            item {
+                PassoBrandHeader(
+                    portalLabel = passengerText(lang, "PASSENGER PORTAL", "የተሳፋሪ ፖርታል"),
+                    subtitle = passengerText(lang, "Tap. Move. Clear.", "ቀላል ጉዞ፣ ግልጽ መረጃ")
+                )
+            }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (passengerSection !in primarySections) {

@@ -60,6 +60,7 @@ import com.example.core.localization.AppStrings
 import com.example.core.qr.QrValidationResult
 import com.example.data.entity.RouteStopEntity
 import com.example.ui.components.MiniVehicleMap
+import com.example.ui.components.PassoBrandHeader
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.DriverTripState
 import com.example.ui.viewmodel.MainViewModel
@@ -158,6 +159,11 @@ fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             uploadEnabled = activeTrip != null || journeys.any { it.status == "BOARDING" }
         )
         Column(Modifier.fillMaxSize()) {
+            PassoBrandHeader(
+                portalLabel = "DRIVER PORTAL",
+                subtitle = "Tap. Move. Clear.",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+            )
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Let's get moving", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
