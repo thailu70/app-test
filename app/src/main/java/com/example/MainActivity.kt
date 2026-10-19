@@ -46,6 +46,7 @@ import com.example.ui.screens.home.BrowseFirstScreen
 import com.example.ui.screens.home.PassoWelcomeScreen
 import com.example.ui.screens.home.WelcomeService
 import com.example.ui.screens.home.HostedPortalScreen
+import com.example.ui.screens.intercity.IntercityPassengerScreen
 import com.example.ui.screens.profile.ProfileCompletionScreen
 import com.example.ui.screens.driver.DriverTripScreen
 import com.example.ui.screens.passenger.PassengerDashboardScreen
@@ -189,7 +190,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                 modifier = Modifier.fillMaxSize()
             )
         } else if (showIntercityPortal) {
-            HostedPortalScreen("/travel/", "Intercity travel", onExit = { showIntercityPortal = false; showWelcome = true })
+            IntercityPassengerScreen(currentLang, { viewModel.setLanguage(it) }, onExit = { showIntercityPortal = false; showWelcome = true })
         } else if (showCompanyPortal) {
             CompanyPortalScreen(onExit = {
                 ApiClient.setAuthToken(null)
