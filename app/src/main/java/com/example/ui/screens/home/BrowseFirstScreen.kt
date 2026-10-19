@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.testTag
 import com.example.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -139,18 +140,18 @@ fun BrowseFirstScreen(
                         RouteInfoTile("Morning pickup", route.morningDeparture, Modifier.weight(1f))
                         RouteInfoTile("Evening return", route.eveningDeparture, Modifier.weight(1f))
                     }
-                    val selectedFare = if (selectedTier == "Economy") "ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb) else "Fare not configured"
+                    val selectedFare = commuterTierFare(route, selectedTier)?.let { "ETB " + String.format(java.util.Locale.US, "%,.0f", it) } ?: "Not available"
                     RouteInfoTile("Monthly subscription • $selectedTier", selectedFare, Modifier.fillMaxWidth())
                     Text("Choose your service tier", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = HomeInk)
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-                        TierChoice("VIP", "4 seats", selectedTier == "VIP", Modifier.weight(1f)) { selectedTier = "VIP" }
-                        TierChoice("Deluxe", "7 seats", selectedTier == "Deluxe", Modifier.weight(1f)) { selectedTier = "Deluxe" }
-                        TierChoice("Economy", "13 seats", selectedTier == "Economy", Modifier.weight(1f)) { selectedTier = "Economy" }
+                        TierChoice("Economy", commuterTierFare(route, "Economy"), selectedTier == "Economy", Modifier.weight(1f)) { selectedTier = "Economy" }
+                        TierChoice("Deluxe", commuterTierFare(route, "Deluxe"), selectedTier == "Deluxe", Modifier.weight(1f)) { selectedTier = "Deluxe" }
+                        TierChoice("VIP", commuterTierFare(route, "VIP"), selectedTier == "VIP", Modifier.weight(1f)) { selectedTier = "VIP" }
                     }
-                    Surface(color = if (selectedTier == "Economy") HomeMint else Color(0xFFFFF3D6), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    Surface(color = if (commuterTierFare(route, selectedTier) != null) HomeMint else Color(0xFFFFF3D6), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(if (selectedTier == "Economy") "Economy fare configured" else "$selectedTier fare not configured", color = if (selectedTier == "Economy") HomeGreen else Color(0xFF9A6700), fontWeight = FontWeight.Bold)
-                            Text(if (selectedTier == "Economy") "The route monthly fare is $selectedFare. Live seat availability still requires confirmation." else "No $selectedTier fare or live seat count is stored for this route yet. The operator must configure it before booking or payment.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                            Text(if (commuterTierFare(route, selectedTier) != null) "$selectedTier fare configured" else "$selectedTier not available", color = if (commuterTierFare(route, selectedTier) != null) HomeGreen else Color(0xFF9A6700), fontWeight = FontWeight.Bold)
+                            Text(if (commuterTierFare(route, selectedTier) != null) "The route monthly fare is $selectedFare. Live seat availability still requires confirmation." else "No $selectedTier fare or live seat count is stored for this route yet. The operator must configure it before booking or payment.", style = MaterialTheme.typography.bodySmall, color = Slate600)
                         }
                     }
                     Button(
@@ -171,7 +172,7 @@ fun BrowseFirstScreen(
         }
     }
 
-    Column(modifier = modifier.fillMaxSize().background(HomeCream)) {
+    Column(modifier = modifier.fillMaxSize().background(HomeCream).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
     LazyColumn(
         modifier = Modifier.weight(1f),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 24.dp),
@@ -410,7 +411,7 @@ fun BrowseFirstScreen(
 }
 
 @Composable
-private fun CommuterBrandHeader(onHome: () -> Unit, onSignIn: () -> Unit) {
+internal fun CommuterBrandHeader(onHome: () -> Unit, onSignIn: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         IconButton(onClick = onHome, modifier = Modifier.size(44.dp).background(Color.White, CircleShape)) {
             Icon(Icons.Default.ArrowBack, contentDescription = "Back to welcome", tint = HomeInk)
@@ -419,20 +420,15 @@ private fun CommuterBrandHeader(onHome: () -> Unit, onSignIn: () -> Unit) {
             Text("PASSO", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = HomeInk)
             Text("Go Further, Together.", style = MaterialTheme.typography.labelMedium, color = HomeGreen)
         }
-        OutlinedButton(onClick = onSignIn, shape = CircleShape, border = BorderStroke(1.dp, HomeLine), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)) {
+        OutlinedButton(onClick = onSignIn, modifier = Modifier.padding(top = 4.dp).testTag("commuter_browse_sign_in"), shape = CircleShape, border = BorderStroke(1.dp, HomeLine), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)) {
             Text("Sign in", color = HomeGreen, fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
-private fun DailyCommuteIntro() {
+internal fun DailyCommuteIntro() {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text("YOUR EVERYDAY, MADE EASIER", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = Slate600)
-            Text("A better way to commute.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = HomeInk)
-            Text("Find a daily route for work, school and everything in between.", style = MaterialTheme.typography.bodyMedium, color = Slate600)
-        }
         Row(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(Brush.horizontalGradient(listOf(Color(0xFF005852), Color(0xFF007C78)))).padding(18.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -443,7 +439,7 @@ private fun DailyCommuteIntro() {
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Daily commute", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
-                Text("Your route. Your routine.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFD8EEE7))
+                Text("Find a daily route", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFD8EEE7))
                 Text("Morning pickup · Evening return", style = MaterialTheme.typography.labelSmall, color = Color(0xFFD8EEE7))
             }
         }
@@ -599,7 +595,7 @@ private fun RouteInfoTile(label: String, value: String, modifier: Modifier = Mod
 }
 
 @Composable
-private fun CommuterRouteCard(route: RouteEntity, onClick: () -> Unit) {
+internal fun CommuterRouteCard(route: RouteEntity, onClick: () -> Unit) {
     Surface(
         color = Color.White,
         shape = RoundedCornerShape(24.dp),
@@ -632,12 +628,19 @@ private fun CommuterRouteCard(route: RouteEntity, onClick: () -> Unit) {
                     Text(route.eveningDeparture.ifBlank { "Not set" }, color = HomeInk, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
                 }
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Monthly from", color = Slate600, style = MaterialTheme.typography.labelSmall)
-                    Text("ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), color = HomeGreen, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge)
+            Text("Monthly fares", color = Slate600, style = MaterialTheme.typography.labelSmall)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                listOf("Economy", "Deluxe", "VIP").forEach { tier ->
+                    Surface(color = HomeCream, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, HomeLine), modifier = Modifier.weight(1f)) {
+                        Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(tier, color = HomeInk, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                            CommuterTierFareLabel(commuterTierFare(route, tier))
+                        }
+                    }
                 }
-                FilledTonalButton(onClick = onClick, shape = CircleShape, colors = ButtonDefaults.filledTonalButtonColors(containerColor = HomeMint, contentColor = HomeGreen)) {
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                FilledTonalButton(onClick = onClick, modifier = Modifier.testTag("commuter_route_details_${route.id}"), shape = CircleShape, colors = ButtonDefaults.filledTonalButtonColors(containerColor = HomeMint, contentColor = HomeGreen)) {
                     Text("Details", fontWeight = FontWeight.Bold)
                     Spacer(Modifier.width(5.dp))
                     Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(17.dp))
@@ -664,12 +667,28 @@ private fun TierPriceCard(name: String, seats: String, fare: String, availabilit
 
 
 @Composable
-private fun TierChoice(name: String, seats: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun TierChoice(name: String, fare: Double?, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(color = if (selected) HomeMint else Color.White, shape = RoundedCornerShape(12.dp), border = androidx.compose.foundation.BorderStroke(if (selected) 2.dp else 1.dp, if (selected) HomeGreen else Color(0xFFE0E6E2)), modifier = modifier.clickable(onClick = onClick)) {
         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(name, color = if (selected) HomeGreen else HomeBlue, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
-            Text(seats, color = Slate600, style = MaterialTheme.typography.labelSmall)
+            CommuterTierFareLabel(fare)
             if (selected) Text("Selected", color = HomeGreen, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+private fun commuterTierFare(route: RouteEntity, tier: String): Double? =
+    route.basePriceEtb.takeIf { tier == "Economy" && it.isFinite() && it > 0 }
+
+@Composable
+private fun CommuterTierFareLabel(fare: Double?) {
+    if (fare != null) {
+        Text("ETB " + String.format(java.util.Locale.US, "%,.0f", fare), color = HomeGreen,
+            fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+    } else {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(5.dp).background(Color(0xFFC73838), CircleShape))
+            Text("Not available", color = Slate600, style = MaterialTheme.typography.labelSmall)
         }
     }
 }

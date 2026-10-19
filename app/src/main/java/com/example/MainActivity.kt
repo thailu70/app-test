@@ -157,8 +157,20 @@ fun MainTransportApp(viewModel: MainViewModel) {
         var requestedRouteId by rememberSaveable { mutableStateOf<String?>(null) }
         var requestedRouteName by rememberSaveable { mutableStateOf<String?>(null) }
         var requestedServiceTier by rememberSaveable { mutableStateOf<String?>(null) }
+        fun returnFromAuthentication() {
+            // Passenger sign-in is entered from route browsing, including My pass.
+            // Keep that return destination while driver access returns to Welcome.
+            val returnToRoutes = requestedAuthPortal == AppRole.PASSENGER
+            showPublicHome = true
+            showWelcome = !returnToRoutes
+            requestedAuthPortal = null
+            requestedRegisterFirst = false
+            requestedRouteId = null
+            requestedRouteName = null
+            requestedServiceTier = null
+        }
         androidx.activity.compose.BackHandler(enabled = !showWelcome && !showIntercityPortal && !showCompanyPortal) {
-            showWelcome = true
+            if (showPublicHome) showWelcome = true else returnFromAuthentication()
         }
         if (showWelcome) {
             PassoWelcomeScreen(
@@ -209,7 +221,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
             topBar = {
                 TopAppBar(
                     navigationIcon = {
-                        TextButton(onClick = { showWelcome = true; showPublicHome = true; requestedAuthPortal = null; requestedRegisterFirst = false; requestedRouteId = null; requestedRouteName = null; requestedServiceTier = null }) {
+                        TextButton(onClick = { returnFromAuthentication() }) {
                             Text("Back", color = TransportGreenPrimary, fontWeight = FontWeight.Bold)
                         }
                     },
