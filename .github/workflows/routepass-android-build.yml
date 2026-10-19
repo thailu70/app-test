@@ -5,6 +5,7 @@ on:
     branches:
       - feature/routepass-browse-first-ui-2026-10-13
       - feature/passo-dual-ownership-company-portal-2026-10-14
+      - enhance/routepass-ui-backend-2026-10-17
     paths:
       - ".github/workflows/routepass-android-build.yml"
       - "app/**"
@@ -57,3 +58,4 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
+
