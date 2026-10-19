@@ -51,8 +51,8 @@ jobs:
         env:
           ROUTEPASS_API_BASE_URL: ${{ github.event.inputs.api_base_url || 'https://routepass.duckdns.org/' }}
         run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=$ROUTEPASS_API_BASE_URL"
-      - name: Verify welcome interactions and capture native previews
-        run: gradle :app:testDebugUnitTest --tests com.example.WelcomeLayoutTest --tests com.example.CommuterLayoutTest --tests com.example.PassengerPresentationTest --tests com.example.BoardingQrTest
+      - name: Verify portal interactions and capture native previews
+        run: gradle :app:testDebugUnitTest --tests com.example.WelcomeLayoutTest --tests com.example.CommuterLayoutTest --tests com.example.DriverLayoutTest --tests com.example.DriverUiStateTest --tests com.example.PassengerPresentationTest --tests com.example.BoardingQrTest
       - name: Upload welcome verification evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -61,6 +61,7 @@ jobs:
           path: |
             app/build/welcome-previews/
             app/build/commuter-previews/
+            app/build/driver-previews/
             app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: warn
       - name: Upload installable debug APK

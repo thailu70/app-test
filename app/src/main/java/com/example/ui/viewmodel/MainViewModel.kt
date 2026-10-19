@@ -224,6 +224,9 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     val recentAuditLogs: StateFlow<List<AuditLogEntity>> = repository.recentAuditLogs
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    fun observeRouteStops(routeId: String): kotlinx.coroutines.flow.Flow<List<RouteStopEntity>> =
+        if (routeId.isBlank()) flowOf(emptyList()) else repository.getStopsForRoute(routeId)
+
     // Driver Trip State
     private val _driverTrip = MutableStateFlow(DriverTripState())
     val driverTrip: StateFlow<DriverTripState> = _driverTrip.asStateFlow()

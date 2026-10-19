@@ -43,6 +43,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -79,17 +81,18 @@ private fun <T> driverBody(response: retrofit2.Response<T>): T {
 @Composable
 fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val currentUser by viewModel.currentUser.collectAsState()
+    val language by viewModel.currentLanguage.collectAsState()
     val api = remember { com.example.data.api.ApiClient.createFeatureService(com.example.data.api.DriverOperationsApi::class.java) }
     val scope = rememberCoroutineScope()
-    var section by remember { mutableStateOf("Home") }
-    var documentsOpen by remember { mutableStateOf(false) }
+    var section by rememberSaveable(currentUser?.id) { mutableStateOf("Home") }
+    var documentsOpen by rememberSaveable(currentUser?.id) { mutableStateOf(false) }
     var vehicles by remember { mutableStateOf(emptyList<com.example.data.api.DriverVehicleAssignment>()) }
     var journeys by remember { mutableStateOf(emptyList<com.example.data.api.DriverIntercityDeparture>()) }
     var activeTrip by remember { mutableStateOf<com.example.data.api.TripDto?>(null) }
-    var selectedKey by remember { mutableStateOf("") }
-    var direction by remember { mutableStateOf("OUTBOUND") }
+    var selectedKey by rememberSaveable(currentUser?.id) { mutableStateOf("") }
+    var direction by rememberSaveable(currentUser?.id) { mutableStateOf("OUTBOUND") }
     var roster by remember { mutableStateOf(emptyList<com.example.data.api.DriverRosterPassenger>()) }
-    var statusFilter by remember { mutableStateOf("ALL") }
+    var statusFilter by rememberSaveable(currentUser?.id) { mutableStateOf("ALL") }
     var freshFix by remember { mutableStateOf<com.example.data.api.DriverGpsFix?>(null) }
     var gpsStatus by remember { mutableStateOf("Waiting for a precise GPS fix") }
     var validation by remember { mutableStateOf<com.example.data.api.DriverDepartureValidation?>(null) }
@@ -103,6 +106,33 @@ fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val journey = journeys.firstOrNull { selectedKey == "journey:${it.id}" }
     val commuteTrip = activeTrip?.takeIf { it.vehicleId == vehicle?.id }
     val boardingEnabled = commuteTrip != null || journey?.status == "BOARDING"
+    val selectedStops by remember(vehicle?.assignedRouteId) { viewModel.observeRouteStops(vehicle?.assignedRouteId.orEmpty()) }.collectAsState(initial = emptyList())
+    var clockNow by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val displayDirection = commuteTrip?.direction ?: direction
+    val scheduled = if (vehicle != null) { if (displayDirection == "OUTBOUND") vehicle.morningDeparture else vehicle.eveningDeparture } else journey?.departure_at.orEmpty()
+    var completionProfile by remember { mutableStateOf<com.example.data.api.CompletionProfile?>(null) }
+    var profileLoading by remember { mutableStateOf(true) }
+    var profileError by remember { mutableStateOf(false) }
+    val profileApi = remember { com.example.data.api.ApiClient.createFeatureService(com.example.data.api.ProfileApi::class.java) }
+    LaunchedEffect(documentsOpen) {
+        if (!documentsOpen) {
+            profileLoading = true
+            try {
+                val result = driverBody(profileApi.getMyProfile())
+                check(result.success) { "Could not load document status." }
+                completionProfile = result.profile
+                profileError = false
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { profileError = true }
+            finally { profileLoading = false }
+        }
+    }
+    LaunchedEffect(Unit) {
+        while (true) { clockNow = System.currentTimeMillis(); kotlinx.coroutines.delay(30_000) }
+    }
+    BackHandler(enabled = documentsOpen || section != "Home") {
+        if (documentsOpen) documentsOpen = false else section = "Home"
+    }
 
     suspend fun refreshAssignments() {
         val assignments = driverBody(api.assignments())
@@ -126,6 +156,34 @@ fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             finally { busy = false }
         }
     }
+    fun checkReadiness() {
+        val selected = vehicle ?: return
+        runAction { validation = driverBody(api.checkDeparture(com.example.data.api.DriverDepartureRequest(selected.assignedRouteId, selected.id, direction, freshFix))).validation }
+    }
+    fun confirmArrival() = runAction {
+        if (vehicle != null) {
+            val result = driverBody(api.confirmCommuteArrival(com.example.data.api.DriverDepartureRequest(vehicle.assignedRouteId, vehicle.id, direction, freshFix)))
+            check(result.success) { result.error ?: "Could not confirm arrival." }
+            activeTrip = result.trip
+        } else if (journey != null) {
+            val result = driverBody(api.confirmIntercityArrival(journey.id, com.example.data.api.DriverArrivalRequest(freshFix)))
+            check(result.success) { result.error ?: "Could not confirm arrival." }
+        }
+        notice = "Departure confirmed. You can now board passengers."
+        refreshAssignments()
+    }
+    fun completeRoute() = runAction {
+        if (commuteTrip != null) {
+            val result = driverBody(api.completeCommute(commuteTrip.id))
+            check(result.success) { result.error ?: "Route could not be completed." }
+        } else if (journey != null) {
+            val result = driverBody(api.completeIntercity(journey.id))
+            check(result.success) { result.error ?: "Journey could not be completed." }
+        }
+        notice = "Route completed. Boarding is now closed."
+        refreshAssignments()
+    }
+    fun openScanner() { scanResult = null; boardingNotice = null; scanOpen = true }
     LaunchedEffect(Unit) {
         while (true) {
             try { refreshAssignments() }
@@ -150,146 +208,73 @@ fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         com.example.ui.screens.profile.ProfileCompletionScreen(role = "DRIVER", onBack = { documentsOpen = false })
         return
     }
-    Box(modifier.fillMaxSize()) {
-        DriverLocationReporter(
-            viewModel,
+    Box(modifier.fillMaxSize().background(com.example.ui.screens.passenger.CommuteCream)) {
+        DriverLocationReporter(viewModel,
             commuteTrip?.currentStop ?: journey?.takeIf { it.status == "BOARDING" }?.origin.orEmpty(),
-            { gpsStatus = it },
-            onFix = { freshFix = it },
-            uploadEnabled = activeTrip != null || journeys.any { it.status == "BOARDING" }
-        )
-        Column(Modifier.fillMaxSize()) {
-            PassoBrandHeader(
-                portalLabel = "DRIVER PORTAL",
-                subtitle = "Tap. Move. Clear.",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
-            )
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Let's get moving", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text(currentUser?.fullName ?: "Driver", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                IconButton(onClick = { runAction { refreshAssignments(); notice = "Assignments and roster refreshed." } }, enabled = !busy) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh assignments")
-                }
+            { gpsStatus = it }, onFix = { freshFix = it; clockNow = System.currentTimeMillis() },
+            uploadEnabled = activeTrip != null || journeys.any { it.status == "BOARDING" })
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp),
+            contentPadding = PaddingValues(top = 14.dp, bottom = 104.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (section == "Home") item {
+                DriverGreeting(currentUser?.id.orEmpty(), currentUser?.fullName.orEmpty(), language, clockNow, onProfile = { documentsOpen = true })
             }
-            ScrollableTabRow(listOf("Home", "My Trips", "Passengers", "More").indexOf(section).coerceAtLeast(0), edgePadding = 16.dp) {
-                listOf("Home", "My Trips", "Passengers", "More").forEach { label ->
-                    Tab(selected = section == label, onClick = { section = label }, text = { Text(label) })
-                }
-            }
-            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                notice?.let { message -> item {
-                    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(14.dp)) {
-                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(message, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                            IconButton(onClick = { notice = null }) { Icon(Icons.Default.Close, "Dismiss message") }
-                        }
+            if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth(), color = TransportGreenPrimary) }
+            notice?.let { message -> item {
+                Surface(color = com.example.ui.screens.passenger.CommuteMint, shape = RoundedCornerShape(16.dp)) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(message, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                        IconButton(onClick = { notice = null }) { Icon(Icons.Default.Close, "Dismiss message") }
                     }
-                } }
-                if (section == "More") {
-                    item { DriverMenuRow("Documents & vehicle", "Upload licence, registration, insurance and photo", Icons.Default.Description) { documentsOpen = true } }
-                    item { DriverSectionCard("Emergency contact", "Keep your details up to date", Icons.Default.ContactPhone) {
-                        Text("Add your emergency contact name and phone in Documents & vehicle after signing in.")
-                        OutlinedButton(onClick = { documentsOpen = true }) { Text("Update registration") }
-                    } }
-                } else {
-                    item {
-                        DriverSectionCard("Your assignments", "Only your assigned vehicles and journeys", Icons.Default.Route) {
-                            if (vehicles.isEmpty() && journeys.isEmpty()) Text("No assignment yet. Your administrator or transport company will assign a route and vehicle.", color = Slate600)
+                }
+            } }
+            if (section == "More") {
+                item { DriverMenuRow(driverText(language, "My assignments", "የእኔ ምደባዎች", "Ramaddii koo"), driverText(language, "Daily commute and intercity journeys", "የዕለት እና የከተማ መካከል ጉዞዎች", "Imala guyyaa fi magaalaa gidduu"), Icons.Default.Route) { section = "My Trips" } }
+                item { DriverDocumentsOverview(completionProfile, profileLoading, profileError, language) { documentsOpen = true } }
+                item { DriverMenuRow(driverText(language, "Emergency contact", "የአደጋ ጊዜ ተጠሪ", "Nama yeroo balaa"), driverText(language, "Name, phone and profile details", "ስም፣ ስልክ እና የግል መረጃ", "Maqaa, bilbilaa fi odeeffannoo dhuunfaa"), Icons.Default.ContactPhone) { documentsOpen = true } }
+                item { DriverMenuRow(driverText(language, "Refresh assignments", "ምደባዎችን አድስ", "Ramaddii haaromsi"), driverText(language, "Update your route, vehicle and roster", "መስመር፣ ተሽከርካሪ እና ዝርዝር አድስ", "Karaa, konkolaataa fi tarree haaromsi"), Icons.Default.Refresh) { runAction { refreshAssignments(); notice = "Assignments and roster refreshed." } } }
+            } else {
+                if (section == "Home" && selectedKey.isNotBlank()) item {
+                    DriverBoardingBanner(boardingEnabled, journey?.status == "COMPLETED", driverHasPreciseFix(freshFix, clockNow), busy,
+                        validation, scheduled, clockNow, language, onConfirm = { confirmArrival() }, onScan = { openScanner() })
+                }
+                if (vehicles.size + journeys.size > 1 || section == "My Trips" || selectedKey.isBlank()) item {
+                    DriverSectionCard(driverText(language, "Your assignments", "የእርስዎ ምደባዎች", "Ramaddii kee"), driverText(language, "Choose the journey you are driving", "የሚነዱትን ጉዞ ይምረጡ", "Imala oofuu filadhu"), Icons.Default.Route) {
+                        if (vehicles.isEmpty() && journeys.isEmpty()) Text(driverText(language, "Your route and vehicle will appear after your operator assigns them.", "ኦፕሬተሩ ሲመድብ መስመሩ እና ተሽከርካሪው ይታያሉ።", "Karaa fi konkolaataan erga ramadamee booda mul'ata."), color = Slate600)
+                        Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             vehicles.forEach { assignment ->
-                                FilterChip(selected = selectedKey == "commute:${assignment.id}", onClick = { selectedKey = "commute:${assignment.id}" }, label = { Text("Commute · ${assignment.routeName} · ${assignment.plateNumber}") })
+                                FilterChip(selected = selectedKey == "commute:${assignment.id}", onClick = { selectedKey = "commute:${assignment.id}" }, label = { Text("${assignment.routeName} · ${assignment.plateNumber}") })
                             }
                             journeys.forEach { assignment ->
-                                FilterChip(selected = selectedKey == "journey:${assignment.id}", onClick = { selectedKey = "journey:${assignment.id}" }, label = { Text("Intercity · ${assignment.origin} → ${assignment.destination}") })
+                                FilterChip(selected = selectedKey == "journey:${assignment.id}", onClick = { selectedKey = "journey:${assignment.id}" }, label = { Text("${assignment.origin} → ${assignment.destination}") })
                             }
-                        }
-                    }
-                    if (section != "Passengers" && selectedKey.isNotBlank()) {
-                        item {
-                            DriverSectionCard(vehicle?.routeName ?: "${journey?.origin.orEmpty()} → ${journey?.destination.orEmpty()}", if (journey != null) "Intercity journey" else "Daily commute", Icons.Default.DirectionsBus) {
-                                Text(if (vehicle != null) "${vehicle.plateNumber} · ${vehicle.vehicleType.replace('_', ' ')}" else journey?.status.orEmpty().replace('_', ' '), fontWeight = FontWeight.SemiBold)
-                                if (vehicle != null && commuteTrip == null) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        FilterChip(direction == "OUTBOUND", { direction = "OUTBOUND" }, label = { Text("Outbound") })
-                                        FilterChip(direction == "INBOUND", { direction = "INBOUND" }, label = { Text("Return") })
-                                    }
-                                }
-                                val scheduled = if (vehicle != null) { if (direction == "OUTBOUND") vehicle.morningDeparture else vehicle.eveningDeparture } else journey?.departure_at.orEmpty()
-                                Text("Departure: ${driverLocalTime(scheduled)} · Addis Ababa time", color = Slate600)
-                                Surface(color = TransportGold.copy(alpha = .14f), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
-                                    Text(departureReadinessNotice(scheduled), modifier = Modifier.padding(10.dp), color = Slate900, style = MaterialTheme.typography.bodySmall)
-                                }
-                                Text("Confirm arrival within 30 minutes before or after departure, inside the configured radius.", style = MaterialTheme.typography.bodySmall, color = Slate600)
-                                Text(gpsStatus, style = MaterialTheme.typography.bodySmall, color = Slate600)
-                                validation?.let { gate ->
-                                    Text(gate.message, color = if (gate.allowed) TransportGreenPrimary else MaterialTheme.colorScheme.error)
-                                    gate.distanceMeters?.let { Text("Distance ${it.toInt()} m · Allowed radius ${gate.radiusMeters} m", style = MaterialTheme.typography.bodySmall) }
-                                }
-                                if (boardingEnabled) {
-                                    Surface(color = TransportGreenPrimary.copy(alpha = .12f), shape = RoundedCornerShape(10.dp)) {
-                                        Text("Arrival confirmed · Boarding open", Modifier.padding(12.dp), color = TransportGreenPrimary, fontWeight = FontWeight.Bold)
-                                    }
-                                    Button(onClick = { scanResult = null; boardingNotice = null; scanOpen = true }, enabled = !busy, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                                        Icon(Icons.Default.QrCodeScanner, null); Spacer(Modifier.width(8.dp)); Text("Scan passenger ticket")
-                                    }
-                                    OutlinedButton(onClick = { runAction {
-                                        if (commuteTrip != null) {
-                                            val result = driverBody(api.completeCommute(commuteTrip.id))
-                                            check(result.success) { result.error ?: "Route could not be completed." }
-                                        } else if (journey != null) {
-                                            val result = driverBody(api.completeIntercity(journey.id))
-                                            check(result.success) { result.error ?: "Journey could not be completed." }
-                                        }
-                                        notice = "Route completed. Boarding is now closed."
-                                        refreshAssignments()
-                                    } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Complete route") }
-                                    Text("You can complete the route without a destination GPS check.", style = MaterialTheme.typography.bodySmall, color = Slate600)
-                                } else if (journey?.status != "COMPLETED") {
-                                    if (vehicle != null) OutlinedButton(onClick = { runAction {
-                                        validation = driverBody(api.checkDeparture(com.example.data.api.DriverDepartureRequest(vehicle.assignedRouteId, vehicle.id, direction, freshFix))).validation
-                                    } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Check departure readiness") }
-                                    Button(onClick = { runAction {
-                                        if (vehicle != null) {
-                                            val result = driverBody(api.confirmCommuteArrival(com.example.data.api.DriverDepartureRequest(vehicle.assignedRouteId, vehicle.id, direction, freshFix)))
-                                            check(result.success) { result.error ?: "Could not confirm arrival." }
-                                            activeTrip = result.trip
-                                        } else if (journey != null) {
-                                            val result = driverBody(api.confirmIntercityArrival(journey.id, com.example.data.api.DriverArrivalRequest(freshFix)))
-                                            check(result.success) { result.error ?: "Could not confirm arrival." }
-                                        }
-                                        notice = "Departure confirmed. You can now board passengers."
-                                        refreshAssignments()
-                                    } }, enabled = !busy && freshFix != null, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("Confirm arrival & open boarding") }
-                                }
-                            }
-                        }
-                    }
-                    if (section == "Passengers" || section == "Home") {
-                        item {
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text("Passenger roster", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                    Text("${roster.count { it.status == "BOARDED" }} boarded · ${roster.size} assigned", color = Slate600)
-                                }
-                                IconButton(onClick = { rosterVersion++ }) { Icon(Icons.Default.Refresh, "Refresh passenger roster") }
-                            }
-                        }
-                        item {
-                            Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                listOf("ALL", "ASSIGNED", "BOARDED", "PENDING", "INACTIVE").forEach { status ->
-                                    FilterChip(statusFilter == status, { statusFilter = status }, label = { Text(status.lowercase().replaceFirstChar { it.uppercase() }) })
-                                }
-                            }
-                        }
-                        val visibleRoster = roster.filter { statusFilter == "ALL" || it.status == statusFilter }
-                        if (visibleRoster.isEmpty()) item { Text(if (roster.isEmpty()) "No passengers are assigned to this vehicle or journey yet." else "No passengers with this status.", color = Slate600) }
-                        items(visibleRoster, key = { it.id }) { passenger ->
-                            DriverPassengerRosterRow(passenger)
                         }
                     }
                 }
+                if (section != "Passengers" && selectedKey.isNotBlank()) item {
+                    DriverRouteOverview(routeName = vehicle?.routeName ?: "${journey?.origin.orEmpty()} → ${journey?.destination.orEmpty()}",
+                        vehiclePlate = vehicle?.plateNumber ?: journey?.plateNumber.orEmpty(), vehicleType = vehicle?.vehicleType.orEmpty(),
+                        schedule = scheduled, direction = displayDirection, canChangeDirection = vehicle != null && commuteTrip == null,
+                        stops = selectedStops, origin = journey?.origin, destination = journey?.destination, fix = freshFix,
+                        gpsStatus = gpsStatus, validation = validation, now = clockNow, language = language,
+                        onDirection = { direction = it; validation = null }, onReadiness = if (vehicle != null) ({ checkReadiness() }) else null,
+                        boarding = boardingEnabled, onComplete = { completeRoute() }, busy = busy)
+                    if (section == "My Trips") DriverBoardingBanner(boardingEnabled, journey?.status == "COMPLETED", driverHasPreciseFix(freshFix, clockNow), busy,
+                        validation, scheduled, clockNow, language, onConfirm = { confirmArrival() }, onScan = { openScanner() })
+                }
+                if (section == "Passengers" || section == "Home") {
+                    item { DriverRosterSummary(roster, onFilter = { statusFilter = it }, filter = statusFilter, language = language) }
+                    val visibleRoster = roster.filter { statusFilter == "ALL" || it.status == statusFilter }
+                    val shown = if (section == "Home") visibleRoster.take(5) else visibleRoster
+                    if (shown.isEmpty()) item { Text(if (roster.isEmpty()) driverText(language, "No passengers assigned yet.", "ተሳፋሪዎች እስካሁን አልተመደቡም።", "Imaltoonni hin ramadamne.") else driverText(language, "No passengers with this status.", "በዚህ ሁኔታ ያሉ ተሳፋሪዎች የሉም።", "Haala kanaan imaltoonni hin jiran."), color = Slate600, style = MaterialTheme.typography.bodySmall) }
+                    items(shown, key = { it.id }) { passenger -> DriverRosterRow(passenger, language = language) }
+                    item {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            if (section == "Home") TextButton(onClick = { section = "Passengers" }) { Text(driverText(language, "All passengers (${roster.size})", "ሁሉም ተሳፋሪዎች (${roster.size})", "Imaltoota hunda (${roster.size})")) }
+                            TextButton(onClick = { rosterVersion++ }) { Icon(Icons.Default.Refresh, null, Modifier.size(16.dp)); Spacer(Modifier.width(5.dp)); Text(driverText(language, "Refresh roster", "ዝርዝር አድስ", "Tarree haaromsi")) }
+                        }
+                    }
+                }
+                if (section == "Home") item { DriverDocumentsOverview(completionProfile, profileLoading, profileError, language) { documentsOpen = true } }
             }
         }
         if (scanOpen) {
@@ -313,44 +298,9 @@ fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                     }
                 }, onDismissResult = { scanResult = null; boardingNotice = null }, onCloseScanner = { scanOpen = false }, boardingNotice = boardingNotice)
         }
-        NavigationBar(
-            modifier = Modifier.align(Alignment.BottomCenter),
-            containerColor = Color(0xFF102F4D),
-            contentColor = Color.White,
-            tonalElevation = 8.dp
-        ) {
-            listOf(
-                "Home" to Icons.Default.Home,
-                "Passengers" to Icons.Default.People,
-                "Documents" to Icons.Default.Description,
-                "More" to Icons.Default.MoreHoriz
-            ).forEach { (label, icon) ->
-                val selected = when (label) {
-                    "Home" -> section == "Home" || section == "My Trips"
-                    "Passengers" -> section == "Passengers"
-                    "Documents" -> documentsOpen
-                    else -> section == "More"
-                }
-                NavigationBarItem(
-                    selected = selected,
-                    onClick = {
-                        when (label) {
-                            "Documents" -> documentsOpen = true
-                            else -> section = label
-                        }
-                    },
-                    icon = { Icon(icon, contentDescription = label) },
-                    label = { Text(if (label == "Home") "Today" else label) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Color(0xFF38D9B0),
-                        selectedTextColor = Color(0xFF38D9B0),
-                        unselectedIconColor = Color.White.copy(alpha = .82f),
-                        unselectedTextColor = Color.White.copy(alpha = .82f),
-                        indicatorColor = Color.White.copy(alpha = .12f)
-                    )
-                )
-            }
-        }
+        DriverBottomNavigation(section, documentsOpen, language,
+            onSection = { section = it }, onDocuments = { documentsOpen = true },
+            modifier = Modifier.align(Alignment.BottomCenter))
     }
 }
 

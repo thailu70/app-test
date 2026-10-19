@@ -91,7 +91,9 @@ internal fun PassengerTopBar(
     onNotifications: () -> Unit,
     onLanguage: () -> Unit,
     onLogout: () -> Unit,
-    onSelectLanguage: ((AppLanguage) -> Unit)? = null
+    onSelectLanguage: ((AppLanguage) -> Unit)? = null,
+    onToggleNetwork: (() -> Unit)? = null,
+    networkLabel: String = ""
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     TopAppBar(
@@ -113,6 +115,7 @@ internal fun PassengerTopBar(
                     DropdownMenuItem(text = { Text("Notifications" + if (notificationCount > 0) " ($notificationCount)" else "") }, leadingIcon = { Icon(Icons.Default.NotificationsNone, null) }, onClick = { menuOpen = false; onNotifications() }, modifier = Modifier.testTag("top_bar_notifications_button"))
                     DropdownMenuItem(text = { Text("Profile & documents") }, leadingIcon = { Icon(Icons.Default.AccountCircle, null) }, onClick = { menuOpen = false; onProfile() })
                     DropdownMenuItem(text = { Text(if (language == AppLanguage.ENGLISH) "አማርኛ" else "English") }, leadingIcon = { Icon(Icons.Default.Language, null) }, onClick = { menuOpen = false; onLanguage() }, modifier = Modifier.testTag("top_bar_language_button"))
+                    if (onToggleNetwork != null) DropdownMenuItem(text = { Text("Connection: $networkLabel") }, leadingIcon = { Icon(Icons.Default.Wifi, null) }, onClick = { onToggleNetwork() }, modifier = Modifier.testTag("top_bar_network_badge"))
                     DropdownMenuItem(text = { Text("Sign out") }, leadingIcon = { Icon(Icons.Default.Logout, null) }, onClick = { menuOpen = false; onLogout() }, modifier = Modifier.testTag("top_bar_logout_button"))
                 }
             }
@@ -247,7 +250,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
             modifier = Modifier.fillMaxSize(),
             contentWindowInsets = WindowInsets.safeDrawing,
             topBar = {
-                if (currentRole == AppRole.PASSENGER) {
+                if (currentRole == AppRole.PASSENGER || currentRole == AppRole.DRIVER) {
                     PassengerTopBar(
                         fullName = currentUser?.fullName.orEmpty(),
                         initials = currentUser?.avatarInitials.orEmpty(),
@@ -259,7 +262,9 @@ fun MainTransportApp(viewModel: MainViewModel) {
                         onNotifications = { viewModel.openNotificationTray() },
                         onLanguage = { viewModel.toggleLanguage() },
                         onLogout = { viewModel.logout() },
-                        onSelectLanguage = { viewModel.setLanguage(it) }
+                        onSelectLanguage = { viewModel.setLanguage(it) },
+                        onToggleNetwork = if (currentRole == AppRole.DRIVER) ({ viewModel.toggleNetworkMode() }) else null,
+                        networkLabel = networkStatus.name
                     )
                 } else TopAppBar(
                     title = {
