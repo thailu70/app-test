@@ -1,4 +1,14 @@
-# Current verification: driver portal
+# Current verification: welcome viewport fit
+
+Sizing-only update, APK 1.1.9/code 12, commit e1f4053. The existing native welcome composition now scales uniformly to the available safe screen height without a scroll container. Artwork, colours, wording, control order, selections and callbacks are unchanged.
+
+Android run 39332842362 and backend CI 39332842344 passed. All 18 checks passed, including complete Continue bounds and service/language/Continue taps without scrolling at 360 x 640 dp in English, Amharic and Afaan Oromoo. Reviewed native portrait and short-phone captures from verification artifact 12225660555; the full page and Continue fit. Landscape interaction also passed. No physical phone installation was performed.
+
+final result: passed
+
+---
+
+# Driver portal verification
 
 Driver portal version 1.1.8 passed the native Android visual review and all 17 automated checks on commit 5455358. Android build 39329916153 and backend CI 39329916243 succeeded. See [driver verification](design-qa-driver.md) for the source, screenshots, functional scope and physical-device testing limits. The earlier commuter review is in [commuter verification](design-qa-commuter.md).
 
