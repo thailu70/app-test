@@ -160,11 +160,42 @@ router.patch('/operations/drivers/:id/approval', authenticate, requireRole('COMP
     if(!['APPROVE','REJECT'].includes(action)) return res.status(400).json({success:false,error:'Choose APPROVE or REJECT.'});
     const driver=await DB.prepare("SELECT id,status FROM users WHERE id=? AND role='DRIVER' AND companyId=?").get(req.params.id,companyId);
     if(!driver) return res.status(404).json({success:false,error:'Driver not found in your company.'});
-    if(driver.status!=='PENDING' && action==='APPROVE') return res.status(409).json({success:false,error:'Only pending drivers can be approved.'});
+    if(driver.status==='DELETED') return res.status(409).json({success:false,error:'Deleted driver accounts cannot be reactivated.'});
     const status=action==='APPROVE'?'ACTIVE':'SUSPENDED';
     await DB.prepare("UPDATE users SET status=? WHERE id=? AND companyId=? AND role='DRIVER'").run(status,req.params.id,companyId);
     res.json({success:true,driver:{id:req.params.id,status},message:action==='APPROVE'?'Driver approved. Assign a company vehicle and route next.':'Driver application rejected.'});
   } catch(e){console.error('[Company] driver approval:',e);res.status(500).json({success:false,error:'Could not update driver approval.'});}
+});
+
+router.patch('/operations/drivers/:id/contact', authenticate, requireRole('COMPANY'), async (req,res) => {
+  try {
+    const companyId=req.user.companyId||req.user.id, phone=String(req.body.phone||'').trim();
+    if(!/^\+?[0-9 ()-]{7,24}$/.test(phone)||phone.replace(/\D/g,'').length<7) return res.status(400).json({success:false,error:'Enter a valid driver phone number.'});
+    const driver=await DB.prepare("SELECT id,fullName FROM users WHERE id=? AND role='DRIVER' AND companyId=?").get(req.params.id,companyId);
+    if(!driver)return res.status(404).json({success:false,error:'Driver not found in your company.'});
+    const duplicate=await DB.prepare('SELECT id FROM users WHERE phone=? AND id<>?').get(phone,driver.id);
+    if(duplicate)return res.status(409).json({success:false,error:'That phone number is already in use.'});
+    await DB.transaction(async tx=>{
+      await tx.prepare("UPDATE users SET phone=? WHERE id=? AND role='DRIVER' AND companyId=?").run(phone,driver.id,companyId);
+      await tx.prepare('INSERT INTO audit_logs (action,userId,role,details) VALUES (?,?,?,?)').run('COMPANY_DRIVER_PHONE_UPDATED',req.user.id,'COMPANY',`Updated phone for driver ${driver.id}`);
+    });
+    res.json({success:true,driver:{id:driver.id,fullName:driver.fullName,phone},message:'Driver phone number updated.'});
+  }catch(e){console.error('[Company] driver phone update:',e);res.status(500).json({success:false,error:'Could not update driver phone number.'});}
+});
+
+router.delete('/operations/drivers/:id', authenticate, requireRole('COMPANY'), async (req,res) => {
+  try {
+    const companyId=req.user.companyId||req.user.id;
+    const driver=await DB.prepare("SELECT id,fullName FROM users WHERE id=? AND role='DRIVER' AND companyId=?").get(req.params.id,companyId);
+    if(!driver)return res.status(404).json({success:false,error:'Driver not found in your company.'});
+    await DB.transaction(async tx=>{
+      await tx.prepare("UPDATE users SET status='DELETED', phone=?, email=? WHERE id=? AND role='DRIVER' AND companyId=?").run(`deleted:${driver.id}`,`deleted:${driver.id}@invalid.routepass`,driver.id,companyId);
+      await tx.prepare("UPDATE vehicles SET driverId=NULL, driverName='', assignedRouteId=NULL, status='OFF_DUTY', updatedAt=CURRENT_TIMESTAMP WHERE driverId=? AND companyId=?").run(driver.id,companyId);
+      await tx.prepare("UPDATE company_route_assignments SET status='INACTIVE' WHERE driver_id=? AND company_id=? AND status='ACTIVE'").run(driver.id,companyId);
+      await tx.prepare('INSERT INTO audit_logs (action,userId,role,details) VALUES (?,?,?,?)').run('COMPANY_DRIVER_DELETED',req.user.id,'COMPANY',`Deleted driver account ${driver.id}`);
+    });
+    res.json({success:true,message:'Driver account deleted and removed from active assignments.'});
+  }catch(e){console.error('[Company] driver delete:',e);res.status(500).json({success:false,error:'Could not delete driver account.'});}
 });
 
 /** Company-owned routes. */

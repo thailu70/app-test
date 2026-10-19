@@ -111,6 +111,44 @@ router.patch('/drivers/:id/approval', async (req, res) => {
   }
 });
 
+/** Update or retire a daily-commute driver account without changing its history. */
+router.patch('/drivers/:id/contact', async (req, res) => {
+  try {
+    const phone = String(req.body.phone || '').trim();
+    if (!/^\+?[0-9 ()-]{7,24}$/.test(phone) || phone.replace(/\D/g, '').length < 7) {
+      return res.status(400).json({ success: false, error: 'Enter a valid driver phone number.' });
+    }
+    const driver = await DB.prepare("SELECT id, fullName FROM users WHERE id=? AND role='DRIVER' AND COALESCE(companyId,'')=''").get(req.params.id);
+    if (!driver) return res.status(404).json({ success: false, error: 'Driver account not found.' });
+    const duplicate = await DB.prepare('SELECT id FROM users WHERE phone=? AND id<>?').get(phone, driver.id);
+    if (duplicate) return res.status(409).json({ success: false, error: 'That phone number is already in use.' });
+    await DB.transaction(async tx => {
+      await tx.prepare('UPDATE users SET phone=? WHERE id=? AND role=\'DRIVER\'').run(phone, driver.id);
+      await tx.prepare('INSERT INTO audit_logs (action,userId,role,details) VALUES (?,?,?,?)').run('DRIVER_PHONE_UPDATED', req.user.id, 'ADMIN', `Updated phone for driver ${driver.id}`);
+    });
+    res.json({ success: true, driver: { id: driver.id, fullName: driver.fullName, phone }, message: 'Driver phone number updated.' });
+  } catch (err) {
+    console.error('[Admin] driver phone update failed:', err);
+    res.status(500).json({ success: false, error: 'Could not update driver phone number.' });
+  }
+});
+
+router.delete('/drivers/:id', async (req, res) => {
+  try {
+    const driver = await DB.prepare("SELECT id, fullName FROM users WHERE id=? AND role='DRIVER' AND COALESCE(companyId,'')=''").get(req.params.id);
+    if (!driver) return res.status(404).json({ success: false, error: 'Driver account not found.' });
+    await DB.transaction(async tx => {
+      await tx.prepare("UPDATE users SET status='DELETED', phone=?, email=? WHERE id=? AND role='DRIVER'").run(`deleted:${driver.id}`, `deleted:${driver.id}@invalid.routepass`, driver.id);
+      await tx.prepare("UPDATE vehicles SET driverId=NULL, driverName='', assignedRouteId=NULL, status='MAINTENANCE', updatedAt=CURRENT_TIMESTAMP WHERE driverId=?").run(driver.id);
+      await tx.prepare('INSERT INTO audit_logs (action,userId,role,details) VALUES (?,?,?,?)').run('DRIVER_DELETED', req.user.id, 'ADMIN', `Deleted driver account ${driver.id}`);
+    });
+    res.json({ success: true, message: 'Driver account deleted and its vehicle taken out of service.' });
+  } catch (err) {
+    console.error('[Admin] driver delete failed:', err);
+    res.status(500).json({ success: false, error: 'Could not delete driver account.' });
+  }
+});
+
 /**
  * PATCH /api/admin/drivers/:id/route
  * Assign an active route to a driver's own registered vehicle after approval.

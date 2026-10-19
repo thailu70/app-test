@@ -129,7 +129,7 @@
       section("Recently created driver accounts", "Latest driver records currently on the server.",
         table([
           { label: "Driver", render: r => "<strong>" + esc(value(r, "fullName", "full_name")) + "</strong>" },
-          { label: "Phone / username", keys: ["phone"] },
+          { label: "Phone / username", render: r => '<div class="inline-actions"><span>' + esc(value(r, "phone")) + '</span><button class="btn btn-secondary" data-edit-driver-phone="' + esc(value(r, "id")) + '">Edit</button></div>' },
           { label: "Vehicle", keys: ["assignedVehiclePlate", "assigned_vehicle_plate"] },
           { label: "Route", keys: ["appliedRouteName", "applied_route_name"] },
           { label: "Status", render: r => pill(value(r, "status")) }
@@ -175,6 +175,7 @@
   async function renderDrivers() {
     await loadLookups();
     const data = asArray(await api("/api/admin/drivers"), "drivers");
+    state.cache.drivers = data;
     const routes = (state.cache.routes || []).filter(r => r.active !== false && r.active !== 0);
     return pageHeader("Driver approval & routes", "Review new driver registrations, approve verified drivers, then assign their operating route. Drivers retain ownership of their vehicles.",
       '<button class="btn btn-secondary" data-go="routes">Manage routes</button>') +
@@ -201,6 +202,11 @@
               '<option value="' + esc(route.id) + '" ' + (route.id === selected ? "selected" : "") + '>' + esc(value(route, "name")) + '</option>'
             ).join("");
             return '<div class="inline-actions"><select data-route-for="' + id + '" aria-label="Route for ' + esc(value(r, "fullName")) + '" style="min-width:170px;padding:7px;border:1px solid #d5deea;border-radius:8px">' + options + '</select><button class="btn btn-primary" data-assign-route="' + id + '">Assign</button></div>';
+          }},
+          { label: "Account actions", render: r => {
+            const id = esc(value(r, "id")), status = String(r.status || "").toUpperCase();
+            if (status === "DELETED") return pill(status);
+            return '<div class="inline-actions"><button class="btn btn-secondary" data-toggle-driver="' + id + '" data-driver-status="' + (status === "ACTIVE" ? "SUSPENDED" : "ACTIVE") + '">' + (status === "ACTIVE" ? "Deactivate" : "Reactivate") + '</button><button class="btn btn-danger" data-delete-driver="' + id + '">Delete</button></div>';
           }}
         ], data));
   }
@@ -521,6 +527,27 @@
     } catch (error) { toast(error.message, true); button.disabled = false; }
   }
 
+  async function editDriverPhone(button) {
+    const driver = (state.cache.drivers || []).find(d => String(d.id) === String(button.dataset.editDriverPhone));
+    const phone = window.prompt("New driver phone number", driver?.phone || "");
+    if (phone === null) return;
+    try {
+      await api("/api/admin/drivers/" + encodeURIComponent(button.dataset.editDriverPhone) + "/contact", { method: "PATCH", body: JSON.stringify({ phone: phone.trim() }) });
+      toast("Driver phone number updated."); await renderView();
+    } catch (error) { toast(error.message, true); }
+  }
+  async function toggleDriver(button) {
+    const status = button.dataset.driverStatus;
+    if (status === "SUSPENDED" && !window.confirm("Deactivate this driver? They will be signed out and cannot operate until reactivated.")) return;
+    try { await api("/api/admin/drivers/" + encodeURIComponent(button.dataset.toggleDriver) + "/approval", { method: "PATCH", body: JSON.stringify({ status }) }); toast(status === "ACTIVE" ? "Driver reactivated." : "Driver deactivated."); await renderView(); }
+    catch (error) { toast(error.message, true); }
+  }
+  async function deleteDriver(button) {
+    if (!window.confirm("Delete this driver account? This removes login access and takes the vehicle out of service.")) return;
+    try { await api("/api/admin/drivers/" + encodeURIComponent(button.dataset.deleteDriver), { method: "DELETE" }); toast("Driver account deleted."); await renderView(); }
+    catch (error) { toast(error.message, true); }
+  }
+
   async function assignDriverRoute(button) {
     const driverId = button.dataset.assignRoute;
     const select = $$("[data-route-for]").find(item => item.dataset.routeFor === driverId);
@@ -697,6 +724,12 @@
     if (goButton) { state.view = goButton.dataset.go; renderView(); return; }
     const approvalButton = event.target.closest("[data-driver-approval]");
     if (approvalButton) { updateDriverApproval(approvalButton); return; }
+    const editDriverPhoneButton = event.target.closest("[data-edit-driver-phone]");
+    if (editDriverPhoneButton) { editDriverPhone(editDriverPhoneButton); return; }
+    const toggleDriverButton = event.target.closest("[data-toggle-driver]");
+    if (toggleDriverButton) { toggleDriver(toggleDriverButton); return; }
+    const deleteDriverButton = event.target.closest("[data-delete-driver]");
+    if (deleteDriverButton) { deleteDriver(deleteDriverButton); return; }
     const assignRouteButton = event.target.closest("[data-assign-route]");
     if (assignRouteButton) { assignDriverRoute(assignRouteButton); return; }
     const assignVehicleButton = event.target.closest("[data-assign-vehicle]");
