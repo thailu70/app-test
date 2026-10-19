@@ -38,7 +38,7 @@ fun PassoWelcomeScreen(
             Text("PASSO", color = navy, fontSize = 40.sp, fontWeight = FontWeight.Black)
             Text("Go Further, Together.", color = TransportGreenPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
-'        Surface(color = Color.White, shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth().height(230.dp)) {
+        Surface(color = Color.White, shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth().height(230.dp)) {
             Box {
                 Image(
                     painter = painterResource(com.example.R.drawable.passo_hero_background),
@@ -90,6 +90,7 @@ private fun LanguagePill(label: String, selected: Boolean, modifier: Modifier) {
         Box(contentAlignment = Alignment.Center) { Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
     }
 }
+
 
 
 
