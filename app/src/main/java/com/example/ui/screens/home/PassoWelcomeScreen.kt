@@ -130,7 +130,7 @@ private fun WelcomeServiceCard(title: String, subtitle: String, artworkX: Int, i
                     Modifier.fillMaxWidth().aspectRatio(0.93f).clip(RoundedCornerShape(18.dp)))
                 if (selected) Icon(Icons.Default.CheckCircle, "Selected", Modifier.align(Alignment.TopEnd).padding(5.dp).size(20.dp), tint = WelcomeTeal)
             }
-            Column(Modifier.padding(9.dp).heightIn(min = 65.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.padding(9.dp).heightIn(min = 47.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, color = WelcomeInk)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(subtitle, modifier = Modifier.weight(1f), fontSize = 11.sp, lineHeight = 14.sp, color = Color(0xFF47545D))
