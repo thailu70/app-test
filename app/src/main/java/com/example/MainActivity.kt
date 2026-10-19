@@ -168,6 +168,9 @@ fun MainTransportApp(viewModel: MainViewModel) {
         var requestedRouteId by remember { mutableStateOf<String?>(null) }
         var requestedRouteName by remember { mutableStateOf<String?>(null) }
         var requestedServiceTier by remember { mutableStateOf<String?>(null) }
+        androidx.activity.compose.BackHandler(enabled = !showWelcome && !showIntercityPortal && !showCompanyPortal) {
+            showWelcome = true
+        }
         if (showWelcome) {
             PassoWelcomeScreen(
                 onContinue = { service ->
@@ -185,7 +188,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                 modifier = Modifier.fillMaxSize()
             )
         } else if (showIntercityPortal) {
-            HostedPortalScreen("/travel/", "Intercity travel", onExit = { showIntercityPortal = false; showPublicHome = true })
+            HostedPortalScreen("/travel/", "Intercity travel", onExit = { showIntercityPortal = false; showWelcome = true })
         } else if (showCompanyPortal) {
             CompanyPortalScreen(onExit = {
                 ApiClient.setAuthToken(null)
@@ -196,6 +199,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
             BrowseFirstScreen(
                 viewModel = viewModel,
                 startWithRoutes = true,
+                onWelcome = { showWelcome = true },
                 onIntercityTravel = { showIntercityPortal = true; showPublicHome = false },
                 onPassengerContinue = { registerFirst, routeId, routeName, tier ->
                     requestedAuthPortal = AppRole.PASSENGER
@@ -216,7 +220,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
             topBar = {
                 TopAppBar(
                     navigationIcon = {
-                        TextButton(onClick = { showPublicHome = true; requestedAuthPortal = null; requestedRegisterFirst = false; requestedRouteId = null; requestedRouteName = null; requestedServiceTier = null }) {
+                        TextButton(onClick = { showWelcome = true; showPublicHome = true; requestedAuthPortal = null; requestedRegisterFirst = false; requestedRouteId = null; requestedRouteName = null; requestedServiceTier = null }) {
                             Text("Back", color = TransportGreenPrimary, fontWeight = FontWeight.Bold)
                         }
                     },

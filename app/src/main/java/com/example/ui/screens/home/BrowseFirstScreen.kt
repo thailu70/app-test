@@ -57,6 +57,7 @@ fun BrowseFirstScreen(
     onCompanyAccess: () -> Unit,
     onIntercityTravel: () -> Unit = {},
     startWithRoutes: Boolean = false,
+    onWelcome: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val routes by viewModel.activeRoutes.collectAsState()
@@ -202,7 +203,7 @@ fun BrowseFirstScreen(
         } else {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    TextButton(onClick = { selectedSection = 0 }) { Text("← Home", color = HomeGreen, fontWeight = FontWeight.Bold) }
+                    TextButton(onClick = { if (startWithRoutes) onWelcome() else selectedSection = 0 }) { Text("← Home", color = HomeGreen, fontWeight = FontWeight.Bold) }
                     Text(if (selectedSection == 1) "Daily Commuter" else if (selectedSection == 3) "Journey results" else "Intercity Travel", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = HomeInk)
                 }
             }
@@ -392,7 +393,7 @@ fun BrowseFirstScreen(
         }
     }
     NavigationBar(containerColor = Color.White, tonalElevation = 8.dp) {
-        NavigationBarItem(selected = selectedSection == 0, onClick = { selectedSection = 0 }, icon = { Icon(Icons.Default.Work, contentDescription = "Home") }, label = { Text("Home") })
+        NavigationBarItem(selected = selectedSection == 0, onClick = { if (startWithRoutes) onWelcome() else selectedSection = 0 }, icon = { Icon(Icons.Default.Work, contentDescription = "Home") }, label = { Text("Home") })
         NavigationBarItem(selected = selectedSection == 1 || selectedSection == 2 || selectedSection == 3, onClick = { selectedSection = 1 }, icon = { Icon(Icons.Default.Search, contentDescription = "Search") }, label = { Text("Search") })
         NavigationBarItem(selected = false, onClick = { onPassengerContinue(false, null, null, null) }, icon = { Icon(Icons.Default.CalendarMonth, contentDescription = "Tickets") }, label = { Text("Tickets") })
         NavigationBarItem(selected = false, onClick = { onPassengerContinue(false, null, null, null) }, icon = { Icon(Icons.Default.Luggage, contentDescription = "More") }, label = { Text("More") })

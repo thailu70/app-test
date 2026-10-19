@@ -4,7 +4,9 @@ import android.graphics.Bitmap
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.activity.ComponentActivity
+import android.graphics.Canvas
 import com.example.core.localization.AppLanguage
 import com.example.ui.screens.home.PassoWelcomeScreen
 import com.example.ui.screens.home.WelcomeService
@@ -22,7 +24,18 @@ import java.io.File
 @Config(sdk = [35], qualifiers = "w393dp-h852dp-xhdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class WelcomeLayoutTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+
+    private fun captureWindow(): Bitmap {
+        compose.waitForIdle()
+        lateinit var bitmap: Bitmap
+        compose.runOnIdle {
+            val view = compose.activity.window.decorView
+            bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+            view.draw(Canvas(bitmap))
+        }
+        return bitmap
+    }
 
     @Test fun `service choice reaches Continue and language updates real controls`() {
         var destination: WelcomeService? = null
@@ -33,7 +46,7 @@ class WelcomeLayoutTest {
             }
         }
         val dir = File("build/welcome-previews").apply { mkdirs() }
-        compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
+        captureWindow().let { bitmap ->
             File(dir, "welcome-top.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
         WelcomeService.entries.forEach { service ->
@@ -41,7 +54,7 @@ class WelcomeLayoutTest {
             compose.onNodeWithTag("welcome_continue").performScrollTo().performClick()
             assertEquals(service, destination)
         }
-        compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
+        captureWindow().let { bitmap ->
             File(dir, "welcome-controls.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
         compose.onNodeWithTag("welcome_language_om").performScrollTo().performClick()
