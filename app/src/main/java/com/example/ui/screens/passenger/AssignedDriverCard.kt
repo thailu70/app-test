@@ -62,7 +62,7 @@ private fun String.availableDetail(): String? = trim().takeUnless {
     it.lowercase() in setOf("", "not provided", "not set", "unknown", "null", "undefined", "n/a", "-")
 }
 
-private fun friendlyVehicleType(raw: String): String? = when (raw.uppercase()) {
+internal fun friendlyVehicleType(raw: String): String? = when (raw.uppercase()) {
     "MINIVAN_8" -> "Minivan · 8 seats"
     "MINIBUS_14" -> "Minibus · 14 seats"
     "HIGER_24" -> "Bus · 24 seats"

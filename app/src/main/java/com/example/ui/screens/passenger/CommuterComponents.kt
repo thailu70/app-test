@@ -27,6 +27,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -76,8 +78,8 @@ fun CommuterLanguageSwitch(language: AppLanguage, onLanguage: (AppLanguage) -> U
             AppLanguage.entries.forEach { item ->
                 Surface(color = if (language == item) CommuteTeal else Color.Transparent, shape = CircleShape, modifier = Modifier.weight(1f)) {
                     Box(Modifier.selectable(language == item, role = Role.RadioButton, onClick = { onLanguage(item) })
-                        .testTag("commuter_language_${item.code}").heightIn(min = if (compact) 36.dp else 40.dp).padding(horizontal = 2.dp), contentAlignment = Alignment.Center) {
-                        Text(item.displayName, fontSize = if (compact) 9.sp else 12.sp, fontWeight = FontWeight.SemiBold, color = if (language == item) Color.White else CommuteInk)
+                        .testTag("commuter_language_${item.code}").semantics { contentDescription = item.displayName }.heightIn(min = if (compact) 36.dp else 40.dp).padding(horizontal = 2.dp), contentAlignment = Alignment.Center) {
+                        Text(if (compact && item == AppLanguage.OROMO) "Oromoo" else item.displayName, maxLines = 1, softWrap = false, lineHeight = 15.sp, letterSpacing = 0.sp, fontSize = if (compact) 10.sp else 12.sp, fontWeight = FontWeight.SemiBold, color = if (language == item) Color.White else CommuteInk)
                     }
                 }
             }
@@ -144,7 +146,7 @@ fun CommuterActiveTripCard(
                                 Text(commuteText(lang, "Call driver", "ሹፌሩን ይደውሉ", "Bilbili"), fontSize = 11.sp, color = CommuteTeal)
                             }
                             driver.phone.cleanDetail()?.let { Text(it, fontSize = 10.sp, color = CommuteInk) }
-                            Text(listOfNotNull(driver.model.cleanDetail(), driver.vehicleColor.cleanDetail(), driver.vehicleType.cleanDetail()?.replace('_', ' ')).joinToString(" · "), fontSize = 11.sp, lineHeight = 14.sp, color = Color(0xFF526270))
+                            Text(listOfNotNull(driver.model.cleanDetail(), driver.vehicleColor.cleanDetail(), friendlyVehicleType(driver.vehicleType)).joinToString(" · "), fontSize = 11.sp, lineHeight = 14.sp, color = Color(0xFF526270))
                             driver.plateNumber.cleanDetail()?.let { plate ->
                                 Surface(shape = RoundedCornerShape(5.dp), border = BorderStroke(1.dp, Color(0xFFD4DDD7))) { Text(plate, Modifier.padding(horizontal = 7.dp, vertical = 3.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = CommuteInk) }
                             }
