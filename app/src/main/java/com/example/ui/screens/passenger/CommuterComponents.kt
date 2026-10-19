@@ -70,14 +70,14 @@ fun CommuterWordmark(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun CommuterLanguageSwitch(language: AppLanguage, onLanguage: (AppLanguage) -> Unit) {
+fun CommuterLanguageSwitch(language: AppLanguage, onLanguage: (AppLanguage) -> Unit, compact: Boolean = false) {
     Surface(color = Color(0xFFF1F1EB), shape = CircleShape, border = BorderStroke(1.dp, Color(0xFFE3E6DF))) {
         Row(Modifier.fillMaxWidth().padding(4.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             AppLanguage.entries.forEach { item ->
                 Surface(color = if (language == item) CommuteTeal else Color.Transparent, shape = CircleShape, modifier = Modifier.weight(1f)) {
                     Box(Modifier.selectable(language == item, role = Role.RadioButton, onClick = { onLanguage(item) })
-                        .testTag("commuter_language_${item.code}").heightIn(min = 40.dp).padding(horizontal = 4.dp), contentAlignment = Alignment.Center) {
-                        Text(item.displayName, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (language == item) Color.White else CommuteInk)
+                        .testTag("commuter_language_${item.code}").heightIn(min = if (compact) 36.dp else 40.dp).padding(horizontal = 2.dp), contentAlignment = Alignment.Center) {
+                        Text(item.displayName, fontSize = if (compact) 9.sp else 12.sp, fontWeight = FontWeight.SemiBold, color = if (language == item) Color.White else CommuteInk)
                     }
                 }
             }
@@ -87,11 +87,11 @@ fun CommuterLanguageSwitch(language: AppLanguage, onLanguage: (AppLanguage) -> U
 
 @Composable
 fun CommuterGreeting(lang: AppLanguage, hasPass: Boolean) {
-    Box(Modifier.fillMaxWidth().heightIn(min = 138.dp)) {
-        Image(painterResource(R.drawable.commuter_skyline), null, Modifier.align(Alignment.BottomEnd).width(145.dp).height(105.dp), contentScale = ContentScale.Fit)
+    Box(Modifier.fillMaxWidth().heightIn(min = 112.dp)) {
+        Image(painterResource(R.drawable.commuter_skyline), null, Modifier.align(Alignment.BottomEnd).width(145.dp).height(90.dp), contentScale = ContentScale.Fit)
         Column(Modifier.padding(bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(commuteText(lang, "YOUR DAILY COMMUTE", "የእርስዎ የዕለት ጉዞ", "IMALA GUYYAA KEETII"), color = Color(0xFF566775), fontSize = 10.sp, letterSpacing = 2.sp, fontWeight = FontWeight.SemiBold)
-            Text(if (hasPass) commuteText(lang, "Your daily ride,\nmade easier.", "የዕለት ጉዞዎ፣\nበቀላሉ።", "Imala guyyaa,\nsalphaa taasifame.") else commuteText(lang, "A better commute\nstarts here.", "የተሻለ ጉዞ\nእዚህ ይጀምራል።", "Imalli fooyya'aan\nasitti jalqaba."), color = CommuteInk, fontSize = 28.sp, lineHeight = 31.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.fillMaxWidth(0.8f))
+            Text(if (hasPass) commuteText(lang, "Your daily ride.", "የዕለት ጉዞዎ፣\nበቀላሉ።", "Imala guyyaa,\nsalphaa taasifame.") else commuteText(lang, "A better commute.", "የተሻለ ጉዞ\nእዚህ ይጀምራል።", "Imalli fooyya'aan\nasitti jalqaba."), color = CommuteInk, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.fillMaxWidth())
             Text(commuteText(lang, "Same people. A clearer,\neasier commute.", "አብረን። ግልጽ እና\nቀላል ጉዞ።", "Namoota tokko. Imala\nsalphaa fi ifa ta'e."), color = Color(0xFF526270), fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.fillMaxWidth(0.66f))
         }
     }
@@ -118,7 +118,7 @@ fun CommuterActiveTripCard(
                 Text(commuteText(lang, if (canBoard) "ACTIVE COMMUTE" else "YOUR COMMUTE", "የእርስዎ ጉዞ", "IMALA KEETII"), Modifier.weight(1f), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, color = Color.White)
                 Text(SimpleDateFormat("EEE, d MMM", Locale.ENGLISH).apply { timeZone = TimeZone.getTimeZone("Africa/Addis_Ababa") }.format(Date()), fontSize = 10.sp, color = Color.White)
             }
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(routeName?.takeIf { it.isNotBlank() } ?: commuteText(lang, "Route awaiting assignment", "መስመር እየተጠበቀ ነው", "Karaa eeggachaa jira"), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -126,13 +126,15 @@ fun CommuterActiveTripCard(
                         CommuteStop(commuteText(lang, "Return", "መመለሻ", "Deebii") + " · " + evening.ifBlank { "—" }, destination ?: commuteText(lang, "Return departure", "የመመለሻ መነሻ", "Ka'umsa galgalaa"), if (destination != null) commuteText(lang, "Return pickup", "የመመለሻ መሳፈሪያ", "Ka'umsa deebii") else null)
                     }
                     VerticalDivider(Modifier.height(154.dp), color = Color(0xFFEDF0EA))
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (driver == null) {
                             Icon(Icons.Default.AccountCircle, null, Modifier.size(48.dp), tint = Color(0xFFBDCCC4))
                             Text(commuteText(lang, if (loadingDriver) "Loading driver…" else "Driver awaiting assignment", "ሹፌር እየተጠበቀ ነው", "Konkolaachisaa eeggachaa jira"), fontSize = 12.sp, color = CommuteInk)
                         } else {
-                            driverPortrait(driver.userId)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(Modifier.size(40.dp)) { driverPortrait(driver.userId) }
                             Text(driver.fullName.takeIf { it.isNotBlank() } ?: commuteText(lang, "Your driver", "ሹፌርዎ", "Konkolaachisaa kee"), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
+                            }
                             if (driver.phone.any(Char::isDigit)) OutlinedButton(onClick = {
                                 try { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", driver.phone, null))) }
                                 catch (_: android.content.ActivityNotFoundException) { callError = true }
@@ -152,14 +154,16 @@ fun CommuterActiveTripCard(
                 if (driverError != null) TextButton(onClick = onRetry) { Text(commuteText(lang, "Refresh driver details", "የሹፌር መረጃ አድስ", "Odeeffannoo haaromsi"), fontSize = 12.sp) }
                 if (callError) Text(driver?.phone.orEmpty(), color = CommuteInk)
                 HorizontalDivider(color = Color(0xFFEDF0EA))
-                if (subscription != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(commuteText(lang, "${subscription.daysRemaining.coerceAtLeast(0)} days remaining", "${subscription.daysRemaining.coerceAtLeast(0)} ቀናት ቀርተዋል", "Guyyoota ${subscription.daysRemaining.coerceAtLeast(0)} hafe"), fontSize = 12.sp, color = Color(0xFF526270))
-                    Text(commuteText(lang, when (passengerBoardingStatus(subscription)) { "ACTIVE" -> "Pass active"; "EXPIRED" -> "Pass expired"; "CANCELLED" -> "Pass cancelled"; else -> "Activation pending" }, if (canBoard) "ንቁ" else "ማግበር ይጠብቃል", if (canBoard) "Kan hojjetu" else "Eeggachaa"), fontSize = 12.sp, color = CommuteTeal, fontWeight = FontWeight.Bold)
-                }
-                subscription?.endDate?.takeIf { it.isNotBlank() }?.let { Text(commuteText(lang, "Valid until", "የሚያበቃበት ቀን", "Hanga") + " " + it.take(10), fontSize = 11.sp, color = Color(0xFF526270)) }
-                if (subscription == null) Text(commuteText(lang, "Your approved route and pass will appear here after activation.", "መስመርዎ እና የጉዞ ፈቃድዎ ሲነቃ እዚህ ይታያል።", "Karaan fi hayyamni kee erga mirkanaa'ee asitti mul'ata."), fontSize = 12.sp, color = Color(0xFF526270))
-                if (subscription != null && subscription.subscriptionStatus != "CANCELLED") TextButton(onClick = onRenew, enabled = paymentAvailable, modifier = Modifier.align(Alignment.End).testTag("commuter_payment_action")) {
-                    Text(commuteText(lang, if (canBoard) "Renew pass" else "Payment options", if (canBoard) "የጉዞ ፈቃድ አድስ" else "የክፍያ አማራጮች", if (canBoard) "Hayyama haaromsi" else "Filannoo kaffaltii"))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        if (subscription != null) {
+                            Text(commuteText(lang, "${subscription.daysRemaining.coerceAtLeast(0)} days remaining", "${subscription.daysRemaining.coerceAtLeast(0)} ቀናት ቀርተዋል", "Guyyoota ${subscription.daysRemaining.coerceAtLeast(0)} hafe"), fontSize = 11.sp, color = Color(0xFF526270))
+                            subscription.endDate.takeIf { it.isNotBlank() }?.let { Text(commuteText(lang, "Valid until", "የሚያበቃበት ቀን", "Hanga") + " " + it.take(10), fontSize = 10.sp, color = Color(0xFF526270)) }
+                        } else Text(commuteText(lang, "Your pass appears after activation.", "የጉዞ ፈቃድዎ ሲነቃ ይታያል።", "Hayyamni erga mirkanaa'ee mul'ata."), fontSize = 11.sp, color = Color(0xFF526270))
+                    }
+                    if (subscription != null && subscription.subscriptionStatus != "CANCELLED") TextButton(onClick = onRenew, enabled = paymentAvailable, modifier = Modifier.testTag("commuter_payment_action")) {
+                        Text(commuteText(lang, if (canBoard) "Renew pass" else "Payment options", if (canBoard) "አድስ" else "የክፍያ አማራጮች", if (canBoard) "Haaromsi" else "Kaffaltii"), fontSize = 11.sp)
+                    }
                 }
             }
         }
@@ -220,5 +224,13 @@ fun CommuterLocationCard(vehicle: TrackedVehicleDto?, message: String?, lang: Ap
                 Text(message?.takeIf { it.isNotBlank() } ?: commuteText(lang, "Your driver's location will appear when GPS sharing starts.", "የሹፌርዎ ቦታ ማጋራት ሲጀምር ይታያል።", "Bakka konkolaachisaa yeroo GPS banamu ni argita."), fontSize = 12.sp, lineHeight = 17.sp, color = Color(0xFF526270))
             }
         }
+    }
+}
+
+@Composable
+fun CommuterHeader(language: AppLanguage, onLanguage: (AppLanguage) -> Unit, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        CommuterWordmark(Modifier.width(132.dp))
+        Box(Modifier.weight(1f)) { CommuterLanguageSwitch(language, onLanguage, compact = true) }
     }
 }

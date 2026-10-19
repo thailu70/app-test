@@ -50,6 +50,7 @@ import com.example.ui.screens.profile.ProfileCompletionScreen
 import com.example.ui.screens.driver.DriverTripScreen
 import com.example.ui.screens.passenger.PassengerDashboardScreen
 import com.example.ui.screens.passenger.CommuterWordmark
+import com.example.ui.screens.passenger.CommuterHeader
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.AppRole
 import com.example.ui.viewmodel.MainViewModel
@@ -89,13 +90,14 @@ internal fun PassengerTopBar(
     onBack: () -> Unit,
     onNotifications: () -> Unit,
     onLanguage: () -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onSelectLanguage: ((AppLanguage) -> Unit)? = null
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     TopAppBar(
         title = {
             if (profileOpen) Text("Your profile", fontWeight = FontWeight.Bold)
-            else CommuterWordmark()
+            else if (onSelectLanguage != null) CommuterHeader(language, onSelectLanguage) else CommuterWordmark()
         },
         navigationIcon = {
             if (profileOpen) IconButton(onClick = onBack, modifier = Modifier.testTag("top_bar_profile_button")) {
@@ -103,16 +105,12 @@ internal fun PassengerTopBar(
             }
         },
         actions = {
-            IconButton(onClick = onNotifications, modifier = Modifier.testTag("top_bar_notifications_button")) {
-                BadgedBox(badge = { if (notificationCount > 0) Badge { Text(if (notificationCount > 9) "9+" else notificationCount.toString()) } }) {
-                    Icon(Icons.Default.NotificationsNone, contentDescription = "Notifications")
-                }
-            }
             Box {
                 IconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("passenger_account_menu")) {
                     Icon(Icons.Default.MoreVert, contentDescription = "Account options")
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(text = { Text("Notifications" + if (notificationCount > 0) " ($notificationCount)" else "") }, leadingIcon = { Icon(Icons.Default.NotificationsNone, null) }, onClick = { menuOpen = false; onNotifications() }, modifier = Modifier.testTag("top_bar_notifications_button"))
                     DropdownMenuItem(text = { Text("Profile & documents") }, leadingIcon = { Icon(Icons.Default.AccountCircle, null) }, onClick = { menuOpen = false; onProfile() })
                     DropdownMenuItem(text = { Text(if (language == AppLanguage.ENGLISH) "አማርኛ" else "English") }, leadingIcon = { Icon(Icons.Default.Language, null) }, onClick = { menuOpen = false; onLanguage() }, modifier = Modifier.testTag("top_bar_language_button"))
                     DropdownMenuItem(text = { Text("Sign out") }, leadingIcon = { Icon(Icons.Default.Logout, null) }, onClick = { menuOpen = false; onLogout() }, modifier = Modifier.testTag("top_bar_logout_button"))
@@ -260,7 +258,8 @@ fun MainTransportApp(viewModel: MainViewModel) {
                         onBack = { showProfile = false },
                         onNotifications = { viewModel.openNotificationTray() },
                         onLanguage = { viewModel.toggleLanguage() },
-                        onLogout = { viewModel.logout() }
+                        onLogout = { viewModel.logout() },
+                        onSelectLanguage = { viewModel.setLanguage(it) }
                     )
                 } else TopAppBar(
                     title = {

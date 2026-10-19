@@ -63,8 +63,7 @@ class CommuterLayoutTest {
         compose.setContent {
             MyApplicationTheme {
                 Column(Modifier.fillMaxSize().background(CommuteCream).verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    CommuterWordmark()
-                    CommuterLanguageSwitch(language) { language = it }
+                    CommuterHeader(language, onLanguage = { language = it })
                     CommuterGreeting(language, true)
                     CommuterActiveTripCard(pass, route, route.name, emptyList(), driver, false, null, language,
                         onRetry = {}, onShowPass = { opened++ }, onRenew = { renewed++ }, paymentAvailable = true,
@@ -92,16 +91,16 @@ class CommuterLayoutTest {
     @Test fun `home QR encodes server token and is removed when pass becomes ineligible`() {
         var pass by mutableStateOf(passengerPreviewSubscription())
         compose.setContent { MyApplicationTheme { CommuterBoardingPreview(pass, "Assigned route", AppLanguage.ENGLISH) {} } }
-        compose.onNodeWithTag("commuter_home_qr").assertExists()
-        val bounds = compose.onNodeWithTag("commuter_home_qr").fetchSemanticsNode().boundsInWindow
+        compose.onNodeWithTag("commuter_home_qr", useUnmergedTree = true).assertExists()
+        val bounds = compose.onNodeWithTag("commuter_home_qr", useUnmergedTree = true).fetchSemanticsNode().boundsInWindow
         val screenshot = capture("03-home-qr")
         val qr = Bitmap.createBitmap(screenshot, bounds.left.toInt(), bounds.top.toInt(), bounds.width.toInt(), bounds.height.toInt())
         val pixels = IntArray(qr.width * qr.height)
         qr.getPixels(pixels, 0, qr.width, 0, 0, qr.width, qr.height)
         assertEquals(pass.qrToken, QRCodeReader().decode(BinaryBitmap(HybridBinarizer(RGBLuminanceSource(qr.width, qr.height, pixels)))).text)
         compose.runOnIdle { pass = pass.copy(paymentStatus = "PENDING") }
-        compose.onNodeWithTag("commuter_home_qr").assertDoesNotExist()
+        compose.onNodeWithTag("commuter_home_qr", useUnmergedTree = true).assertDoesNotExist()
         compose.runOnIdle { pass = pass.copy(paymentStatus = "PAID", daysRemaining = 0) }
-        compose.onNodeWithTag("commuter_home_qr").assertDoesNotExist()
+        compose.onNodeWithTag("commuter_home_qr", useUnmergedTree = true).assertDoesNotExist()
     }
 }

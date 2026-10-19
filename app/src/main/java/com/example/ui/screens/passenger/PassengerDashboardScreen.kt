@@ -163,7 +163,7 @@ fun PassengerDashboardScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp)
         ) {
-            item { CommuterLanguageSwitch(lang, onLanguage = { viewModel.setLanguage(it) }) }
+
             if (passengerSection == "Home") item { CommuterGreeting(lang, canBoard) }
             if (passengerSection != "Home") item {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
