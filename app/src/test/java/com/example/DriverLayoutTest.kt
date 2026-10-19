@@ -107,7 +107,7 @@ class DriverLayoutTest {
             }
         }
         compose.onNodeWithText("Test!").assertExists()
-        compose.onNodeWithText("TEST-4321").assertExists()
+        compose.onNodeWithText("TEST-4321 · MINIVAN 8").assertExists()
         compose.onNodeWithText("Fuel 78%").assertDoesNotExist()
         compose.onNodeWithText("All valid").assertDoesNotExist()
         capture("01-driver-home")
