@@ -171,12 +171,12 @@ fun DriverRouteOverview(routeName: String, vehiclePlate: String, vehicleType: St
                     Icon(Icons.Default.MyLocation, driverText(language, "Check departure area", "የመነሻ ቦታ ፈትሽ", "Bakka ka'umsaa sakatta'i"), tint = CommuteTeal)
                 }
             }
+            if (canChangeDirection) Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                FilterChip(direction == "OUTBOUND", { onDirection("OUTBOUND") }, label = { Text(driverText(language, "Outbound", "መሄጃ", "Ka'umsa"), fontSize = 11.sp) })
+                FilterChip(direction == "INBOUND", { onDirection("INBOUND") }, label = { Text(driverText(language, "Return", "መመለሻ", "Deebii"), fontSize = 11.sp) })
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (canChangeDirection) Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        FilterChip(direction == "OUTBOUND", { onDirection("OUTBOUND") }, label = { Text(driverText(language, "Outbound", "መሄጃ", "Ka'umsa"), fontSize = 9.sp) }, modifier = Modifier.weight(1f))
-                        FilterChip(direction == "INBOUND", { onDirection("INBOUND") }, label = { Text(driverText(language, "Return", "መመለሻ", "Deebii"), fontSize = 9.sp) }, modifier = Modifier.weight(1f))
-                    }
                     DriverRouteStop(driverText(language, "DEPARTURE", "መነሻ", "KA'UMSA"), ordered.firstOrNull()?.stopName ?: origin ?: driverText(language, "Assigned pickup", "የተመደበ መሳፈሪያ", "Ka'umsa ramadame"), driverWindowInfo(schedule, now).timeLabel)
                     DriverRouteStop(driverText(language, "DESTINATION", "መድረሻ", "GA'UMSA"), ordered.lastOrNull()?.stopName ?: destination ?: driverText(language, "See assigned route", "የተመደበ መስመር ይመልከቱ", "Karaa ramadame ilaali"), null)
                 }
