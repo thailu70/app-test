@@ -25,6 +25,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,6 +37,7 @@ enum class WelcomeService { PASSENGER, DRIVER, INTERCITY }
 
 private val WelcomeInk = Color(0xFF06233D)
 private val WelcomeTeal = Color(0xFF007C78)
+private val WelcomeFont = FontFamily(Font(R.font.outfit))
 private val WelcomeCream = Color(0xFFFFFBF4)
 
 /** Artwork is decorative; all labels, selections and navigation are native controls. */
@@ -51,16 +54,17 @@ fun PassoWelcomeScreen(
         AppLanguage.AMHARIC -> am
         AppLanguage.OROMO -> om
     }
+    ProvideTextStyle(LocalTextStyle.current.copy(fontFamily = WelcomeFont)) {
     Box(modifier.fillMaxSize().background(WelcomeCream).safeDrawingPadding(), contentAlignment = Alignment.TopCenter) {
         Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val sceneWidth = maxWidth
                 // The source artwork has blank space below its scene. Clip to the scene,
                 // keeping its original aspect ratio rather than stretching the photograph.
-                Box(Modifier.fillMaxWidth().height(sceneWidth * 1.05f).clip(RoundedCornerShape(0.dp))) {
-                    Image(painterResource(R.drawable.passo_hero_background), null,
-                        modifier = Modifier.fillMaxWidth().wrapContentHeight(Alignment.Top, unbounded = true).requiredHeight(sceneWidth * 2.162f),
-                        contentScale = ContentScale.FillWidth, alignment = Alignment.TopCenter)
+                Box(Modifier.fillMaxWidth().height(sceneWidth * 0.98f).clip(RoundedCornerShape(0.dp))) {
+                    Image(painterResource(R.drawable.passo_welcome_scene), null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit, alignment = Alignment.BottomCenter)
                     Column(Modifier.fillMaxWidth().padding(top = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Image(painterResource(R.drawable.passo_brand_logo), "PASSO", Modifier.fillMaxWidth(0.52f).height(70.dp), contentScale = ContentScale.Fit)
                         Text("Go Further, Together.", color = WelcomeInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
@@ -97,10 +101,12 @@ fun PassoWelcomeScreen(
                     Spacer(Modifier.width(16.dp))
                     Icon(Icons.Default.ArrowForward, null)
                 }
-                Spacer(Modifier.height(22.dp))
+                Spacer(Modifier.height(12.dp))
             }
         }
     }
+}
+
 }
 
 @Composable
@@ -114,7 +120,7 @@ private fun WelcomeServiceCard(title: String, subtitle: String, image: Int, icon
                 }
                 if (selected) Icon(Icons.Default.CheckCircle, "Selected", Modifier.align(Alignment.TopEnd).padding(5.dp).size(20.dp), tint = WelcomeTeal)
             }
-            Column(Modifier.padding(9.dp).heightIn(min = 85.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.padding(9.dp).heightIn(min = 65.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold, color = WelcomeInk)
                 Text(subtitle, fontSize = 11.sp, lineHeight = 14.sp, color = Color(0xFF47545D))
                 Icon(Icons.Default.ArrowForward, null, Modifier.size(18.dp).align(Alignment.End), tint = WelcomeInk)
