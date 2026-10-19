@@ -160,14 +160,14 @@ fun MainTransportApp(viewModel: MainViewModel) {
 
     if (!isAuthenticated) {
         var showWelcome by rememberSaveable { mutableStateOf(true) }
-        var showPublicHome by remember { mutableStateOf(true) }
-        var showCompanyPortal by remember { mutableStateOf(false) }
-        var showIntercityPortal by remember { mutableStateOf(false) }
-        var requestedAuthPortal by remember { mutableStateOf<AppRole?>(null) }
-        var requestedRegisterFirst by remember { mutableStateOf(false) }
-        var requestedRouteId by remember { mutableStateOf<String?>(null) }
-        var requestedRouteName by remember { mutableStateOf<String?>(null) }
-        var requestedServiceTier by remember { mutableStateOf<String?>(null) }
+        var showPublicHome by rememberSaveable { mutableStateOf(true) }
+        var showCompanyPortal by rememberSaveable { mutableStateOf(false) }
+        var showIntercityPortal by rememberSaveable { mutableStateOf(false) }
+        var requestedAuthPortal by rememberSaveable { mutableStateOf<AppRole?>(null) }
+        var requestedRegisterFirst by rememberSaveable { mutableStateOf(false) }
+        var requestedRouteId by rememberSaveable { mutableStateOf<String?>(null) }
+        var requestedRouteName by rememberSaveable { mutableStateOf<String?>(null) }
+        var requestedServiceTier by rememberSaveable { mutableStateOf<String?>(null) }
         androidx.activity.compose.BackHandler(enabled = !showWelcome && !showIntercityPortal && !showCompanyPortal) {
             showWelcome = true
         }

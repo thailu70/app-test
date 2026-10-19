@@ -37,6 +37,23 @@ class WelcomeLayoutTest {
         return bitmap
     }
 
+    @Test
+    @Config(qualifiers = "w800dp-h360dp-xhdpi-land")
+    fun `landscape keeps service and continue reachable`() {
+        var destination: WelcomeService? = null
+        compose.setContent {
+            MyApplicationTheme {
+                PassoWelcomeScreen(onContinue = { destination = it }, language = AppLanguage.ENGLISH, onLanguage = {})
+            }
+        }
+        compose.onNodeWithTag("welcome_service_DRIVER").performScrollTo().performClick()
+        compose.onNodeWithTag("welcome_continue").performScrollTo().performClick()
+        assertEquals(WelcomeService.DRIVER, destination)
+        val dir = File("build/welcome-previews").apply { mkdirs() }
+        captureWindow().let { bitmap ->
+            File(dir, "welcome-landscape.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
+    }
     @Test fun `service choice reaches Continue and language updates real controls`() {
         var destination: WelcomeService? = null
         var language by mutableStateOf(AppLanguage.ENGLISH)
