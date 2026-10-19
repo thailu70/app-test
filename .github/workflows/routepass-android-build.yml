@@ -52,7 +52,7 @@ jobs:
           ROUTEPASS_API_BASE_URL: ${{ github.event.inputs.api_base_url || 'https://routepass.duckdns.org/' }}
         run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=$ROUTEPASS_API_BASE_URL"
       - name: Verify welcome interactions and capture native previews
-        run: gradle :app:testDebugUnitTest --tests com.example.WelcomeLayoutTest
+        run: gradle :app:testDebugUnitTest --tests com.example.WelcomeLayoutTest --tests com.example.CommuterLayoutTest --tests com.example.PassengerPresentationTest --tests com.example.BoardingQrTest
       - name: Upload welcome verification evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -60,6 +60,7 @@ jobs:
           name: welcome-verification
           path: |
             app/build/welcome-previews/
+            app/build/commuter-previews/
             app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: warn
       - name: Upload installable debug APK

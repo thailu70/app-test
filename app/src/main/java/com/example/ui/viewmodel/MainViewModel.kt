@@ -175,6 +175,12 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     // response. Room can contain legacy/demo records or an older user's pass.
     val activeSubscription: StateFlow<SubscriptionEntity?> = _passengerSubscription.asStateFlow()
 
+    val passengerRouteStops: StateFlow<List<RouteStopEntity>> = activeSubscription
+        .map { it?.routeId.orEmpty() }
+        .distinctUntilChanged()
+        .flatMapLatest { routeId -> if (routeId.isBlank()) flowOf(emptyList()) else repository.getStopsForRoute(routeId) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val passengerPayments: StateFlow<List<PaymentTransactionEntity>> = _currentUser.flatMapLatest { user ->
         val id = user?.id ?: ""
         if (id.isBlank()) flowOf(emptyList()) else repository.getPaymentsForPassenger(id)

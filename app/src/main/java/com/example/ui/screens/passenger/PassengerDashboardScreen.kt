@@ -17,6 +17,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -76,6 +77,7 @@ fun PassengerDashboardScreen(
     val trackedVehicle by viewModel.trackedVehicle.collectAsState()
     val trackingMessage by viewModel.trackingMessage.collectAsState()
     val subscription by viewModel.activeSubscription.collectAsState()
+    val routeStops by viewModel.passengerRouteStops.collectAsState()
     val subscriptionLoading by viewModel.passengerSubscriptionLoading.collectAsState()
     val subscriptionError by viewModel.passengerSubscriptionError.collectAsState()
     val payments by viewModel.passengerPayments.collectAsState()
@@ -131,7 +133,7 @@ fun PassengerDashboardScreen(
         modifier = modifier.fillMaxSize(),
         containerColor = Slate50,
         bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+            NavigationBar(containerColor = Color.White, tonalElevation = 0.dp, modifier = Modifier.padding(horizontal = 8.dp).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))) {
                 primarySections.forEach { section ->
                     NavigationBarItem(
                         selected = selectedPrimary == section,
@@ -139,9 +141,9 @@ fun PassengerDashboardScreen(
                         icon = {
                             Icon(when (section) {
                                 "Home" -> Icons.Default.Home
-                                "My Pass" -> Icons.Default.QrCode
-                                "Payments" -> Icons.Default.AccountBalanceWallet
-                                else -> Icons.Default.Menu
+                                "My Pass" -> Icons.Default.ConfirmationNumber
+                                "Payments" -> Icons.Default.CreditCard
+                                else -> Icons.Default.MoreHoriz
                             }, contentDescription = null)
                         },
                         label = { Text(sectionLabel(section), maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -159,15 +161,11 @@ fun PassengerDashboardScreen(
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp)
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp)
         ) {
-            item {
-                PassoBrandHeader(
-                    portalLabel = passengerText(lang, "PASSENGER PORTAL", "የተሳፋሪ ፖርታል"),
-                    subtitle = passengerText(lang, "Tap. Move. Clear.", "ቀላል ጉዞ፣ ግልጽ መረጃ")
-                )
-            }
-            item {
+            item { CommuterLanguageSwitch(lang, onLanguage = { viewModel.setLanguage(it) }) }
+            if (passengerSection == "Home") item { CommuterGreeting(lang, canBoard) }
+            if (passengerSection != "Home") item {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (passengerSection !in primarySections) {
                         TextButton(onClick = { passengerSection = "More" }, contentPadding = PaddingValues(0.dp)) {
@@ -208,25 +206,14 @@ fun PassengerDashboardScreen(
             }
             when (passengerSection) {
                 "Home" -> {
-                    if (!subscriptionLoading && subscriptionError == null) item {
-                        SubscriptionStatusCard(
-                            subscription = subscription,
-                            userAppliedRoute = routeName,
-                            lang = lang,
-                            onRenewClick = { viewModel.openTelebirrDialog() },
-                            route = selectedRoute,
-                            onShowPass = { passengerSection = "My Pass" },
-                            paymentAvailable = canPay
-                        )
-                    }
-                    item { AssignedDriverCard() }
                     item {
-                        PassengerMenuRow(
-                            title = sectionLabel("Live Location"),
-                            subtitle = passengerText(lang, "Check your driver's latest location", "የአሽከርካሪዎን የቅርብ ጊዜ ቦታ ይመልከቱ"),
-                            icon = Icons.Default.LocationOn,
-                            onClick = { passengerSection = "Live Location" }
-                        )
+                        AssignedDriverCard(subscription = subscription, route = selectedRoute, routeName = routeName,
+                            stops = routeStops, lang = lang, onShowPass = { passengerSection = "My Pass" },
+                            onRenew = { viewModel.openTelebirrDialog() }, paymentAvailable = canPay)
+                    }
+                    item { CommuterLocationCard(trackedVehicle, trackingMessage, lang) { passengerSection = "Live Location" } }
+                    if (!subscriptionLoading && subscriptionError == null) item {
+                        CommuterBoardingPreview(subscription, routeName, lang) { passengerSection = "My Pass" }
                     }
                     item { ProfileCompletionPrompt(onOpen = onOpenProfile) }
                 }

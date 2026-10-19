@@ -71,7 +71,16 @@ private fun friendlyVehicleType(raw: String): String? = when (raw.uppercase()) {
 }
 
 @Composable
-fun AssignedDriverCard() {
+fun AssignedDriverCard(
+    subscription: com.example.data.entity.SubscriptionEntity? = null,
+    route: com.example.data.entity.RouteEntity? = null,
+    routeName: String? = null,
+    stops: List<com.example.data.entity.RouteStopEntity> = emptyList(),
+    lang: com.example.core.localization.AppLanguage = com.example.core.localization.AppLanguage.ENGLISH,
+    onShowPass: () -> Unit = {},
+    onRenew: () -> Unit = {},
+    paymentAvailable: Boolean = false
+) {
     var driver by remember { mutableStateOf<AssignedDriver?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -101,55 +110,6 @@ fun AssignedDriverCard() {
         }
     }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFE4E8E7))
-    ) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Your driver", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Slate900)
-            val assigned = driver
-            if (assigned == null) {
-                Text(
-                    when {
-                        loading -> "Loading driver details…"
-                        error != null -> error.orEmpty()
-                        else -> "Your driver will appear here once your vehicle is assigned."
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Slate600
-                )
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    AuthenticatedProfilePhoto(userId = assigned.userId, modifier = Modifier.size(56.dp))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(assigned.fullName.availableDetail() ?: "Assigned driver", fontWeight = FontWeight.SemiBold, color = Slate900)
-                        assigned.routeName.availableDetail()?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Slate600) }
-                        assigned.phone.availableDetail()?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Slate600) }
-                    }
-                }
-                val vehicleDetails = listOfNotNull(
-                    assigned.vehicleColor.availableDetail(),
-                    assigned.model.availableDetail(),
-                    friendlyVehicleType(assigned.vehicleType)
-                ).joinToString(" • ")
-                if (vehicleDetails.isNotBlank()) Text(vehicleDetails, style = MaterialTheme.typography.bodyMedium, color = Slate600)
-                assigned.plateNumber.availableDetail()?.let { Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Slate900) }
-                assigned.phone.availableDetail()?.takeIf { phone -> phone.any(Char::isDigit) }?.let { phone ->
-                    OutlinedButton(
-                        onClick = { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", phone, null))) },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, Color(0xFFD9E4DF))
-                    ) {
-                        Icon(Icons.Default.Call, contentDescription = null, modifier = Modifier.size(18.dp), tint = TransportGreenPrimary)
-                        Text("Call driver", modifier = Modifier.padding(start = 8.dp), color = TransportGreenPrimary)
-                    }
-                }
-                error?.let { Text("Driver details could not be refreshed.", style = MaterialTheme.typography.bodySmall, color = Slate600) }
-            }
-            if (error != null) TextButton(onClick = { retry++ }) { Text("Try again", color = TransportGreenPrimary) }
-        }
-    }
+    CommuterActiveTripCard(subscription, route, routeName, stops, driver, loading, error, lang,
+        onRetry = { retry++ }, onShowPass = onShowPass, onRenew = onRenew, paymentAvailable = paymentAvailable)
 }

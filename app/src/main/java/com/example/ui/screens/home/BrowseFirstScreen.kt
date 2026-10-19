@@ -2,7 +2,9 @@ package com.example.ui.screens.home
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -11,6 +13,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.ConfirmationNumber
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DirectionsBus
@@ -32,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import com.example.R
@@ -43,10 +54,12 @@ import com.example.ui.theme.TransportGreenPrimary
 import com.example.ui.theme.Slate600
 import com.example.ui.theme.Slate900
 
-private val HomeGreen = Color(0xFF087F68)
-private val HomeMint = Color(0xFFE8F6EE)
-private val HomeBlue = Color(0xFF17212B)
-private val HomeInk = Color(0xFF17212B)
+private val HomeGreen = Color(0xFF007C78)
+private val HomeMint = Color(0xFFE5F3EC)
+private val HomeBlue = Color(0xFF062C43)
+private val HomeInk = Color(0xFF06233D)
+private val HomeCream = Color(0xFFFFFBF4)
+private val HomeLine = Color(0xFFE9E6DE)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,11 +104,11 @@ fun BrowseFirstScreen(
     selectedRoute?.let { route ->
         ModalBottomSheet(
             onDismissRequest = { selectedRoute = null },
-            containerColor = Color.White,
+            containerColor = HomeCream,
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
         ) {
             Surface(
-                color = Color.White,
+                color = HomeCream,
                 shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
                 modifier = Modifier.fillMaxWidth().navigationBarsPadding()
             ) {
@@ -142,14 +155,15 @@ fun BrowseFirstScreen(
                     }
                     Button(
                         onClick = { selectedRoute = null; onPassengerContinue(true, route.id, route.name, selectedTier) },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
+                        shape = CircleShape,
                         colors = ButtonDefaults.buttonColors(containerColor = HomeGreen)
                     ) {
                         Text("Continue with $selectedTier")
                         Spacer(Modifier.width(8.dp))
                         Icon(Icons.Default.ArrowForward, contentDescription = null)
                     }
-                    OutlinedButton(onClick = { selectedRoute = null }, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(onClick = { selectedRoute = null }, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp), shape = CircleShape, border = BorderStroke(1.dp, HomeLine)) {
                         Text("Back to routes")
                     }
                 }
@@ -157,10 +171,10 @@ fun BrowseFirstScreen(
         }
     }
 
-    Column(modifier = modifier.fillMaxSize().background(Color(0xFFF6F8F7))) {
+    Column(modifier = modifier.fillMaxSize().background(HomeCream)) {
     LazyColumn(
         modifier = Modifier.weight(1f),
-        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 104.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         if (selectedSection == 0) {
@@ -200,6 +214,13 @@ fun BrowseFirstScreen(
                     }
                 }
             }
+        } else if (selectedSection == 1) {
+            item {
+                CommuterBrandHeader(
+                    onHome = { if (startWithRoutes) onWelcome() else selectedSection = 0 },
+                    onSignIn = { onPassengerContinue(false, null, null, null) }
+                )
+            }
         } else {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -210,12 +231,7 @@ fun BrowseFirstScreen(
         }
         if (selectedSection == 1) {
             item {
-                Surface(color = HomeBlue, shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 0.dp, bottomEnd = 0.dp), modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(horizontal = 18.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Daily Commuter", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
-                        Text("Active services near you", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.bodyMedium)
-                    }
-                }
+                DailyCommuteIntro()
             }
             item {
                 OutlinedTextField(
@@ -223,8 +239,8 @@ fun BrowseFirstScreen(
                     onValueChange = { routeSearch = it },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    shape = RoundedCornerShape(18.dp),
-                    placeholder = { Text("Route, area or destination") },
+                    shape = RoundedCornerShape(22.dp),
+                    placeholder = { Text("Where do you commute?") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = HomeGreen) },
                     trailingIcon = {
                         if (routeSearch.isNotEmpty()) {
@@ -235,7 +251,7 @@ fun BrowseFirstScreen(
                     },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = HomeGreen,
-                        unfocusedBorderColor = Color(0xFFE1E8E3),
+                        unfocusedBorderColor = HomeLine,
                         focusedContainerColor = Color.White,
                         unfocusedContainerColor = Color.White
                     )
@@ -243,29 +259,30 @@ fun BrowseFirstScreen(
             }
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(16.dp)).padding(horizontal = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     listOf("All routes", "Morning", "Evening").forEachIndexed { index, label ->
                         FilterChip(
                             selected = routeFilter == index,
                             onClick = { routeFilter = index },
                             label = { Text(label, maxLines = 1) },
-                            modifier = Modifier.weight(1f),
-                            leadingIcon = if (routeFilter == index) ({ Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) }) else null,
-                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = HomeMint, selectedLabelColor = HomeGreen)
+                            shape = CircleShape,
+                            leadingIcon = if (routeFilter == index) ({ Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(17.dp)) }) else null,
+                            colors = FilterChipDefaults.filterChipColors(containerColor = Color.White, selectedContainerColor = HomeGreen, selectedLabelColor = Color.White, selectedLeadingIconColor = Color.White),
+                            border = FilterChipDefaults.filterChipBorder(enabled = true, selected = routeFilter == index, borderColor = HomeLine, selectedBorderColor = HomeGreen)
                         )
                     }
                 }
             }
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("${commuterRoutes.size} matching routes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = HomeInk)
-                    Text("Compare departure times and monthly fares. Sign in only when you are ready to request a service.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("Available routes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = HomeInk)
+                        Text("${commuterRoutes.size} matching services", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                    }
+                    FilterChip(selected = sortByFare, onClick = { sortByFare = !sortByFare }, label = { Text("Lowest fare") }, leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(17.dp)) }, shape = CircleShape, colors = FilterChipDefaults.filterChipColors(containerColor = Color.White, selectedContainerColor = HomeMint, selectedLabelColor = HomeGreen), border = FilterChipDefaults.filterChipBorder(enabled = true, selected = sortByFare, borderColor = HomeLine, selectedBorderColor = HomeGreen))
                 }
-            }
-            item {
-                FilterChip(selected = sortByFare, onClick = { sortByFare = !sortByFare }, label = { Text("Lowest fare first") })
             }
             if (routes.filter { it.active }.isEmpty()) {
                 item {
@@ -288,24 +305,14 @@ fun BrowseFirstScreen(
                     }
                 }
             } else {
-                items(displayedRoutes.size) { index ->
+                items(displayedRoutes.size, key = { displayedRoutes[it].id }) { index ->
                     val route = displayedRoutes[index]
                     CommuterRouteCard(route = route, onClick = { selectedRoute = route })
                 }
             }
 
             item {
-                Surface(color = Color.White, shape = RoundedCornerShape(18.dp), tonalElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("No vehicle available yet?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = HomeInk)
-                        Text("You can submit a request and join the waitlist. No subscription payment is due until an eligible vehicle is assigned and you accept the offer.", style = MaterialTheme.typography.bodyMedium, color = Slate600)
-                        Button(onClick = { onPassengerContinue(true, null, "Requested commuter route", selectedTier) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = HomeGreen)) {
-                            Text("Sign in / Sign up to request")
-                            Spacer(Modifier.width(8.dp))
-                            Icon(Icons.Default.ArrowForward, contentDescription = null)
-                        }
-                    }
-                }
+                CommuterRequestCard(onRequest = { onPassengerContinue(true, null, "Requested commuter route", selectedTier) })
             }
         } else if (selectedSection == 2) {
             item {
@@ -392,12 +399,78 @@ fun BrowseFirstScreen(
             Text("PASSO • Go Further, Together.", style = MaterialTheme.typography.labelSmall, color = Slate600, modifier = Modifier.fillMaxWidth())
         }
     }
-    NavigationBar(containerColor = Color.White, tonalElevation = 8.dp) {
-        NavigationBarItem(selected = selectedSection == 0, onClick = { if (startWithRoutes) onWelcome() else selectedSection = 0 }, icon = { Icon(Icons.Default.Work, contentDescription = "Home") }, label = { Text("Home") })
-        NavigationBarItem(selected = selectedSection == 1 || selectedSection == 2 || selectedSection == 3, onClick = { selectedSection = 1 }, icon = { Icon(Icons.Default.Search, contentDescription = "Search") }, label = { Text("Search") })
-        NavigationBarItem(selected = false, onClick = { onPassengerContinue(false, null, null, null) }, icon = { Icon(Icons.Default.CalendarMonth, contentDescription = "Tickets") }, label = { Text("Tickets") })
-        NavigationBarItem(selected = false, onClick = { onPassengerContinue(false, null, null, null) }, icon = { Icon(Icons.Default.Luggage, contentDescription = "More") }, label = { Text("More") })
+    NavigationBar(containerColor = Color.White, tonalElevation = 0.dp, modifier = Modifier.clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))) {
+        val navigationColors = NavigationBarItemDefaults.colors(selectedIconColor = HomeGreen, selectedTextColor = HomeGreen, unselectedIconColor = HomeInk, unselectedTextColor = HomeInk, indicatorColor = HomeMint)
+        NavigationBarItem(selected = selectedSection == 0, onClick = { if (startWithRoutes) onWelcome() else selectedSection = 0 }, icon = { Icon(Icons.Default.Home, contentDescription = "Home") }, label = { Text("Home") }, colors = navigationColors)
+        NavigationBarItem(selected = selectedSection == 1 || selectedSection == 2 || selectedSection == 3, onClick = { selectedSection = 1 }, icon = { Icon(Icons.Default.Search, contentDescription = "Search") }, label = { Text("Routes") }, colors = navigationColors)
+        NavigationBarItem(selected = false, onClick = { onPassengerContinue(false, null, null, null) }, icon = { Icon(Icons.Default.ConfirmationNumber, contentDescription = "Tickets") }, label = { Text("My pass") }, colors = navigationColors)
+        NavigationBarItem(selected = false, onClick = { onPassengerContinue(false, null, null, null) }, icon = { Icon(Icons.Default.MoreHoriz, contentDescription = "More") }, label = { Text("More") }, colors = navigationColors)
     }
+    }
+}
+
+@Composable
+private fun CommuterBrandHeader(onHome: () -> Unit, onSignIn: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        IconButton(onClick = onHome, modifier = Modifier.size(44.dp).background(Color.White, CircleShape)) {
+            Icon(Icons.Default.ArrowBack, contentDescription = "Back to welcome", tint = HomeInk)
+        }
+        Column(Modifier.weight(1f)) {
+            Text("PASSO", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = HomeInk)
+            Text("Go Further, Together.", style = MaterialTheme.typography.labelMedium, color = HomeGreen)
+        }
+        OutlinedButton(onClick = onSignIn, shape = CircleShape, border = BorderStroke(1.dp, HomeLine), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)) {
+            Text("Sign in", color = HomeGreen, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun DailyCommuteIntro() {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text("YOUR EVERYDAY, MADE EASIER", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = Slate600)
+            Text("A better way to commute.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = HomeInk)
+            Text("Find a daily route for work, school and everything in between.", style = MaterialTheme.typography.bodyMedium, color = Slate600)
+        }
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(Brush.horizontalGradient(listOf(Color(0xFF005852), Color(0xFF007C78)))).padding(18.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.size(54.dp).background(Color.White.copy(alpha = 0.14f), RoundedCornerShape(17.dp)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Daily commute", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
+                Text("Your route. Your routine.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFD8EEE7))
+                Text("Morning pickup · Evening return", style = MaterialTheme.typography.labelSmall, color = Color(0xFFD8EEE7))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommuterRequestCard(onRequest: () -> Unit) {
+    Surface(color = HomeMint, shape = RoundedCornerShape(26.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(44.dp).background(Color.White, CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Add, contentDescription = null, tint = HomeGreen)
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Need a different route?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = HomeInk)
+                    Text("Tell us where you need to go.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                }
+            }
+            Text("Request a route and join the waitlist. Your subscription starts after a vehicle is assigned and you accept the offer.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+            Button(onClick = onRequest, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp), shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = HomeGreen)) {
+                Text("Request a new route", fontWeight = FontWeight.Bold)
+                Spacer(Modifier.width(10.dp))
+                Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(19.dp))
+            }
+            Text("Sign in or create an account to send your request.", style = MaterialTheme.typography.labelSmall, color = Slate600)
+        }
     }
 }
 
@@ -529,41 +602,46 @@ private fun RouteInfoTile(label: String, value: String, modifier: Modifier = Mod
 private fun CommuterRouteCard(route: RouteEntity, onClick: () -> Unit) {
     Surface(
         color = Color.White,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(24.dp),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        tonalElevation = 1.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE5E9E7))
+        shadowElevation = 1.dp,
+        border = BorderStroke(1.dp, HomeLine)
     ) {
-        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-                Surface(color = HomeMint, shape = RoundedCornerShape(13.dp)) {
-                    Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = HomeGreen, modifier = Modifier.padding(10.dp).size(25.dp))
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(color = HomeMint, shape = RoundedCornerShape(14.dp)) {
+                    Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = HomeGreen, modifier = Modifier.padding(10.dp).size(23.dp))
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(route.name, color = HomeInk, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
                     if (route.nameAm.isNotBlank()) Text(route.nameAm, color = Slate600, style = MaterialTheme.typography.bodySmall)
                 }
-                Icon(Icons.Default.KeyboardArrowRight, contentDescription = "View route details", tint = HomeGreen, modifier = Modifier.size(26.dp))
+                Surface(color = HomeMint, shape = CircleShape) {
+                    Text("Active", modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp), color = HomeGreen, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                }
             }
-            HorizontalDivider(color = Color(0xFFE9EEEB))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth().background(HomeCream, RoundedCornerShape(14.dp)).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Schedule, contentDescription = null, tint = HomeGreen, modifier = Modifier.size(20.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("Morning pickup", color = Slate600, style = MaterialTheme.typography.labelSmall)
                     Text(route.morningDeparture.ifBlank { "Not set" }, color = HomeInk, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
                 }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(Modifier.width(1.dp).height(30.dp).background(HomeLine))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("Evening return", color = Slate600, style = MaterialTheme.typography.labelSmall)
                     Text(route.eveningDeparture.ifBlank { "Not set" }, color = HomeInk, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
                 }
-                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Monthly from", color = Slate600, style = MaterialTheme.typography.labelSmall)
-                    Text("ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), color = HomeGreen, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
-                }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                Text("View details", color = HomeGreen, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
-                Spacer(Modifier.width(5.dp))
-                Icon(Icons.Default.ArrowForward, contentDescription = null, tint = HomeGreen, modifier = Modifier.size(16.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Monthly from", color = Slate600, style = MaterialTheme.typography.labelSmall)
+                    Text("ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), color = HomeGreen, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge)
+                }
+                FilledTonalButton(onClick = onClick, shape = CircleShape, colors = ButtonDefaults.filledTonalButtonColors(containerColor = HomeMint, contentColor = HomeGreen)) {
+                    Text("Details", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(5.dp))
+                    Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(17.dp))
+                }
             }
         }
     }

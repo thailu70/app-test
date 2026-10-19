@@ -49,6 +49,7 @@ import com.example.ui.screens.home.HostedPortalScreen
 import com.example.ui.screens.profile.ProfileCompletionScreen
 import com.example.ui.screens.driver.DriverTripScreen
 import com.example.ui.screens.passenger.PassengerDashboardScreen
+import com.example.ui.screens.passenger.CommuterWordmark
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.AppRole
 import com.example.ui.viewmodel.MainViewModel
@@ -93,25 +94,12 @@ internal fun PassengerTopBar(
     var menuOpen by remember { mutableStateOf(false) }
     TopAppBar(
         title = {
-            Column {
-                Text(
-                    if (profileOpen) "Your profile" else fullName.ifBlank { "RoutePass" },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (!profileOpen) Text("Your daily commute", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-            }
+            if (profileOpen) Text("Your profile", fontWeight = FontWeight.Bold)
+            else CommuterWordmark()
         },
         navigationIcon = {
-            IconButton(onClick = if (profileOpen) onBack else onProfile, modifier = Modifier.testTag("top_bar_profile_button").semantics { contentDescription = if (profileOpen) "Back to your commute" else "Open profile" }) {
-                if (profileOpen) Icon(Icons.Default.ArrowBack, contentDescription = "Back to your commute")
-                else Surface(shape = CircleShape, color = TransportGreenPrimary, modifier = Modifier.size(34.dp)) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(initials.ifBlank { "P" }.take(2), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    }
-                }
+            if (profileOpen) IconButton(onClick = onBack, modifier = Modifier.testTag("top_bar_profile_button")) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Back to your commute")
             }
         },
         actions = {
@@ -131,7 +119,7 @@ internal fun PassengerTopBar(
                 }
             }
         },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFFFFBF4))
     )
 }
 
