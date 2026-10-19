@@ -27,6 +27,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -37,7 +39,13 @@ enum class WelcomeService { PASSENGER, DRIVER, INTERCITY }
 
 private val WelcomeInk = Color(0xFF06233D)
 private val WelcomeTeal = Color(0xFF007C78)
-private val WelcomeFont = FontFamily(Font(R.font.outfit))
+@OptIn(ExperimentalTextApi::class)
+private val WelcomeFont = FontFamily(
+    Font(R.font.outfit, weight = FontWeight.Normal, variationSettings = FontVariation.Settings(FontVariation.weight(400))),
+    Font(R.font.outfit, weight = FontWeight.SemiBold, variationSettings = FontVariation.Settings(FontVariation.weight(600))),
+    Font(R.font.outfit, weight = FontWeight.Bold, variationSettings = FontVariation.Settings(FontVariation.weight(700))),
+    Font(R.font.outfit, weight = FontWeight.Black, variationSettings = FontVariation.Settings(FontVariation.weight(900)))
+)
 private val WelcomeCream = Color(0xFFFFFBF4)
 
 /** Artwork is decorative; all labels, selections and navigation are native controls. */
@@ -76,7 +84,7 @@ fun PassoWelcomeScreen(
                 Text(copy("to move together.", "አብረን ለመጓዝ።", "waliin imaluuf."), fontSize = 34.sp, lineHeight = 38.sp, fontWeight = FontWeight.Black, color = WelcomeTeal, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(10.dp))
                 Text(copy("Reliable rides, smarter connections.\nGo Further, Together.", "አስተማማኝ ጉዞ፣ የተሻለ ግንኙነት።\nአብረን ወደ ፊት።", "Imala amanamaa, walqunnamtii caalu.\nWaliin fagootti haa imallu."), color = Color(0xFF53606C), fontSize = 15.sp, lineHeight = 21.sp, textAlign = TextAlign.Center)
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(12.dp))
                 Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     AppLanguage.entries.forEach { item ->
                         Surface(color = if (language == item) WelcomeTeal else WelcomeCream, shape = CircleShape,
@@ -122,8 +130,12 @@ private fun WelcomeServiceCard(title: String, subtitle: String, image: Int, icon
             }
             Column(Modifier.padding(9.dp).heightIn(min = 65.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold, color = WelcomeInk)
-                Text(subtitle, fontSize = 11.sp, lineHeight = 14.sp, color = Color(0xFF47545D))
-                Icon(Icons.Default.ArrowForward, null, Modifier.size(18.dp).align(Alignment.End), tint = WelcomeInk)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(subtitle, modifier = Modifier.weight(1f), fontSize = 11.sp, lineHeight = 14.sp, color = Color(0xFF47545D))
+                    Surface(color = Color.White.copy(alpha = 0.5f), shape = CircleShape) {
+                        Icon(Icons.Default.ChevronRight, null, Modifier.padding(3.dp).size(16.dp), tint = WelcomeInk)
+                    }
+                }
             }
         }
     }
