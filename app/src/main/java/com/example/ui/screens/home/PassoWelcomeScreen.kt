@@ -4,12 +4,10 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -19,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.res.imageResource
@@ -26,6 +25,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.core.localization.AppLanguage
@@ -69,7 +70,8 @@ fun PassoWelcomeScreen(
     }
     ProvideTextStyle(LocalTextStyle.current.copy(fontFamily = WelcomeFont)) {
     Box(modifier.fillMaxSize().background(WelcomeCream).safeDrawingPadding(), contentAlignment = Alignment.TopCenter) {
-        Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+        WelcomeViewport {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val sceneWidth = maxWidth
                 // The hero contains only brand artwork; every control is rendered below.
@@ -114,9 +116,28 @@ fun PassoWelcomeScreen(
                 Spacer(Modifier.height(12.dp))
             }
         }
+        }
     }
 }
 
+}
+
+/** Fit the unchanged native welcome composition inside the safe screen area. */
+@Composable
+private fun WelcomeViewport(content: @Composable () -> Unit) {
+    Layout(content = content, modifier = Modifier.widthIn(max = 560.dp).fillMaxSize()) { measurables, constraints ->
+        val page = measurables.single().measure(Constraints(
+            minWidth = constraints.maxWidth, maxWidth = constraints.maxWidth, maxHeight = Constraints.Infinity
+        ))
+        val scale = minOf(1f, constraints.maxHeight.toFloat() / page.height.coerceAtLeast(1))
+        layout(constraints.maxWidth, constraints.maxHeight) {
+            page.placeWithLayer(((constraints.maxWidth - page.width * scale) / 2).toInt(), 0) {
+                scaleX = scale
+                scaleY = scale
+                transformOrigin = TransformOrigin(0f, 0f)
+            }
+        }
+    }
 }
 
 @Composable

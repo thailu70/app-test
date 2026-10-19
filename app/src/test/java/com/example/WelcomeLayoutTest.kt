@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.activity.ComponentActivity
 import android.graphics.Canvas
@@ -12,6 +13,7 @@ import com.example.ui.screens.home.PassoWelcomeScreen
 import com.example.ui.screens.home.WelcomeService
 import com.example.ui.theme.MyApplicationTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -46,12 +48,39 @@ class WelcomeLayoutTest {
                 PassoWelcomeScreen(onContinue = { destination = it }, language = AppLanguage.ENGLISH, onLanguage = {})
             }
         }
-        compose.onNodeWithTag("welcome_service_DRIVER").performScrollTo().performClick()
-        compose.onNodeWithTag("welcome_continue").performScrollTo().performClick()
+        compose.onNodeWithTag("welcome_service_DRIVER").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("welcome_continue").assertIsDisplayed().performClick()
         assertEquals(WelcomeService.DRIVER, destination)
         val dir = File("build/welcome-previews").apply { mkdirs() }
         captureWindow().let { bitmap ->
             File(dir, "welcome-landscape.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
+    }
+    @Test
+    @Config(qualifiers = "w360dp-h640dp-xhdpi")
+    fun `short phone shows every welcome control without scrolling in every language`() {
+        var language by mutableStateOf(AppLanguage.ENGLISH)
+        var destination: WelcomeService? = null
+        compose.setContent {
+            MyApplicationTheme {
+                PassoWelcomeScreen(onContinue = { destination = it }, language = language, onLanguage = { language = it })
+            }
+        }
+        AppLanguage.entries.forEach { item ->
+            compose.onNodeWithTag("welcome_language_${item.code}").assertIsDisplayed().performClick()
+            WelcomeService.entries.forEach { service ->
+                compose.onNodeWithTag("welcome_service_${service.name}").assertIsDisplayed().performClick()
+                compose.onNodeWithTag("welcome_continue").assertIsDisplayed().performClick()
+                assertEquals(service, destination)
+                val button = compose.onNodeWithTag("welcome_continue").fetchSemanticsNode().boundsInWindow
+                val viewport = compose.onRoot().fetchSemanticsNode().boundsInWindow
+                assertTrue("Continue must fit completely inside the screen", button.top >= viewport.top && button.bottom <= viewport.bottom + 1f)
+            }
+        }
+        compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
+        val dir = File("build/welcome-previews").apply { mkdirs() }
+        captureWindow().let { bitmap ->
+            File(dir, "welcome-short-phone.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
     }
     @Test fun `service choice reaches Continue and language updates real controls`() {
@@ -67,17 +96,17 @@ class WelcomeLayoutTest {
             File(dir, "welcome-top.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
         WelcomeService.entries.forEach { service ->
-            compose.onNodeWithTag("welcome_service_${service.name}").performScrollTo().performClick()
-            compose.onNodeWithTag("welcome_continue").performScrollTo().performClick()
+            compose.onNodeWithTag("welcome_service_${service.name}").assertIsDisplayed().performClick()
+            compose.onNodeWithTag("welcome_continue").assertIsDisplayed().performClick()
             assertEquals(service, destination)
         }
         captureWindow().let { bitmap ->
             File(dir, "welcome-controls.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
-        compose.onNodeWithTag("welcome_language_om").performScrollTo().performClick()
+        compose.onNodeWithTag("welcome_language_om").assertIsDisplayed().performClick()
         assertEquals(AppLanguage.OROMO, language)
         compose.onNodeWithText("Itti fufi").assertExists()
-        compose.onNodeWithTag("welcome_language_am").performScrollTo().performClick()
+        compose.onNodeWithTag("welcome_language_am").assertIsDisplayed().performClick()
         assertEquals(AppLanguage.AMHARIC, language)
         compose.onNodeWithText("ቀጥል").assertExists()
     }
