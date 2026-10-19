@@ -355,6 +355,10 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         // App starts on independent login portal for Passenger, Driver, and Operator
     }
 
+    fun setLanguage(language: AppLanguage) {
+        _currentLanguage.value = language
+    }
+
     // Language Toggle
     fun toggleLanguage() {
         _currentLanguage.value = if (_currentLanguage.value == AppLanguage.ENGLISH) {

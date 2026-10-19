@@ -2,7 +2,8 @@ package com.example.core.localization
 
 enum class AppLanguage(val code: String, val displayName: String) {
     ENGLISH("en", "English"),
-    AMHARIC("am", "አማርኛ")
+    AMHARIC("am", "አማርኛ"),
+    OROMO("om", "Afaan Oromoo")
 }
 
 object AppStrings {
@@ -10,6 +11,7 @@ object AppStrings {
         val dict = when (lang) {
             AppLanguage.AMHARIC -> amharicDictionary
             AppLanguage.ENGLISH -> englishDictionary
+            AppLanguage.OROMO -> englishDictionary
         }
         return dict[key] ?: englishDictionary[key] ?: key
     }

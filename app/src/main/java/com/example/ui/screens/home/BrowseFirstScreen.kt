@@ -56,10 +56,11 @@ fun BrowseFirstScreen(
     onDriverAccess: () -> Unit,
     onCompanyAccess: () -> Unit,
     onIntercityTravel: () -> Unit = {},
+    startWithRoutes: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val routes by viewModel.activeRoutes.collectAsState()
-    var selectedSection by remember { mutableStateOf(0) }
+    var selectedSection by remember { mutableStateOf(if (startWithRoutes) 1 else 0) }
     var selectedService by remember { mutableStateOf(0) }
     var origin by remember { mutableStateOf("") }
     var destination by remember { mutableStateOf("") }
@@ -593,4 +594,3 @@ private fun TierChoice(name: String, seats: String, selected: Boolean, modifier:
         }
     }
 }
-

@@ -44,6 +44,7 @@ import com.example.ui.components.NotificationTrayDialog
 import com.example.ui.screens.auth.AuthScreen
 import com.example.ui.screens.home.BrowseFirstScreen
 import com.example.ui.screens.home.PassoWelcomeScreen
+import com.example.ui.screens.home.WelcomeService
 import com.example.ui.screens.home.HostedPortalScreen
 import com.example.ui.screens.profile.ProfileCompletionScreen
 import com.example.ui.screens.driver.DriverTripScreen
@@ -169,8 +170,18 @@ fun MainTransportApp(viewModel: MainViewModel) {
         var requestedServiceTier by remember { mutableStateOf<String?>(null) }
         if (showWelcome) {
             PassoWelcomeScreen(
-                onContinue = { showWelcome = false },
-                onLanguage = { viewModel.toggleLanguage() },
+                onContinue = { service ->
+                    requestedAuthPortal = if (service == WelcomeService.DRIVER) AppRole.DRIVER else null
+                    requestedRegisterFirst = false
+                    requestedRouteId = null
+                    requestedRouteName = null
+                    requestedServiceTier = null
+                    showPublicHome = service == WelcomeService.PASSENGER
+                    showIntercityPortal = service == WelcomeService.INTERCITY
+                    showWelcome = false
+                },
+                language = currentLang,
+                onLanguage = { viewModel.setLanguage(it) },
                 modifier = Modifier.fillMaxSize()
             )
         } else if (showIntercityPortal) {
@@ -184,6 +195,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
         } else if (showPublicHome) {
             BrowseFirstScreen(
                 viewModel = viewModel,
+                startWithRoutes = true,
                 onIntercityTravel = { showIntercityPortal = true; showPublicHome = false },
                 onPassengerContinue = { registerFirst, routeId, routeName, tier ->
                     requestedAuthPortal = AppRole.PASSENGER
@@ -945,8 +957,3 @@ private fun LegacyCompanyPortalScreen(onExit: () -> Unit) {
         }
     }
 }
-
-
-
-
-
