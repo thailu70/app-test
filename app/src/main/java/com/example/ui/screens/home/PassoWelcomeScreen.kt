@@ -54,14 +54,15 @@ fun PassoWelcomeScreen(
     Box(modifier.fillMaxSize().background(WelcomeCream).safeDrawingPadding(), contentAlignment = Alignment.TopCenter) {
         Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
             BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val sceneWidth = maxWidth
                 // The source artwork has blank space below its scene. Clip to the scene,
                 // keeping its original aspect ratio rather than stretching the photograph.
-                Box(Modifier.fillMaxWidth().height(maxWidth * 1.05f).clip(RoundedCornerShape(0.dp))) {
+                Box(Modifier.fillMaxWidth().height(sceneWidth * 1.05f).clip(RoundedCornerShape(0.dp))) {
                     Image(painterResource(R.drawable.passo_hero_background), null,
-                        modifier = Modifier.fillMaxWidth().wrapContentHeight(Alignment.Top, unbounded = true).requiredHeight(maxWidth * 2.162f),
+                        modifier = Modifier.fillMaxWidth().wrapContentHeight(Alignment.Top, unbounded = true).requiredHeight(sceneWidth * 2.162f),
                         contentScale = ContentScale.FillWidth, alignment = Alignment.TopCenter)
                     Column(Modifier.fillMaxWidth().padding(top = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("PASSO", color = WelcomeInk, fontSize = 52.sp, fontWeight = FontWeight.Black, letterSpacing = (-2).sp)
+                        Image(painterResource(R.drawable.passo_brand_logo), "PASSO", Modifier.fillMaxWidth(0.52f).height(70.dp), contentScale = ContentScale.Fit)
                         Text("Go Further, Together.", color = WelcomeInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
                     }
                 }
