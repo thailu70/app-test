@@ -58,6 +58,18 @@ async function notifyPaidTicket(b, d) {
   const when = new Date(d.departure_at).toLocaleString('en-GB', { timeZone: 'Africa/Addis_Ababa', dateStyle: 'medium', timeStyle: 'short' });
   await sendSms(b.passenger_phone, `RoutePass ticket confirmed. Ticket ${shortTicketNumber(b)} for ${d.origin} to ${d.destination}, seat ${b.seat_number}, ${when}. Board with this number or your QR code.`);
 }
+async function notifyIntercityBoarding(d) {
+  const details = await DB.prepare(`SELECT d.origin,d.destination,v.plateNumber AS plate,u.phone AS driverPhone,c.name AS companyName
+    FROM intercity_departures d
+    JOIN transport_companies c ON c.id=d.company_id
+    LEFT JOIN vehicles v ON v.id=d.vehicle_id
+    LEFT JOIN users u ON u.id=d.driver_id
+    WHERE d.id=?`).get(d.id);
+  if (!details) return;
+  const passengers = await DB.prepare("SELECT passenger_phone FROM intercity_bookings WHERE departure_id=? AND payment_status='PAID' AND status='CONFIRMED' AND passenger_phone IS NOT NULL AND passenger_phone<>''").all(d.id);
+  const message = `RoutePass: ${details.companyName} vehicle ${details.plate || 'assigned vehicle'} is ready for boarding. Route ${details.origin} to ${details.destination}. Driver phone: ${details.driverPhone || 'not available'}. Board with your ticket number or QR code.`;
+  await Promise.allSettled(passengers.map(p => sendSms(p.passenger_phone, message)));
+}
 function bookingView(b, d, includePersonal = true) {
   return { id: b.id, departureId: b.departure_id, seatNumber: b.seat_number, amountEtb: Number(b.amount_etb), status: b.status, paymentStatus: b.payment_status, paymentMethod: b.payment_method, expiresAt: b.expires_at,
     ...(includePersonal ? { passengerName: b.passenger_name, passengerPhone: b.passenger_phone } : {}),
@@ -159,8 +171,8 @@ router.post('/bookings/:id/checkout', publicLimiter, asyncRoute(async (req, res)
   let b = await guestBooking(req); const p = person(req.body);
   if (b.payment_status === 'PAID') return res.json({ success: true, paid: true });
   if (b.status === 'EXPIRED' || Date.parse(b.expires_at) < Date.now()) throw fail(409, 'Your reservation expired. Choose a seat again.');
-  if (p.phone.replace(/\D/g, '') === '09000000') {
-    await write(async tx => { await tx.prepare("UPDATE intercity_bookings SET passenger_name=?,passenger_phone=?,status='CONFIRMED',payment_status='PAID',payment_method='TEST_AUTO',payment_reference='TEST-09000000' WHERE id=?").run(p.name, p.phone, b.id); });
+  if (p.phone.replace(/\D/g, '') === '0912469923') {
+    await write(async tx => { await tx.prepare("UPDATE intercity_bookings SET passenger_name=?,passenger_phone=?,status='CONFIRMED',payment_status='PAID',payment_method='TEST_AUTO',payment_reference='TEST-0912469923' WHERE id=?").run(p.name, p.phone, b.id); });
     b = await guestBooking(req);
     const d = await departure(DB, b.departure_id);
     await notifyPaidTicket(b, d);
@@ -318,6 +330,7 @@ router.post('/driver/departures/:id/arrival', ...driverGuard, asyncRoute(async (
     await tx.prepare("UPDATE intercity_departures SET status='BOARDING' WHERE id=?").run(d.id);
     return { departure: detail({ ...d, status: 'BOARDING' }), validation };
   });
+  await notifyIntercityBoarding(result.departure);
   res.json({ success: true, ...result });
 }));
 router.post('/driver/departures/:id/complete', ...driverGuard, asyncRoute(async (req, res) => {
