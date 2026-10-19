@@ -3,14 +3,21 @@ const router = express.Router();
 const crypto = require('crypto');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { optionalPrincipal, commuteRoute } = require('../services/commute-scope');
+const { routeSearch } = require('../services/route-search');
 
 /**
  * GET /api/routes
  * List all active transit lines
  */
 router.get('/', async (req, res) => {
+  let search;
+  try { search = routeSearch(req.query); }
+  catch (err) { return res.status(400).json({ success: false, error: err.message }); }
   try {
-    const routes = await DB.prepare('SELECT * FROM routes WHERE active = TRUE ORDER BY name ASC').all();
+    const principal = await optionalPrincipal(req);
+    if(principal?.role==='COMPANY') return res.status(403).json({success:false,error:'Use your company intercity route portal.'});
+    const routes = await DB.prepare(`SELECT r.* FROM routes r WHERE ${commuteRoute('r')} AND ${search.where} ORDER BY ${search.order}`).all(...search.params);
     res.json({
       success: true,
       count: routes.length,
@@ -28,12 +35,14 @@ router.get('/', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
-    const route = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(req.params.id);
+    const principal = await optionalPrincipal(req);
+    if(principal?.role==='COMPANY') return res.status(403).json({success:false,error:'Use your company route portal.'});
+    const route = await DB.prepare(`SELECT * FROM routes WHERE id = ? AND ${commuteRoute('')}`).get(req.params.id);
     if (!route) {
       return res.status(404).json({ success: false, error: 'Route not found' });
     }
 
-    const stops = await DB.prepare('SELECT * FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC').all(req.params.id);
+    const stops = await DB.prepare(`SELECT * FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC`).all(req.params.id);
 
     res.json({
       success: true,
@@ -116,8 +125,8 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
       VALUES ('ROUTE_CREATED', ?, 'ADMIN', ?)
     `).run(req.user.id, `Created route: ${name} (ETB ${basePriceEtb})`);
 
-    const createdRoute = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(routeId);
-    const createdStops = await DB.prepare('SELECT * FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC').all(routeId);
+    const createdRoute = await DB.prepare(`SELECT * FROM routes WHERE id = ?`).get(routeId);
+    const createdStops = await DB.prepare(`SELECT * FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC`).all(routeId);
 
     res.status(201).json({
       success: true,
@@ -137,7 +146,7 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
  */
 router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
   try {
-    const current = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(req.params.id);
+    const current = await DB.prepare(`SELECT * FROM routes WHERE id = ? AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'`).get(req.params.id);
     if (!current) return res.status(404).json({ success: false, error: 'Route not found.' });
 
     const name = String(req.body.name ?? current.name).trim();
@@ -187,8 +196,10 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
         .run('ROUTE_UPDATED', req.user.id, 'ADMIN', `Updated route ${req.params.id}: ${name}`);
     });
 
-    const route = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(req.params.id);
-    const stops = await DB.prepare('SELECT * FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC').all(req.params.id);
+    const principal = await optionalPrincipal(req);
+    if(principal?.role==='COMPANY') return res.status(403).json({success:false,error:'Use your company route portal.'});
+    const route = await DB.prepare(`SELECT * FROM routes WHERE id = ? AND ${commuteRoute('')}`).get(req.params.id);
+    const stops = await DB.prepare(`SELECT * FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC`).all(req.params.id);
     res.json({ success: true, route, stops });
   } catch (err) {
     console.error('[RoutePass] route update failed:', err);
@@ -202,13 +213,15 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
  */
 router.delete('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
   try {
-    const route = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(req.params.id);
+    const principal = await optionalPrincipal(req);
+    if(principal?.role==='COMPANY') return res.status(403).json({success:false,error:'Use your company route portal.'});
+    const route = await DB.prepare(`SELECT * FROM routes WHERE id = ? AND ${commuteRoute('')}`).get(req.params.id);
     if (!route) {
       return res.status(404).json({ success: false, error: 'Route not found' });
     }
 
-    await DB.prepare('DELETE FROM route_stops WHERE routeId = ?').run(req.params.id);
-    await DB.prepare('DELETE FROM routes WHERE id = ?').run(req.params.id);
+    await DB.prepare(`DELETE FROM route_stops WHERE routeId = ?`).run(req.params.id);
+    await DB.prepare(`DELETE FROM routes WHERE id = ?`).run(req.params.id);
 
     await DB.prepare(`
       INSERT INTO audit_logs (action, userId, role, details)

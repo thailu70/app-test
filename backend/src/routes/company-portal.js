@@ -60,7 +60,8 @@ router.get('/operations/summary',authenticate,requireRole('COMPANY'),async(req,r
     const drivers=await DB.prepare("SELECT COUNT(*) AS count FROM users WHERE role='DRIVER' AND companyId=?").get(id);
     const vehicles=await DB.prepare('SELECT COUNT(*) AS count FROM vehicles WHERE companyId=?').get(id);
     const assignments=await DB.prepare("SELECT COUNT(*) AS count FROM company_route_assignments WHERE company_id=? AND status='ACTIVE'").get(id);
-    const gps=await DB.prepare("SELECT COUNT(*) AS count FROM vehicles v JOIN vehicle_live_locations l ON l.vehicle_id=v.id WHERE v.companyId=? AND l.updated_at >= CURRENT_TIMESTAMP - INTERVAL '5 minutes'").get(id);
+    const cutoff = new Date(Date.now() - 120000).toISOString().replace('T', ' ').replace('Z', '');
+    const gps=await DB.prepare("SELECT COUNT(*) AS count FROM vehicles v JOIN vehicle_live_locations l ON l.vehicle_id=v.id WHERE v.companyId=? AND l.updated_at >= ?").get(id,cutoff);
     res.json({success:true,summary:{drivers:+drivers.count,vehicles:+vehicles.count,activeAssignments:+assignments.count,vehiclesReportingGps:+gps.count}});
   } catch(e){console.error('[Company] summary:',e);res.status(500).json({success:false,error:'Company summary unavailable.'});}
 });
@@ -87,7 +88,7 @@ router.post('/operations/vehicles', authenticate, requireRole('COMPANY'), async 
 });
 
 router.get('/operations/routes',authenticate,requireRole('COMPANY'),async(req,res)=>{
- try{const cid=req.user.companyId||req.user.id; const routes=await DB.prepare("SELECT r.*, a.id AS assignment_id, a.status AS assignment_status, a.driver_id, a.vehicle_id FROM routes r LEFT JOIN company_route_assignments a ON a.route_id=r.id AND a.company_id=? AND a.status='ACTIVE' WHERE r.companyId=? ORDER BY r.name").all(cid,cid);res.json({success:true,routes});}
+ try{const cid=req.user.companyId||req.user.id; const routes=await DB.prepare("SELECT r.*, a.id AS assignment_id, a.status AS assignment_status, a.driver_id, a.vehicle_id FROM routes r LEFT JOIN company_route_assignments a ON a.route_id=r.id AND a.company_id=? AND a.status='ACTIVE' WHERE r.companyId=? AND r.routeType='INTERCITY' ORDER BY r.name").all(cid,cid);res.json({success:true,routes});}
  catch(e){console.error('[Company] routes:',e);res.status(500).json({success:false,error:'Company routes unavailable.'});}
 });
 router.post('/operations/assignments',authenticate,requireRole('COMPANY'),async(req,res)=>{
@@ -97,12 +98,14 @@ router.post('/operations/assignments',authenticate,requireRole('COMPANY'),async(
  const id='cassign_'+crypto.randomUUID().replace(/-/g,'').slice(0,16);
  const result=await DB.transaction(async(tx)=>{
    const lockSuffix=tx.isPostgres?' FOR UPDATE':'';
-   const r=await tx.prepare('SELECT id FROM routes WHERE id=? AND companyId=? AND active=TRUE'+lockSuffix).get(routeId,cid);
+   const r=await tx.prepare("SELECT id FROM routes WHERE id=? AND companyId=? AND routeType='INTERCITY' AND active=TRUE"+lockSuffix).get(routeId,cid);
    const d=await tx.prepare("SELECT id FROM users WHERE id=? AND role='DRIVER' AND companyId=? AND status='ACTIVE'"+lockSuffix).get(driverId,cid);
    const v=await tx.prepare('SELECT id FROM vehicles WHERE id=? AND companyId=?'+lockSuffix).get(vehicleId,cid);
    if(!r||!d||!v)return {status:'INVALID_SCOPE'};
    const activeTrip=await tx.prepare("SELECT id FROM trips WHERE vehicleId=? AND status='IN_PROGRESS' LIMIT 1").get(vehicleId);
    if(activeTrip)return {status:'ACTIVE_TRIP'};
+   const activeDeparture=await tx.prepare("SELECT id FROM intercity_departures WHERE vehicle_id=? AND status='BOARDING' LIMIT 1").get(vehicleId);
+   if(activeDeparture)return {status:'ACTIVE_TRIP'};
    const conflict=await tx.prepare("SELECT id FROM company_route_assignments WHERE status='ACTIVE' AND (driver_id=? OR vehicle_id=?) LIMIT 1").get(driverId,vehicleId);
    if(conflict)return {status:'CONFLICT'};
    await tx.prepare("INSERT INTO company_route_assignments(id,company_id,route_id,driver_id,vehicle_id,status) VALUES(?,?,?,?,?,'ACTIVE')").run(id,cid,routeId,driverId,vehicleId);
@@ -130,6 +133,8 @@ router.delete('/operations/assignments/:id',authenticate,requireRole('COMPANY'),
      if(!vehicle)return {status:'NOT_FOUND'};
      const trip=await tx.prepare("SELECT id FROM trips WHERE vehicleId=? AND status='IN_PROGRESS' LIMIT 1").get(vehicle.id);
      if(trip)return {status:'ACTIVE_TRIP'};
+     const departure=await tx.prepare("SELECT id FROM intercity_departures WHERE vehicle_id=? AND status='BOARDING' LIMIT 1").get(vehicle.id);
+     if(departure)return {status:'ACTIVE_TRIP'};
      await tx.prepare("UPDATE company_route_assignments SET status='INACTIVE' WHERE id=? AND company_id=? AND status='ACTIVE'").run(assignment.id,cid);
      await tx.prepare("UPDATE vehicles SET driverId=NULL,driverName='',assignedRouteId=NULL,status='OFF_DUTY',updatedAt=CURRENT_TIMESTAMP WHERE id=? AND companyId=? AND driverId=?")
        .run(vehicle.id,cid,assignment.driver_id);
@@ -156,7 +161,7 @@ router.patch('/operations/drivers/:id/approval', authenticate, requireRole('COMP
     const driver=await DB.prepare("SELECT id,status FROM users WHERE id=? AND role='DRIVER' AND companyId=?").get(req.params.id,companyId);
     if(!driver) return res.status(404).json({success:false,error:'Driver not found in your company.'});
     if(driver.status!=='PENDING' && action==='APPROVE') return res.status(409).json({success:false,error:'Only pending drivers can be approved.'});
-    const status=action==='APPROVE'?'ACTIVE':'INACTIVE';
+    const status=action==='APPROVE'?'ACTIVE':'SUSPENDED';
     await DB.prepare("UPDATE users SET status=? WHERE id=? AND companyId=? AND role='DRIVER'").run(status,req.params.id,companyId);
     res.json({success:true,driver:{id:req.params.id,status},message:action==='APPROVE'?'Driver approved. Assign a company vehicle and route next.':'Driver application rejected.'});
   } catch(e){console.error('[Company] driver approval:',e);res.status(500).json({success:false,error:'Could not update driver approval.'});}
@@ -167,11 +172,11 @@ router.post('/operations/routes', authenticate, requireRole('COMPANY'), async (r
   try {
     const companyId=req.user.companyId||req.user.id;
     const name=String(req.body.name||'').trim(), nameAm=String(req.body.nameAm||name).trim();
-    const routeType=String(req.body.routeType||'DAILY_COMMUTE').toUpperCase();
+    const routeType=String(req.body.routeType||'INTERCITY').toUpperCase();
     const origin=String(req.body.origin||'').trim(), destination=String(req.body.destination||'').trim();
     const departureTime=String(req.body.departureTime||req.body.morningDeparture||(routeType==='INTERCITY'?'08:00':'06:30')).trim();
     if(name.length<2) return res.status(400).json({success:false,error:'Route name is required.'});
-    if(!['INTERCITY','DAILY_COMMUTE'].includes(routeType)) return res.status(400).json({success:false,error:'Choose Intercity or Daily commute.'});
+    if(routeType!=='INTERCITY') return res.status(400).json({success:false,error:'Companies manage Intercity routes only.'});
     if(origin.length<2||destination.length<2) return res.status(400).json({success:false,error:'Departure/origin and destination are required.'});
     if(origin.toLowerCase()===destination.toLowerCase()) return res.status(400).json({success:false,error:'Departure and destination must be different.'});
     const morningDeparture=routeType==='INTERCITY'?departureTime:String(req.body.morningDeparture||'06:30');
@@ -187,11 +192,11 @@ router.put('/operations/routes/:id', authenticate, requireRole('COMPANY'), async
     const companyId=req.user.companyId||req.user.id, current=await DB.prepare('SELECT * FROM routes WHERE id=? AND companyId=?').get(req.params.id,companyId);
     if(!current) return res.status(404).json({success:false,error:'Route not found for this company.'});
     const name=String(req.body.name??current.name).trim(), nameAm=String(req.body.nameAm??current.nameAm??name).trim();
-    const routeType=String(req.body.routeType??current.routeType??'DAILY_COMMUTE').toUpperCase();
+    const routeType=String(req.body.routeType??current.routeType??'INTERCITY').toUpperCase();
     const origin=String(req.body.origin??current.origin??'').trim(), destination=String(req.body.destination??current.destination??'').trim();
     const departureTime=String(req.body.departureTime??current.departureTime??req.body.morningDeparture??current.morningDeparture??'06:30').trim();
     if(!name) return res.status(400).json({success:false,error:'Route name is required.'});
-    if(!['INTERCITY','DAILY_COMMUTE'].includes(routeType)) return res.status(400).json({success:false,error:'Choose Intercity or Daily commute.'});
+    if(routeType!=='INTERCITY') return res.status(400).json({success:false,error:'Companies manage Intercity routes only.'});
     if(origin.length<2||destination.length<2) return res.status(400).json({success:false,error:'Departure/origin and destination are required.'});
     if(origin.toLowerCase()===destination.toLowerCase()) return res.status(400).json({success:false,error:'Departure and destination must be different.'});
     const morningDeparture=routeType==='INTERCITY'?departureTime:String(req.body.morningDeparture??current.morningDeparture??'06:30');
@@ -215,13 +220,13 @@ router.get('/operations/bookings', authenticate, requireRole('COMPANY'), async (
       FROM subscriptions s JOIN users u ON u.id=s.passengerId JOIN routes r ON r.id=s.routeId
       JOIN company_route_assignments a ON a.route_id=r.id AND a.company_id=? AND a.status='ACTIVE'
       LEFT JOIN vehicles v ON v.id=a.vehicle_id
-      WHERE s.subscriptionStatus='ACTIVE' AND s.paymentStatus='PAID' AND s.daysRemaining>0
+      WHERE r.routeType='INTERCITY' AND s.subscriptionStatus='ACTIVE' AND s.paymentStatus='PAID' AND s.daysRemaining>0
       ORDER BY r.name,u.fullName
     `).all(companyId);
     const roster=await DB.prepare(`
       SELECT c.id AS checkin_id,c.tripId AS trip_id,c.passengerId AS passenger_id,c.passengerName AS passenger_name,
         c.routeId AS route_id,c.stopName AS stop_name,c.status,c.timestamp,c.vehicleId AS vehicle_id,c.driverId AS driver_id
-      FROM checkin_records c JOIN company_route_assignments a ON a.route_id=c.routeId AND a.company_id=? AND a.status='ACTIVE'
+      FROM checkin_records c JOIN routes r ON r.id=c.routeId AND r.routeType='INTERCITY' JOIN company_route_assignments a ON a.route_id=c.routeId AND a.company_id=? AND a.status='ACTIVE'
       ORDER BY c.timestamp DESC LIMIT 500
     `).all(companyId);
     res.json({success:true,bookings,roster});

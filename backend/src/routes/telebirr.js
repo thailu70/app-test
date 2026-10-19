@@ -100,10 +100,23 @@ router.post('/pay', authenticate, requireRole('PASSENGER'), async (req, res, nex
     if (!passenger) return res.status(404).json({ success: false, error: 'Passenger account not found.' });
     const routeId = String(request.routeId || passenger.appliedRouteId || '').trim();
     if (!routeId) return res.status(400).json({ success: false, error: 'Select a route before checkout.' });
-    const route = await DB.prepare('SELECT * FROM routes WHERE id=? AND active=TRUE').get(routeId);
+    const route = await DB.prepare("SELECT * FROM routes WHERE id=? AND active=TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'").get(routeId);
     if (!route) return res.status(404).json({ success: false, error: 'Active route not found.' });
     const amount = Number(route.basePriceEtb);
     if (!Number.isFinite(amount) || amount <= 0) return res.status(409).json({ success: false, error: 'Invalid route fare.' });
+
+    if (String(passenger.phone || '').replace(/\D/g, '') === '09000000') {
+      const current = await DB.prepare('SELECT * FROM subscriptions WHERE passengerId=? ORDER BY updatedAt DESC LIMIT 1').get(passengerId);
+      const subId = current?.id || ('sub_' + passengerId + '_' + Date.now().toString(36));
+      const expiry = Date.now() + 30 * 86400000;
+      const qr = signedQr(subId, passengerId, route.id, expiry);
+      const start = new Date().toISOString().slice(0, 10), end = new Date(expiry).toISOString().slice(0, 10);
+      if (current) await DB.prepare("UPDATE subscriptions SET routeId=?,priceEtb=?,paymentStatus='PAID',subscriptionStatus='ACTIVE',startDate=?,endDate=?,daysRemaining=30,qrToken=?,updatedAt=CURRENT_TIMESTAMP WHERE id=?").run(route.id, amount, start, end, qr, subId);
+      else await DB.prepare("INSERT INTO subscriptions (id,passengerId,routeId,pickupStopId,destinationStopId,morningSchedule,eveningSchedule,startDate,endDate,priceEtb,paymentStatus,subscriptionStatus,daysRemaining,qrToken) VALUES (?,?,?,'','',?,?,?,?,?,'PAID','ACTIVE',30,?)").run(subId, passengerId, route.id, route.morningDeparture, route.eveningDeparture, start, end, amount, qr);
+      const reference = 'TEST-09000000-' + Date.now().toString(36);
+      await DB.prepare("INSERT INTO payment_transactions (id,passengerId,referenceNumber,idempotencyKey,amountEtb,provider,phoneNumber,status,notes) VALUES (?,?,?,?,?,?,?,'VERIFIED',?)").run('tx_' + crypto.randomUUID().slice(0, 8), passengerId, reference, key, amount, 'TEST_AUTO', passenger.phone, 'Auto-confirmed test payment for 09000000');
+      return res.status(201).json({ success: true, status: 'PAID', paymentMode: 'TEST_AUTO', message: 'Test payment confirmed automatically for 09000000.' });
+    }
 
     const prior = await DB.prepare('SELECT * FROM telebirr_payment_orders WHERE idempotency_key=?').get(key);
     if (prior) {

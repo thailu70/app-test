@@ -22,8 +22,8 @@ android {
     applicationId = "com.aistudio.transportnavigator.edxpkq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 3
-    versionName = "1.0.2"
+    versionCode = 8
+    versionName = "1.1.5"
     buildConfigField("String", "ROUTEPASS_API_BASE_URL", "\"$routePassApiBaseUrl\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -124,6 +124,7 @@ dependencies {
   implementation("androidx.camera:camera-lifecycle:1.6.2")
   implementation("androidx.camera:camera-view:1.6.2")
   implementation("com.google.mlkit:barcode-scanning:17.3.0")
+  implementation("com.google.zxing:core:3.5.4")
   // Compact OpenStreetMap view for actual vehicle coordinates (no Google Maps API key).
   implementation("org.osmdroid:osmdroid-android:6.1.20")
   testImplementation(libs.androidx.compose.ui.test.junit4)

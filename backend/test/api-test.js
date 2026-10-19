@@ -14,12 +14,19 @@
  */
 
 const http = require('http');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const PORT = 3999;
 process.env.PORT = PORT;
 process.env.NODE_ENV = 'test';
+process.env.DATABASE_URL = '';
+process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'routepass-api-integration-'));
+process.env.PAYMENT_MODE = 'TEST';
 
-const { server } = require('../src/server');
+const { server, initializeFeatureSchemas } = require('../src/server');
+const { DB } = require('../src/db');
 
 function makeRequest(method, path, body = null, token = null, headers = {}) {
   return new Promise((resolve, reject) => {
@@ -63,6 +70,11 @@ async function runTests() {
   let driverToken = '';
   let adminToken = '';
 
+  await initializeFeatureSchemas();
+  // Each test starts a scheduled trip close to the actual server time, at the
+  // seeded departure point. These fixtures satisfy the real gate without flags.
+  const currentAddisTime = new Date(Date.now() + 3 * 3600000).toISOString().slice(11, 16);
+  await DB.prepare('UPDATE routes SET morningDeparture = ? WHERE id = ?').run(currentAddisTime, 'route_bole_merkato');
   await new Promise(resolve => server.listen(PORT, '127.0.0.1', resolve));
   console.log(`✓ Test HTTP & WebSocket server listening on port ${PORT}`);
 
@@ -176,7 +188,9 @@ async function runTests() {
     // 7. Driver starts trip and updates stop arrival
     const startTripRes = await makeRequest('POST', '/api/trips/start', {
       routeId: 'route_bole_merkato',
-      direction: 'OUTBOUND'
+      vehicleId: 'veh_higer_aa_34921',
+      direction: 'OUTBOUND',
+      location: { latitude: 8.995, longitude: 38.788, accuracyMeters: 5, timestamp: Date.now() }
     }, driverToken);
     if (!startTripRes.data.success) throw new Error('Start trip failed: ' + JSON.stringify(startTripRes.data));
     const activeTrip = startTripRes.data.trip;
@@ -190,6 +204,8 @@ async function runTests() {
     // 8. Vehicle Capacity Limits & Atomic Transaction Verification
     // Configure vehicle with capacity limit = 1 to test boarding then strict denial
     const testVehId = 'veh_higer_aa_34921'; // assigned Higer vehicle for the authenticated driver
+    const assignment1 = await makeRequest('PATCH', `/api/admin/subscriptions/${newPasReg.data.subscription.id}/assignment`, { vehicleId: testVehId }, adminToken);
+    if (assignment1.status !== 200) throw new Error('Passenger vehicle assignment failed: ' + JSON.stringify(assignment1.data));
     await makeRequest('PATCH', `/api/vehicles/${testVehId}/type`, {
       vehicleType: 'HIGER_24',
       capacityLimit: 1,
@@ -234,6 +250,8 @@ async function runTests() {
       routeId: 'route_bole_merkato'
     }, pas2Reg.data.token);
     const pas2Qr = pas2Pay.data.subscription.qrToken;
+    const assignment2 = await makeRequest('PATCH', `/api/admin/subscriptions/${pas2Reg.data.subscription.id}/assignment`, { vehicleId: testVehId }, adminToken);
+    if (assignment2.status !== 200) throw new Error('Second passenger vehicle assignment failed: ' + JSON.stringify(assignment2.data));
 
     // Scan second passenger on full vehicle (1/1 seats) -> MUST BE REJECTED with DENIED_CAPACITY_FULL!
     const scan2 = await makeRequest('POST', '/api/checkins/scan', {

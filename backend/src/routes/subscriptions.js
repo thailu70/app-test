@@ -3,6 +3,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { passengerAssignment } = require('../services/passenger-assignment');
 
 function resolveQrSigningKey() {
   if (process.env.QR_SIGNING_KEY && process.env.QR_SIGNING_KEY.trim().length > 0) {
@@ -66,13 +67,8 @@ function verifySignedQrToken(token) {
 router.get('/my-status', authenticate, requireRole('PASSENGER'), async (req, res) => {
   try {
     const passengerId = req.user.id;
-    const sub = await DB.prepare(`
-      SELECT s.*, r.name as routeName, r.nameAm as routeNameAm, r.basePriceEtb, r.morningDeparture, r.eveningDeparture
-      FROM subscriptions s
-      LEFT JOIN routes r ON s.routeId = r.id
-      WHERE s.passengerId = ?
-      ORDER BY s.updatedAt DESC LIMIT 1
-    `).get(passengerId);
+    res.set('Cache-Control', 'private, no-store');
+    const { subscription: sub } = await passengerAssignment(passengerId);
 
     if (!sub || sub.subscriptionStatus !== 'ACTIVE' || sub.paymentStatus !== 'PAID' || sub.daysRemaining <= 0) {
       return res.json({
@@ -92,6 +88,11 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), async (req, res
           paymentStatus: sub.paymentStatus,
           priceEtb: sub.priceEtb,
           daysRemaining: sub.daysRemaining,
+          pickupStopId: sub.pickupStopId,
+          destinationStopId: sub.destinationStopId,
+          morningSchedule: sub.morningSchedule || sub.morningDeparture,
+          eveningSchedule: sub.eveningSchedule || sub.eveningDeparture,
+          startDate: sub.startDate, endDate: sub.endDate, vehicleId: sub.vehicleId,
           qrToken: null
         } : null
       });
@@ -115,8 +116,10 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), async (req, res
         endDate: sub.endDate,
         daysRemaining: sub.daysRemaining,
         qrToken: sub.qrToken,
-        morningSchedule: sub.morningSchedule,
-        eveningSchedule: sub.eveningSchedule,
+        pickupStopId: sub.pickupStopId,
+        destinationStopId: sub.destinationStopId,
+        morningSchedule: sub.morningSchedule || sub.morningDeparture,
+        eveningSchedule: sub.eveningSchedule || sub.eveningDeparture,
         vehicleId: sub.vehicleId
       }
     });
@@ -140,7 +143,7 @@ router.post('/subscribe', authenticate, requireRole('PASSENGER'), async (req, re
       return res.status(400).json({ success: false, error: 'Route ID is required.' });
     }
 
-    const route = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(routeId);
+    const route = await DB.prepare("SELECT * FROM routes WHERE id = ? AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'").get(routeId);
     if (!route) {
       return res.status(404).json({ success: false, error: 'Route not found.' });
     }
@@ -346,7 +349,7 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
 
     const user = await DB.prepare('SELECT * FROM users WHERE id = ?').get(passengerId);
     const targetRouteId = routeId || user?.appliedRouteId || 'route_bole_merkato';
-    const route = await DB.prepare('SELECT * FROM routes WHERE id = ?').get(targetRouteId);
+    const route = await DB.prepare("SELECT * FROM routes WHERE id = ? AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'").get(targetRouteId);
 
     if (!route) {
       return res.status(404).json({ success: false, error: 'Route not found.' });
@@ -483,6 +486,7 @@ router.get('/all', authenticate, requireRole('ADMIN'), async (req, res) => {
       FROM subscriptions s
       LEFT JOIN users u ON s.passengerId = u.id
       LEFT JOIN routes r ON s.routeId = r.id
+      WHERE COALESCE(r.companyId,'')='' AND COALESCE(r.routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'
       ORDER BY s.updatedAt DESC
     `).all();
 

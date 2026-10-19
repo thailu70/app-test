@@ -68,26 +68,61 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     val currentUser: StateFlow<UserEntity?> = _currentUser.asStateFlow()
 
     private var passengerSubscriptionRefreshJob: Job? = null
+    private var paymentRequestJob: Job? = null
+    private var sessionGeneration = 0L
+    private val _passengerSubscription = MutableStateFlow<SubscriptionEntity?>(null)
+    private val _passengerSubscriptionLoading = MutableStateFlow(false)
+    val passengerSubscriptionLoading: StateFlow<Boolean> = _passengerSubscriptionLoading.asStateFlow()
+    private val _passengerSubscriptionError = MutableStateFlow<String?>(null)
+    val passengerSubscriptionError: StateFlow<String?> = _passengerSubscriptionError.asStateFlow()
+
+    private suspend fun refreshPassengerSubscription(passengerId: String) {
+        try {
+            val subscription = repository.refreshSubscriptionFromBackend(passengerId)
+            if (currentPassengerId == passengerId) {
+                _passengerSubscription.value = subscription
+                _passengerSubscriptionError.value = null
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            if (currentPassengerId == passengerId) {
+                _passengerSubscriptionError.value = if (error is retrofit2.HttpException && error.code() == 401)
+                    "Your session has expired. Please sign in again."
+                else "Could not refresh your pass. Check your connection and try again."
+                // Never present a cached QR/paid status as currently verified after an error.
+                _passengerSubscription.value = null
+            }
+        } finally {
+            if (currentPassengerId == passengerId) _passengerSubscriptionLoading.value = false
+        }
+    }
 
     private fun startPassengerSubscriptionRefresh(passengerId: String) {
         passengerSubscriptionRefreshJob?.cancel()
+        _passengerSubscription.value = null
+        _passengerSubscriptionError.value = null
+        _passengerSubscriptionLoading.value = true
         passengerSubscriptionRefreshJob = viewModelScope.launch {
             while (true) {
-                try {
-                    repository.refreshSubscriptionFromBackend(passengerId)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    // Keep the last known subscription visible; retry on the next interval.
-                }
+                refreshPassengerSubscription(passengerId)
                 delay(15000)
             }
         }
     }
 
+    fun refreshPassengerData() {
+        val passengerId = currentPassengerId
+        if (passengerId.isBlank() || _currentRole.value != AppRole.PASSENGER) return
+        startPassengerSubscriptionRefresh(passengerId)
+    }
+
     private fun stopPassengerSubscriptionRefresh() {
         passengerSubscriptionRefreshJob?.cancel()
         passengerSubscriptionRefreshJob = null
+        _passengerSubscription.value = null
+        _passengerSubscriptionError.value = null
+        _passengerSubscriptionLoading.value = false
     }
 
 
@@ -129,7 +164,6 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 repository.refreshRoutesFromBackend()
                 repository.refreshVehiclesFromBackend()
                 repository.refreshNotificationsFromBackend()
-                LiveTrackingWebSocket.connect()
             } catch (e: Exception) {
                 // Offline fallback
             }
@@ -137,10 +171,9 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     }
 
     // Passenger Flows
-    val activeSubscription: StateFlow<SubscriptionEntity?> = _currentUser.flatMapLatest { user ->
-        val id = user?.id ?: ""
-        if (id.isBlank()) flowOf(null) else repository.getSubscriptionForPassenger(id)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    // A live passenger portal starts empty and waits for this session's server
+    // response. Room can contain legacy/demo records or an older user's pass.
+    val activeSubscription: StateFlow<SubscriptionEntity?> = _passengerSubscription.asStateFlow()
 
     val passengerPayments: StateFlow<List<PaymentTransactionEntity>> = _currentUser.flatMapLatest { user ->
         val id = user?.id ?: ""
@@ -209,28 +242,32 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
             }
         } else {
             flow {
+                var lastVehicle: TrackedVehicleDto? = null
+                _trackingMessage.value = "Loading your assigned vehicle…"
+                emit(null)
                 while (true) {
                     try {
                         val response = repository.fetchTrackedVehicleStatus()
-                        val vehicle = response.vehicle
-                        _trackingMessage.value = response.message ?: when {
-                            vehicle == null -> "No vehicle is available for this account yet."
-                            vehicle.hasGpsLocation && !vehicle.lastGpsAt.isNullOrBlank() ->
-                                "RoutePass server received a GPS report at ${vehicle.lastGpsAt}."
-                            else -> "Vehicle found, but RoutePass has not received a GPS report for it yet."
-                        }
-                        emit(vehicle)
+                        lastVehicle = response.vehicle
+                        _trackingMessage.value = response.message ?: "Driver location is unavailable."
+                        emit(lastVehicle)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
-                        _trackingMessage.value = "Tracking refresh failed: ${error.message ?: "server unavailable"}"
-                        emit(null)
+                        val forbidden = error is retrofit2.HttpException && error.code() in listOf(401, 403)
+                        _trackingMessage.value = when {
+                            error is retrofit2.HttpException && error.code() == 401 -> "Your session has expired. Please sign in again."
+                            forbidden -> "Live tracking is not available for this account."
+                            else -> "Could not refresh driver location. Check your connection and try again."
+                        }
+                        if (forbidden) lastVehicle = null
+                        emit(lastVehicle?.copy(trackingStatus = "ERROR"))
                     }
-                    delay(5000)
+                    delay(15000)
                 }
             }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 0, replayExpirationMillis = 0), null)
 
     // Notifications Feeds
     val allNotifications: StateFlow<List<NotificationEntity>> = repository.allNotifications
@@ -273,18 +310,27 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     }
 
     private fun startTelebirrStatusPolling(merchantOrderId: String, passengerId: String) {
+        val session = sessionGeneration
         telebirrStatusPollJob?.cancel()
         telebirrStatusPollJob = viewModelScope.launch {
             repeat(75) {
                 delay(12500)
                 val status = repository.getTelebirrPaymentStatus(merchantOrderId)?.status?.uppercase()
+                if (session != sessionGeneration || currentPassengerId != passengerId) return@launch
                 when (status) {
                     "PAID" -> {
-                        repository.refreshSubscriptionFromBackend(passengerId)
-                        _paymentMessage.value = "Payment verified by Telebirr. Your subscription is active."
+                        refreshPassengerSubscription(passengerId)
+                        if (session != sessionGeneration || currentPassengerId != passengerId) return@launch
+                        val pass = _passengerSubscription.value
+                        val active = pass?.subscriptionStatus == "ACTIVE" && pass.paymentStatus == "PAID" && pass.daysRemaining > 0
+                        _paymentMessage.value = if (active) "Payment verified by Telebirr. Your pass is active."
+                            else "Payment verified. Refresh your pass to check activation, or contact your administrator."
                         _telebirrCheckoutUrl.value = null
-                        delay(1500)
-                        _isTelebirrDialogOpen.value = false
+                        if (active) {
+                            delay(1500)
+                            if (session != sessionGeneration || currentPassengerId != passengerId) return@launch
+                            _isTelebirrDialogOpen.value = false
+                        }
                         return@launch
                     }
                     "FAILED" -> {
@@ -329,6 +375,9 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
             }
             val user = repository.authenticate(identifier, roleStr, password)
             if (user != null) {
+                ++sessionGeneration
+                LiveTrackingWebSocket.disconnect()
+                LiveTrackingWebSocket.connect()
                 _currentUser.value = user
                 _currentRole.value = role
                 _isAuthenticated.value = true
@@ -381,7 +430,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         vehicleModel: String = "",
         vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
-        appliedRouteName: String = ""
+        appliedRouteName: String = "",
+        otpVerificationToken: String = ""
     ) {
         viewModelScope.launch {
             _authError.value = null
@@ -425,12 +475,16 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                     vehicleModel = vehicleModel,
                     vehicleType = vehicleType,
                     appliedRouteId = appliedRouteId,
-                    appliedRouteName = appliedRouteName
+                    appliedRouteName = appliedRouteName,
+                    otpVerificationToken = otpVerificationToken
                 )
                 if (role == AppRole.DRIVER) {
                     _registrationMessage.value = "Thank you for registering. We will review your licence and vehicle, authorize your account, assign your route, and connect appropriate passenger subscriptions to your vehicle. We will contact you when it is ready. You can sign in after approval."
                     return@launch
                 }
+                ++sessionGeneration
+                LiveTrackingWebSocket.disconnect()
+                LiveTrackingWebSocket.connect()
                 _currentUser.value = user
                 _currentRole.value = role
                 _isAuthenticated.value = true
@@ -464,8 +518,39 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         }
     }
 
+    fun requestRegistrationOtp(phone: String, onResult: (String?, String?) -> Unit) {
+        viewModelScope.launch {
+            try { onResult(repository.requestRegistrationOtp(phone), null) }
+            catch (e: Exception) { onResult(null, e.message ?: "Could not send the verification SMS.") }
+        }
+    }
+
+    fun verifyRegistrationOtp(phone: String, code: String, onResult: (String?, String?) -> Unit) {
+        viewModelScope.launch {
+            try { onResult(repository.verifyRegistrationOtp(phone, code), null) }
+            catch (e: Exception) { onResult(null, e.message ?: "The verification code is invalid.") }
+        }
+    }
+
     fun logout() {
+        ++sessionGeneration
         stopPassengerSubscriptionRefresh()
+        paymentRequestJob?.cancel()
+        paymentRequestJob = null
+        telebirrStatusPollJob?.cancel()
+        telebirrStatusPollJob = null
+        _isTelebirrDialogOpen.value = false
+        _telebirrCheckoutUrl.value = null
+        _selectedReceipt.value = null
+        _isComplaintDialogOpen.value = false
+        _paymentMessage.value = null
+        _isProcessingPayment.value = false
+        _isNotificationTrayOpen.value = false
+        _isScannerOpen.value = false
+        _scanResult.value = null
+        com.example.data.api.ApiClient.setAuthToken(null)
+        LiveTrackingWebSocket.disconnect()
+        _driverTrip.value = DriverTripState()
         _currentUser.value = null
         _isAuthenticated.value = false
         _authError.value = null
@@ -731,40 +816,53 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     }
 
     fun processTelebirrPayment() {
-        viewModelScope.launch {
+        val session = sessionGeneration
+        val passengerId = currentPassengerId
+        if (passengerId.isBlank() || _currentRole.value != AppRole.PASSENGER) return
+        paymentRequestJob?.cancel()
+        paymentRequestJob = viewModelScope.launch {
             telebirrStatusPollJob?.cancel()
             _isProcessingPayment.value = true
             val user = _currentUser.value
-            val appliedRouteId = user?.appliedRouteId?.ifBlank { "route_bole_merkato" } ?: "route_bole_merkato"
-            val routesList = repository.allRoutes.firstOrNull() ?: emptyList()
-            val matchedRoute = routesList.find { it.id == appliedRouteId }
-            val amount = matchedRoute?.basePriceEtb ?: 2500.0
+            val subscription = activeSubscription.value
+            val appliedRouteId = subscription?.routeId?.takeIf { it.isNotBlank() }
+                ?: user?.appliedRouteId.orEmpty()
+            val matchedRoute = repository.getRouteById(appliedRouteId)
+            if (session != sessionGeneration || currentPassengerId != passengerId) return@launch
+            if (appliedRouteId.isBlank() || matchedRoute == null) {
+                _isProcessingPayment.value = false
+                _paymentMessage.value = "Your commute route is not available. Refresh your pass or contact support."
+                return@launch
+            }
+            val amount = matchedRoute.basePriceEtb
 
             val result = TelebirrGateway.processSubscriptionPayment(
-                passengerId = currentPassengerId,
+                passengerId = passengerId,
                 routeId = appliedRouteId,
-                pickupStopId = "stop_atlas",
-                destinationStopId = "stop_merkato",
-                morningSchedule = "06:30",
-                eveningSchedule = "17:30",
+                pickupStopId = subscription?.pickupStopId.orEmpty(),
+                destinationStopId = subscription?.destinationStopId.orEmpty(),
+                morningSchedule = subscription?.morningSchedule?.ifBlank { matchedRoute.morningDeparture } ?: matchedRoute.morningDeparture,
+                eveningSchedule = subscription?.eveningSchedule?.ifBlank { matchedRoute.eveningDeparture } ?: matchedRoute.eveningDeparture,
                 amountEtb = amount,
                 phoneNumber = user?.phone.orEmpty(),
-                vehicleId = "veh_higer_aa_34921",
+                vehicleId = subscription?.vehicleId.orEmpty(),
                 idempotencyKey = UUID.randomUUID().toString(),
                 repository = repository
             )
 
+            if (session != sessionGeneration || currentPassengerId != passengerId) return@launch
             _isProcessingPayment.value = false
             when (result) {
                 is TelebirrPaymentResult.CheckoutReady -> {
                     _paymentMessage.value = result.message
                     _telebirrCheckoutUrl.value = result.checkoutUrl
-                    startTelebirrStatusPolling(result.merchantOrderId, currentPassengerId)
+                    startTelebirrStatusPolling(result.merchantOrderId, passengerId)
                 }
                 is TelebirrPaymentResult.Success -> {
                     _paymentMessage.value = "Test payment completed. Subscription status refreshed."
-                    repository.refreshSubscriptionFromBackend(currentPassengerId)
+                    refreshPassengerSubscription(passengerId)
                     delay(1200)
+                    if (session != sessionGeneration || currentPassengerId != passengerId) return@launch
                     _isTelebirrDialogOpen.value = false
                 }
                 is TelebirrPaymentResult.Failed -> {
@@ -778,12 +876,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     }
 
     fun cancelSubscription() {
-        viewModelScope.launch {
-            val sub = activeSubscription.value
-            if (sub != null) {
-                repository.insertSubscription(sub.copy(subscriptionStatus = "EXPIRED", daysRemaining = 0))
-            }
-        }
+        _paymentMessage.value = "Contact your administrator to change or cancel your pass."
     }
 
     fun openReceipt(receipt: PaymentTransactionEntity) {

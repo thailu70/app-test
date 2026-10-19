@@ -4,9 +4,13 @@
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
   const TOKEN_KEY = "routepass_admin_token";
   const state = { token: sessionStorage.getItem(TOKEN_KEY) || "", user: null, view: "overview", cache: {} };
+  let fleetMapCleanup = null;
+  let renderRevision = 0;
   const labels = {
     overview: ["Overview", "A live snapshot of RoutePass service operations."],
+    reports: ["Performance reports", "Daily commute performance in Addis Ababa time."],
     drivers: ["Drivers & routes", "Review driver-owned vehicles and assign approved operating routes."],
+    gps: ["Driver GPS", "Live and last reported GPS locations for daily commute drivers."],
     companies: ["Company access", "Invite transport companies and issue one-time registration codes."],
     routes: ["Manage routes", "Create, edit, activate and deactivate RoutePass transit routes."],
     vehicles: ["Vehicles", "Fleet availability and current assignments."],
@@ -14,7 +18,8 @@
     payments: ["Payments", "Transaction history for operational review."],
     checkins: ["Check-ins", "Recent passenger boarding records."],
     complaints: ["Complaints", "Review passenger reports and update case status."],
-    "audit-logs": ["Audit log", "Recent administrative and operational changes."]
+    "audit-logs": ["Audit log", "Recent administrative and operational changes."],
+    settings: ["Settings", "Configure integrations used by RoutePass operations."]
   };
 
   function esc(value) {
@@ -75,6 +80,9 @@
     toast.timer = window.setTimeout(() => { el.hidden = true; }, 4500);
   }
   function logout(show = true) {
+    fleetMapCleanup?.();
+    fleetMapCleanup = null;
+    renderRevision++;
     sessionStorage.removeItem(TOKEN_KEY);
     state.token = "";
     state.user = null;
@@ -107,7 +115,7 @@
     const result = await api("/api/admin/stats");
     const s = result.stats || {};
     const drivers = asArray(await api("/api/admin/drivers"), "drivers");
-    return pageHeader("Operations at a glance", "Use the left menu to manage the fleet and operations.") +
+    return pageHeader("Operations at a glance", "Use the left menu to manage the fleet and operations.", '<button class="btn btn-secondary" data-go="gps">View driver GPS</button>') +
       '<div class="stats-grid">' +
       statCard("Passengers", value(s, "totalPassengers"), "Registered commuter accounts") +
       statCard("Drivers", value(s, "totalDrivers"), "Provisioned driver accounts") +
@@ -127,6 +135,42 @@
           { label: "Status", render: r => pill(value(r, "status")) }
         ], drivers.slice(0, 5)),
         '<button class="btn btn-secondary" data-go="drivers">View all drivers</button>');
+  }
+  async function renderSettings() {
+    const result = await api("/api/admin/integrations/afro-sms");
+    const configured = result.configured || {};
+    return pageHeader("Settings", "Manage the SMS provider used for passenger arrival notifications.") +
+      section("Afro SMS", "Enter the AfroMessage token and Identifier ID. The token is stored securely and is never displayed after saving.",
+        '<form id="afro-sms-form" class="form-card" style="padding:0;border:0;box-shadow:none">' +
+        '<div class="driver-form-grid">' +
+        '<div class="field"><label for="afro-sms-token">API token</label><input id="afro-sms-token" name="apiToken" type="password" autocomplete="new-password" placeholder="Paste Afro SMS API token" required><span class="hint">' + (configured.AFRO_SMS_API_TOKEN ? 'A token is already saved. Enter a new token only when rotating it.' : 'Required before RoutePass can send SMS notifications.') + '</span></div>' +
+        '<div class="field"><label for="afro-sms-identifier">Identifier ID (from, optional)</label><input id="afro-sms-identifier" name="identifier" maxlength="120" placeholder="Leave blank to use your default identifier"><span class="hint">Use an Identifier ID only when your AfroMessage account has multiple short codes. Otherwise leave it blank.</span></div>' +
+        '<div class="field"><label for="afro-sms-sender">Approved sender name</label><input id="afro-sms-sender" name="sender" maxlength="40" value="WHALE" placeholder="Approved AfroMessage sender"><span class="hint">For the WHALE identifier, use the approved sender name from AfroMessage. The default is WHALE.</span></div>' +
+        '<div class="field"><label for="afro-sms-url">API URL</label><input id="afro-sms-url" name="url" type="url" value="https://api.afromessage.com/api/send"><span class="hint">Leave the default Afro SMS endpoint unless your account uses another URL.</span></div>' +
+        '</div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Afro SMS settings</button></div><div class="driver-form-grid" style="margin-top:16px"><div class="field"><label for="afro-sms-test-phone">Test phone number</label><input id="afro-sms-test-phone" type="tel" placeholder="09XXXXXXXX"></div><div class="field"><label for="afro-sms-test-message">Test message</label><input id="afro-sms-test-message" maxlength="320" value="RoutePass test SMS: Afro SMS is connected."></div></div><div class="form-actions"><button class="btn btn-secondary" type="button" id="afro-sms-test">Send test message</button></div><p id="afro-sms-message" class="form-message" hidden></p></form>') ;
+  }
+  async function saveAfroSms(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
+    const message = $("#afro-sms-message");
+    button.disabled = true;
+    message.hidden = true;
+    try {
+      const data = Object.fromEntries(new FormData(form).entries());
+      await api("/api/admin/integrations/afro-sms", { method: "PUT", body: JSON.stringify(data) });
+      form.reset();
+      $("#afro-sms-sender").value = "WHALE";
+      $("#afro-sms-url").value = "https://api.afromessage.com/api/send";
+      message.textContent = "Afro SMS settings saved securely.";
+      message.className = "form-message";
+      message.hidden = false;
+      toast("Afro SMS settings saved.");
+    } catch (error) {
+      message.textContent = error.message;
+      message.className = "form-message error";
+      message.hidden = false;
+    } finally { button.disabled = false; }
   }
   async function renderDrivers() {
     await loadLookups();
@@ -185,7 +229,7 @@
           { label: "Distance", render: r => esc(value(r, "distanceKm", "distance_km")) + " km" },
           { label: "Monthly tariff", render: r => esc(money(value(r, "basePriceEtb", "base_price_etb"))) },
           { label: "Status", render: r => pill(value(r, "active") === false || value(r, "active") === 0 ? "INACTIVE" : "ACTIVE") },
-          { label: "Actions", render: r => '<div class="inline-actions"><button class="btn btn-secondary" data-edit-route="' + esc(r.id) + '">Edit</button><button class="btn btn-secondary" data-toggle-route="' + esc(r.id) + '">' + (r.active === false || r.active === 0 ? "Activate" : "Deactivate") + '</button></div>' }
+          { label: "Actions", render: r => '<div class="inline-actions"><button class="btn btn-secondary" data-edit-route="' + esc(r.id) + '">Edit</button><button class="btn btn-secondary" data-geofence-route="' + esc(r.id) + '">Departure area</button><button class="btn btn-secondary" data-toggle-route="' + esc(r.id) + '">' + (r.active === false || r.active === 0 ? "Activate" : "Deactivate") + '</button></div>' }
         ], routes));
   }
 
@@ -209,8 +253,11 @@
     const [subscriptions, features] = await Promise.all([api("/api/admin/subscriptions"), api("/api/admin/features")]);
     const data = asArray(subscriptions, "subscriptions");
     const testRechargeEnabled = features.manualTestRechargeEnabled === true;
+    const adminActivationEnabled = features.adminPassActivationEnabled === true;
     const eligibleVehicles = state.cache.vehicles || [];
-    return pageHeader("Subscriptions & passenger assignments", testRechargeEnabled
+    return pageHeader("Subscriptions & passenger assignments", adminActivationEnabled
+      ? "Temporary admin activation is enabled. Activate a passenger pass for 30 days with a reason. No payment is collected or added to revenue."
+      : testRechargeEnabled
       ? "Assign a driver-owned vehicle on the same route. Test recharges are available only in the isolated test environment and are not real payments."
       : "Assign a driver-owned vehicle on the same route. Payment activation is unavailable until the payment provider integration is enabled.") +
       section("Passenger subscriptions", data.length + " record(s)",
@@ -236,7 +283,11 @@
           { label: "Payment", render: r => pill(value(r, "paymentStatus", "payment_status")) },
           { label: "Subscription", render: r => pill(value(r, "subscriptionStatus", "subscription_status")) },
           { label: "End date", keys: ["endDate", "end_date"] },
-          { label: testRechargeEnabled ? "Testing action" : "Pass activation", render: r => testRechargeEnabled
+          { label: "Pass activation", render: r => adminActivationEnabled
+            ? (value(r, "subscriptionStatus", "subscription_status") === "ACTIVE" && value(r, "paymentStatus", "payment_status") === "PAID" && new Date(value(r, "endDate", "end_date")).getTime() > Date.now()
+              ? pill("ACTIVE")
+              : '<button class="btn btn-primary" data-activate-pass="' + esc(value(r, "id")) + '">Activate 30 days</button>')
+            : testRechargeEnabled
             ? '<button class="btn btn-primary" data-recharge="' + esc(value(r, "id")) + '">Recharge 30 days (test)</button>'
             : pill("DISABLED") }
         ], data));
@@ -342,13 +393,19 @@
   }
 
   async function renderView() {
+    const revision = ++renderRevision;
+    const view = state.view;
+    fleetMapCleanup?.();
+    fleetMapCleanup = null;
     const title = labels[state.view] || labels.overview;
     $("#page-title").textContent = title[0];
     $$(".nav-item").forEach(button => button.classList.toggle("active", button.dataset.view === state.view));
     $("#page-content").innerHTML = '<div class="loading">Loading ' + esc(title[0].toLowerCase()) + "…</div>";
     try {
       let html;
-      switch (state.view) {
+      switch (view) {
+        case "gps": html = pageHeader("Driver GPS", "Track your daily commute fleet. Company intercity vehicles are visible only to their company.") + '<section class="card section-card"><div id="admin-fleet-map"></div></section>'; break;
+        case "reports": html = pageHeader("Performance reports", "Daily, weekly and monthly commute performance. Admin grants are excluded from revenue."); break;
         case "drivers": html = await renderDrivers(); break;
         case "companies": html = await renderCompanyAccess(); break;
         case "routes": html = await renderRoutes(); break;
@@ -358,9 +415,18 @@
         case "checkins": html = await renderCheckins(); break;
         case "complaints": html = await renderComplaints(); break;
         case "audit-logs": html = await renderAuditLogs(); break;
+        case "settings": html = await renderSettings(); break;
         default: html = await renderOverview();
       }
+      if (revision !== renderRevision) return;
       $("#page-content").innerHTML = html;
+      if (view === "gps" && window.RoutepassFleetMap) {
+        fleetMapCleanup = window.RoutepassFleetMap.mount({ container: $("#admin-fleet-map"), apiUrl: "/api/fleet/tracking", token: state.token });
+      }
+      if ((state.view === "overview" || state.view === "reports") && window.RoutepassReports) {
+        $("#page-content").insertAdjacentHTML('beforeend', window.RoutepassReports.markup());
+        window.RoutepassReports.load(api);
+      }
       const routeForm = $("#create-route-form");
       if (routeForm) {
         routeForm.addEventListener("submit", submitRoute);
@@ -369,7 +435,20 @@
       }
       const companyInviteForm = $("#company-invite-form");
       if (companyInviteForm) companyInviteForm.addEventListener("submit", createCompanyInvite);
+      const afroSmsForm = $("#afro-sms-form");
+      if (afroSmsForm) afroSmsForm.addEventListener("submit", saveAfroSms);
+      $("#afro-sms-test")?.addEventListener("click", async event => {
+        const button = event.currentTarget;
+        const message = $("#afro-sms-message");
+        button.disabled = true;
+        try {
+          await api("/api/admin/integrations/afro-sms/test", { method: "POST", body: JSON.stringify({ phone: $("#afro-sms-test-phone").value, message: $("#afro-sms-test-message").value }) });
+          message.textContent = "Test SMS sent."; message.className = "form-message"; message.hidden = false; toast("Test SMS sent.");
+        } catch (error) { message.textContent = error.message; message.className = "form-message error"; message.hidden = false; }
+        finally { button.disabled = false; }
+      });
     } catch (error) {
+      if (revision !== renderRevision) return;
       $("#page-content").innerHTML = '<div class="card empty-note"><strong>Could not load this page.</strong><br>' + esc(error.message) +
         '<div style="margin-top:12px"><button class="btn btn-secondary" id="retry-button">Try again</button></div></div>';
       $("#retry-button")?.addEventListener("click", renderView);
@@ -468,6 +547,37 @@
       toast(response.vehicle ? "Passenger vehicle assignment saved." : "Passenger vehicle assignment cleared.");
       await renderView();
     } catch (error) { toast(error.message, true); button.disabled = false; }
+  }
+
+  async function activatePass(button) {
+    const reason = window.prompt("Reason for this 30-day admin activation (3–200 characters). No payment will be collected:");
+    if (reason === null) return;
+    if (reason.trim().length < 3 || reason.trim().length > 200) return toast("Enter a reason of 3 to 200 characters.", true);
+    button.disabled = true;
+    try {
+      const result = await api("/api/admin/subscriptions/" + encodeURIComponent(button.dataset.activatePass) + "/activate", {
+        method: "POST", body: JSON.stringify({ days: 30, reason: reason.trim() })
+      });
+      toast(result.message || "Passenger pass activated.");
+      await renderView();
+    } catch (error) { toast(error.message, true); button.disabled = false; }
+  }
+
+  async function configureDeparture(button) {
+    button.disabled = true;
+    try {
+      const result = await api('/api/admin/routes/' + encodeURIComponent(button.dataset.geofenceRoute) + '/departure-settings');
+      const settings = result.settings;
+      const latitude = window.prompt('Departure latitude (-90 to 90)', settings.latitude ?? '');
+      if (latitude === null) return;
+      const longitude = window.prompt('Departure longitude (-180 to 180)', settings.longitude ?? '');
+      if (longitude === null) return;
+      const radius = window.prompt('Allowed radius in metres (25–5000). Diameter is twice the radius. Drivers must also be within 30 minutes of departure.', settings.radius_m || 300);
+      if (radius === null) return;
+      if (![latitude,longitude,radius].every(v => v.trim() !== '' && Number.isFinite(Number(v)))) throw Error('Enter numeric coordinates and a radius.');
+      const saved = await api('/api/admin/routes/' + encodeURIComponent(button.dataset.geofenceRoute) + '/departure-settings', {method:'PUT',body:JSON.stringify({latitude:Number(latitude),longitude:Number(longitude),radiusMeters:Number(radius)})});
+      toast(saved.message);
+    } catch(e) { toast(e.message,true); } finally { button.disabled=false; }
   }
 
   async function rechargeSubscription(button) {
@@ -592,6 +702,10 @@
     const assignVehicleButton = event.target.closest("[data-assign-vehicle]");
     if (assignVehicleButton) { assignSubscriptionVehicle(assignVehicleButton); return; }
     const rechargeButton = event.target.closest("[data-recharge]");
+    const geofenceButton = event.target.closest('[data-geofence-route]');
+    if (geofenceButton) { configureDeparture(geofenceButton); return; }
+    const activateButton = event.target.closest("[data-activate-pass]");
+    if (activateButton) { activatePass(activateButton); return; }
     if (rechargeButton) { rechargeSubscription(rechargeButton); return; }
     const editRouteButton = event.target.closest("[data-edit-route]");
     if (editRouteButton) { editRoute(editRouteButton); return; }

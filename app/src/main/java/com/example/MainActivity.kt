@@ -24,7 +24,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -39,6 +42,8 @@ import com.example.data.repository.TransportRepository
 import com.example.ui.components.NotificationTrayDialog
 import com.example.ui.screens.auth.AuthScreen
 import com.example.ui.screens.home.BrowseFirstScreen
+import com.example.ui.screens.home.HostedPortalScreen
+import com.example.ui.screens.profile.ProfileCompletionScreen
 import com.example.ui.screens.driver.DriverTripScreen
 import com.example.ui.screens.passenger.PassengerDashboardScreen
 import com.example.ui.theme.*
@@ -70,6 +75,65 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+internal fun PassengerTopBar(
+    fullName: String,
+    initials: String,
+    language: AppLanguage,
+    profileOpen: Boolean = false,
+    notificationCount: Int = 0,
+    onProfile: () -> Unit,
+    onBack: () -> Unit,
+    onNotifications: () -> Unit,
+    onLanguage: () -> Unit,
+    onLogout: () -> Unit
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    TopAppBar(
+        title = {
+            Column {
+                Text(
+                    if (profileOpen) "Your profile" else fullName.ifBlank { "RoutePass" },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (!profileOpen) Text("Your daily commute", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            }
+        },
+        navigationIcon = {
+            IconButton(onClick = if (profileOpen) onBack else onProfile, modifier = Modifier.testTag("top_bar_profile_button").semantics { contentDescription = if (profileOpen) "Back to your commute" else "Open profile" }) {
+                if (profileOpen) Icon(Icons.Default.ArrowBack, contentDescription = "Back to your commute")
+                else Surface(shape = CircleShape, color = TransportGreenPrimary, modifier = Modifier.size(34.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(initials.ifBlank { "P" }.take(2), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+            }
+        },
+        actions = {
+            IconButton(onClick = onNotifications, modifier = Modifier.testTag("top_bar_notifications_button")) {
+                BadgedBox(badge = { if (notificationCount > 0) Badge { Text(if (notificationCount > 9) "9+" else notificationCount.toString()) } }) {
+                    Icon(Icons.Default.NotificationsNone, contentDescription = "Notifications")
+                }
+            }
+            Box {
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("passenger_account_menu")) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Account options")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(text = { Text("Profile & documents") }, leadingIcon = { Icon(Icons.Default.AccountCircle, null) }, onClick = { menuOpen = false; onProfile() })
+                    DropdownMenuItem(text = { Text(if (language == AppLanguage.ENGLISH) "አማርኛ" else "English") }, leadingIcon = { Icon(Icons.Default.Language, null) }, onClick = { menuOpen = false; onLanguage() }, modifier = Modifier.testTag("top_bar_language_button"))
+                    DropdownMenuItem(text = { Text("Sign out") }, leadingIcon = { Icon(Icons.Default.Logout, null) }, onClick = { menuOpen = false; onLogout() }, modifier = Modifier.testTag("top_bar_logout_button"))
+                }
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 fun MainTransportApp(viewModel: MainViewModel) {
     val context = LocalContext.current
     val isAuthenticated by viewModel.isAuthenticated.collectAsState()
@@ -81,6 +145,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
     val passengerNotifs by viewModel.passengerNotifications.collectAsState()
     val transporterNotifs by viewModel.transporterNotifications.collectAsState()
     val allNotifs by viewModel.allNotifications.collectAsState()
+    var showProfile by remember(currentUser?.id) { mutableStateOf(false) }
 
     fun t(key: String) = AppStrings.get(key, currentLang)
 
@@ -93,12 +158,15 @@ fun MainTransportApp(viewModel: MainViewModel) {
     if (!isAuthenticated) {
         var showPublicHome by remember { mutableStateOf(true) }
         var showCompanyPortal by remember { mutableStateOf(false) }
+        var showIntercityPortal by remember { mutableStateOf(false) }
         var requestedAuthPortal by remember { mutableStateOf<AppRole?>(null) }
         var requestedRegisterFirst by remember { mutableStateOf(false) }
         var requestedRouteId by remember { mutableStateOf<String?>(null) }
         var requestedRouteName by remember { mutableStateOf<String?>(null) }
         var requestedServiceTier by remember { mutableStateOf<String?>(null) }
-        if (showCompanyPortal) {
+        if (showIntercityPortal) {
+            HostedPortalScreen("/travel/", "Intercity travel", onExit = { showIntercityPortal = false; showPublicHome = true })
+        } else if (showCompanyPortal) {
             CompanyPortalScreen(onExit = {
                 ApiClient.setAuthToken(null)
                 showCompanyPortal = false
@@ -107,6 +175,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
         } else if (showPublicHome) {
             BrowseFirstScreen(
                 viewModel = viewModel,
+                onIntercityTravel = { showIntercityPortal = true; showPublicHome = false },
                 onPassengerContinue = { registerFirst, routeId, routeName, tier ->
                     requestedAuthPortal = AppRole.PASSENGER
                     requestedRegisterFirst = registerFirst
@@ -167,7 +236,20 @@ fun MainTransportApp(viewModel: MainViewModel) {
             modifier = Modifier.fillMaxSize(),
             contentWindowInsets = WindowInsets.safeDrawing,
             topBar = {
-                TopAppBar(
+                if (currentRole == AppRole.PASSENGER) {
+                    PassengerTopBar(
+                        fullName = currentUser?.fullName.orEmpty(),
+                        initials = currentUser?.avatarInitials.orEmpty(),
+                        language = currentLang,
+                        profileOpen = showProfile,
+                        notificationCount = relevantNotifications.size,
+                        onProfile = { showProfile = true },
+                        onBack = { showProfile = false },
+                        onNotifications = { viewModel.openNotificationTray() },
+                        onLanguage = { viewModel.toggleLanguage() },
+                        onLogout = { viewModel.logout() }
+                    )
+                } else TopAppBar(
                     title = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -208,6 +290,9 @@ fun MainTransportApp(viewModel: MainViewModel) {
                     },
                     actions = {
                         // Notifications Bell with Badge
+                        if (currentRole != AppRole.ADMIN) {
+                            IconButton(onClick = { showProfile = true }) { Icon(Icons.Default.AccountCircle, contentDescription = "Profile, documents and emergency contact") }
+                        }
                         IconButton(
                             onClick = { viewModel.openNotificationTray() },
                             modifier = Modifier.testTag("top_bar_notifications_button")
@@ -289,18 +374,21 @@ fun MainTransportApp(viewModel: MainViewModel) {
             // A passenger ONLY sees their passenger account, a driver ONLY sees their driver account,
             // and an operator ONLY sees their operator dashboard.
         ) { innerPadding ->
-            androidx.activity.compose.BackHandler {
-                viewModel.logout()
+            androidx.activity.compose.BackHandler(enabled = showProfile || currentRole != AppRole.PASSENGER) {
+                if (showProfile) showProfile = false else viewModel.logout()
             }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
+                    .consumeWindowInsets(innerPadding)
                     .background(MaterialTheme.colorScheme.background)
             ) {
-                when (currentRole) {
+                if (showProfile) {
+                    ProfileCompletionScreen(role = currentRole.name, onBack = { showProfile = false })
+                } else when (currentRole) {
                     AppRole.PASSENGER -> {
-                        PassengerDashboardScreen(viewModel = viewModel)
+                        PassengerDashboardScreen(viewModel = viewModel, onOpenProfile = { showProfile = true })
                     }
                     AppRole.DRIVER -> {
                         DriverTripScreen(viewModel = viewModel)
@@ -428,6 +516,12 @@ private fun LiveFleetMap(vehicles: List<Map<String, Any>>) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CompanyPortalScreen(onExit: () -> Unit) {
+    HostedPortalScreen("/company/", "Company portal", onExit)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LegacyCompanyPortalScreen(onExit: () -> Unit) {
     val scope = rememberCoroutineScope()
     var registerMode by remember { mutableStateOf(false) }
     var companyName by remember { mutableStateOf("") }

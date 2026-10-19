@@ -48,6 +48,7 @@ services:
       ADMIN_REGISTRATION_SECRET: ${ADMIN_REGISTRATION_SECRET:?Set ADMIN_REGISTRATION_SECRET in backend/.env}
       PAYMENT_MODE: ${PAYMENT_MODE:?Set PAYMENT_MODE explicitly in backend/.env}
       ALLOW_MANUAL_TEST_RECHARGE: ${ALLOW_MANUAL_TEST_RECHARGE:-false}
+      ALLOW_ADMIN_PASS_ACTIVATION: ${ALLOW_ADMIN_PASS_ACTIVATION:-false}
       QR_SIGNING_KEY: ${QR_SIGNING_KEY:?Set QR_SIGNING_KEY in backend/.env}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       TELEBIRR_APP_ID: ${TELEBIRR_APP_ID:-}
@@ -56,8 +57,18 @@ services:
       TELEBIRR_PUBLIC_KEY: ${TELEBIRR_PUBLIC_KEY:-}
       TELEBIRR_WEBHOOK_SECRET: ${TELEBIRR_WEBHOOK_SECRET:-}
       TELEBIRR_QUERY_URL: ${TELEBIRR_QUERY_URL:-}
+      TELEBIRR_ENVIRONMENT: ${TELEBIRR_ENVIRONMENT:-test}
+      TELEBIRR_FABRIC_APP_ID: ${TELEBIRR_FABRIC_APP_ID:-}
+      TELEBIRR_APP_SECRET: ${TELEBIRR_APP_SECRET:-}
+      TELEBIRR_MERCHANT_APP_ID: ${TELEBIRR_MERCHANT_APP_ID:-}
+      TELEBIRR_MERCHANT_CODE: ${TELEBIRR_MERCHANT_CODE:-}
+      TELEBIRR_PRIVATE_KEY: ${TELEBIRR_PRIVATE_KEY:-}
+      TELEBIRR_REDIRECT_URL: ${TELEBIRR_REDIRECT_URL:-}
       TELEBIRR_NOTIFY_URL: ${TELEBIRR_NOTIFY_URL:-}
       DATA_DIR: /app/data
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads_data:/app/uploads
     expose:
       - "3000"
     read_only: true
@@ -98,6 +109,8 @@ services:
       - routepass_internal
 
 volumes:
+  uploads_data:
+    name: routepass_uploads_data
   postgres_data:
     name: routepass_postgres_data
 

@@ -6,7 +6,7 @@ concurrency:
 
 on:
   push:
-    branches: [main, "audit/**", "feature/passo-dual-ownership-company-portal-2026-10-14"]
+    branches: [main, "audit/**", "enhance/**", "feature/passo-dual-ownership-company-portal-2026-10-14"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -57,11 +57,14 @@ jobs:
       - name: Test Telebirr H5 signing format
         run: node test/telebirr-service-test.js
         working-directory: backend
+      - name: Test route discovery and portal recovery
+        run: node --test test/route-search-test.js test/company-portal-test.js test/company-ui-test.js test/admin-activation-test.js test/profiles-test.js test/departure-test.js test/intercity-test.js test/scope-report-test.js test/fleet-tracking-test.js test/passenger-assignment-test.js
+        working-directory: backend
       - name: Check admin portal JavaScript syntax
         run: node --check public/admin/admin.js
         working-directory: backend
       - name: Check company portal JavaScript syntax
-        run: node --check public/company/company.js
+        run: node --check public/company/company.js && node --check public/company/intercity.js && node --check public/shared/fleet-map.js
         working-directory: backend
       - name: Check first-admin bootstrap helper syntax
         run: python3 -m py_compile scripts/bootstrap-admin.py
@@ -138,6 +141,19 @@ jobs:
           gradle-version: "9.3.1"
       - name: Assemble debug APK against configured HTTPS host
         run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://routepass.duckdns.org/' }}"
+      - name: Verify passenger layout and decode rendered boarding QR
+        run: gradle :app:testDebugUnitTest --tests com.example.BoardingQrTest --tests com.example.PassengerPresentationTest --tests com.example.PassengerSubscriptionRepositoryTest
+      - name: Upload passenger screen previews and test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: routepass-passenger-validation
+          path: |
+            **/build/passenger-previews/*.png
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 7
       - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:

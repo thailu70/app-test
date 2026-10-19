@@ -6,7 +6,10 @@
   <meta name="color-scheme" content="light">
   <title>RoutePass Admin Portal</title>
   <link rel="stylesheet" href="/admin/admin.css?v=20261015-1">
-  <script src="/admin/admin.js?v=20261015-1" defer></script>
+  <link rel="stylesheet" href="/shared/fleet-map.css?v=20261018-1">
+  <script src="/shared/fleet-map.js?v=20261018-1" defer></script>
+  <script src="/admin/admin.js?v=20261018-7" defer></script>
+  <script src="/admin/reports.js?v=20261017" defer></script>
 </head>
 <body>
   <section id="login-view" class="login-wrap">
@@ -33,7 +36,9 @@
       <div class="side-section-label">WORKSPACE</div>
       <nav id="main-nav" class="nav-list" aria-label="Admin pages">
         <button class="nav-item active" data-view="overview"><span>▦</span> Overview</button>
+        <button class="nav-item" data-view="reports">Performance reports</button>
         <button class="nav-item" data-view="drivers"><span>♙</span> Drivers & routes</button>
+        <button class="nav-item" data-view="gps"><span>◎</span> Driver GPS</button>
         <button class="nav-item" data-view="companies"><span>▣</span> Company access</button>
         <button class="nav-item" data-view="routes"><span>↗</span> Manage routes</button>
         <button class="nav-item" data-view="vehicles"><span>▰</span> Vehicles</button>
@@ -42,6 +47,7 @@
         <button class="nav-item" data-view="checkins"><span>✓</span> Check-ins</button>
         <button class="nav-item" data-view="complaints"><span>☷</span> Complaints</button>
         <button class="nav-item" data-view="audit-logs"><span>≡</span> Audit log</button>
+        <button class="nav-item" data-view="settings"><span>⚙</span> Settings</button>
       </nav>
       <div class="sidebar-bottom">
         <div class="secure-note"><span class="status-dot"></span><div><strong>Secure session</strong><small>Admin access only</small></div></div>

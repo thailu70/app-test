@@ -109,6 +109,23 @@ async function run() {
     process.env.NODE_ENV = priorNodeEnv;
     assert.equal(result.status, 403, 'Manual test recharge must stay disabled if production has the test flag set');
 
+    // Explicit admin grants also work in production without creating payment records.
+    await DB.prepare("UPDATE subscriptions SET subscriptionStatus='PENDING', paymentStatus='UNPAID', qrToken=NULL WHERE id=?").run(passengerSubscriptionId);
+    const beforeGrantPayments = (await DB.prepare('SELECT COUNT(*) AS c FROM payment_transactions').get()).c;
+    process.env.ALLOW_ADMIN_PASS_ACTIVATION = 'true';
+    process.env.NODE_ENV = 'production';
+    result = await requestJson(baseUrl, `/api/admin/subscriptions/${encodeURIComponent(passengerSubscriptionId)}/activate`, 'POST', { days: 30, reason: 'CI temporary administrator grant' }, adminToken);
+    assert.equal(result.status, 200, 'Explicit admin grant must work in production');
+    assert.equal(result.data.noPaymentCollected, true);
+    assert.match(result.data.subscription.qrToken, /^RP1:/);
+    const firstGrantEnd = result.data.subscription.endDate;
+    result = await requestJson(baseUrl, `/api/admin/subscriptions/${encodeURIComponent(passengerSubscriptionId)}/activate`, 'POST', { days: 30, reason: 'CI duplicate grant attempt' }, adminToken);
+    assert.equal(result.status, 409, 'Duplicate grants must not extend an active pass');
+    assert.equal((await DB.prepare('SELECT endDate FROM subscriptions WHERE id=?').get(passengerSubscriptionId)).endDate, firstGrantEnd);
+    assert.equal((await DB.prepare('SELECT COUNT(*) AS c FROM payment_transactions').get()).c, beforeGrantPayments, 'Admin grant must not create a payment');
+    delete process.env.ALLOW_ADMIN_PASS_ACTIVATION;
+    process.env.NODE_ENV = priorNodeEnv;
+
     // Company portal signup must hit the current route, consume a PostgreSQL boolean
     // access code once, and reject invitations that have expired.
     result = await requestJson(baseUrl, '/api/admin/companies/invite', 'POST', { name: 'CI Passo Company' }, adminToken);
@@ -177,6 +194,19 @@ async function run() {
     }, companyToken);
     assert.equal(result.status, 201, 'Company may assign its own active driver and vehicle to its route');
     const companyAssignmentId = result.data.assignment.id;
+    // Read every dataset used by the company portal against the production adapter.
+    for (const [path, key, expectedId] of [
+      ['/api/companies/operations/fleet', 'vehicles', companyVehicleId],
+      ['/api/companies/operations/drivers', 'drivers', companyDriver.id],
+      ['/api/companies/operations/routes', 'routes', companyRouteId]
+    ]) {
+      const dataset = await requestJson(baseUrl, path, 'GET', null, companyToken);
+      assert.equal(dataset.status, 200, path + ' must load independently');
+      assert.ok(dataset.data[key].some(row => row.id === expectedId), path + ' must include the company record');
+    }
+    result = await requestJson(baseUrl, '/api/companies/operations/summary', 'GET', null, companyToken);
+    assert.equal(result.status, 200, 'Company summary must load on PostgreSQL');
+    assert.equal(result.data.summary.activeAssignments, 1);
     result = await requestJson(baseUrl, '/api/companies/operations/assignments', 'POST', {
       routeId: companyRouteId, driverId: companyDriver.id, vehicleId: companyVehicleId
     }, companyToken);
@@ -187,21 +217,43 @@ async function run() {
     });
     assert.equal(result.status, 200, 'Approved company driver should be able to log in');
     const companyDriverToken = result.data.token;
+    assert.equal((await DB.prepare('SELECT companyId FROM users WHERE id=?').get(companyDriver.id)).companyId, companyId, 'PostgreSQL must expose company ownership in the shared API shape');
+    const minimalDriverToken = require('../src/middleware/auth').signToken({ id: companyDriver.id, role: 'DRIVER' });
+    assert.equal((await require('../src/middleware/auth').resolveActivePrincipal(minimalDriverToken)).companyId, companyId, 'Driver company scope must come from the database, including tokens without a company claim');
     result = await requestJson(baseUrl, '/api/trips/start', 'POST', {
       routeId: companyRouteId, vehicleId: companyVehicleId
     }, companyDriverToken);
-    assert.equal(result.status, 200, 'Company driver should start a trip using the company-assigned vehicle');
-    const companyTripId = result.data.trip.id;
-
-    result = await requestJson(baseUrl, '/api/vehicles/my-location', 'POST', {
-      latitude: 9.02, longitude: 38.77, speed: 2, currentStop: 'Company CI Stop'
+    assert.ok([403, 404].includes(result.status), 'Company intercity journeys must not enter the commute trip workflow');
+    result = await requestJson(baseUrl, '/api/intercity/company/departures', 'POST', {
+      routeId: companyRouteId, vehicleId: companyVehicleId, driverId: companyDriver.id,
+      departureAt: new Date(Date.now() + 5 * 60000).toISOString(), latitude: 9.02, longitude: 38.77,
+      radiusMeters: 300, seats: 14, fareEtb: 500
+    }, companyToken);
+    assert.equal(result.status, 201, 'Company should schedule a dated intercity departure');
+    const companyDepartureId = result.data.departure.id;
+    result = await requestJson(baseUrl, `/api/intercity/driver/departures/${companyDepartureId}/arrival`, 'POST', {
+      location: { latitude: 9.02, longitude: 38.77, accuracyMeters: 5, timestamp: Date.now() }
     }, companyDriverToken);
-    assert.equal(result.status, 200, 'Active company driver trip should persist a GPS location');
+    assert.equal(result.status, 200, 'Assigned driver should confirm fresh GPS within the departure time window');
+    assert.equal(result.data.departure.status, 'BOARDING');
+    result = await requestJson(baseUrl, '/api/vehicles/my-location', 'POST', {
+      latitude: 9.02, longitude: 38.77, speed: 0, currentStop: 'Company departure'
+    }, companyDriverToken);
+    assert.equal(result.status, 200, 'Intercity driver must publish GPS while boarding');
+    result = await requestJson(baseUrl, '/api/fleet/tracking', 'GET', null, companyToken);
+    assert.equal(result.status, 200, 'Company GPS map must load');
+    assert.ok(result.data.vehicles.some(v => v.id === companyVehicleId && v.location.status === 'LIVE'));
+    result = await requestJson(baseUrl, '/api/fleet/tracking', 'GET', null, adminToken);
+    assert.equal(result.status, 200, 'Administrator GPS map must load');
+    assert.equal(result.data.vehicles.some(v => v.id === companyVehicleId), false, 'Company GPS must remain private from commute admin');
+    result = await requestJson(baseUrl, `/api/intercity/driver/departures/${companyDepartureId}/roster`, 'GET', null, companyDriverToken);
+    assert.equal(result.status, 200, 'Assigned company driver should see the intercity roster');
+    assert.deepEqual(result.data.roster, []);
 
     result = await requestJson(baseUrl, `/api/companies/operations/assignments/${encodeURIComponent(companyAssignmentId)}`, 'DELETE', null, companyToken);
     assert.equal(result.status, 409, 'Company cannot unassign a vehicle while its trip is active');
-    result = await requestJson(baseUrl, `/api/trips/${encodeURIComponent(companyTripId)}/end`, 'POST', {}, companyDriverToken);
-    assert.equal(result.status, 200, 'Company driver should end the active trip');
+    result = await requestJson(baseUrl, `/api/intercity/driver/departures/${companyDepartureId}/complete`, 'POST', {}, companyDriverToken);
+    assert.equal(result.status, 200, 'Company driver should complete the active journey without destination GPS');
     result = await requestJson(baseUrl, `/api/companies/operations/assignments/${encodeURIComponent(companyAssignmentId)}`, 'DELETE', null, companyToken);
     assert.equal(result.status, 200, 'Company should be able to remove an idle assignment without deleting its vehicle');
 
@@ -214,7 +266,9 @@ async function run() {
     assert.equal(Object.hasOwn(result.data.vehicles[0], 'driverId'), true);
 
     result = await requestJson(baseUrl, `/api/admin/drivers/${encodeURIComponent(companyDriver.id)}/approval`, 'PATCH', { status: 'SUSPENDED' }, adminToken);
-    assert.equal(result.status, 200, 'Administrator should be able to suspend the company driver');
+    assert.ok([403, 404].includes(result.status), 'Commute administrator must not manage a company intercity driver');
+    result = await requestJson(baseUrl, `/api/companies/operations/drivers/${encodeURIComponent(companyDriver.id)}/approval`, 'PATCH', { action: 'REJECT' }, companyToken);
+    assert.equal(result.status, 200, 'Company should be able to deactivate its own driver');
     result = await requestJson(baseUrl, '/api/trips/active', 'GET', null, companyDriverToken);
     assert.equal(result.status, 401, 'Previously issued bearer token must stop working after driver suspension');
 
@@ -274,9 +328,12 @@ async function run() {
     }, driverToken);
     assert.equal(result.status, 409, 'Driver must not publish live GPS before starting an assigned trip');
 
+    await DB.prepare('UPDATE routes SET morningDeparture=? WHERE id=?').run(new Date(Date.now() + 3 * 3600000).toISOString().slice(11, 16), 'route_bole_merkato');
+
     result = await requestJson(baseUrl, '/api/trips/start', 'POST', {
       routeId: 'route_bole_merkato',
-      vehicleId: driverVehicleId
+      vehicleId: driverVehicleId,
+      location: { latitude: 8.995, longitude: 38.788, accuracyMeters: 5, timestamp: Date.now() }
     }, driverToken);
     assert.equal(result.status, 200, 'Approved driver with an assigned route must be able to start trip');
     assert.equal(result.data.trip.status, 'IN_PROGRESS');
@@ -297,6 +354,17 @@ async function run() {
     assert.equal(result.data.vehicle.id, driverVehicleId);
     assert.equal(result.data.vehicle.hasGpsLocation, true, 'Passenger tracking must return server-confirmed GPS coordinates');
     assert.equal(result.data.vehicle.latitude, 9.01);
+
+    result = await requestJson(baseUrl, '/api/commute/my-driver', 'GET', null, passengerToken);
+    assert.equal(result.status, 200);
+    assert.equal(result.data.driver.vehicleId, driverVehicleId, 'Driver card must match the tracked vehicle');
+    result = await requestJson(baseUrl, '/api/subscriptions/my-status', 'GET', null, passengerToken);
+    assert.equal(result.data.subscription.vehicleId, driverVehicleId, 'Pass, driver card and tracking must share the assignment');
+    await DB.prepare("UPDATE trips SET status='COMPLETED' WHERE vehicleId=? AND status='IN_PROGRESS'").run(driverVehicleId);
+    result = await requestJson(baseUrl, '/api/vehicles/tracking', 'GET', null, passengerToken);
+    assert.equal(result.status, 200);
+    assert.equal(result.data.vehicle.id, driverVehicleId, 'Completing a trip must not pretend the passenger is unassigned');
+    assert.equal(result.data.vehicle.trackingStatus, 'OFFLINE');
 
     // No test should produce a server-confirmed live payment in production mode.
     console.log('PostgreSQL API smoke test passed: readiness, read, write, transaction, auth, and payment fail-closed.');

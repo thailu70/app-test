@@ -27,7 +27,16 @@ data class RegisterRequest(
     val vehicleModel: String? = null,
     val vehicleType: String? = null,
     val appliedRouteId: String? = null,
-    val appliedRouteName: String? = null
+    val appliedRouteName: String? = null,
+    val otpVerificationToken: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class OtpResponse(
+    val success: Boolean,
+    val message: String? = null,
+    val error: String? = null,
+    val verificationToken: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -113,14 +122,16 @@ data class SubscriptionDto(
     val routeNameAm: String? = null,
     val status: String? = "PENDING",
     val paymentStatus: String? = "UNPAID",
-    val priceEtb: Double? = 2500.0,
+    val priceEtb: Double? = null,
     val startDate: String? = null,
     val endDate: String? = null,
     val daysRemaining: Int = 0,
     val qrToken: String? = null,
     val morningSchedule: String? = null,
     val eveningSchedule: String? = null,
-    val vehicleId: String? = null
+    val vehicleId: String? = null,
+    val pickupStopId: String? = null,
+    val destinationStopId: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -243,12 +254,15 @@ data class TrackedVehicleDto(
     val speed: Double? = null,
     val currentStop: String? = null,
     val lastGpsAt: String? = null,
-    val hasGpsLocation: Boolean = false
+    val hasGpsLocation: Boolean = false,
+    val trackingStatus: String = "NO_GPS",
+    val gpsAgeSeconds: Long? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class TrackingVehicleResponse(
     val success: Boolean,
+    val status: String? = null,
     val vehicle: TrackedVehicleDto? = null,
     val message: String? = null,
     val error: String? = null

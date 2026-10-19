@@ -11,9 +11,11 @@ router.post('/pull', authenticate, async (req, res) => {
   try {
     const { lastSyncTime } = req.body;
 
-    const routes = await DB.prepare('SELECT * FROM routes WHERE active = TRUE').all();
-    const stops = await DB.prepare('SELECT * FROM route_stops ORDER BY routeId, stopOrder ASC').all();
-    const vehicles = await DB.prepare('SELECT * FROM vehicles').all();
+    const companyId=req.user.companyId||'';
+    if(req.user.role==='COMPANY')return res.status(403).json({success:false,error:'Use company operations endpoints.'});
+    const routes = await DB.prepare(companyId ? 'SELECT * FROM routes WHERE companyId=? AND active=TRUE' : "SELECT * FROM routes WHERE COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE' AND active=TRUE").all(...(companyId?[companyId]:[]));
+    const stops = await DB.prepare(companyId?'SELECT s.* FROM route_stops s JOIN routes r ON r.id=s.routeId WHERE r.companyId=? ORDER BY s.routeId,s.stopOrder':"SELECT s.* FROM route_stops s JOIN routes r ON r.id=s.routeId WHERE COALESCE(r.companyId,'')='' AND COALESCE(r.routeType,'DAILY_COMMUTE')='DAILY_COMMUTE' ORDER BY s.routeId,s.stopOrder").all(...(companyId?[companyId]:[]));
+    const vehicles = await DB.prepare(companyId?'SELECT * FROM vehicles WHERE driverId=?':"SELECT * FROM vehicles WHERE COALESCE(companyId,'')=''").all(...(companyId?[req.user.id]:[]));
 
     const role = req.user.role;
     let notifsQuery = "SELECT * FROM notifications WHERE targetAudience = 'ALL'";

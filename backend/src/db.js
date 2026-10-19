@@ -72,6 +72,7 @@ function normalizeRow(row) {
     if (lowerKey === 'currentlng' || lowerKey === 'current_lng') normalized.currentLng = val;
     if (lowerKey === 'licensenumber' || lowerKey === 'license_number') normalized.licenseNumber = val;
     if (lowerKey === 'companyname' || lowerKey === 'company_name') normalized.companyName = val;
+    if (lowerKey === 'companyid' || lowerKey === 'company_id') normalized.companyId = val;
     if (lowerKey === 'assignedvehicleplate' || lowerKey === 'assigned_vehicle_plate') normalized.assignedVehiclePlate = val;
     if (lowerKey === 'appliedrouteid' || lowerKey === 'applied_route_id') normalized.appliedRouteId = val;
     if (lowerKey === 'appliedroutename' || lowerKey === 'applied_route_name') normalized.appliedRouteName = val;

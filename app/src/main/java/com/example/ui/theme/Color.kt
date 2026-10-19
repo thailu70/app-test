@@ -4,10 +4,10 @@ import androidx.compose.ui.graphics.Color
 
 // Brand Ethiopian Transport Colors
 val TransportGreenDark = Color(0xFF063B23)
-val TransportGreenPrimary = Color(0xFF0D683E)
+val TransportGreenPrimary = Color(0xFF087F68)
 val TransportGreenLight = Color(0xFF22C55E)
-val TransportGold = Color(0xFFEAB308)
-val TransportGoldLight = Color(0xFFFDE047)
+val TransportGold = Color(0xFF17212B)
+val TransportGoldLight = Color(0xFFE8F6EE)
 
 // Telebirr Official Brand Accents
 val TelebirrBlue = Color(0xFF007AE6)

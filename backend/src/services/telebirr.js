@@ -85,13 +85,15 @@ function envelope(method,biz){
  const request={timestamp:String(Math.floor(Date.now()/1000)),nonce_str:nonce(),method,version:'1.0',biz_content:biz};
  request.sign=sign(request);request.sign_type='SHA256WithRSA';return request;
 }
-async function createCheckout(orderId,amount,title){
+async function createCheckout(orderId,amount,title,overrides={}){
  const c=config(),total=Number(amount);
+ const notifyUrl=overrides.notifyUrl||c.notifyUrl,redirectUrl=overrides.redirectUrl||c.redirectUrl;
+ if(!/^https:\/\//i.test(notifyUrl)||!/^https:\/\//i.test(redirectUrl))throw Error('HTTPS payment callback URLs required');
  if(!Number.isFinite(total)||total<=0||!/^[A-Za-z0-9]+$/.test(orderId))throw Error('invalid checkout order or amount');
  const token=await fabricToken();
- const request=envelope('payment.preorder',{notify_url:c.notifyUrl,appid:c.merchantAppId,merch_code:c.merchantCode,merch_order_id:orderId,
+ const request=envelope('payment.preorder',{notify_url:notifyUrl,appid:c.merchantAppId,merch_code:c.merchantCode,merch_order_id:orderId,
   trade_type:'Checkout',title:String(title||'RoutePass monthly pass').replace(/[^A-Za-z0-9 _.-]/g,'').slice(0,64)||'RoutePass pass',
-  total_amount:total.toFixed(2),trans_currency:'ETB',timeout_express:'120m',redirect_url:c.redirectUrl});
+  total_amount:total.toFixed(2),trans_currency:'ETB',timeout_express:'120m',redirect_url:redirectUrl});
  const response=await post(c.apiUrl+'/payment/v1/merchant/preOrder',request,{'X-APP-Key':c.fabricAppId,Authorization:token},'create-order');
  const prepayId=response.biz_content&&response.biz_content.prepay_id;
  if(typeof prepayId!=='string'||!prepayId)throw Error('Telebirr did not return prepay_id');

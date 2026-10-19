@@ -43,6 +43,7 @@ object LiveTrackingWebSocket {
 
     private val scope = CoroutineScope(Dispatchers.IO)
     private var webSocket: WebSocket? = null
+    @Volatile private var connectionGeneration = 0L
     private val client = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
@@ -59,8 +60,10 @@ object LiveTrackingWebSocket {
     private val _stopArrivalEvents = MutableSharedFlow<StopArrivalEvent>(extraBufferCapacity = 10)
     val stopArrivalEvents: SharedFlow<StopArrivalEvent> = _stopArrivalEvents.asSharedFlow()
 
+    @Synchronized
     fun connect(baseUrl: String = ApiClient.getBaseUrl()) {
         if (webSocket != null) return
+        val generation = ++connectionGeneration
 
         val authToken = ApiClient.getAuthToken()
         val baseWsUrl = baseUrl
@@ -73,7 +76,8 @@ object LiveTrackingWebSocket {
         val request = Request.Builder().url(baseWsUrl).build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
+            override fun onOpen(webSocket: WebSocket, response: Response): Unit = synchronized(LiveTrackingWebSocket) {
+                if (generation != connectionGeneration) return@synchronized
                 _isConnected.value = true
                 authToken?.let { token ->
                     val authMsg = JSONObject().apply {
@@ -84,7 +88,8 @@ object LiveTrackingWebSocket {
                 }
             }
 
-            override fun onMessage(webSocket: WebSocket, text: String) {
+            override fun onMessage(webSocket: WebSocket, text: String): Unit = synchronized(LiveTrackingWebSocket) {
+                if (generation != connectionGeneration) return@synchronized
                 try {
                     val json = JSONObject(text)
                     when (json.optString("type")) {
@@ -109,7 +114,7 @@ object LiveTrackingWebSocket {
                                 capacityLimit = json.optInt("capacityLimit"),
                                 isFull = json.optBoolean("isFull")
                             )
-                            scope.launch { _boardingEvents.emit(event) }
+                            scope.launch { if (generation == connectionGeneration) _boardingEvents.emit(event) }
                         }
                         "VEHICLE_STOP_ARRIVAL" -> {
                             val event = StopArrivalEvent(
@@ -118,7 +123,7 @@ object LiveTrackingWebSocket {
                                 routeId = json.optString("routeId"),
                                 stopName = json.optString("stopName")
                             )
-                            scope.launch { _stopArrivalEvents.emit(event) }
+                            scope.launch { if (generation == connectionGeneration) _stopArrivalEvents.emit(event) }
                         }
                     }
                 } catch (e: Exception) {
@@ -126,16 +131,19 @@ object LiveTrackingWebSocket {
                 }
             }
 
-            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String): Unit = synchronized(LiveTrackingWebSocket) {
+                if (generation != connectionGeneration) return@synchronized
                 _isConnected.value = false
             }
 
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?): Unit = synchronized(LiveTrackingWebSocket) {
+                if (generation != connectionGeneration) return@synchronized
                 _isConnected.value = false
                 LiveTrackingWebSocket.webSocket = null
             }
 
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String): Unit = synchronized(LiveTrackingWebSocket) {
+                if (generation != connectionGeneration) return@synchronized
                 _isConnected.value = false
                 LiveTrackingWebSocket.webSocket = null
             }
@@ -164,9 +172,13 @@ object LiveTrackingWebSocket {
         webSocket?.send(payload.toString())
     }
 
+    @Synchronized
     fun disconnect() {
-        webSocket?.close(1000, "Normal closure")
+        ++connectionGeneration
+        val previous = webSocket
         webSocket = null
         _isConnected.value = false
+        _latestLocation.value = null
+        previous?.close(1000, "Normal closure")
     }
 }
