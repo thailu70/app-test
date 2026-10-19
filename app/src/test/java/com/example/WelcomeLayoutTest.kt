@@ -38,7 +38,7 @@ class WelcomeLayoutTest {
     }
 
     @Test
-    @Config(qualifiers = "w800dp-h360dp-xhdpi-land")
+    @Config(qualifiers = "w800dp-h360dp-land-xhdpi")
     fun `landscape keeps service and continue reachable`() {
         var destination: WelcomeService? = null
         compose.setContent {
