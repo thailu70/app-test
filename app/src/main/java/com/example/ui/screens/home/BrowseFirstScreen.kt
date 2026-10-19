@@ -172,7 +172,7 @@ fun BrowseFirstScreen(
                 Surface(color = HomeInk, shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Text("Your everyday.\nA better way there.", color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold)
-                        Text("Find your commute. Compare fares. Move with PASSO.", color = Color(0xFFD3E3DF), style = MaterialTheme.typography.bodyMedium)
+                        Text("Go Further, Together. Find your commute, compare fares and travel with confidence.", color = Color(0xFFD3E3DF), style = MaterialTheme.typography.bodyMedium)
                         Button(onClick = { selectedSection = 1 }, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = HomeInk), modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
                             Icon(Icons.Default.Search, contentDescription = null)
                             Spacer(Modifier.width(12.dp))
@@ -211,7 +211,7 @@ fun BrowseFirstScreen(
                 Surface(color = HomeBlue, shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 0.dp, bottomEnd = 0.dp), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(horizontal = 18.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Daily Commuter", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
-                        Text("Available services in Addis Ababa", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.bodyMedium)
+                        Text("Active services near you", color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
@@ -387,7 +387,7 @@ fun BrowseFirstScreen(
             }
         }
         item {
-            Text("PASSO • Ethiopia", style = MaterialTheme.typography.labelSmall, color = Slate600, modifier = Modifier.fillMaxWidth())
+            Text("PASSO • Go Further, Together.", style = MaterialTheme.typography.labelSmall, color = Slate600, modifier = Modifier.fillMaxWidth())
         }
     }
     NavigationBar(containerColor = Color.White, tonalElevation = 8.dp) {
@@ -593,3 +593,4 @@ private fun TierChoice(name: String, seats: String, selected: Boolean, modifier:
         }
     }
 }
+

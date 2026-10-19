@@ -40,7 +40,7 @@ private val LightColorScheme = lightColorScheme(
     secondaryContainer = Color(0xFFFEF3C7),
     onSecondaryContainer = Color(0xFF78350F),
     tertiary = TelebirrBlue,
-    background = Slate100,
+    background = Color(0xFFFFFBF4),
     surface = Color.White,
     onBackground = Slate900,
     onSurface = Slate900,
@@ -70,3 +70,4 @@ fun MyApplicationTheme(
         content = content
     )
 }
+

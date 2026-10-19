@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,6 +43,7 @@ import com.example.data.repository.TransportRepository
 import com.example.ui.components.NotificationTrayDialog
 import com.example.ui.screens.auth.AuthScreen
 import com.example.ui.screens.home.BrowseFirstScreen
+import com.example.ui.screens.home.PassoWelcomeScreen
 import com.example.ui.screens.home.HostedPortalScreen
 import com.example.ui.screens.profile.ProfileCompletionScreen
 import com.example.ui.screens.driver.DriverTripScreen
@@ -156,6 +158,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
     }
 
     if (!isAuthenticated) {
+        var showWelcome by rememberSaveable { mutableStateOf(true) }
         var showPublicHome by remember { mutableStateOf(true) }
         var showCompanyPortal by remember { mutableStateOf(false) }
         var showIntercityPortal by remember { mutableStateOf(false) }
@@ -164,7 +167,13 @@ fun MainTransportApp(viewModel: MainViewModel) {
         var requestedRouteId by remember { mutableStateOf<String?>(null) }
         var requestedRouteName by remember { mutableStateOf<String?>(null) }
         var requestedServiceTier by remember { mutableStateOf<String?>(null) }
-        if (showIntercityPortal) {
+        if (showWelcome) {
+            PassoWelcomeScreen(
+                onContinue = { showWelcome = false },
+                onLanguage = { viewModel.toggleLanguage() },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (showIntercityPortal) {
             HostedPortalScreen("/travel/", "Intercity travel", onExit = { showIntercityPortal = false; showPublicHome = true })
         } else if (showCompanyPortal) {
             CompanyPortalScreen(onExit = {
@@ -936,3 +945,8 @@ private fun LegacyCompanyPortalScreen(onExit: () -> Unit) {
         }
     }
 }
+
+
+
+
+

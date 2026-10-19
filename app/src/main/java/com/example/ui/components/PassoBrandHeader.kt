@@ -56,7 +56,8 @@ fun PassoBrandHeader(
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("PASSO", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                Text(subtitle, color = Color.White.copy(alpha = .82f), style = MaterialTheme.typography.bodySmall)
+                Text("Go Further, Together.", color = Color.White.copy(alpha = .95f), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, color = Color.White.copy(alpha = .72f), style = MaterialTheme.typography.labelSmall)
             }
             Surface(color = Color.White.copy(alpha = .94f), shape = RoundedCornerShape(50.dp)) {
                 Text(portalLabel, color = Color(0xFF145A48), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
@@ -65,3 +66,4 @@ fun PassoBrandHeader(
         }
     }
 }
+
