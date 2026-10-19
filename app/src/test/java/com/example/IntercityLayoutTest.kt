@@ -117,6 +117,11 @@ class IntercityLayoutTest {
         compose.onNodeWithTag("intercity_hero").assertExists()
         compose.onNodeWithTag("intercity_content").performScrollToNode(hasTestTag("intercity_community"))
         capture("01c-recent-ticket-community")
+        compose.onNodeWithTag("intercity_my_tickets").performScrollTo().performClick()
+        compose.waitUntil(5_000) { model.state.value.phase == IntercityPhase.BOOKINGS && !model.state.value.busy }
+        compose.onNodeWithTag("intercity_view_ticket").performScrollTo().performClick()
+        compose.waitUntil(5_000) { model.state.value.phase == IntercityPhase.TICKET && !model.state.value.busy }
+        compose.onNodeWithTag("intercity_ticket_number").assertTextEquals("RP-NATIVE24")
     }
 
     @Test fun `empty native discovery shows no invented routes prices or tickets`() {
@@ -155,6 +160,10 @@ class IntercityLayoutTest {
                             { origin = it }, { destination = it }, { val previous = origin; origin = destination; destination = previous },
                             { dateClicks++ }, { searchClicks++ }, { tab = it }, modifier = Modifier.padding(12.dp))
                         IntercityCommunityBanner(language, Modifier.padding(12.dp))
+                        Box(Modifier.padding(12.dp)) {
+                            IntercityTicketCard(pending.copy(status = "CONFIRMED", paymentStatus = "PAID", ticketNumber = "RP-NATIVE24", qrToken = "server-native-boarding-payload"),
+                                language, {}, compact = true)
+                        }
                     }
                 }
             }
@@ -174,6 +183,8 @@ class IntercityLayoutTest {
         compose.onNodeWithTag("commuter_language_om").performScrollTo().performClick()
         assertEquals(AppLanguage.OROMO, language)
         compose.onNodeWithTag("intercity_search").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("intercity_view_ticket").performScrollTo().assertIsDisplayed()
+        capture("06-narrow-recent-ticket")
     }
 
     private class MemoryStore : IntercityBookingAccessStore {

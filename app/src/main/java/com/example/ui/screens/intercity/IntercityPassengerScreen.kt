@@ -21,6 +21,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -110,12 +111,18 @@ internal fun IntercityPassengerScreen(
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = CommuteTeal)
         LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("intercity_content"), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if (state.phase == IntercityPhase.BROWSE) {
-                item { IntercityHero(language, onLanguage, onExit) }
                 item {
-                    IntercitySearchPanel(state.origin, state.destination, intercityDateLabel(state.date),
-                        state.directory.flatMap { listOf(it.origin, it.destination) }.distinct().sorted(), state.serviceTab, language,
-                        model::setOrigin, model::setDestination, model::swapCities, { datePickerOpen = true }, model::search, model::setTab,
-                        state.busy, Modifier.padding(horizontal = 12.dp).offset(y = (-20).dp))
+                    Column {
+                        IntercityHero(language, onLanguage, onExit)
+                        IntercitySearchPanel(state.origin, state.destination, intercityDateLabel(state.date),
+                            state.directory.flatMap { listOf(it.origin, it.destination) }.distinct().sorted(), state.serviceTab, language,
+                            model::setOrigin, model::setDestination, model::swapCities, { datePickerOpen = true }, model::search, model::setTab,
+                            state.busy, Modifier.padding(horizontal = 12.dp).layout { measurable, constraints ->
+                                val panel = measurable.measure(constraints)
+                                val overlap = 20.dp.roundToPx()
+                                layout(panel.width, (panel.height - overlap).coerceAtLeast(0)) { panel.placeRelative(0, -overlap) }
+                            })
+                    }
                 }
             }
             state.message?.let { message -> item {

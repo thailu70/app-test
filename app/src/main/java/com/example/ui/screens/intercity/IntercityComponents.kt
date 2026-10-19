@@ -65,7 +65,7 @@ private val IntercityBorder = Color(0xFFE7E3DB)
 
 /** Only clean photographic/brand regions are reused. All labels and controls remain native. */
 @Composable
-private fun IntercityReferenceCrop(
+internal fun IntercityReferenceCrop(
     x: Int, y: Int, width: Int, height: Int, modifier: Modifier,
     description: String? = null, scale: ContentScale = ContentScale.Crop
 ) {
@@ -301,8 +301,8 @@ internal fun IntercityCommunityBanner(language: AppLanguage, modifier: Modifier 
 
 @Composable
 private fun CommunityValue(icon: ImageVector, label: String, modifier: Modifier) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Icon(icon, null, Modifier.size(15.dp), tint = Color.White)
-        Text(label, fontSize = 9.sp, color = Color.White, lineHeight = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, fontSize = 9.sp, color = Color.White, lineHeight = 11.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }

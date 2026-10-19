@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -177,6 +178,10 @@ internal fun IntercityTicketCard(
     compact: Boolean = false,
     onSavePdf: (() -> Unit)? = null
 ) {
+    if (compact) {
+        IntercityCompactTicket(booking, language, onOpen)
+        return
+    }
     val canBoard = canShowIntercityQr(booking)
     Surface(color = if (compact) Color(0xFFF4F8F0) else Color.White, shape = RoundedCornerShape(23.dp), border = BorderStroke(1.dp, Color(0xFFDCEDE1)), modifier = Modifier.fillMaxWidth().testTag("intercity_ticket_card_${booking.id}")) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -216,6 +221,38 @@ internal fun IntercityTicketCard(
             if (!compact && onSavePdf != null && booking.paymentStatus == "PAID" && booking.status in setOf("CONFIRMED", "BOARDED")) OutlinedButton(onClick = onSavePdf, border = BorderStroke(1.dp, CommuteTeal), shape = RoundedCornerShape(13.dp), modifier = Modifier.fillMaxWidth().testTag("intercity_save_ticket")) {
                 Icon(Icons.Default.SaveAlt, null, Modifier.size(18.dp)); Spacer(Modifier.width(7.dp))
                 Text(intercityText(language, "Save ticket PDF", "የትኬት PDF ያስቀምጡ", "PDF tikitii olkaa'i"), color = CommuteTeal)
+            }
+        }
+    }
+}
+
+@Composable
+private fun IntercityCompactTicket(booking: IntercityBooking, language: AppLanguage, onOpen: () -> Unit) {
+    val canBoard = canShowIntercityQr(booking)
+    Surface(color = Color(0xFFF4F8F0), shape = RoundedCornerShape(21.dp), border = BorderStroke(1.dp, Color(0xFFDCEDE1)), modifier = Modifier.fillMaxWidth().testTag("intercity_ticket_card_${booking.id}")) {
+        Row(Modifier.padding(11.dp), horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+            IntercityReferenceCrop(38, 1444, 187, 147, Modifier.width(60.dp).height(104.dp).clip(RoundedCornerShape(11.dp)))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("${booking.departure.origin} → ${booking.departure.destination}", color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 17.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.Top) {
+                    Icon(Icons.Default.CalendarMonth, null, Modifier.size(13.dp), tint = CommuteInk)
+                    Text(formatIntercityTime(booking.departure.departureAt), color = BookingMuted, fontSize = 10.sp, lineHeight = 13.sp)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.EventSeat, null, Modifier.size(13.dp), tint = CommuteInk)
+                    Text(intercityText(language, "Seat ${booking.seatNumber}", "መቀመጫ ${booking.seatNumber}", "Teessoo ${booking.seatNumber}"), color = BookingMuted, fontSize = 11.sp, lineHeight = 14.sp)
+                }
+                BookingStatus(booking, language)
+                if (!booking.ticketNumber.isNullOrBlank() && booking.paymentStatus == "PAID") {
+                    Text(booking.ticketNumber, color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 12.sp, lineHeight = 15.sp, modifier = Modifier.testTag("intercity_ticket_number"))
+                }
+            }
+            Column(Modifier.width(72.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (canBoard) QrCodeCanvas(booking.qrToken!!, Modifier.size(72.dp).testTag("intercity_ticket_qr"), moduleColor = Color.Black)
+                TextButton(onClick = onOpen, contentPadding = PaddingValues(horizontal = 1.dp, vertical = 6.dp), modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp).testTag("intercity_view_ticket")) {
+                    Text(intercityText(language, "View ticket", "ትኬት ይመልከቱ", "Tikitii ilaali"), color = CommuteInk, fontSize = 10.sp, lineHeight = 12.sp)
+                    Icon(Icons.Default.ChevronRight, null, tint = CommuteInk, modifier = Modifier.size(14.dp))
+                }
             }
         }
     }
