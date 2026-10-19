@@ -229,16 +229,22 @@ router.post('/company/departures', ...companyGuard, asyncRoute(async (req, res) 
 }));
 router.patch('/company/departures/:id', ...companyGuard, asyncRoute(async (req, res) => {
   const x = req.body;
-  if (!['radiusMeters', 'latitude', 'longitude', 'departureAt'].some(key => Object.prototype.hasOwnProperty.call(x, key))) throw fail(400, 'Choose a departure setting to update.');
+  if (!['radiusMeters', 'latitude', 'longitude', 'departureAt', 'driverId', 'vehicleId'].some(key => Object.prototype.hasOwnProperty.call(x, key))) throw fail(400, 'Choose a departure setting to update.');
   const d = await write(async tx => {
     const current = await departure(tx, req.params.id, true); own(current, req.user);
     if (current.status !== 'SCHEDULED') throw fail(409, 'Only scheduled departures can be changed.');
     const radius = x.radiusMeters === undefined ? Number(current.radius_m) : Number(x.radiusMeters);
     const lat = x.latitude === undefined ? Number(current.latitude) : Number(x.latitude), lng = x.longitude === undefined ? Number(current.longitude) : Number(x.longitude);
     const time = x.departureAt === undefined ? current.departure_at : new Date(x.departureAt).toISOString();
+    const vehicleId = x.vehicleId === undefined ? current.vehicle_id : clean(x.vehicleId);
+    const driverId = x.driverId === undefined ? current.driver_id : clean(x.driverId);
+    const vehicle = await tx.prepare('SELECT id,capacityLimit FROM vehicles WHERE id=? AND companyId=?').get(vehicleId, req.user.id);
+    const driver = await tx.prepare("SELECT id,status FROM users WHERE id=? AND companyId=? AND role='DRIVER'").get(driverId, req.user.id);
+    if (!vehicle || !driver || driver.status !== 'ACTIVE') throw fail(400, 'Select an active driver and vehicle owned by this company.');
+    if (!Number.isInteger(Number(current.seats)) || Number(current.seats) > Number(vehicle.capacityLimit)) throw fail(400, 'The selected vehicle does not have enough seats for this departure.');
     if (!Number.isInteger(radius) || radius < 25 || radius > 5000 || !Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180 || Date.parse(time) < Date.now()) throw fail(400, 'Check the departure time, coordinates and radius (25–5000 metres).');
-    await tx.prepare('UPDATE intercity_departures SET radius_m=?,latitude=?,longitude=?,departure_at=? WHERE id=?').run(radius, lat, lng, time, current.id);
-    return { ...current, radius_m: radius, latitude: lat, longitude: lng, departure_at: time };
+    await tx.prepare('UPDATE intercity_departures SET driver_id=?,vehicle_id=?,radius_m=?,latitude=?,longitude=?,departure_at=? WHERE id=?').run(driver.id, vehicle.id, radius, lat, lng, time, current.id);
+    return { ...current, driver_id: driver.id, vehicle_id: vehicle.id, radius_m: radius, latitude: lat, longitude: lng, departure_at: time };
   });
   res.json({ success: true, departure: detail(d) });
 }));
