@@ -1,3 +1,11 @@
+# Current verification: driver portal
+
+Driver portal version 1.1.8 passed the native Android visual review and all 17 automated checks on commit 5455358. Android build 39329916153 and backend CI 39329916243 succeeded. See [driver verification](design-qa-driver.md) for the source, screenshots, functional scope and physical-device testing limits. The earlier commuter review is in [commuter verification](design-qa-commuter.md).
+
+final result: passed
+
+---
+
 # Welcome screen verification
 
 Scope: welcome screen and direct service navigation. Passenger, driver and intercity portal redesigns are subsequent screens in the user's agreed one-screen-at-a-time process.
