@@ -1,4 +1,16 @@
-# Current verification: welcome viewport fit
+# Current verification: daily route browsing
+
+APK 1.1.10/code 13, commit 54f19c8. Removed the three-line commuter introduction, changed the banner subtitle to Find a daily route, and added safe top insets with a slightly lower Sign in button. Both top and hardware Back from passenger authentication now return to daily route browsing, including entry from My pass. Driver return behavior is retained.
+
+Route cards and details show each tier's fare beneath its name. The existing Economy fare is used; missing fares show Not available with a small red dot, as the user specified. No prices were invented and no payment or backend logic was changed.
+
+Android run 39337128694 and backend CI 39337128762 passed. All 21 checks passed, including two integration tests through the actual MainTransportApp for both Back paths. Reviewed native component preview 04-route-browse.png from artifact 12226853862 against the requested changes; it uses test route/fare data. Search, filters and navigation remain in the full page. Physical-device installation was not exercised.
+
+final result: passed
+
+---
+
+# Welcome viewport fit verification
 
 Sizing-only update, APK 1.1.9/code 12, commit e1f4053. The existing native welcome composition now scales uniformly to the available safe screen height without a scroll container. Artwork, colours, wording, control order, selections and callbacks are unchanged.
 
