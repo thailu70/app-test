@@ -19,6 +19,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.res.imageResource
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
@@ -67,15 +72,12 @@ fun PassoWelcomeScreen(
         Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val sceneWidth = maxWidth
-                // The source artwork has blank space below its scene. Clip to the scene,
-                // keeping its original aspect ratio rather than stretching the photograph.
+                // The hero contains only brand artwork; every control is rendered below.
                 Box(Modifier.fillMaxWidth().height(sceneWidth * 0.98f).clip(RoundedCornerShape(0.dp))) {
-                    Image(painterResource(R.drawable.passo_welcome_scene), null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit, alignment = Alignment.BottomCenter)
-                    Column(Modifier.fillMaxWidth().padding(top = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Image(painterResource(R.drawable.passo_brand_logo), "PASSO", Modifier.fillMaxWidth(0.52f).height(70.dp), contentScale = ContentScale.Fit)
-                        Text("Go Further, Together.", color = WelcomeInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
+                    ReferenceArtwork(0, 0, 853, 850, Modifier.fillMaxSize())
+                    Box(Modifier.align(Alignment.TopCenter).offset(y = sceneWidth * 0.211f)
+                        .width(sceneWidth * 0.55f).height(sceneWidth * 0.06f).background(WelcomeCream), contentAlignment = Alignment.Center) {
+                        Text("Go Further, Together.", color = WelcomeInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -99,9 +101,9 @@ fun PassoWelcomeScreen(
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    WelcomeServiceCard(copy("Passenger", "ተሳፋሪ", "Imaltuu"), copy("Find and ride with ease.", "በቀላሉ ይጓዙ።", "Salphaatti imalaa."), R.drawable.passo_passenger_card, Icons.Default.DirectionsBus, Color(0xFFE4F4E9), selectedService == WelcomeService.PASSENGER, Modifier.weight(1f).testTag("welcome_service_PASSENGER")) { selectedService = WelcomeService.PASSENGER }
-                    WelcomeServiceCard(copy("Driver", "ሹፌር", "Konkolaachisaa"), copy("Earn, drive and grow.", "ይንዱ፣ ያግኙ፣ ያድጉ።", "Oofaa, hojjedhaa, guddadhaa."), R.drawable.passo_driver_card, Icons.Default.DirectionsCar, Color(0xFFE4F2FA), selectedService == WelcomeService.DRIVER, Modifier.weight(1f).testTag("welcome_service_DRIVER")) { selectedService = WelcomeService.DRIVER }
-                    WelcomeServiceCard(copy("Intercity Travel", "የከተማ መካከል ጉዞ", "Imala magaalotaa"), copy("Explore more places.", "አዳዲስ ቦታዎችን ያስሱ።", "Bakkeewwan haaraa daawwadhaa."), R.drawable.passo_intercity_card, Icons.Default.AddRoad, Color(0xFFFFF1DB), selectedService == WelcomeService.INTERCITY, Modifier.weight(1f).testTag("welcome_service_INTERCITY")) { selectedService = WelcomeService.INTERCITY }
+                    WelcomeServiceCard(copy("Passenger", "ተሳፋሪ", "Imaltuu"), copy("Find and ride with ease.", "በቀላሉ ይጓዙ።", "Salphaatti imalaa."), 32, Icons.Default.DirectionsBus, Color(0xFFE4F4E9), selectedService == WelcomeService.PASSENGER, Modifier.weight(1f).testTag("welcome_service_PASSENGER")) { selectedService = WelcomeService.PASSENGER }
+                    WelcomeServiceCard(copy("Driver", "ሹፌር", "Konkolaachisaa"), copy("Earn, drive and grow.", "ይንዱ፣ ያግኙ፣ ያድጉ።", "Oofaa, hojjedhaa, guddadhaa."), 306, Icons.Default.DirectionsCar, Color(0xFFE4F2FA), selectedService == WelcomeService.DRIVER, Modifier.weight(1f).testTag("welcome_service_DRIVER")) { selectedService = WelcomeService.DRIVER }
+                    WelcomeServiceCard(copy("Intercity Travel", "የከተማ መካከል ጉዞ", "Imala magaalotaa"), copy("Explore more places.", "አዳዲስ ቦታዎችን ያስሱ።", "Bakkeewwan haaraa daawwadhaa."), 566, Icons.Default.AddRoad, Color(0xFFFFF1DB), selectedService == WelcomeService.INTERCITY, Modifier.weight(1f).testTag("welcome_service_INTERCITY")) { selectedService = WelcomeService.INTERCITY }
                 }
                 Spacer(Modifier.height(14.dp))
                 Button(onClick = { onContinue(selectedService) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("welcome_continue"), shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = WelcomeTeal)) {
@@ -118,14 +120,14 @@ fun PassoWelcomeScreen(
 }
 
 @Composable
-private fun WelcomeServiceCard(title: String, subtitle: String, image: Int, icon: ImageVector, color: Color, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun WelcomeServiceCard(title: String, subtitle: String, artworkX: Int, icon: ImageVector, color: Color, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     Surface(modifier = modifier, color = color, shape = RoundedCornerShape(20.dp), border = BorderStroke(2.dp, if (selected) WelcomeTeal else color)) {
         Column(Modifier.selectable(selected, role = Role.RadioButton, onClick = onClick)) {
             Box {
-                Image(painterResource(image), null, Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(18.dp)), contentScale = ContentScale.Crop)
-                Surface(Modifier.padding(8.dp).size(30.dp), shape = CircleShape, color = color, border = BorderStroke(2.dp, Color.White)) {
-                    Box(contentAlignment = Alignment.Center) { Icon(icon, null, Modifier.size(19.dp), tint = WelcomeInk) }
-                }
+                // Only the decorative photograph and badge are sampled from the reference.
+                // The card label, description, selection and action remain native UI.
+                ReferenceArtwork(artworkX, 1240, if (artworkX == 306) 242 else 256, 276,
+                    Modifier.fillMaxWidth().aspectRatio(0.93f).clip(RoundedCornerShape(18.dp)))
                 if (selected) Icon(Icons.Default.CheckCircle, "Selected", Modifier.align(Alignment.TopEnd).padding(5.dp).size(20.dp), tint = WelcomeTeal)
             }
             Column(Modifier.padding(9.dp).heightIn(min = 65.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -139,4 +141,13 @@ private fun WelcomeServiceCard(title: String, subtitle: String, image: Int, icon
             }
         }
     }
+}
+
+@Composable
+private fun ReferenceArtwork(x: Int, y: Int, width: Int, height: Int, modifier: Modifier) {
+    val bitmap = ImageBitmap.imageResource(R.drawable.passo_welcome)
+    val painter = remember(bitmap, x, y, width, height) {
+        BitmapPainter(bitmap, srcOffset = IntOffset(x, y), srcSize = IntSize(width, height))
+    }
+    Image(painter = painter, contentDescription = null, modifier = modifier, contentScale = ContentScale.Crop)
 }
