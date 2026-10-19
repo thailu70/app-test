@@ -1,6 +1,7 @@
 package com.example.ui.screens.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,6 +14,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,10 +38,20 @@ fun PassoWelcomeScreen(
             Text("PASSO", color = navy, fontSize = 40.sp, fontWeight = FontWeight.Black)
             Text("Go Further, Together.", color = TransportGreenPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
-        Surface(color = navy, shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth().height(190.dp)) {
-            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("A clearer way to move.", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-                Text("Simple journeys, trusted people and better connections wherever you travel.", color = Color.White.copy(alpha = .82f), style = MaterialTheme.typography.bodyMedium)
+'        Surface(color = Color.White, shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth().height(230.dp)) {
+            Box {
+                Image(
+                    painter = painterResource(com.example.R.drawable.passo_hero_background),
+                    contentDescription = "PASSO people and vehicle",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+                Surface(color = navy.copy(alpha = .82f), shape = RoundedCornerShape(18.dp), modifier = Modifier.align(Alignment.BottomStart).padding(14.dp)) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("A clearer way to move.", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
+                        Text("Go Further, Together.", color = Color.White.copy(alpha = .9f), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             }
         }
         Text("Choose your service", color = navy, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -76,3 +90,6 @@ private fun LanguagePill(label: String, selected: Boolean, modifier: Modifier) {
         Box(contentAlignment = Alignment.Center) { Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
     }
 }
+
+
+
