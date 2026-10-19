@@ -1,4 +1,14 @@
-# Current verification: daily route browsing
+# Current verification: native intercity passenger console
+
+APK 1.1.11/code 14, source commit 899ed22. The intercity passenger flow now uses native Android screens instead of the travel WebView: route search and suggestions, date selection, real seat inventory, private booking access, Telebirr handoff/reconciliation, paid QR and short ticket numbers, recent tickets, route requests and native PDF saving. Existing backend payment/SMS logic is retained.
+
+Android run 39343835824 and CI 39343835822 passed; all 39 automated checks passed. Native screenshots were compared directly with the supplied intercity reference. The initial spacing, compact receipt and large-text footer findings were corrected and recaptured. Final visual review has no P0/P1/P2 finding. Evidence, expected data-driven differences, P3 polish and testing limits are recorded in [intercity verification](design-qa-intercity.md).
+
+final result: passed
+
+---
+
+# Daily route browsing verification
 
 APK 1.1.10/code 13, commit 54f19c8. Removed the three-line commuter introduction, changed the banner subtitle to Find a daily route, and added safe top insets with a slightly lower Sign in button. Both top and hardware Back from passenger authentication now return to daily route browsing, including entry from My pass. Driver return behavior is retained.
 
