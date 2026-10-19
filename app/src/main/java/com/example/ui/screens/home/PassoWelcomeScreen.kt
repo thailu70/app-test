@@ -131,7 +131,7 @@ private fun WelcomeServiceCard(title: String, subtitle: String, artworkX: Int, i
                 if (selected) Icon(Icons.Default.CheckCircle, "Selected", Modifier.align(Alignment.TopEnd).padding(5.dp).size(20.dp), tint = WelcomeTeal)
             }
             Column(Modifier.padding(9.dp).heightIn(min = 65.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold, color = WelcomeInk)
+                Text(title, fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, color = WelcomeInk)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(subtitle, modifier = Modifier.weight(1f), fontSize = 11.sp, lineHeight = 14.sp, color = Color(0xFF47545D))
                     Surface(color = Color.White.copy(alpha = 0.5f), shape = CircleShape) {
@@ -147,7 +147,11 @@ private fun WelcomeServiceCard(title: String, subtitle: String, artworkX: Int, i
 private fun ReferenceArtwork(x: Int, y: Int, width: Int, height: Int, modifier: Modifier) {
     val bitmap = ImageBitmap.imageResource(R.drawable.passo_welcome)
     val painter = remember(bitmap, x, y, width, height) {
-        BitmapPainter(bitmap, srcOffset = IntOffset(x, y), srcSize = IntSize(width, height))
+                val scaleX = bitmap.width / 853f
+        val scaleY = bitmap.height / 1844f
+        BitmapPainter(bitmap,
+            srcOffset = IntOffset((x * scaleX).toInt(), (y * scaleY).toInt()),
+            srcSize = IntSize((width * scaleX).toInt(), (height * scaleY).toInt()))
     }
     Image(painter = painter, contentDescription = null, modifier = modifier, contentScale = ContentScale.Crop)
 }
