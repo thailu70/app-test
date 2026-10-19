@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -159,31 +160,31 @@ fun DriverRouteOverview(routeName: String, vehiclePlate: String, vehicleType: St
                         onComplete: () -> Unit, busy: Boolean) {
     val ordered = if (direction == "INBOUND") stops.sortedByDescending { it.stopOrder } else stops.sortedBy { it.stopOrder }
     Surface(shape = RoundedCornerShape(24.dp), color = Color.White, modifier = Modifier.fillMaxWidth().testTag("driver_route_overview")) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = CommuteMint, shape = CircleShape) { Text(driverText(language, if (origin != null) "Intercity" else "Daily commute", if (origin != null) "የከተማ መካከል" else "የዕለት ጉዞ", if (origin != null) "Magaalaa gidduu" else "Imala guyyaa"), Modifier.padding(horizontal = 11.dp, vertical = 6.dp), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = CommuteTeal) }
-                Spacer(Modifier.weight(1f))
-                Text(vehiclePlate, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
-            }
-            Text(routeName.ifBlank { driverText(language, "Assigned journey", "የተመደበ ጉዞ", "Imala ramadame") }, fontSize = 19.sp, lineHeight = 23.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
-            if (vehicleType.isNotBlank()) Text(vehicleType.replace('_', ' '), color = Color(0xFF526575), fontSize = 11.sp)
-            if (canChangeDirection) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(direction == "OUTBOUND", { onDirection("OUTBOUND") }, label = { Text(driverText(language, "Outbound", "መሄጃ", "Ka'umsa")) })
-                FilterChip(direction == "INBOUND", { onDirection("INBOUND") }, label = { Text(driverText(language, "Return", "መመለሻ", "Deebii")) })
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(routeName.ifBlank { driverText(language, "Assigned journey", "የተመደበ ጉዞ", "Imala ramadame") }, fontSize = 15.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
+                    Text(listOf(vehiclePlate, vehicleType.replace('_', ' ')).filter { it.isNotBlank() }.joinToString(" · "), fontSize = 10.sp, color = Color(0xFF526575))
+                }
+                if (onReadiness != null && !boarding) IconButton(onClick = onReadiness, enabled = !busy,
+                    modifier = Modifier.testTag("driver_readiness_check")) {
+                    Icon(Icons.Default.MyLocation, driverText(language, "Check departure area", "የመነሻ ቦታ ፈትሽ", "Bakka ka'umsaa sakatta'i"), tint = CommuteTeal)
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (canChangeDirection) Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        FilterChip(direction == "OUTBOUND", { onDirection("OUTBOUND") }, label = { Text(driverText(language, "Outbound", "መሄጃ", "Ka'umsa"), fontSize = 9.sp) }, modifier = Modifier.weight(1f))
+                        FilterChip(direction == "INBOUND", { onDirection("INBOUND") }, label = { Text(driverText(language, "Return", "መመለሻ", "Deebii"), fontSize = 9.sp) }, modifier = Modifier.weight(1f))
+                    }
                     DriverRouteStop(driverText(language, "DEPARTURE", "መነሻ", "KA'UMSA"), ordered.firstOrNull()?.stopName ?: origin ?: driverText(language, "Assigned pickup", "የተመደበ መሳፈሪያ", "Ka'umsa ramadame"), driverWindowInfo(schedule, now).timeLabel)
                     DriverRouteStop(driverText(language, "DESTINATION", "መድረሻ", "GA'UMSA"), ordered.lastOrNull()?.stopName ?: destination ?: driverText(language, "See assigned route", "የተመደበ መስመር ይመልከቱ", "Karaa ramadame ilaali"), null)
                 }
-                DriverRouteMap(ordered, fix, Modifier.weight(1f).height(155.dp), language)
+                val mapHeight = (155 * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
+                DriverRouteMap(ordered, fix, Modifier.weight(1f).height(mapHeight), language)
             }
             Text(gpsStatus, fontSize = 10.sp, lineHeight = 14.sp, color = Color(0xFF526575))
             validation?.let { Text(it.message, color = if (it.allowed) CommuteTeal else Color(0xFF9A302F), fontSize = 12.sp) }
-            if (onReadiness != null && !boarding) OutlinedButton(onClick = onReadiness, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("driver_readiness_check"), shape = CircleShape) {
-                Icon(Icons.Default.MyLocation, null, Modifier.size(17.dp)); Spacer(Modifier.width(7.dp))
-                Text(driverText(language, "Check departure area", "የመነሻ ቦታ ፈትሽ", "Bakka ka'umsaa sakatta'i"), fontSize = 12.sp)
-            }
             if (boarding) OutlinedButton(onClick = onComplete, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("driver_complete_route"), shape = CircleShape) {
                 Icon(Icons.Default.Flag, null, Modifier.size(17.dp)); Spacer(Modifier.width(7.dp))
                 Text(driverText(language, "Complete route", "ጉዞ አጠናቅቅ", "Imala xumuri"), fontSize = 12.sp)

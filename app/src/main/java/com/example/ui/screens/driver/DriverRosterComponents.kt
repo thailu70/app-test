@@ -117,7 +117,7 @@ fun DriverRosterRow(
         border = BorderStroke(1.dp, Color(0xFFE7EAE5))
     ) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 76.dp).padding(horizontal = 11.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 11.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
