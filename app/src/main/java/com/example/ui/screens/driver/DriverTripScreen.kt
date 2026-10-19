@@ -179,7 +179,7 @@ fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                 }
             }
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentPadding = PaddingValues(top = 16.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 notice?.let { message -> item {
                     Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(14.dp)) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -312,6 +312,44 @@ fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                         catch (error: Exception) { scanResult = QrValidationResult.Invalid("Boarding declined", error.message.orEmpty()) }
                     }
                 }, onDismissResult = { scanResult = null; boardingNotice = null }, onCloseScanner = { scanOpen = false }, boardingNotice = boardingNotice)
+        }
+        NavigationBar(
+            modifier = Modifier.align(Alignment.BottomCenter),
+            containerColor = Color(0xFF102F4D),
+            contentColor = Color.White,
+            tonalElevation = 8.dp
+        ) {
+            listOf(
+                "Home" to Icons.Default.Home,
+                "Passengers" to Icons.Default.People,
+                "Documents" to Icons.Default.Description,
+                "More" to Icons.Default.MoreHoriz
+            ).forEach { (label, icon) ->
+                val selected = when (label) {
+                    "Home" -> section == "Home" || section == "My Trips"
+                    "Passengers" -> section == "Passengers"
+                    "Documents" -> documentsOpen
+                    else -> section == "More"
+                }
+                NavigationBarItem(
+                    selected = selected,
+                    onClick = {
+                        when (label) {
+                            "Documents" -> documentsOpen = true
+                            else -> section = label
+                        }
+                    },
+                    icon = { Icon(icon, contentDescription = label) },
+                    label = { Text(if (label == "Home") "Today" else label) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = Color(0xFF38D9B0),
+                        selectedTextColor = Color(0xFF38D9B0),
+                        unselectedIconColor = Color.White.copy(alpha = .82f),
+                        unselectedTextColor = Color.White.copy(alpha = .82f),
+                        indicatorColor = Color.White.copy(alpha = .12f)
+                    )
+                )
+            }
         }
     }
 }
