@@ -1,5 +1,7 @@
 package com.example.ui.screens.home
 
+import com.example.smoothPortalMotion
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
@@ -178,7 +180,7 @@ fun BrowseFirstScreen(
 
     Column(modifier = modifier.fillMaxSize().background(HomeCream).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
     LazyColumn(
-        modifier = Modifier.weight(1f),
+        modifier = Modifier.weight(1f).smoothPortalMotion(selectedSection, animateInitial = false),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {

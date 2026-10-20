@@ -198,4 +198,38 @@ class WelcomeLayoutTest {
         compose.onNodeWithText("ቀጥል").assertExists()
         assertPortraitUsesSafeViewport(AppLanguage.AMHARIC)
     }
+
+    @Test fun `selection motion keeps Continue stationary and uses the latest role during animation`() {
+        var destination: WelcomeService? = null
+        var language by mutableStateOf(AppLanguage.ENGLISH)
+        compose.setContent {
+            MyApplicationTheme {
+                PassoWelcomeScreen(onContinue = { destination = it }, language = language, onLanguage = { language = it })
+            }
+        }
+        compose.waitForIdle()
+        val button = compose.onNodeWithTag("welcome_continue").fetchSemanticsNode().boundsInWindow
+        val cards = WelcomeService.entries.associateWith { service ->
+            compose.onNodeWithTag("welcome_service_${service.name}").fetchSemanticsNode().boundsInWindow
+        }
+        compose.mainClock.autoAdvance = false
+        try {
+            WelcomeService.entries.forEach { service ->
+                compose.onNodeWithTag("welcome_service_${service.name}").performClick()
+                compose.mainClock.advanceTimeBy(80)
+                assertEquals("Role motion must not move its touch target", cards[service], compose.onNodeWithTag("welcome_service_${service.name}").fetchSemanticsNode().boundsInWindow)
+                assertEquals("Continue must not jump during selection", button, compose.onNodeWithTag("welcome_continue").assertIsDisplayed().fetchSemanticsNode().boundsInWindow)
+                compose.onNodeWithTag("welcome_continue").performClick()
+                assertEquals(service, destination)
+            }
+            compose.onNodeWithTag("welcome_language_om").performClick()
+            compose.mainClock.advanceTimeBy(80)
+            compose.onNodeWithText("Itti fufi").assertExists()
+            assertEquals("Language motion must keep Continue on screen", button, compose.onNodeWithTag("welcome_continue").assertIsDisplayed().fetchSemanticsNode().boundsInWindow)
+            assertPortraitUsesSafeViewport(AppLanguage.OROMO)
+            compose.mainClock.advanceTimeBy(300)
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
+    }
 }

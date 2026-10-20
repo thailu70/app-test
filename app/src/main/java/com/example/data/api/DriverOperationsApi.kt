@@ -12,7 +12,9 @@ data class DriverDepartureRequest(val routeId: String, val vehicleId: String, va
 data class DriverArrivalRequest(val location: DriverGpsFix?)
 data class DriverVehicleAssignment(
     val id: String, val plateNumber: String, val vehicleType: String, val capacityLimit: Int,
-    val assignedRouteId: String, val routeName: String = "", val morningDeparture: String = "", val eveningDeparture: String = ""
+    val assignedRouteId: String, val routeName: String = "", val morningDeparture: String = "", val eveningDeparture: String = "",
+    val departureStopName: String? = null, val departureStopNameAm: String? = null,
+    val destinationStopName: String? = null, val destinationStopNameAm: String? = null
 )
 data class DriverDepartureValidation(
     val allowed: Boolean = false, val code: String = "", val message: String = "",

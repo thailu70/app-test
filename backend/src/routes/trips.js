@@ -21,7 +21,23 @@ router.get('/assignments', authenticate, requireRole('DRIVER'), async (req, res)
       FROM vehicles v JOIN routes r ON r.id = v.assignedRouteId
       WHERE v.driverId = ? AND r.active = TRUE AND COALESCE(r.routeType, 'DAILY_COMMUTE') = 'DAILY_COMMUTE'
       AND COALESCE(r.companyId, '') = '' AND COALESCE(v.companyId, '') = '' ORDER BY v.plateNumber`).all(req.user.id);
-    res.json({ success: true, vehicles });
+    // Fetch the endpoint names with each assignment response. Route edits can replace stop IDs
+    // without changing assignedRouteId, so a driver's existing local stop cache is insufficient.
+    const endpointRows = await Promise.all([...new Set(vehicles.map(v => v.assignedRouteId))].map(async routeId => {
+      const stops = await DB.prepare('SELECT id, stopName, stopNameAm FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC, id ASC').all(routeId);
+      return [routeId, { departure: stops[0] || null, destination: stops.length > 1 ? stops[stops.length - 1] : null }];
+    }));
+    const endpoints = new Map(endpointRows);
+    res.json({ success: true, vehicles: vehicles.map(vehicle => {
+      const { departure, destination } = endpoints.get(vehicle.assignedRouteId);
+      return { ...vehicle,
+        departureStopId: departure?.id || null,
+        departureStopName: departure?.stopName || '',
+        departureStopNameAm: departure?.stopNameAm || '',
+        destinationStopId: destination?.id || null,
+        destinationStopName: destination?.stopName || '',
+        destinationStopNameAm: destination?.stopNameAm || '' };
+    }) });
   } catch (err) { console.error('[Driver assignments]', err); res.status(500).json({ success: false, error: 'Could not load driver assignments.' }); }
 });
 

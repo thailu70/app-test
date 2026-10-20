@@ -1,5 +1,7 @@
 package com.example.ui.screens.intercity
 
+import com.example.smoothPortalMotion
+
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -109,7 +111,7 @@ internal fun IntercityPassengerScreen(
             }
         }
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = CommuteTeal)
-        LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("intercity_content"), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("intercity_content").smoothPortalMotion(state.phase, animateInitial = false), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if (state.phase == IntercityPhase.BROWSE) {
                 item {
                     Column {

@@ -66,6 +66,58 @@ test('driver operations enforce assignment and departure gate on direct API call
   const fix = () => ({ latitude: 9, longitude: 38.7, accuracyMeters: 5, timestamp: Date.now() });
   const departure = (overrides = {}) => ({ routeId: 'ops_route', vehicleId: 'vehicle_a', location: fix(), ...overrides });
 
+  await t.test('assignments return current canonical route endpoints and refresh same-route name edits', async () => {
+    const before = await request('GET', '/api/trips/assignments', 'driver_a');
+    assert.equal(before.status, 200, JSON.stringify(before.data));
+    const assigned = before.data.vehicles.find(v => v.id === 'vehicle_a');
+    assert.equal(assigned.assignedRouteId, 'ops_route');
+    assert.equal(assigned.departureStopId, 'ops_origin');
+    assert.equal(assigned.departureStopName, 'ops_origin');
+    assert.equal(assigned.destinationStopId, 'ops_end');
+    assert.equal(assigned.destinationStopName, 'ops_end');
+    await DB.prepare('UPDATE route_stops SET stopName=?,stopNameAm=? WHERE id=?')
+      .run('Updated actual departure', 'የተዘመነ መነሻ', 'ops_origin');
+    await DB.prepare('UPDATE route_stops SET stopName=?,stopNameAm=? WHERE id=?')
+      .run('Updated actual destination', 'የተዘመነ መድረሻ', 'ops_end');
+    const refreshed = (await request('GET', '/api/trips/assignments', 'driver_a')).data.vehicles.find(v => v.id === 'vehicle_a');
+    assert.equal(refreshed.assignedRouteId, assigned.assignedRouteId);
+    assert.equal(refreshed.departureStopName, 'Updated actual departure');
+    assert.equal(refreshed.departureStopNameAm, 'የተዘመነ መነሻ');
+    assert.equal(refreshed.destinationStopName, 'Updated actual destination');
+    assert.equal(refreshed.destinationStopNameAm, 'የተዘመነ መድረሻ');
+    const unconfigured = before.data.vehicles.find(v => v.id === 'vehicle_empty');
+    assert.equal(unconfigured.departureStopId, null);
+    assert.equal(unconfigured.departureStopName, '');
+    assert.equal(unconfigured.destinationStopId, null);
+    assert.equal(unconfigured.destinationStopName, '');
+    // Keep the separate boarding-gate fixtures independent of these edit checks.
+    await DB.prepare('UPDATE route_stops SET stopName=?,stopNameAm=? WHERE id=?').run('ops_origin', 'ops_origin', 'ops_origin');
+    await DB.prepare('UPDATE route_stops SET stopName=?,stopNameAm=? WHERE id=?').run('ops_end', 'ops_end', 'ops_end');
+  });
+  await t.test('endpoint selection orders equal stop orders by ID and never leaks another driver assignment', async () => {
+    await DB.prepare('INSERT INTO routes(id,name,nameAm) VALUES(?,?,?)').run('tie_route', 'No encoded endpoint names', 'Test');
+    await DB.prepare('INSERT INTO routes(id,name,nameAm) VALUES(?,?,?)').run('single_route', 'Single stop', 'Test');
+    for (const [id, route] of [['vehicle_tie', 'tie_route'], ['vehicle_single', 'single_route']])
+      await DB.prepare('INSERT INTO vehicles(id,plateNumber,model,vehicleType,capacityLimit,driverId,assignedRouteId) VALUES(?,?,?,?,?,?,?)')
+        .run(id, id, 'Test bus', 'MINIBUS_14', 14, 'driver_a', route);
+    for (const [id, route, order] of [['z_first', 'tie_route', 1], ['a_first', 'tie_route', 1], ['a_last', 'tie_route', 2], ['z_last', 'tie_route', 2], ['one_stop', 'single_route', 1]])
+      await DB.prepare('INSERT INTO route_stops(id,routeId,stopName,stopNameAm,stopOrder,latitude,longitude) VALUES(?,?,?,?,?,?,?)')
+        .run(id, route, id, id, order, 9, 38.7);
+    const mine = await request('GET', '/api/trips/assignments', 'driver_a');
+    const tied = mine.data.vehicles.find(v => v.id === 'vehicle_tie');
+    assert.equal(tied.departureStopId, 'a_first');
+    assert.equal(tied.destinationStopId, 'z_last');
+    const single = mine.data.vehicles.find(v => v.id === 'vehicle_single');
+    assert.equal(single.departureStopId, 'one_stop');
+    assert.equal(single.destinationStopId, null);
+    assert.equal(single.destinationStopName, '');
+    const other = await request('GET', '/api/trips/assignments', 'driver_b');
+    assert.deepEqual(other.data.vehicles.map(v => v.id), ['vehicle_b']);
+    assert.equal(other.data.vehicles[0].departureStopId, 'ops_origin');
+    assert.equal(other.data.vehicles[0].destinationStopId, 'ops_end');
+    assert.equal((await request('GET', '/api/trips/assignments', 'ops_admin')).status, 403);
+  });
+
   await t.test('roster is specific to own vehicle, including assigned/pending/inactive and photo links', async () => {
     const result = await request('GET', '/api/trips/roster?vehicleId=vehicle_a', 'driver_a');
     assert.equal(result.status, 200, JSON.stringify(result.data));

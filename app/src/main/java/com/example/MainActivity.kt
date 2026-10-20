@@ -7,6 +7,9 @@ import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -23,7 +26,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -173,6 +178,14 @@ fun MainTransportApp(viewModel: MainViewModel) {
         androidx.activity.compose.BackHandler(enabled = !showWelcome && !showIntercityPortal && !showCompanyPortal) {
             if (showPublicHome) showWelcome = true else returnFromAuthentication()
         }
+        val destination = when {
+            showWelcome -> "welcome"
+            showIntercityPortal -> "intercity"
+            showCompanyPortal -> "company"
+            showPublicHome -> "daily-routes"
+            else -> "auth-${requestedAuthPortal?.name}"
+        }
+        SmoothPortalContent(destination, animateInitial = false) {
         if (showWelcome) {
             PassoWelcomeScreen(
                 onContinue = { service ->
@@ -257,6 +270,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                 initialRouteName = requestedRouteName,
                 initialServiceTier = requestedServiceTier
             )
+        }
         }
         }
     } else {
@@ -416,6 +430,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                     .consumeWindowInsets(innerPadding)
                     .background(MaterialTheme.colorScheme.background)
             ) {
+                SmoothPortalContent("${currentRole.name}-${if (showProfile) "profile" else "portal"}") {
                 if (showProfile) {
                     ProfileCompletionScreen(role = currentRole.name, onBack = { showProfile = false })
                 } else when (currentRole) {
@@ -441,6 +456,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                         }
                     }
                 }
+                }
             }
         }
 
@@ -455,6 +471,28 @@ fun MainTransportApp(viewModel: MainViewModel) {
                 }
             )
         }
+    }
+}
+
+/** Drawing-only entrance: keep one active destination and its existing state/lifecycle. */
+@Composable
+private fun SmoothPortalContent(contentKey: String, animateInitial: Boolean = true, content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize().smoothPortalMotion(contentKey, animateInitial)) { content() }
+}
+
+/** Shared by native portal tabs; transforms drawing without replacing their composition. */
+@Composable
+internal fun Modifier.smoothPortalMotion(contentKey: Any, animateInitial: Boolean = true): Modifier {
+    var hasPresented by remember { mutableStateOf(animateInitial) }
+    val progress = remember(contentKey) { Animatable(if (hasPresented) 0f else 1f) }
+    val distance = with(LocalDensity.current) { 8.dp.toPx() }
+    LaunchedEffect(progress) {
+        hasPresented = true
+        progress.animateTo(1f, tween(220, easing = FastOutSlowInEasing))
+    }
+    return graphicsLayer {
+        alpha = 0.8f + 0.2f * progress.value
+        translationX = distance * (1f - progress.value)
     }
 }
 

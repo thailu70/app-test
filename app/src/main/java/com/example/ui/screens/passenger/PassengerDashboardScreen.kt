@@ -1,5 +1,7 @@
 package com.example.ui.screens.passenger
 
+import com.example.smoothPortalMotion
+
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -159,7 +161,7 @@ fun PassengerDashboardScreen(
         }
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
+            modifier = Modifier.fillMaxSize().padding(padding).smoothPortalMotion(passengerSection, animateInitial = false),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp)
         ) {

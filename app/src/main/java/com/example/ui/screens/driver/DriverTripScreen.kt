@@ -1,5 +1,7 @@
 package com.example.ui.screens.driver
 
+import com.example.smoothPortalMotion
+
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -31,6 +33,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.items
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -79,21 +82,26 @@ private fun <T> driverBody(response: retrofit2.Response<T>): T {
 }
 
 @Composable
-fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
+fun DriverTripScreen(
+    viewModel: MainViewModel,
+    modifier: Modifier = Modifier,
+    operationsApi: com.example.data.api.DriverOperationsApi? = null,
+    providedProfileApi: com.example.data.api.ProfileApi? = null
+) {
     val currentUser by viewModel.currentUser.collectAsState()
     val language by viewModel.currentLanguage.collectAsState()
-    val api = remember { com.example.data.api.ApiClient.createFeatureService(com.example.data.api.DriverOperationsApi::class.java) }
+    val api = remember(currentUser?.id, operationsApi) { operationsApi ?: com.example.data.api.ApiClient.createFeatureService(com.example.data.api.DriverOperationsApi::class.java) }
     val scope = rememberCoroutineScope()
     var section by rememberSaveable(currentUser?.id) { mutableStateOf("Home") }
     var documentsOpen by rememberSaveable(currentUser?.id) { mutableStateOf(false) }
-    var vehicles by remember { mutableStateOf(emptyList<com.example.data.api.DriverVehicleAssignment>()) }
-    var journeys by remember { mutableStateOf(emptyList<com.example.data.api.DriverIntercityDeparture>()) }
-    var activeTrip by remember { mutableStateOf<com.example.data.api.TripDto?>(null) }
+    var vehicles by remember(currentUser?.id) { mutableStateOf(emptyList<com.example.data.api.DriverVehicleAssignment>()) }
+    var journeys by remember(currentUser?.id) { mutableStateOf(emptyList<com.example.data.api.DriverIntercityDeparture>()) }
+    var activeTrip by remember(currentUser?.id) { mutableStateOf<com.example.data.api.TripDto?>(null) }
     var selectedKey by rememberSaveable(currentUser?.id) { mutableStateOf("") }
     var direction by rememberSaveable(currentUser?.id) { mutableStateOf("OUTBOUND") }
-    var roster by remember { mutableStateOf(emptyList<com.example.data.api.DriverRosterPassenger>()) }
+    var roster by remember(currentUser?.id) { mutableStateOf(emptyList<com.example.data.api.DriverRosterPassenger>()) }
     var statusFilter by rememberSaveable(currentUser?.id) { mutableStateOf("ALL") }
-    var freshFix by remember { mutableStateOf<com.example.data.api.DriverGpsFix?>(null) }
+    var freshFix by remember(currentUser?.id) { mutableStateOf<com.example.data.api.DriverGpsFix?>(null) }
     var gpsStatus by remember { mutableStateOf("Waiting for a precise GPS fix") }
     var validation by remember { mutableStateOf<com.example.data.api.DriverDepartureValidation?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -104,17 +112,17 @@ fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     var rosterVersion by remember { mutableIntStateOf(0) }
     val vehicle = vehicles.firstOrNull { selectedKey == "commute:${it.id}" }
     val journey = journeys.firstOrNull { selectedKey == "journey:${it.id}" }
-    val commuteTrip = activeTrip?.takeIf { it.vehicleId == vehicle?.id }
+    val commuteTrip = activeTrip?.takeIf { it.vehicleId == vehicle?.id && it.routeId == vehicle?.assignedRouteId }
     val boardingEnabled = commuteTrip != null || journey?.status == "BOARDING"
-    val selectedStops by remember(vehicle?.assignedRouteId) { viewModel.observeRouteStops(vehicle?.assignedRouteId.orEmpty()) }.collectAsState(initial = emptyList())
+    val selectedStops by remember(currentUser?.id, vehicle?.assignedRouteId) { viewModel.observeRouteStops(vehicle?.assignedRouteId.orEmpty()) }.collectAsState(initial = emptyList())
     var clockNow by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    val displayDirection = commuteTrip?.direction ?: direction
+    val displayDirection = if (vehicle != null) commuteTrip?.direction ?: direction else "OUTBOUND"
     val scheduled = if (vehicle != null) { if (displayDirection == "OUTBOUND") vehicle.morningDeparture else vehicle.eveningDeparture } else journey?.departure_at.orEmpty()
     var completionProfile by remember { mutableStateOf<com.example.data.api.CompletionProfile?>(null) }
     var profileLoading by remember { mutableStateOf(true) }
     var profileError by remember { mutableStateOf(false) }
-    val profileApi = remember { com.example.data.api.ApiClient.createFeatureService(com.example.data.api.ProfileApi::class.java) }
-    LaunchedEffect(documentsOpen) {
+    val profileApi = remember(currentUser?.id, providedProfileApi) { providedProfileApi ?: com.example.data.api.ApiClient.createFeatureService(com.example.data.api.ProfileApi::class.java) }
+    LaunchedEffect(currentUser?.id, documentsOpen) {
         if (!documentsOpen) {
             profileLoading = true
             try {
@@ -134,17 +142,50 @@ fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         if (documentsOpen) documentsOpen = false else section = "Home"
     }
 
-    suspend fun refreshAssignments() {
-        val assignments = driverBody(api.assignments())
-        vehicles = assignments.vehicles
-        activeTrip = driverBody(api.activeTrip()).trip
-        journeys = driverBody(api.departures()).departures
-        val possibleKeys = vehicles.map { "commute:${it.id}" } + journeys.map { "journey:${it.id}" }
-        if (selectedKey !in possibleKeys) {
-            selectedKey = activeTrip?.let { "commute:${it.vehicleId}" }?.takeIf { it in possibleKeys }
-                ?: possibleKeys.firstOrNull().orEmpty()
+    suspend fun refreshAssignments(): Boolean = kotlinx.coroutines.supervisorScope {
+        val initialSelection = selectedKey.isBlank()
+        var automaticallySelectedKey: String? = null
+        fun selectAssignedJourney() {
+            val possibleKeys = vehicles.map { "commute:${it.id}" } + journeys.map { "journey:${it.id}" }
+            val activeKey = activeTrip?.let { trip ->
+                vehicles.firstOrNull { it.id == trip.vehicleId && it.assignedRouteId == trip.routeId }
+                    ?.let { "commute:${it.id}" }
+            }
+            if (selectedKey !in possibleKeys) {
+                selectedKey = activeKey ?: possibleKeys.firstOrNull().orEmpty()
+                if (initialSelection) automaticallySelectedKey = selectedKey
+            } else if (initialSelection && selectedKey == automaticallySelectedKey && activeKey != null) {
+                // Preserve the running trip's initial selection if it arrives after assignments.
+                selectedKey = activeKey
+                automaticallySelectedKey = activeKey
+            }
         }
+        // Publish each independent response immediately. Intercity or active-trip failures
+        // must not prevent a daily driver from seeing their assigned route after login.
+        suspend fun update(block: suspend () -> Unit): Boolean = try {
+            block()
+            selectAssignedJourney()
+            true
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (error: Exception) { notice = error.message ?: "Could not refresh driver assignments."; false }
+        val commuteUpdate = async {
+            update {
+                val result = driverBody(api.assignments())
+                check(result.success) { result.error ?: "Could not load driver assignments." }
+                vehicles = result.vehicles
+            }
+        }
+        val tripUpdate = async { update { activeTrip = driverBody(api.activeTrip()).trip } }
+        val intercityUpdate = async {
+            update {
+                val result = driverBody(api.departures())
+                check(result.success) { result.error ?: "Could not load intercity assignments." }
+                journeys = result.departures
+            }
+        }
+        val results = listOf(commuteUpdate.await(), tripUpdate.await(), intercityUpdate.await())
         rosterVersion++
+        results.all { it }
     }
     fun runAction(action: suspend () -> Unit) {
         if (busy) return
@@ -184,7 +225,7 @@ fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         refreshAssignments()
     }
     fun openScanner() { scanResult = null; boardingNotice = null; scanOpen = true }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(currentUser?.id, api) {
         while (true) {
             try { refreshAssignments() }
             catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
@@ -213,7 +254,7 @@ fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             commuteTrip?.currentStop ?: journey?.takeIf { it.status == "BOARDING" }?.origin.orEmpty(),
             { gpsStatus = it }, onFix = { freshFix = it; clockNow = System.currentTimeMillis() },
             uploadEnabled = activeTrip != null || journeys.any { it.status == "BOARDING" })
-        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp),
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp).smoothPortalMotion(section, animateInitial = false),
             contentPadding = PaddingValues(top = 14.dp, bottom = 104.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if (section == "Home") item {
                 DriverGreeting(currentUser?.id.orEmpty(), currentUser?.fullName.orEmpty(), language, clockNow, onProfile = { documentsOpen = true })
@@ -231,7 +272,7 @@ fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                 item { DriverMenuRow(driverText(language, "My assignments", "የእኔ ምደባዎች", "Ramaddii koo"), driverText(language, "Daily commute and intercity journeys", "የዕለት እና የከተማ መካከል ጉዞዎች", "Imala guyyaa fi magaalaa gidduu"), Icons.Default.Route) { section = "My Trips" } }
                 item { DriverDocumentsOverview(completionProfile, profileLoading, profileError, language) { documentsOpen = true } }
                 item { DriverMenuRow(driverText(language, "Emergency contact", "የአደጋ ጊዜ ተጠሪ", "Nama yeroo balaa"), driverText(language, "Name, phone and profile details", "ስም፣ ስልክ እና የግል መረጃ", "Maqaa, bilbilaa fi odeeffannoo dhuunfaa"), Icons.Default.ContactPhone) { documentsOpen = true } }
-                item { DriverMenuRow(driverText(language, "Refresh assignments", "ምደባዎችን አድስ", "Ramaddii haaromsi"), driverText(language, "Update your route, vehicle and roster", "መስመር፣ ተሽከርካሪ እና ዝርዝር አድስ", "Karaa, konkolaataa fi tarree haaromsi"), Icons.Default.Refresh) { runAction { refreshAssignments(); notice = "Assignments and roster refreshed." } } }
+                item { DriverMenuRow(driverText(language, "Refresh assignments", "ምደባዎችን አድስ", "Ramaddii haaromsi"), driverText(language, "Update your route, vehicle and roster", "መስመር፣ ተሽከርካሪ እና ዝርዝር አድስ", "Karaa, konkolaataa fi tarree haaromsi"), Icons.Default.Refresh) { runAction { if (refreshAssignments()) notice = "Assignments and roster refreshed." } } }
             } else {
                 if (section == "Home" && selectedKey.isNotBlank()) item {
                     DriverBoardingBanner(boardingEnabled, journey?.status == "COMPLETED", driverHasPreciseFix(freshFix, clockNow), busy,
@@ -254,7 +295,17 @@ fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                     DriverRouteOverview(routeName = vehicle?.routeName ?: "${journey?.origin.orEmpty()} → ${journey?.destination.orEmpty()}",
                         vehiclePlate = vehicle?.plateNumber ?: journey?.plateNumber.orEmpty(), vehicleType = vehicle?.vehicleType.orEmpty(),
                         schedule = scheduled, direction = displayDirection, canChangeDirection = vehicle != null && commuteTrip == null,
-                        stops = selectedStops, origin = journey?.origin, destination = journey?.destination, fix = freshFix,
+                        stops = selectedStops,
+                        origin = vehicle?.let { assignment ->
+                            (if (language == AppLanguage.AMHARIC) assignment.departureStopNameAm?.takeIf { it.isNotBlank() } else null)
+                                ?: assignment.departureStopName?.let { name -> name.takeIf { it.isNotBlank() }
+                                    ?: driverText(language, "Location unavailable", "ቦታ አልተገኘም", "Bakki hin argamne") }
+                        } ?: journey?.origin,
+                        destination = vehicle?.let { assignment ->
+                            (if (language == AppLanguage.AMHARIC) assignment.destinationStopNameAm?.takeIf { it.isNotBlank() } else null)
+                                ?: assignment.destinationStopName?.let { name -> name.takeIf { it.isNotBlank() }
+                                    ?: driverText(language, "Location unavailable", "ቦታ አልተገኘም", "Bakki hin argamne") }
+                        } ?: journey?.destination, fix = freshFix,
                         gpsStatus = gpsStatus, validation = validation, now = clockNow, language = language,
                         onDirection = { direction = it; validation = null }, onReadiness = if (vehicle != null) ({ checkReadiness() }) else null,
                         boarding = boardingEnabled, onComplete = { completeRoute() }, busy = busy,
