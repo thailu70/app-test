@@ -2,7 +2,6 @@ package com.example
 
 import android.graphics.Bitmap
 import androidx.compose.runtime.*
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -39,18 +38,104 @@ class WelcomeLayoutTest {
         return bitmap
     }
 
+    private fun assertPortraitUsesSafeViewport(language: AppLanguage) {
+        compose.waitForIdle()
+        val viewport = compose.onNodeWithTag("welcome_viewport").fetchSemanticsNode().boundsInWindow
+        val hero = compose.onNodeWithTag("welcome_hero").fetchSemanticsNode().boundsInWindow
+        val controls = compose.onNodeWithTag("welcome_controls").fetchSemanticsNode().boundsInWindow
+        val button = compose.onNodeWithTag("welcome_continue").fetchSemanticsNode().boundsInWindow
+        val density = compose.activity.resources.displayMetrics.density
+        val gutter = 16f * density
+        val tolerance = 1.5f
+
+        // A uniform page scale can leave every control visible while shrinking the
+        // entire page into a narrow column. Check its actual rendered edges too.
+        assertEquals("${language.code}: hero must fill the safe width", viewport.left, hero.left, tolerance)
+        assertEquals("${language.code}: hero must fill the safe width", viewport.right, hero.right, tolerance)
+        assertEquals("${language.code}: controls must use the safe width", viewport.left, controls.left, tolerance)
+        assertEquals("${language.code}: controls must use the safe width", viewport.right, controls.right, tolerance)
+        assertEquals("${language.code}: Continue keeps only the intended left gutter", viewport.left + gutter, button.left, tolerance)
+        assertEquals("${language.code}: Continue keeps only the intended right gutter", viewport.right - gutter, button.right, tolerance)
+        assertTrue("${language.code}: Continue must remain above the system navigation area", button.bottom <= viewport.bottom + tolerance)
+        assertTrue("${language.code}: no unused space beneath Continue", viewport.bottom - button.bottom <= gutter + tolerance)
+        assertTrue("${language.code}: hero stays within the safe height", hero.top >= viewport.top - tolerance && hero.bottom <= controls.top + tolerance)
+
+        val cards = WelcomeService.entries.map { service ->
+            compose.onNodeWithTag("welcome_service_${service.name}").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
+        }
+        cards.forEach { card ->
+            assertEquals("${language.code}: translated service cards share one top edge", cards.first().top, card.top, tolerance)
+            assertEquals("${language.code}: translated service cards share one bottom edge", cards.first().bottom, card.bottom, tolerance)
+            assertTrue("${language.code}: service card is fully on screen", card.top >= viewport.top - tolerance && card.bottom <= button.top + tolerance)
+        }
+        AppLanguage.entries.forEach { item ->
+            val option = compose.onNodeWithTag("welcome_language_${item.code}").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
+            assertTrue("${language.code}: language touch target must not be scaled down", option.height >= 48f * density - tolerance)
+        }
+        compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
+    }
+
+    private fun capturePreview(name: String) {
+        val dir = File("build/welcome-previews").apply { mkdirs() }
+        captureWindow().let { bitmap ->
+            File(dir, name).outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
+    }
+
+    private fun verifyPortraitFitInEveryLanguage(previewPrefix: String) {
+        var language by mutableStateOf(AppLanguage.ENGLISH)
+        var destination: WelcomeService? = null
+        compose.setContent {
+            MyApplicationTheme {
+                PassoWelcomeScreen(onContinue = { destination = it }, language = language, onLanguage = { language = it })
+            }
+        }
+        AppLanguage.entries.forEach { item ->
+            compose.onNodeWithTag("welcome_language_${item.code}").assertIsDisplayed().performClick()
+            assertEquals(item, language)
+            assertPortraitUsesSafeViewport(item)
+            WelcomeService.entries.forEach { service ->
+                compose.onNodeWithTag("welcome_service_${service.name}").performClick()
+                compose.onNodeWithTag("welcome_continue").assertIsDisplayed().performClick()
+                assertEquals(service, destination)
+            }
+            capturePreview("$previewPrefix-${item.code}.png")
+        }
+    }
+
+    @Test
+    fun `portrait uses screen width and bottom space in every language`() {
+        verifyPortraitFitInEveryLanguage("welcome-393x852")
+    }
+
+    @Test
+    @Config(qualifiers = "w412dp-h915dp-xhdpi")
+    fun `tall phone fills available screen without shrinking controls`() {
+        verifyPortraitFitInEveryLanguage("welcome-412x915")
+    }
+
     @Test
     @Config(qualifiers = "w800dp-h360dp-land-xhdpi")
     fun `landscape keeps service and continue reachable`() {
         var destination: WelcomeService? = null
+        var language by mutableStateOf(AppLanguage.ENGLISH)
         compose.setContent {
             MyApplicationTheme {
-                PassoWelcomeScreen(onContinue = { destination = it }, language = AppLanguage.ENGLISH, onLanguage = {})
+                PassoWelcomeScreen(onContinue = { destination = it }, language = language, onLanguage = { language = it })
             }
         }
-        compose.onNodeWithTag("welcome_service_DRIVER").assertIsDisplayed().performClick()
-        compose.onNodeWithTag("welcome_continue").assertIsDisplayed().performClick()
-        assertEquals(WelcomeService.DRIVER, destination)
+        AppLanguage.entries.forEach { item ->
+            compose.onNodeWithTag("welcome_language_${item.code}").assertIsDisplayed().performClick()
+            WelcomeService.entries.forEach { service ->
+                compose.onNodeWithTag("welcome_service_${service.name}").assertIsDisplayed().performClick()
+                compose.onNodeWithTag("welcome_continue").assertIsDisplayed().performClick()
+                assertEquals(service, destination)
+                val button = compose.onNodeWithTag("welcome_continue").fetchSemanticsNode().boundsInWindow
+                val viewport = compose.onNodeWithTag("welcome_viewport").fetchSemanticsNode().boundsInWindow
+                assertTrue("Landscape Continue remains fully within the safe screen", button.left >= viewport.left - 1f && button.right <= viewport.right + 1f && button.top >= viewport.top - 1f && button.bottom <= viewport.bottom + 1f)
+            }
+            capturePreview("welcome-landscape-${item.code}.png")
+        }
         val dir = File("build/welcome-previews").apply { mkdirs() }
         captureWindow().let { bitmap ->
             File(dir, "welcome-landscape.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -68,6 +153,7 @@ class WelcomeLayoutTest {
         }
         AppLanguage.entries.forEach { item ->
             compose.onNodeWithTag("welcome_language_${item.code}").assertIsDisplayed().performClick()
+            assertPortraitUsesSafeViewport(item)
             WelcomeService.entries.forEach { service ->
                 compose.onNodeWithTag("welcome_service_${service.name}").assertIsDisplayed().performClick()
                 compose.onNodeWithTag("welcome_continue").assertIsDisplayed().performClick()
@@ -76,6 +162,7 @@ class WelcomeLayoutTest {
                 val viewport = compose.onRoot().fetchSemanticsNode().boundsInWindow
                 assertTrue("Continue must fit completely inside the screen", button.top >= viewport.top && button.bottom <= viewport.bottom + 1f)
             }
+            capturePreview("welcome-360x640-${item.code}.png")
         }
         compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
         val dir = File("build/welcome-previews").apply { mkdirs() }
@@ -109,5 +196,6 @@ class WelcomeLayoutTest {
         compose.onNodeWithTag("welcome_language_am").assertIsDisplayed().performClick()
         assertEquals(AppLanguage.AMHARIC, language)
         compose.onNodeWithText("ቀጥል").assertExists()
+        assertPortraitUsesSafeViewport(AppLanguage.AMHARIC)
     }
 }

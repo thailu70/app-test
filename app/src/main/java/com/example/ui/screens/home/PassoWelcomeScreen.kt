@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
@@ -70,25 +71,30 @@ fun PassoWelcomeScreen(
     }
     ProvideTextStyle(LocalTextStyle.current.copy(fontFamily = WelcomeFont)) {
     Box(modifier.fillMaxSize().background(WelcomeCream).safeDrawingPadding(), contentAlignment = Alignment.TopCenter) {
-        WelcomeViewport {
-        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
+        WelcomeViewport { portrait, availableHeight ->
+        // Portrait uses the full safe width. The photo takes the height left by the
+        // native controls, rather than shrinking the entire page and leaving gutters.
+        val compact = portrait && availableHeight < 740.dp
+        Column(if (portrait) Modifier.fillMaxSize() else Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            BoxWithConstraints(if (portrait) Modifier.fillMaxWidth().weight(1f).testTag("welcome_hero") else Modifier.fillMaxWidth().testTag("welcome_hero")) {
                 val sceneWidth = maxWidth
                 // The hero contains only brand artwork; every control is rendered below.
-                Box(Modifier.fillMaxWidth().height(sceneWidth * 0.98f).clip(RoundedCornerShape(0.dp))) {
-                    ReferenceArtwork(0, 0, 853, 850, Modifier.fillMaxSize())
+                Box(if (portrait) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(sceneWidth * 0.98f)) {
+                    ReferenceArtwork(0, 0, 853, 850, Modifier.fillMaxSize(), Alignment.TopCenter)
                     Box(Modifier.align(Alignment.TopCenter).offset(y = sceneWidth * 0.211f)
                         .width(sceneWidth * 0.55f).height(sceneWidth * 0.06f).background(WelcomeCream), contentAlignment = Alignment.Center) {
                         Text("Go Further, Together.", color = WelcomeInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
+                    if (portrait) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(24.dp)
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, WelcomeCream))))
                 }
             }
-            Column(Modifier.padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(copy("A clearer way", "የተሻለ መንገድ", "Karaa caalu"), fontSize = 34.sp, lineHeight = 38.sp, fontWeight = FontWeight.Black, color = WelcomeInk, textAlign = TextAlign.Center)
-                Text(copy("to move together.", "አብረን ለመጓዝ።", "waliin imaluuf."), fontSize = 34.sp, lineHeight = 38.sp, fontWeight = FontWeight.Black, color = WelcomeTeal, textAlign = TextAlign.Center)
-                Spacer(Modifier.height(10.dp))
-                Text(copy("Reliable rides, smarter connections.\nGo Further, Together.", "አስተማማኝ ጉዞ፣ የተሻለ ግንኙነት።\nአብረን ወደ ፊት።", "Imala amanamaa, walqunnamtii caalu.\nWaliin fagootti haa imallu."), color = Color(0xFF53606C), fontSize = 15.sp, lineHeight = 21.sp, textAlign = TextAlign.Center)
-                Spacer(Modifier.height(12.dp))
+            Column(Modifier.fillMaxWidth().testTag("welcome_controls").padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(copy("A clearer way", "የተሻለ መንገድ", "Karaa caalu"), fontSize = if (compact) 24.sp else 28.sp, lineHeight = if (compact) 28.sp else 32.sp, fontWeight = FontWeight.Black, color = WelcomeInk, textAlign = TextAlign.Center)
+                Text(copy("to move together.", "አብረን ለመጓዝ።", "waliin imaluuf."), fontSize = if (compact) 24.sp else 28.sp, lineHeight = if (compact) 28.sp else 32.sp, fontWeight = FontWeight.Black, color = WelcomeTeal, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(if (compact) 4.dp else 6.dp))
+                Text(copy("Reliable rides, smarter connections.\nGo Further, Together.", "አስተማማኝ ጉዞ፣ የተሻለ ግንኙነት።\nአብረን ወደ ፊት።", "Imala amanamaa, walqunnamtii caalu.\nWaliin fagootti haa imallu."), color = Color(0xFF53606C), fontSize = if (compact) 11.sp else 13.sp, lineHeight = if (compact) 15.sp else 18.sp, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     AppLanguage.entries.forEach { item ->
                         Surface(color = if (language == item) WelcomeTeal else WelcomeCream, shape = CircleShape,
@@ -101,19 +107,19 @@ fun PassoWelcomeScreen(
                         }
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-                Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Max).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     WelcomeServiceCard(copy("Passenger", "ተሳፋሪ", "Imaltuu"), copy("Find and ride with ease.", "በቀላሉ ይጓዙ።", "Salphaatti imalaa."), 32, Icons.Default.DirectionsBus, Color(0xFFE4F4E9), selectedService == WelcomeService.PASSENGER, Modifier.weight(1f).testTag("welcome_service_PASSENGER")) { selectedService = WelcomeService.PASSENGER }
                     WelcomeServiceCard(copy("Driver", "ሹፌር", "Konkolaachisaa"), copy("Earn, drive and grow.", "ይንዱ፣ ያግኙ፣ ያድጉ።", "Oofaa, hojjedhaa, guddadhaa."), 306, Icons.Default.DirectionsCar, Color(0xFFE4F2FA), selectedService == WelcomeService.DRIVER, Modifier.weight(1f).testTag("welcome_service_DRIVER")) { selectedService = WelcomeService.DRIVER }
                     WelcomeServiceCard(copy("Intercity Travel", "የከተማ መካከል ጉዞ", "Imala magaalotaa"), copy("Explore more places.", "አዳዲስ ቦታዎችን ያስሱ።", "Bakkeewwan haaraa daawwadhaa."), 566, Icons.Default.AddRoad, Color(0xFFFFF1DB), selectedService == WelcomeService.INTERCITY, Modifier.weight(1f).testTag("welcome_service_INTERCITY")) { selectedService = WelcomeService.INTERCITY }
                 }
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(10.dp))
                 Button(onClick = { onContinue(selectedService) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("welcome_continue"), shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = WelcomeTeal)) {
                     Text(copy("Continue", "ቀጥል", "Itti fufi"), fontSize = 21.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.width(16.dp))
                     Icon(Icons.Default.ArrowForward, null)
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(8.dp))
             }
         }
         }
@@ -122,10 +128,14 @@ fun PassoWelcomeScreen(
 
 }
 
-/** Fit the unchanged native welcome composition inside the safe screen area. */
+/** Reflow portrait at screen width; retain a contained composition in landscape. */
 @Composable
-private fun WelcomeViewport(content: @Composable () -> Unit) {
-    Layout(content = content, modifier = Modifier.widthIn(max = 560.dp).fillMaxSize()) { measurables, constraints ->
+private fun WelcomeViewport(content: @Composable (Boolean, androidx.compose.ui.unit.Dp) -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxSize().testTag("welcome_viewport")) {
+    val portrait = maxHeight >= maxWidth
+    if (portrait) {
+        content(true, maxHeight)
+    } else Layout(content = { content(false, maxHeight) }, modifier = Modifier.widthIn(max = 560.dp).fillMaxSize()) { measurables, constraints ->
         val page = measurables.single().measure(Constraints(
             minWidth = constraints.maxWidth, maxWidth = constraints.maxWidth, maxHeight = Constraints.Infinity
         ))
@@ -138,17 +148,18 @@ private fun WelcomeViewport(content: @Composable () -> Unit) {
             }
         }
     }
+    }
 }
 
 @Composable
 private fun WelcomeServiceCard(title: String, subtitle: String, artworkX: Int, icon: ImageVector, color: Color, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Surface(modifier = modifier, color = color, shape = RoundedCornerShape(20.dp), border = BorderStroke(2.dp, if (selected) WelcomeTeal else color)) {
+    Surface(modifier = modifier.fillMaxHeight(), color = color, shape = RoundedCornerShape(20.dp), border = BorderStroke(2.dp, if (selected) WelcomeTeal else color)) {
         Column(Modifier.selectable(selected, role = Role.RadioButton, onClick = onClick)) {
             Box {
                 // Only the decorative photograph and badge are sampled from the reference.
                 // The card label, description, selection and action remain native UI.
                 ReferenceArtwork(artworkX, 1240, if (artworkX == 306) 242 else 256, 276,
-                    Modifier.fillMaxWidth().aspectRatio(0.93f).clip(RoundedCornerShape(18.dp)))
+                    Modifier.fillMaxWidth().aspectRatio(1.25f).clip(RoundedCornerShape(18.dp)))
                 if (selected) Icon(Icons.Default.CheckCircle, "Selected", Modifier.align(Alignment.TopEnd).padding(5.dp).size(20.dp), tint = WelcomeTeal)
             }
             Column(Modifier.padding(9.dp).heightIn(min = 47.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -165,7 +176,7 @@ private fun WelcomeServiceCard(title: String, subtitle: String, artworkX: Int, i
 }
 
 @Composable
-private fun ReferenceArtwork(x: Int, y: Int, width: Int, height: Int, modifier: Modifier) {
+private fun ReferenceArtwork(x: Int, y: Int, width: Int, height: Int, modifier: Modifier, alignment: Alignment = Alignment.Center) {
     val bitmap = ImageBitmap.imageResource(R.drawable.passo_welcome)
     val painter = remember(bitmap, x, y, width, height) {
                 val scaleX = bitmap.width / 853f
@@ -174,5 +185,5 @@ private fun ReferenceArtwork(x: Int, y: Int, width: Int, height: Int, modifier: 
             srcOffset = IntOffset((x * scaleX).toInt(), (y * scaleY).toInt()),
             srcSize = IntSize((width * scaleX).toInt(), (height * scaleY).toInt()))
     }
-    Image(painter = painter, contentDescription = null, modifier = modifier, contentScale = ContentScale.Crop)
+    Image(painter = painter, contentDescription = null, modifier = modifier, contentScale = ContentScale.Crop, alignment = alignment)
 }
