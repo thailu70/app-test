@@ -185,15 +185,15 @@ internal fun NativeAuthFlow(
         confirmButton = { TextButton(onClick = { help = false }) { Text("OK") } })
 
     BoxWithConstraints(modifier.fillMaxSize().background(CommuteCream).windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
-        val headerHeight = if (register) (maxHeight * .26f).coerceIn(170.dp, 240.dp) else (maxHeight * .40f).coerceIn(220.dp, 340.dp)
+        val headerHeight = if (register) (maxHeight * .35f).coerceIn(200.dp, 310.dp) else (maxHeight * .40f).coerceIn(220.dp, 340.dp)
         LazyColumn(Modifier.fillMaxSize().testTag("auth_content"), contentPadding = PaddingValues(bottom = 12.dp)) {
             item {
                 if (!register || step == 0) AuthPhotoHeader(driver, register, language, model::setLanguage, ::back, Modifier.height(headerHeight))
                 else AuthCompactHeader(language, model::setLanguage, ::back)
             }
             item {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp).testTag("auth_form_card"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    AuthRoleBadge(driver, language)
+                Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp).testTag("auth_form_card"), verticalArrangement = Arrangement.spacedBy(if (register) 6.dp else 10.dp)) {
+                    AuthRoleBadge(driver, language, if (register && !driver) Modifier.align(Alignment.CenterHorizontally) else Modifier)
                     if (!register || step == 0) AuthIdentityTitle(driver, register, language)
                     if (register) AuthStepProgress(step, driver, language)
                     if (!register || step == 0) {
@@ -242,7 +242,7 @@ internal fun NativeAuthFlow(
                     if (driver && register && step == 0) Text(t("Next: licence and service details. Approval required.", "ቀጣይ፦ ፈቃድ እና የአገልግሎት ዝርዝር። ፈቃድ ያስፈልጋል።", "Itti aansuun: eeyyamaa fi odeeffannoo tajaajilaa. Hayyamni barbaachisa."), color = CommuteInk, fontSize = 10.sp)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                         Text(if (register) t("Already registered?", "ተመዝግበዋል?", "Duraan galmoofteettaa?") else t("New to PASSO?", "ለPASSO አዲስ ነዎት?", "PASSO irratti haaraa?"), color = CommuteInk, fontSize = 12.sp)
-                        TextButton(onClick = { switchMode(!register) }, enabled = !busy, modifier = Modifier.testTag(if (register) "auth_signin_link" else "auth_signup_link")) {
+                        TextButton(onClick = { switchMode(!register) }, enabled = !busy, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp), modifier = Modifier.height(if (register) 32.dp else 48.dp).testTag(if (register) "auth_signin_link" else "auth_signup_link")) {
                             Text(if (register) t("Sign in", "ግባ", "Seeni") else if (driver) t("Create driver account", "የሹፌር መለያ ፍጠር", "Herrega konkolaachisaa uumi") else t("Create an account", "መለያ ፍጠር", "Herrega uumi"), color = CommuteTeal, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }

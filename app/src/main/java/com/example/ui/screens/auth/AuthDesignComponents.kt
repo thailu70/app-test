@@ -74,7 +74,7 @@ internal fun AuthPhotoHeader(
     BoxWithConstraints(modifier.fillMaxWidth().testTag("auth_photo_header")) {
         val preferredHeight = if (isRegister) (maxWidth * 0.70f).coerceIn(210.dp, 275.dp)
             else (maxWidth * 0.84f).coerceIn(240.dp, 330.dp)
-        val headerHeight = if (constraints.hasBoundedHeight) maxHeight.coerceAtMost(preferredHeight) else preferredHeight
+        val headerHeight = if (constraints.hasBoundedHeight) maxHeight else preferredHeight
         val photo = when {
             isDriver && isRegister -> R.drawable.auth_driver_signup
             isDriver -> R.drawable.auth_driver_login
@@ -100,12 +100,12 @@ internal fun AuthPhotoHeader(
                                 Modifier.size(22.dp), tint = AuthInk)
                         }
                     }
-                    Column(Modifier.weight(0.8f)) {
+                    Column(Modifier.weight(0.7f)) {
                         Image(painterResource(R.drawable.auth_passo_wordmark), "PASSO", Modifier.fillMaxWidth().height(30.dp), contentScale = ContentScale.Fit)
                         Text("Go Further, Together.", color = AuthInk, fontFamily = PassoFont, fontSize = 10.sp,
                             lineHeight = 13.sp, fontWeight = FontWeight.Medium)
                     }
-                    AuthLanguageSelector(language, onLanguage, Modifier.weight(1.1f))
+                    AuthLanguageSelector(language, onLanguage, Modifier.weight(1.3f))
                 }
             } else Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
@@ -176,10 +176,11 @@ internal fun AuthIdentityTitle(isDriver: Boolean, isRegister: Boolean, language:
         isRegister -> authDesignText(language, "Your daily ride starts here.", "የዕለት ጉዞዎ እዚህ ይጀምራል።", "Imalli guyyaa kee asitti jalqaba.")
         else -> authDesignText(language, "Your daily ride is waiting.", "የዕለት ጉዞዎ እየጠበቀዎት ነው።", "Imalli guyyaa kee si eeggachaa jira.")
     }
+    val largeTitle = (isDriver && isRegister) || (!isDriver && !isRegister)
     Column(modifier.fillMaxWidth(), horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(title, color = AuthInk, fontFamily = PassoFont, fontSize = if (isRegister && !isDriver) 29.sp else 31.sp,
-            lineHeight = 35.sp, letterSpacing = (-0.7).sp, fontWeight = FontWeight.ExtraBold,
+        Text(title, color = AuthInk, fontFamily = PassoFont, fontSize = if (largeTitle) 38.sp else if (isRegister && !isDriver) 29.sp else 31.sp,
+            lineHeight = if (largeTitle) 43.sp else 35.sp, letterSpacing = (-0.7).sp, fontWeight = FontWeight.ExtraBold,
             textAlign = if (centered) TextAlign.Center else TextAlign.Start, modifier = Modifier.fillMaxWidth().testTag("auth_identity_title"))
         Text(subtitle, color = AuthMuted, fontFamily = PassoFont, fontSize = 16.sp, lineHeight = 21.sp,
             textAlign = if (centered) TextAlign.Center else TextAlign.Start, modifier = Modifier.fillMaxWidth())

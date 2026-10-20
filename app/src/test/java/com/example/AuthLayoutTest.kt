@@ -3,9 +3,13 @@ package com.example
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.unit.Density
 import androidx.room.Room
+import com.example.core.localization.AppLanguage
 import com.example.data.api.ApiClient
 import com.example.data.api.AuthResponse
 import com.example.data.api.LoginRequest
@@ -84,8 +88,12 @@ class AuthLayoutTest {
             }
         } as RoutePassApiService
         compose.runOnIdle {
+            val directExecutor = java.util.concurrent.Executor { task -> task.run() }
             database = Room.inMemoryDatabaseBuilder(compose.activity, TransportDatabase::class.java)
-                .allowMainThreadQueries().build()
+                .allowMainThreadQueries()
+                .setQueryExecutor(directExecutor)
+                .setTransactionExecutor(directExecutor)
+                .build()
             runBlocking { database.transportDao().insertRoute(RouteEntity(
                 "route-auth-test", "Bole → CMC", "ቦሌ → ሲኤምሲ", "Daily commute", "07:15", "17:30", 12.0, 2500.0)) }
             model = MainViewModel(TransportRepository(database.transportDao(), fakeApi))
@@ -99,13 +107,16 @@ class AuthLayoutTest {
         ApiClient.setAuthToken(null)
     }
 
-    private fun show(role: AppRole, signup: Boolean = false, customRoute: Boolean = false) {
+    private fun show(role: AppRole, signup: Boolean = false, customRoute: Boolean = false, fontScale: Float = 1f) {
         compose.setContent {
-            MyApplicationTheme {
-                AuthScreen(model, initialPortal = role, initialRegisterMode = signup,
-                    initialRouteId = if (role == AppRole.PASSENGER && !customRoute) "route-auth-test" else null,
-                    initialRouteName = if (customRoute) "Requested commuter route" else if (role == AppRole.PASSENGER) "Bole → CMC" else null,
-                    initialServiceTier = "Economy")
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
+                MyApplicationTheme {
+                    AuthScreen(model, initialPortal = role, initialRegisterMode = signup,
+                        initialRouteId = if (role == AppRole.PASSENGER && !customRoute) "route-auth-test" else null,
+                        initialRouteName = if (customRoute) "Requested commuter route" else if (role == AppRole.PASSENGER) "Bole → CMC" else null,
+                        initialServiceTier = "Economy")
+                }
             }
         }
         compose.onNodeWithTag("auth_photo_header").assertExists()
@@ -223,8 +234,16 @@ class AuthLayoutTest {
         compose.onNodeWithTag("auth_driver_license_input").performScrollTo().performTextInput("LIC-TEST-24")
         compose.onNodeWithTag("auth_driver_vehicle_plate_input").performScrollTo().performTextInput("AA-TEST-24")
         compose.onNodeWithTag("auth_driver_vehicle_model_input").performScrollTo().performTextInput("Toyota Hiace")
+        compose.onNodeWithTag("auth_route_route-auth-test").performScrollTo().performClick()
         compose.onNodeWithTag("auth_driver_submit").performScrollTo().performClick()
-        compose.waitUntil(10_000) { registrations.isNotEmpty() && !model.registrationMessage.value.isNullOrBlank() }
+        try {
+            compose.waitUntil(10_000) { registrations.isNotEmpty() &&
+                (!model.registrationMessage.value.isNullOrBlank() || !model.authError.value.isNullOrBlank()) }
+        } catch (timeout: ComposeTimeoutException) {
+            capture("06-driver-submit-timeout")
+            throw AssertionError("Driver submission did not finish: requests=${registrations.size}, busy=${model.authBusy.value}, error=${model.authError.value}", timeout)
+        }
+        assertTrue("Pending driver registration should complete: ${model.authError.value}", !model.registrationMessage.value.isNullOrBlank())
         val request = registrations.single()
         assertEquals("DRIVER", request.role)
         assertEquals("Native Test Driver", request.fullName)
@@ -329,6 +348,31 @@ class AuthLayoutTest {
         assertEquals("Requested commuter route | Pickup: Alem Gena | Destination: CMC | Journey: Two way | Tier: Economy", request.appliedRouteName)
         assertEquals("private-test-phone-verification", request.otpVerificationToken)
         assertEquals("PASSENGER", request.role)
+        assertFalse(model.isAuthenticated.value)
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h800dp-xhdpi")
+    fun narrowLargeTextKeepsOromoDriverAccountControlsReachableWithoutRequests() {
+        show(AppRole.DRIVER, fontScale = 1.2f)
+        compose.onNodeWithTag("auth_language_om").performClick()
+        assertEquals(AppLanguage.OROMO, model.currentLanguage.value)
+        compose.onNodeWithTag("auth_phone_input").performScrollTo().performTextInput("0912345678")
+        compose.onNodeWithTag("auth_password_input").performScrollTo().performTextInput("valid-test-password")
+        compose.onNodeWithTag("auth_submit_button").performScrollTo().assertIsDisplayed()
+        capture("07-small-driver-login-oromo")
+
+        compose.onNodeWithTag("auth_signup_link").performScrollTo().performClick()
+        compose.onNodeWithTag("auth_full_name_input").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("auth_phone_input").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("auth_password_input").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("auth_confirm_password_input").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("auth_submit_button").performScrollTo().assertIsDisplayed()
+        capture("08-small-driver-sign-up-oromo")
+        assertEquals(AppLanguage.OROMO, model.currentLanguage.value)
+        assertTrue(logins.isEmpty())
+        assertTrue(registrations.isEmpty())
+        assertTrue(requestedCodes.isEmpty())
         assertFalse(model.isAuthenticated.value)
     }
 }
