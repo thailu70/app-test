@@ -232,7 +232,7 @@ internal fun AuthField(
     var visible by rememberSaveable(label) { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    val icon = leadingIcon ?: when { password -> Icons.Default.LockOutline; phone -> Icons.Default.PhoneAndroid; else -> Icons.Default.PersonOutline }
+    val icon = leadingIcon ?: when { password -> Icons.Default.Lock; phone -> Icons.Default.PhoneAndroid; else -> Icons.Default.PersonOutline }
     val iconColor = AuthInk.copy(alpha = if (enabled) 1f else 0.45f)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         BasicTextField(value = value, onValueChange = onValueChange, enabled = enabled, singleLine = true,
