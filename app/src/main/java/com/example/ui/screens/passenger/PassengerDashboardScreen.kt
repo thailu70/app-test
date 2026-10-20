@@ -287,6 +287,7 @@ fun SubscriptionStatusCard(
     paymentAvailable: Boolean = true
 ) {
     val canBoard = canShowPassengerBoardingPass(subscription)
+    val daysLeft = rememberSubscriptionDaysLeft(subscription)
     PassengerSurface(Modifier.testTag("subscription_status_card")) {
         Text(passengerText(lang, "Your pass", "የእርስዎ የጉዞ ፈቃድ"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Slate900)
         PassStatusBadge(passengerBoardingStatus(subscription), lang)
@@ -296,7 +297,7 @@ fun SubscriptionStatusCard(
             if (!userAppliedRoute.isNullOrBlank()) Text(userAppliedRoute, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Slate900)
             if (subscription.subscriptionStatus == "PENDING") Text(passengerText(lang, "Your pass is waiting for activation by your administrator.", "የጉዞ ፈቃድዎ በአስተዳዳሪዎ እስኪነቃ እየጠበቀ ነው።"), style = MaterialTheme.typography.bodySmall, color = Slate600)
             if (subscription.endDate.isNotBlank()) DetailRow(passengerText(lang, "Valid until", "የሚያበቃበት ቀን"), subscription.endDate.take(10))
-            if (canBoard) DetailRow(passengerText(lang, "Days remaining", "የቀሩ ቀናት"), subscription.daysRemaining.toString())
+            DetailRow(passengerText(lang, "Days remaining", "የቀሩ ቀናት"), daysLeft?.toString() ?: passengerText(lang, "Not available", "አልተገኘም"))
             DetailRow(passengerText(lang, "Payment", "ክፍያ"), paymentStatus(subscription.paymentStatus, lang))
             val morning = subscription.morningSchedule.takeIf { it.isNotBlank() } ?: route?.morningDeparture?.takeIf { it.isNotBlank() }
             val evening = subscription.eveningSchedule.takeIf { it.isNotBlank() } ?: route?.eveningDeparture?.takeIf { it.isNotBlank() }

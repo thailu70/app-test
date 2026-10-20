@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -42,20 +43,16 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.core.localization.AppLanguage
 import com.example.data.api.DriverGpsFix
-import com.example.data.entity.RouteStopEntity
 import kotlinx.coroutines.delay
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
-import org.osmdroid.views.overlay.Polyline
 
-/** Displays saved stop coordinates and a fresh phone fix, without implying server upload. */
+/** The driver's current device location only. Assigned endpoints remain in the trip text. */
 @Composable
 fun DriverRouteMap(
-    stops: List<RouteStopEntity>,
     fix: DriverGpsFix?,
     modifier: Modifier = Modifier,
     language: AppLanguage = AppLanguage.ENGLISH
@@ -68,23 +65,17 @@ fun DriverRouteMap(
             now = System.currentTimeMillis()
         }
     }
-    val locatedStops = stops.filter { routeCoordinateIsValid(it.latitude, it.longitude) }
-        .sortedBy { it.stopOrder }
-    val freshFix = fix?.takeIf {
-        routeCoordinateIsValid(it.latitude, it.longitude) &&
-            it.accuracyMeters.isFinite() && it.accuracyMeters >= 0 &&
-            it.timestamp > 0 && it.timestamp in (now - 120_000)..(now + 5_000)
-    }
+    val freshFix = driverMapFreshFix(fix, now)
     val shape = RoundedCornerShape(22.dp)
     Surface(
-        modifier = modifier.fillMaxWidth().heightIn(min = 155.dp, max = 240.dp),
+        modifier = modifier.fillMaxWidth().heightIn(min = 155.dp, max = 240.dp).testTag("driver_current_location_map"),
         shape = shape,
         color = Color(0xFFF0F6F2),
         border = BorderStroke(1.dp, Color(0xFFE0E9E3))
     ) {
-        if (locatedStops.isEmpty() && freshFix == null) {
+        if (freshFix == null) {
             Column(
-                Modifier.fillMaxSize().padding(10.dp),
+                Modifier.fillMaxSize().padding(10.dp).testTag("driver_location_unavailable"),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -105,9 +96,9 @@ fun DriverRouteMap(
                 )
                 Text(
                     driverText(language,
-                        "Route stops or a fresh phone location will appear here.",
-                        "የመስመር ማቆሚያዎች ወይም የስልክዎ አዲስ ቦታ እዚህ ይታያሉ።",
-                        "Buufatawwan karaa yookaan bakki bilbilaa haaraan asitti mul'ata."),
+                        "Your current GPS location will appear here.",
+                        "የእርስዎ ወቅታዊ የGPS ቦታ እዚህ ይታያል።",
+                        "Bakki GPS kee yeroo ammaa asitti mul'ata."),
                     textAlign = TextAlign.Center,
                     fontSize = 11.sp,
                     lineHeight = 14.sp,
@@ -116,15 +107,14 @@ fun DriverRouteMap(
             }
         } else {
             Box(Modifier.fillMaxSize().clip(shape)) {
-                DriverStopsMap(locatedStops, freshFix, language, Modifier.fillMaxSize())
+                DriverCurrentLocationMap(freshFix, language, Modifier.fillMaxSize())
                 Surface(
                     modifier = Modifier.align(Alignment.TopStart).padding(10.dp),
                     shape = RoundedCornerShape(9.dp),
                     color = Color.White.copy(alpha = 0.95f)
                 ) {
                     Text(
-                        if (freshFix != null) driverText(language, "Phone location", "የስልክ ቦታ", "Bakka bilbilaa")
-                        else driverText(language, "Route stops", "የመስመር ማቆሚያዎች", "Buufatawwan karaa"),
+                        driverText(language, "Your location", "የእርስዎ ቦታ", "Bakka kee"),
                         modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
                         fontSize = 10.sp,
                         lineHeight = 13.sp,
@@ -152,13 +142,16 @@ fun DriverRouteMap(
     }
 }
 
-private fun routeCoordinateIsValid(latitude: Double, longitude: Double): Boolean =
-    latitude.isFinite() && longitude.isFinite() &&
-        latitude in -90.0..90.0 && longitude in -180.0..180.0 &&
-        !(latitude == 0.0 && longitude == 0.0)
+internal fun driverMapFreshFix(fix: DriverGpsFix?, now: Long): DriverGpsFix? = fix?.takeIf {
+    it.latitude.isFinite() && it.longitude.isFinite() &&
+        it.latitude in -90.0..90.0 && it.longitude in -180.0..180.0 &&
+        !(it.latitude == 0.0 && it.longitude == 0.0) &&
+        it.accuracyMeters.isFinite() && it.accuracyMeters >= 0 &&
+        it.timestamp > 0 && it.timestamp in (now - 120_000)..(now + 5_000)
+}
 
 @Composable
-private fun DriverStopsMap(stops: List<RouteStopEntity>, fix: DriverGpsFix?, language: AppLanguage, modifier: Modifier) {
+private fun DriverCurrentLocationMap(fix: DriverGpsFix, language: AppLanguage, modifier: Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val mapView = remember(context) { createDriverMap(context) }
@@ -183,52 +176,13 @@ private fun DriverStopsMap(stops: List<RouteStopEntity>, fix: DriverGpsFix?, lan
         factory = { mapView },
         modifier = modifier,
         update = { map ->
-            map.contentDescription = driverText(language,
-                "Assigned route stops and phone location map",
-                "የተመደቡ ማቆሚያዎች እና የስልክ ቦታ ካርታ",
-                "Kaartaa buufatawwan ramadamanii fi bakka bilbilaa")
-            val signature = stops.map { listOf(it.id, it.stopName, it.stopNameAm, it.latitude, it.longitude) } +
-                listOf(listOf(fix?.latitude, fix?.longitude, language))
+            val signature = listOf(fix.latitude, fix.longitude, language)
             if (overlays.signature != signature) {
                 overlays.signature = signature
-                map.overlays.clear()
-                val stopPoints = stops.map { GeoPoint(it.latitude, it.longitude) }
-                if (stopPoints.size > 1) {
-                    // This connects recorded stops; it is not a turn-by-turn road route.
-                    map.overlays.add(Polyline().apply {
-                        setPoints(stopPoints)
-                        outlinePaint.color = AndroidColor.rgb(0, 137, 113)
-                        outlinePaint.strokeWidth = 7f
-                        title = driverText(language, "Route stops", "የመስመር ማቆሚያዎች", "Buufatawwan karaa")
-                    })
-                }
-                stops.forEach { stop ->
-                    map.overlays.add(Marker(map).apply {
-                        position = GeoPoint(stop.latitude, stop.longitude)
-                        title = if (language == AppLanguage.AMHARIC) stop.stopNameAm.ifBlank { stop.stopName } else stop.stopName
-                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                        icon = mapDot(context, AndroidColor.rgb(0, 119, 98), 17)
-                    })
-                }
-                val phonePoint = fix?.let { GeoPoint(it.latitude, it.longitude) }
-                if (phonePoint != null) {
-                    map.overlays.add(Marker(map).apply {
-                        position = phonePoint
-                        title = driverText(language, "Phone location", "የስልክ ቦታ", "Bakka bilbilaa")
-                        snippet = driverText(language, "This device’s GPS position", "የዚህ መሣሪያ የGPS ቦታ", "Bakka GPS meeshaa kanaa")
-                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                        icon = mapDot(context, AndroidColor.rgb(26, 119, 230), 21)
-                    })
-                }
-                val visiblePoints = (stopPoints + listOfNotNull(phonePoint))
-                    .distinctBy { it.latitude to it.longitude }
+                val phonePoint = replaceDriverLocationOverlay(map, fix, language, context)
                 map.post {
-                    if (visiblePoints.size > 1) {
-                        map.zoomToBoundingBox(BoundingBox.fromGeoPoints(visiblePoints), false, 42)
-                    } else {
-                        visiblePoints.firstOrNull()?.let { map.controller.setCenter(it) }
-                        map.controller.setZoom(15.0)
-                    }
+                    map.controller.setCenter(phonePoint)
+                    map.controller.setZoom(15.0)
                     map.invalidate()
                 }
             }
@@ -237,7 +191,22 @@ private fun DriverStopsMap(stops: List<RouteStopEntity>, fix: DriverGpsFix?, lan
 }
 
 private class DriverMapOverlays {
-    var signature: List<List<Any?>>? = null
+    var signature: List<Any?>? = null
+}
+
+/** Replace previous overlays, leaving one current-location marker and no route line. */
+internal fun replaceDriverLocationOverlay(map: MapView, fix: DriverGpsFix, language: AppLanguage, context: Context): GeoPoint {
+    map.contentDescription = driverText(language, "Driver current location map", "የሹፌሩ ወቅታዊ ቦታ ካርታ", "Kaartaa bakka konkolaachisaa yeroo ammaa")
+    map.overlays.clear()
+    val point = GeoPoint(fix.latitude, fix.longitude)
+    map.overlays.add(Marker(map).apply {
+        position = point
+        title = driverText(language, "Your location", "የእርስዎ ቦታ", "Bakka kee")
+        snippet = driverText(language, "This device’s GPS position", "የዚህ መሣሪያ የGPS ቦታ", "Bakka GPS meeshaa kanaa")
+        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+        icon = mapDot(context, AndroidColor.rgb(26, 119, 230), 21)
+    })
+    return point
 }
 
 private fun createDriverMap(context: Context): MapView {
@@ -249,7 +218,7 @@ private fun createDriverMap(context: Context): MapView {
         clipChildren = true
         clipToPadding = true
         clipToOutline = true
-        contentDescription = "Assigned route stops and phone location map"
+        contentDescription = "Driver current location map"
     }
 }
 

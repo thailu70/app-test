@@ -124,6 +124,15 @@ class IntercityLayoutTest {
         compose.onNodeWithTag("intercity_ticket_number").assertTextEquals("RP-NATIVE24")
     }
 
+    @Test fun `opening intercity immediately displays upcoming route cards without Search`() {
+        val model = mount(FakeApi())
+        assertTrue(model.state.value.showingUpcoming)
+        compose.onNodeWithTag("intercity_content").performScrollToNode(hasTestTag("intercity_select_departure-native"))
+        compose.onNodeWithTag("intercity_select_departure-native").assertIsDisplayed()
+        compose.onNodeWithText("Departures from today onward").assertExists()
+        capture("05-upcoming-on-open")
+    }
+
     @Test fun `empty native discovery shows no invented routes prices or tickets`() {
         val model = mount(FakeApi(empty = true))
         compose.onNodeWithTag("intercity_content").performScrollToNode(hasText("No available routes"))

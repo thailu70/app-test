@@ -1,6 +1,7 @@
 'use strict';
 
 const { DB } = require('../db');
+const { remainingSubscriptionDays } = require('./subscription-days');
 
 // Status, driver details and tracking select the same pass, never another vehicle
 // on its route or an older pass after the current pass is pending/cancelled.
@@ -13,6 +14,7 @@ async function passengerAssignment(passengerId) {
     WHERE s.passengerId=? ORDER BY s.updatedAt DESC, s.id DESC LIMIT 1
   `).get(passengerId);
   if (!subscription) return { subscription: null, vehicle: null, active: false };
+  subscription.daysRemaining = remainingSubscriptionDays(subscription);
   const active = subscription.subscriptionStatus === 'ACTIVE' && subscription.paymentStatus === 'PAID' && Number(subscription.daysRemaining) > 0;
   const vehicle = subscription.vehicleId ? await DB.prepare(`
     SELECT v.*, r.name AS routeName, r.morningDeparture,

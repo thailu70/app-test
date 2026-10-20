@@ -54,18 +54,23 @@ class CommuterLayoutTest {
     }
 
     @Test fun `commuter home uses actual assigned data and native controls`() {
-        val pass = passengerPreviewSubscription()
+        val pass = passengerPreviewSubscription().copy(routeId = "route-test", pickupStopId = "personal-pickup", destinationStopId = "terminal")
         var opened = 0
         var renewed = 0
         var language by mutableStateOf(AppLanguage.ENGLISH)
         val route = RouteEntity("route-test", "Bole – CMC", "", "", "07:20", "17:30", 12.0, 2500.0)
         val driver = AssignedDriver("driver-test", "Assigned Test Driver", "0912345678", "MINIVAN_8", "Green & White", "TEST-4321", "Toyota Hiace", route.name)
+        val assignedStops = listOf(
+            RouteStopEntity("start", route.id, "Bole terminal", "", 1, Double.NaN, Double.NaN, "07:00", "18:00"),
+            RouteStopEntity("personal-pickup", route.id, "Assigned passenger pickup", "", 2, Double.NaN, Double.NaN, "07:20", "17:50"),
+            RouteStopEntity("terminal", route.id, "Assigned destination", "", 3, Double.NaN, Double.NaN, "08:00", "17:30")
+        )
         compose.setContent {
             MyApplicationTheme {
                 Column(Modifier.fillMaxSize().background(CommuteCream).verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     CommuterHeader(language, onLanguage = { language = it })
                     CommuterGreeting(language, true)
-                    CommuterActiveTripCard(pass, route, route.name, emptyList(), driver, false, null, language,
+                    CommuterActiveTripCard(pass, route, route.name, assignedStops, driver, false, null, language,
                         onRetry = {}, onShowPass = { opened++ }, onRenew = { renewed++ }, paymentAvailable = true,
                         driverPortrait = { Icon(Icons.Default.Person, null, Modifier.size(56.dp)) })
                     CommuterLocationCard(null, "Waiting for the driver's location.", language) {}
@@ -76,6 +81,11 @@ class CommuterLayoutTest {
         compose.onNodeWithText("Assigned Test Driver").assertExists()
         compose.onNodeWithText("TEST-4321").assertExists()
         compose.onNodeWithText("0912345678").assertExists()
+        compose.onNodeWithText("Assigned passenger pickup").assertExists()
+        compose.onNodeWithText("Assigned destination").assertExists()
+        compose.onNodeWithText("Bole terminal").assertDoesNotExist()
+        compose.onNodeWithText("Morning departure").assertDoesNotExist()
+        compose.onNodeWithText("Return departure").assertDoesNotExist()
         compose.onNodeWithText("5 minutes away").assertDoesNotExist()
         capture("01-commuter-home")
         compose.onNodeWithTag("commuter_payment_action").performScrollTo().performClick()

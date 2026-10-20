@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Work
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -75,6 +76,9 @@ fun BrowseFirstScreen(
     modifier: Modifier = Modifier
 ) {
     val routes by viewModel.activeRoutes.collectAsState()
+    val routesLoading by viewModel.publicRoutesLoading.collectAsState()
+    val routesError by viewModel.publicRoutesError.collectAsState()
+    LaunchedEffect(viewModel) { viewModel.refreshPublicRoutes() }
     var selectedSection by remember { mutableStateOf(if (startWithRoutes) 1 else 0) }
     var selectedService by remember { mutableStateOf(0) }
     var origin by remember { mutableStateOf("") }
@@ -283,18 +287,33 @@ fun BrowseFirstScreen(
                         Text("${commuterRoutes.size} matching services", style = MaterialTheme.typography.bodySmall, color = Slate600)
                     }
                     FilterChip(selected = sortByFare, onClick = { sortByFare = !sortByFare }, label = { Text("Lowest fare") }, leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(17.dp)) }, shape = CircleShape, colors = FilterChipDefaults.filterChipColors(containerColor = Color.White, selectedContainerColor = HomeMint, selectedLabelColor = HomeGreen), border = FilterChipDefaults.filterChipBorder(enabled = true, selected = sortByFare, borderColor = HomeLine, selectedBorderColor = HomeGreen))
+                    IconButton(onClick = viewModel::refreshPublicRoutes, enabled = !routesLoading, modifier = Modifier.size(36.dp).testTag("commuter_routes_refresh")) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh daily routes", tint = HomeGreen, modifier = Modifier.size(22.dp))
+                    }
                 }
             }
-            if (routes.filter { it.active }.isEmpty()) {
+            if (routesLoading) {
+                item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth().testTag("commuter_routes_loading"), color = HomeGreen) }
+            }
+            routesError?.let { error -> item {
+                Surface(color = Color.White, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().testTag("commuter_routes_error")) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(error, color = Slate600, style = MaterialTheme.typography.bodySmall)
+                        if (routes.isNotEmpty()) Text("Showing saved routes until a refresh succeeds.", color = Slate600, style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = viewModel::refreshPublicRoutes, enabled = !routesLoading, modifier = Modifier.testTag("commuter_routes_retry")) { Text("Try again", color = HomeGreen) }
+                    }
+                }
+            } }
+            if (routes.filter { it.active }.isEmpty() && !routesLoading && routesError == null) {
                 item {
                     Surface(color = Color.White, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("No routes available yet", fontWeight = FontWeight.Bold, color = HomeInk)
-                            Text("Routes may not have loaded or the operator has not published a service yet. Check your connection and try again.", color = Slate600, style = MaterialTheme.typography.bodySmall)
+                            Text("The operator has not published a daily service yet. You can request the route you need below.", color = Slate600, style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
-            } else if (commuterRoutes.isEmpty()) {
+            } else if (routes.isNotEmpty() && commuterRoutes.isEmpty()) {
                 item {
                     Surface(color = Color.White, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {

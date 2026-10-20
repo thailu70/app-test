@@ -257,7 +257,8 @@ fun DriverTripScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                         stops = selectedStops, origin = journey?.origin, destination = journey?.destination, fix = freshFix,
                         gpsStatus = gpsStatus, validation = validation, now = clockNow, language = language,
                         onDirection = { direction = it; validation = null }, onReadiness = if (vehicle != null) ({ checkReadiness() }) else null,
-                        boarding = boardingEnabled, onComplete = { completeRoute() }, busy = busy)
+                        boarding = boardingEnabled, onComplete = { completeRoute() }, busy = busy,
+                        routeId = vehicle?.assignedRouteId)
                     if (section == "My Trips") DriverBoardingBanner(boardingEnabled, journey?.status == "COMPLETED", driverHasPreciseFix(freshFix, clockNow), busy,
                         validation, scheduled, clockNow, language, onConfirm = { confirmArrival() }, onScan = { openScanner() })
                 }

@@ -34,7 +34,8 @@ internal data class IntercityUiState(
     val companies: List<IntercityCompany> = emptyList(), val selected: IntercityDeparture? = null,
     val inventory: IntercitySeatsResponse? = null, val seat: Int? = null,
     val booking: IntercityBooking? = null, val recent: List<IntercityBooking> = emptyList(),
-    val checkoutUrl: String? = null, val searchCompleted: Boolean = false
+    val checkoutUrl: String? = null, val searchCompleted: Boolean = false,
+    val showingUpcoming: Boolean = true
 )
 
 internal fun intercityToday(now: Long = System.currentTimeMillis()): String =
@@ -58,6 +59,9 @@ internal class IntercityPassengerViewModel(
     val state = mutable.asStateFlow()
     private val capabilities = linkedMapOf<String, String>()
     private var navigationEpoch = 0L
+    private data class DepartureSearch(val origin: String?, val destination: String?, val date: String)
+    // Draft fields are not applied until Search is pressed. Null means upcoming discovery.
+    private var activeSearch: DepartureSearch? = null
 
     init { action {
         try { withContext(ioDispatcher) { store.load() }.forEach { capabilities[it.id] = it.secret } }
@@ -95,15 +99,28 @@ internal class IntercityPassengerViewModel(
         val directory = body(api.departures())
         check(directory.success) { directory.error ?: "Routes could not be loaded." }
         mutable.update { it.copy(directory = directory.departures) }
-        searchDepartures()
+        val appliedSearch = activeSearch
+        if (appliedSearch == null) {
+            // The public endpoint already returns scheduled future departures, ordered by time.
+            // Applying the form's default date here hides every departure after today.
+            mutable.update { it.copy(departures = directory.departures, searchCompleted = true, showingUpcoming = true) }
+        } else {
+            applySearch(appliedSearch)
+        }
     }
 
     private suspend fun searchDepartures() {
         val input = mutable.value
         require(input.origin.isBlank() || !input.origin.trim().equals(input.destination.trim(), true)) { "Choose different departure and destination cities." }
-        val result = body(api.departures(input.origin.trim().ifBlank { null }, input.destination.trim().ifBlank { null }, input.date))
+        val query = DepartureSearch(input.origin.trim().ifBlank { null }, input.destination.trim().ifBlank { null }, input.date)
+        applySearch(query)
+        activeSearch = query
+    }
+
+    private suspend fun applySearch(query: DepartureSearch) {
+        val result = body(api.departures(query.origin, query.destination, query.date))
         check(result.success) { result.error ?: "Routes could not be loaded." }
-        mutable.update { it.copy(departures = result.departures, searchCompleted = true) }
+        mutable.update { it.copy(departures = result.departures, searchCompleted = true, showingUpcoming = false) }
     }
 
     fun setOrigin(value: String) { mutable.update { it.copy(origin = value) } }

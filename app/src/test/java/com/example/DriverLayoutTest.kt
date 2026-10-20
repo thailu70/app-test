@@ -37,6 +37,10 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
 import java.time.Instant
+import com.example.data.api.DriverGpsFix
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polyline
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w393dp-h852dp-xhdpi")
@@ -44,7 +48,7 @@ import java.time.Instant
 class DriverLayoutTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val now = Instant.parse("2026-10-19T04:00:00Z").toEpochMilli()
-    // Deliberately invalid coordinates exercise the map's truthful empty state without network tiles.
+    // Endpoint coordinates remain trip data; the map waits for the driver's current GPS position.
     private val stops = listOf(
         RouteStopEntity("pickup", "test-route", "Test pickup", "", 1, Double.NaN, Double.NaN, "07:15", "17:30"),
         RouteStopEntity("destination", "test-route", "Test destination", "", 2, Double.NaN, Double.NaN, "08:05", "18:00")
@@ -66,6 +70,41 @@ class DriverLayoutTest {
         }
         val directory = File("build/driver-previews").apply { mkdirs() }
         File(directory, "$name.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
+    @Test fun `location overlays contain only current driver marker and replace any old route geometry`() {
+        val map = MapView(compose.activity).apply { setUseDataConnection(false) }
+        try {
+            map.overlays.add(Polyline())
+            map.overlays.add(Marker(map).apply { title = "Old departure marker" })
+            val fix = DriverGpsFix(9.03, 38.74, 12.0, now)
+            replaceDriverLocationOverlay(map, fix, AppLanguage.ENGLISH, compose.activity)
+            assertEquals(1, map.overlays.size)
+            val marker = map.overlays.single() as Marker
+            assertEquals(fix.latitude, marker.position.latitude, 0.000001)
+            assertEquals(fix.longitude, marker.position.longitude, 0.000001)
+            assertEquals("Your location", marker.title)
+            assertEquals("Driver current location map", map.contentDescription)
+            val newerFix = fix.copy(latitude = 9.04, longitude = 38.75, timestamp = now + 1000)
+            replaceDriverLocationOverlay(map, newerFix, AppLanguage.ENGLISH, compose.activity)
+            assertEquals(1, map.overlays.size)
+            assertEquals(newerFix.latitude, (map.overlays.single() as Marker).position.latitude, 0.000001)
+        } finally { map.onDetach() }
+    }
+
+    @Test fun `known departure and destination remain text while missing current GPS shows awaiting location`() {
+        compose.setContent {
+            MyApplicationTheme {
+                DriverRouteOverview("Test pickup – Test destination", "TEST-4321", "MINIVAN_8", "07:15", "OUTBOUND", false,
+                    stops.map { it.copy(latitude = 9.03, longitude = 38.74) }, null, null, null,
+                    "Waiting for a precise GPS fix", null, now, AppLanguage.ENGLISH, {}, null, false, {}, false,
+                    routeId = "test-route")
+            }
+        }
+        compose.onNodeWithText("Test pickup").assertExists()
+        compose.onNodeWithText("Test destination").assertExists()
+        compose.onNodeWithTag("driver_location_unavailable").assertIsDisplayed()
+        compose.onNodeWithText("Your current GPS location will appear here.").assertExists()
     }
 
     @Test fun `driver home uses real data and preserves boarding profile documents and completion actions`() {
@@ -108,6 +147,10 @@ class DriverLayoutTest {
         }
         compose.onNodeWithText("Test!").assertExists()
         compose.onNodeWithText("TEST-4321 · MINIVAN 8").assertExists()
+        compose.onNodeWithText("Test pickup").assertExists()
+        compose.onNodeWithText("Test destination").assertExists()
+        compose.onNodeWithText("Assigned pickup").assertDoesNotExist()
+        compose.onNodeWithText("See assigned route").assertDoesNotExist()
         compose.onNodeWithText("Fuel 78%").assertDoesNotExist()
         compose.onNodeWithText("All valid").assertDoesNotExist()
         capture("01-driver-home")

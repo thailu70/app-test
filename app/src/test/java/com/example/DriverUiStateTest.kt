@@ -3,9 +3,11 @@ package com.example
 import com.example.data.api.DriverGpsFix
 import com.example.ui.screens.driver.driverHasPreciseFix
 import com.example.ui.screens.driver.driverWindowInfo
+import com.example.ui.screens.driver.driverMapFreshFix
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.Instant
 
@@ -29,6 +31,20 @@ class DriverUiStateTest {
         assertFalse(driverHasPreciseFix(fix.copy(longitude = -180.01), now))
         assertFalse(driverHasPreciseFix(fix.copy(latitude = Double.NaN), now))
         assertFalse(driverHasPreciseFix(fix.copy(longitude = Double.POSITIVE_INFINITY), now))
+    }
+
+    @Test fun `current location map hides stale missing and invalid fixes without substituting route endpoints`() {
+        val now = at("2026-10-19T04:00:00Z")
+        val fix = DriverGpsFix(9.03, 38.74, 12.0, now)
+        assertEquals(fix, driverMapFreshFix(fix, now))
+        assertEquals(fix.copy(timestamp = now - 120_000), driverMapFreshFix(fix.copy(timestamp = now - 120_000), now))
+        assertNull(driverMapFreshFix(null, now))
+        assertNull(driverMapFreshFix(fix.copy(timestamp = now - 120_001), now))
+        assertNull(driverMapFreshFix(fix.copy(timestamp = now + 5_001), now))
+        assertNull(driverMapFreshFix(fix.copy(latitude = 0.0, longitude = 0.0), now))
+        assertNull(driverMapFreshFix(fix.copy(latitude = Double.NaN), now))
+        assertNull(driverMapFreshFix(fix.copy(longitude = 180.1), now))
+        assertNull(driverMapFreshFix(fix.copy(accuracyMeters = -1.0), now))
     }
 
     @Test fun `daily departure countdown measures until boarding window opens`() {

@@ -138,7 +138,11 @@ internal fun IntercityPassengerScreen(
                     if (state.serviceTab == 0) {
                         item {
                             Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(intercityText(language, "Available routes", "ያሉ መስመሮች", "Karaalee jiran"), Modifier.weight(1f), fontSize = 21.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
+                                Column(Modifier.weight(1f)) {
+                                    Text(intercityText(language, "Available routes", "ያሉ መስመሮች", "Karaalee jiran"), fontSize = 21.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
+                                    Text(if (state.showingUpcoming) intercityText(language, "Departures from today onward", "ከዛሬ ጀምሮ የሚነሱ ጉዞዎች", "Imala har'a irraa eegalu")
+                                        else intercityText(language, "Matching your search", "ከፍለጋዎ ጋር የሚዛመዱ", "Kan barbaacha kee wajjin walsimu"), fontSize = 11.sp, color = CommuteTeal)
+                                }
                                 if (state.departures.size > 3) TextButton(onClick = { showAll = !showAll }) { Text(intercityText(language, if (showAll) "Show fewer" else "See all", "ሁሉንም እይ", "Hunda ilaali"), color = CommuteInk) }
                                 IconButton(onClick = model::refresh, enabled = !state.busy, modifier = Modifier.testTag("intercity_refresh")) { Icon(Icons.Default.Refresh, "Refresh routes", tint = CommuteTeal) }
                             }

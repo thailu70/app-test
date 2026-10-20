@@ -6,6 +6,7 @@ import com.example.data.repository.IntercityBookingAccessStore
 import com.example.ui.screens.intercity.IntercityPassengerViewModel
 import com.example.ui.screens.intercity.IntercityPhase
 import com.example.ui.screens.intercity.canShowIntercityQr
+import com.example.ui.screens.intercity.intercityToday
 import com.example.ui.screens.intercity.trustedIntercityCheckout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CompletableDeferred
@@ -25,6 +26,7 @@ import org.junit.Before
 import org.junit.Test
 import retrofit2.Response
 import java.io.ByteArrayOutputStream
+import java.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class IntercityPassengerStateTest {
@@ -32,6 +34,95 @@ class IntercityPassengerStateTest {
 
     @Before fun setMainDispatcher() { Dispatchers.setMain(dispatcher) }
     @After fun resetMainDispatcher() { Dispatchers.resetMain() }
+
+    @Test fun `opening intercity immediately shows all upcoming departures without applying the default date`() = runTest(dispatcher) {
+        val todayTrip = departure.copy(id = "today-trip", departureAt = "2026-10-20T12:00:00Z")
+        val nextDayTrip = departure.copy(id = "next-day-trip", departureAt = "2026-10-20T22:07:00Z")
+        val laterTrip = departure.copy(id = "later-trip", departureAt = "2026-10-21T12:36:00Z")
+        val api = FakeApi().apply {
+            directoryDepartures = listOf(todayTrip, nextDayTrip, laterTrip)
+            filteredDepartures = emptyList()
+        }
+        val model = IntercityPassengerViewModel(api, MemoryStore(), ioDispatcher = dispatcher)
+        advanceUntilIdle()
+
+        assertEquals(listOf(Triple<String?, String?, String?>(null, null, null)), api.departureQueries)
+        assertEquals(listOf("today-trip", "next-day-trip", "later-trip"), model.state.value.departures.map { it.id })
+        assertEquals(api.directoryDepartures, model.state.value.directory)
+        assertTrue(model.state.value.searchCompleted)
+        assertTrue(model.state.value.showingUpcoming)
+        assertFalse(model.state.value.busy)
+        assertNull(model.state.value.message)
+    }
+
+    @Test fun `refresh upcoming discovery does not silently apply draft cities or date`() = runTest(dispatcher) {
+        val api = FakeApi()
+        val model = IntercityPassengerViewModel(api, MemoryStore(), ioDispatcher = dispatcher)
+        advanceUntilIdle()
+        model.setOrigin("Addis Ababa")
+        model.setDestination("Hawassa")
+        model.setDate("2026-10-25")
+        val newTrip = departure.copy(id = "new-upcoming-trip", departureAt = "2026-10-22T04:00:00Z")
+        api.directoryDepartures = listOf(newTrip)
+        model.refresh()
+        advanceUntilIdle()
+
+        assertEquals(2, api.departureQueries.size)
+        assertTrue(api.departureQueries.all { it == Triple<String?, String?, String?>(null, null, null) })
+        assertEquals(listOf(newTrip), model.state.value.departures)
+        assertTrue(model.state.value.showingUpcoming)
+        assertEquals("2026-10-25", model.state.value.date)
+    }
+
+    @Test fun `explicit search keeps exact Ethiopia date and refresh reuses the applied query`() = runTest(dispatcher) {
+        val api = FakeApi()
+        val model = IntercityPassengerViewModel(api, MemoryStore(), ioDispatcher = dispatcher)
+        advanceUntilIdle()
+        val found = departure.copy(id = "searched-trip", departureAt = "2026-10-25T04:00:00Z")
+        api.filteredDepartures = listOf(found)
+        model.setOrigin("  Addis Ababa  ")
+        model.setDestination(" Hawassa ")
+        model.setDate("2026-10-25")
+        model.search()
+        advanceUntilIdle()
+        val appliedQuery = Triple<String?, String?, String?>("Addis Ababa", "Hawassa", "2026-10-25")
+        assertEquals(appliedQuery, api.departureQueries.last())
+        assertEquals(listOf(found), model.state.value.departures)
+        assertFalse(model.state.value.showingUpcoming)
+
+        model.setOrigin("Bahir Dar")
+        model.setDate("2026-10-26")
+        model.refresh()
+        advanceUntilIdle()
+        assertEquals(listOf(Triple<String?, String?, String?>(null, null, null), appliedQuery), api.departureQueries.takeLast(2))
+        assertEquals(listOf(found), model.state.value.departures)
+        assertFalse(model.state.value.showingUpcoming)
+    }
+
+    @Test fun `failed explicit search preserves upcoming results and refresh mode`() = runTest(dispatcher) {
+        val api = FakeApi()
+        val model = IntercityPassengerViewModel(api, MemoryStore(), ioDispatcher = dispatcher)
+        advanceUntilIdle()
+        api.departureFailure = "Routes temporarily unavailable."
+        model.setDate("2026-10-25")
+        model.search()
+        advanceUntilIdle()
+        assertEquals("Routes temporarily unavailable.", model.state.value.message)
+        assertEquals(listOf(departure), model.state.value.departures)
+        assertTrue(model.state.value.showingUpcoming)
+
+        api.departureFailure = null
+        model.refresh()
+        advanceUntilIdle()
+        assertEquals(Triple<String?, String?, String?>(null, null, null), api.departureQueries.last())
+        assertTrue(model.state.value.showingUpcoming)
+        assertNull(model.state.value.message)
+    }
+
+    @Test fun `default travel date crosses midnight in Ethiopia rather than device timezone`() {
+        assertEquals("2026-10-19", intercityToday(Instant.parse("2026-10-19T20:59:59Z").toEpochMilli()))
+        assertEquals("2026-10-20", intercityToday(Instant.parse("2026-10-19T21:00:00Z").toEpochMilli()))
+    }
 
     @Test fun `reserved and out of range seats cannot be selected or held`() = runTest(dispatcher) {
         val api = FakeApi()
@@ -253,9 +344,16 @@ class IntercityPassengerStateTest {
         var checkoutGate: CompletableDeferred<Unit>? = null
         var bookingGate: CompletableDeferred<Unit>? = null
         val bookingAccesses = mutableListOf<Pair<String, String>>()
+        val departureQueries = mutableListOf<Triple<String?, String?, String?>>()
+        var directoryDepartures = listOf(departure)
+        var filteredDepartures = listOf(departure)
+        var departureFailure: String? = null
 
-        override suspend fun departures(origin: String?, destination: String?, date: String?) =
-            Response.success(IntercityDeparturesResponse(true, listOf(departure)))
+        override suspend fun departures(origin: String?, destination: String?, date: String?): Response<IntercityDeparturesResponse> {
+            departureQueries += Triple(origin, destination, date)
+            return Response.success(IntercityDeparturesResponse(departureFailure == null,
+                if (date == null) directoryDepartures else filteredDepartures, departureFailure))
+        }
         override suspend fun seats(id: String) = Response.success(IntercitySeatsResponse(true, 30, listOf(1), 650.0))
         override suspend fun hold(id: String, body: IntercitySeatHoldRequest): Response<IntercityBookingResponse> {
             holdCalls++

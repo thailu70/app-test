@@ -30,6 +30,7 @@ import com.example.ui.screens.passenger.CommuteInk
 import com.example.ui.screens.passenger.CommuteMint
 import com.example.ui.screens.passenger.CommuteTeal
 import com.example.ui.screens.profile.AuthenticatedProfilePhoto
+import com.example.ui.screens.assignedRouteLocations
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -157,8 +158,11 @@ fun DriverRouteOverview(routeName: String, vehiclePlate: String, vehicleType: St
                         origin: String?, destination: String?, fix: DriverGpsFix?, gpsStatus: String,
                         validation: DriverDepartureValidation?, now: Long, language: AppLanguage,
                         onDirection: (String) -> Unit, onReadiness: (() -> Unit)?, boarding: Boolean,
-                        onComplete: () -> Unit, busy: Boolean) {
-    val ordered = if (direction == "INBOUND") stops.sortedByDescending { it.stopOrder } else stops.sortedBy { it.stopOrder }
+                        onComplete: () -> Unit, busy: Boolean, routeId: String? = null) {
+    val assignedRouteId = routeId ?: stops.map { it.routeId }.distinct().singleOrNull()
+    val scopedStops = stops.filter { it.routeId == assignedRouteId }
+    val locations = assignedRouteLocations(assignedRouteId, routeName, scopedStops, language,
+        origin = origin, destination = destination, inbound = direction == "INBOUND")
     Surface(shape = RoundedCornerShape(24.dp), color = Color.White, modifier = Modifier.fillMaxWidth().testTag("driver_route_overview")) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -177,11 +181,11 @@ fun DriverRouteOverview(routeName: String, vehiclePlate: String, vehicleType: St
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    DriverRouteStop(driverText(language, "DEPARTURE", "መነሻ", "KA'UMSA"), ordered.firstOrNull()?.stopName ?: origin ?: driverText(language, "Assigned pickup", "የተመደበ መሳፈሪያ", "Ka'umsa ramadame"), driverWindowInfo(schedule, now).timeLabel)
-                    DriverRouteStop(driverText(language, "DESTINATION", "መድረሻ", "GA'UMSA"), ordered.lastOrNull()?.stopName ?: destination ?: driverText(language, "See assigned route", "የተመደበ መስመር ይመልከቱ", "Karaa ramadame ilaali"), null)
+                    DriverRouteStop(driverText(language, "DEPARTURE", "መነሻ", "KA'UMSA"), locations.departure ?: driverText(language, "Departure unavailable", "መነሻ አልተገኘም", "Ka'umsi hin argamne"), driverWindowInfo(schedule, now).timeLabel)
+                    DriverRouteStop(driverText(language, "DESTINATION", "መድረሻ", "GA'UMSA"), locations.destination ?: driverText(language, "Destination unavailable", "መድረሻ አልተገኘም", "Ga'umsi hin argamne"), null)
                 }
                 val mapHeight = (155 * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
-                DriverRouteMap(ordered, fix, Modifier.weight(1f).height(mapHeight), language)
+                DriverRouteMap(fix, Modifier.weight(1f).height(mapHeight), language)
             }
             Text(gpsStatus, fontSize = 10.sp, lineHeight = 14.sp, color = Color(0xFF526575))
             validation?.let { Text(it.message, color = if (it.allowed) CommuteTeal else Color(0xFF9A302F), fontSize = 12.sp) }

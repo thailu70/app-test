@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.screens.assignedRouteLocations
 import com.example.R
 import com.example.core.localization.AppLanguage
 import com.example.data.api.TrackedVehicleDto
@@ -108,8 +109,11 @@ fun CommuterActiveTripCard(
 ) {
     val context = LocalContext.current
     val canBoard = canShowPassengerBoardingPass(subscription)
-    val pickup = stops.find { it.id == subscription?.pickupStopId }?.stopName
-    val destination = stops.find { it.id == subscription?.destinationStopId }?.stopName
+    val locations = assignedRouteLocations(subscription?.routeId?.takeIf { it.isNotBlank() } ?: route?.id, routeName ?: route?.name,
+        stops, lang, subscription?.pickupStopId, subscription?.destinationStopId)
+    val pickup = locations.departure
+    val destination = locations.destination
+    val daysLeft = rememberSubscriptionDaysLeft(subscription)
     val morning = subscription?.morningSchedule?.takeIf { it.isNotBlank() } ?: route?.morningDeparture.orEmpty()
     val evening = subscription?.eveningSchedule?.takeIf { it.isNotBlank() } ?: route?.eveningDeparture.orEmpty()
     var callError by remember(driver?.phone) { mutableStateOf(false) }
@@ -124,8 +128,8 @@ fun CommuterActiveTripCard(
                 Text(routeName?.takeIf { it.isNotBlank() } ?: commuteText(lang, "Route awaiting assignment", "መስመር እየተጠበቀ ነው", "Karaa eeggachaa jira"), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        CommuteStop(morning.ifBlank { "—" }, pickup ?: commuteText(lang, "Morning departure", "የጠዋት መነሻ", "Ka'umsa ganamaa"), if (pickup != null) commuteText(lang, "Pickup", "መሳፈሪያ", "Ka'umsa") else null)
-                        CommuteStop(commuteText(lang, "Return", "መመለሻ", "Deebii") + " · " + evening.ifBlank { "—" }, destination ?: commuteText(lang, "Return departure", "የመመለሻ መነሻ", "Ka'umsa galgalaa"), if (destination != null) commuteText(lang, "Return pickup", "የመመለሻ መሳፈሪያ", "Ka'umsa deebii") else null)
+                        CommuteStop(morning.ifBlank { "—" }, pickup ?: commuteText(lang, "Pickup unavailable", "መሳፈሪያ አልተገኘም", "Ka'umsi hin argamne"), commuteText(lang, "Departure", "መነሻ", "Ka'umsa"))
+                        CommuteStop(commuteText(lang, "Return", "መመለሻ", "Deebii") + " · " + evening.ifBlank { "—" }, destination ?: commuteText(lang, "Destination unavailable", "መድረሻ አልተገኘም", "Ga'umsi hin argamne"), commuteText(lang, "Destination / return pickup", "መድረሻ / የመመለሻ መሳፈሪያ", "Ga'umsa / ka'umsa deebii"))
                     }
                     VerticalDivider(Modifier.height(154.dp), color = Color(0xFFEDF0EA))
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -159,7 +163,8 @@ fun CommuterActiveTripCard(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         if (subscription != null) {
-                            Text(commuteText(lang, "${subscription.daysRemaining.coerceAtLeast(0)} days remaining", "${subscription.daysRemaining.coerceAtLeast(0)} ቀናት ቀርተዋል", "Guyyoota ${subscription.daysRemaining.coerceAtLeast(0)} hafe"), fontSize = 11.sp, color = Color(0xFF526270))
+                            Text(if (daysLeft != null) commuteText(lang, "$daysLeft days remaining", "$daysLeft ቀናት ቀርተዋል", "Guyyoota $daysLeft hafe")
+                                else commuteText(lang, "Validity not available", "የማብቂያ ጊዜ አልተገኘም", "Yeroon tajaajilaa hin argamne"), fontSize = 11.sp, color = Color(0xFF526270), modifier = Modifier.testTag("commuter_days_remaining"))
                             subscription.endDate.takeIf { it.isNotBlank() }?.let { Text(commuteText(lang, "Valid until", "የሚያበቃበት ቀን", "Hanga") + " " + it.take(10), fontSize = 10.sp, color = Color(0xFF526270)) }
                         } else Text(commuteText(lang, "Your pass appears after activation.", "የጉዞ ፈቃድዎ ሲነቃ ይታያል።", "Hayyamni erga mirkanaa'ee mul'ata."), fontSize = 11.sp, color = Color(0xFF526270))
                     }

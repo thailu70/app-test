@@ -1,22 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M24,24h60a7,7 0,0 1,7 7v42a7,7 0,0 1,-7 7h-60a7,7 0,0 1,-7 -7v-42a7,7 0,0 1,7 -7z"/>
-    <path
-        android:fillColor="#0757B8"
-        android:pathData="M29,33h50v29h-50z"/>
-    <path
-        android:fillColor="#00A982"
-        android:pathData="M29,66h50v7h-50z"/>
-    <path
-        android:fillColor="#0757B8"
-        android:pathData="M33,77a5,5 0,1 0,10 0a5,5 0,1 0,-10 0zM65,77a5,5 0,1 0,10 0a5,5 0,1 0,-10 0z"/>
-    <path
-        android:fillColor="#00A982"
-        android:pathData="M24,13l21,0l0,-7l19,14l-19,14l0,-7l-21,0z"/>
+    <!-- Traced from the welcome PASSO pin-P; the complete mark stays inside the 66dp safe circle. -->
+    <group android:translateX="34" android:translateY="24" android:scaleX="0.47" android:scaleY="0.47">
+        <path android:pathData="M43,1C19,1 0,20 0,43L0,95C0,104 5,115 12,123C15,127 20,125 23,118L23,44C23,33 31,25 42,25C53,25 61,33 61,44C61,54 53,62 42,62C38,62 35,61 32,58L32,104C38,93 47,85 55,79C73,66 86,56 86,43C86,20 67,1 43,1Z">
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="linear" android:startX="70" android:startY="45" android:endX="0" android:endY="115">
+                    <item android:offset="0" android:color="#001B3B" />
+                    <item android:offset="0.45" android:color="#005B65" />
+                    <item android:offset="1" android:color="#00988A" />
+                </gradient>
+            </aapt:attr>
+        </path>
+    </group>
 </vector>

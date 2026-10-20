@@ -94,6 +94,25 @@ test('passenger assignment, pass and location remain consistent without fabricat
     assert.equal((await tracking()).vehicle,null);
     await DB.prepare("UPDATE users SET status='ACTIVE' WHERE id='pa_driver'").run();
   });
+  await t.test('status recalculates remaining days and expires an old activation counter', async () => {
+    const { generateSignedQrToken } = require('../src/routes/subscriptions');
+    try {
+      for (const [offset, expectedDays, active] of [[4 * 86400000 + 3600000, 5, true], [-60000, 0, false]]) {
+        const expiry = Date.now() + offset;
+        const qr = generateSignedQrToken('pa_sub', 'pa_a', 'pa_route', expiry);
+        await DB.prepare("UPDATE subscriptions SET endDate=?,daysRemaining=30,qrToken=? WHERE id='pa_sub'").run(new Date(expiry).toISOString(), qr);
+        const status = await get('/api/subscriptions/my-status');
+        assert.equal(status.data.subscription.daysRemaining, expectedDays);
+        assert.equal(status.data.isSubscribed, active);
+        assert.equal(status.data.subscription.qrToken, active ? qr : null);
+        assert.equal((await tracking()).status === 'INACTIVE', !active);
+        // Reading status must not rewrite updatedAt and accidentally select an older pass.
+        assert.equal((await DB.prepare("SELECT daysRemaining FROM subscriptions WHERE id='pa_sub'").get()).daysRemaining, 30);
+      }
+    } finally {
+      await DB.prepare("UPDATE subscriptions SET endDate=NULL,daysRemaining=20,qrToken='server-token' WHERE id='pa_sub'").run();
+    }
+  });
   await t.test('all three endpoints select the latest pass, without falling back to an older assigned pass', async () => {
     await DB.prepare(`INSERT INTO subscriptions(id,passengerId,routeId,priceEtb,subscriptionStatus,paymentStatus,daysRemaining,updatedAt) VALUES(?,?,?,?,?,?,?,?)`).run('pa_new','pa_a','pa_route',1200,'PENDING','UNPAID',0,new Date(Date.now()+1000).toISOString());
     const pass = await get('/api/subscriptions/my-status'); assert.equal(pass.data.subscription.id,'pa_new');

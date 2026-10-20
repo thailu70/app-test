@@ -169,10 +169,33 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     val currentDriverId: String
         get() = _currentUser.value?.id ?: ""
 
-    init {
-        viewModelScope.launch {
+    private val _publicRoutesLoading = MutableStateFlow(false)
+    val publicRoutesLoading: StateFlow<Boolean> = _publicRoutesLoading.asStateFlow()
+    private val _publicRoutesError = MutableStateFlow<String?>(null)
+    val publicRoutesError: StateFlow<String?> = _publicRoutesError.asStateFlow()
+    private var publicRoutesRefreshJob: Job? = null
+
+    fun refreshPublicRoutes() {
+        if (publicRoutesRefreshJob?.isActive == true) return
+        _publicRoutesLoading.value = true
+        _publicRoutesError.value = null
+        publicRoutesRefreshJob = viewModelScope.launch {
             try {
                 repository.refreshRoutesFromBackend()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _publicRoutesError.value = "Daily routes could not be loaded. Check your connection and try again."
+            } finally {
+                _publicRoutesLoading.value = false
+            }
+        }
+    }
+
+    init {
+        refreshPublicRoutes()
+        viewModelScope.launch {
+            try {
                 repository.refreshVehiclesFromBackend()
                 repository.refreshNotificationsFromBackend()
             } catch (e: Exception) {
@@ -189,7 +212,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     val passengerRouteStops: StateFlow<List<RouteStopEntity>> = activeSubscription
         .map { it?.routeId.orEmpty() }
         .distinctUntilChanged()
-        .flatMapLatest { routeId -> if (routeId.isBlank()) flowOf(emptyList()) else repository.getStopsForRoute(routeId) }
+        .flatMapLatest { routeId -> routeStopsWithRefresh(routeId) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val passengerPayments: StateFlow<List<PaymentTransactionEntity>> = _currentUser.flatMapLatest { user ->
@@ -235,8 +258,17 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     val recentAuditLogs: StateFlow<List<AuditLogEntity>> = repository.recentAuditLogs
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun observeRouteStops(routeId: String): kotlinx.coroutines.flow.Flow<List<RouteStopEntity>> =
-        if (routeId.isBlank()) flowOf(emptyList()) else repository.getStopsForRoute(routeId)
+    fun observeRouteStops(routeId: String): kotlinx.coroutines.flow.Flow<List<RouteStopEntity>> = routeStopsWithRefresh(routeId)
+
+    private fun routeStopsWithRefresh(routeId: String): kotlinx.coroutines.flow.Flow<List<RouteStopEntity>> =
+        if (routeId.isBlank()) flowOf(emptyList()) else channelFlow {
+            launch {
+                try { repository.refreshRouteDetailsFromBackend(routeId) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { /* Keep cached assigned stops while a refresh is unavailable. */ }
+            }
+            repository.getStopsForRoute(routeId).collect { send(it) }
+        }
 
     // Driver Trip State
     private val _driverTrip = MutableStateFlow(DriverTripState())

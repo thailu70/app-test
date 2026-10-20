@@ -6,6 +6,8 @@ import com.example.data.api.*
 import com.example.data.dao.TransportDao
 import com.example.data.entity.*
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.CancellationException
+import retrofit2.HttpException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -170,8 +172,8 @@ class TransportRepository(
                     destinationStopId = subDto.destinationStopId.orEmpty(),
                     morningSchedule = subDto.morningSchedule.orEmpty(),
                     eveningSchedule = subDto.eveningSchedule.orEmpty(),
-                    startDate = "",
-                    endDate = "",
+                    startDate = subDto.startDate.orEmpty(),
+                    endDate = subDto.endDate.orEmpty(),
                     priceEtb = subDto.priceEtb ?: 0.0,
                     paymentStatus = subDto.paymentStatus ?: "UNPAID",
                     subscriptionStatus = subDto.status ?: "PENDING",
@@ -219,64 +221,76 @@ class TransportRepository(
      * Synchronize routes from VPS Backend into Room cache
      */
     suspend fun refreshRoutesFromBackend() {
-        try {
-            val response = apiService.getRoutes()
-            if (!response.isSuccessful || response.body()?.success != true) return
-
-            val routeList = response.body()?.routes ?: emptyList()
-            if (routeList.isEmpty()) dao.clearRouteCache()
-            else dao.removeRoutesOutsideScope(routeList.map { it.id })
-            for (summary in routeList) {
-                // GET /api/routes/:id returns { success, route, stops }, not a bare RouteDto.
-                // Fetch this authoritative detail response so newly created/edited stop lists
-                // replace stale Room values instead of leaving the driver with demo stops.
-                val detailsResponse = try {
-                    apiService.getRouteById(summary.id)
-                } catch (_: Exception) {
-                    null
-                }
-                val details = detailsResponse?.takeIf { it.isSuccessful }?.body()
-                val route = details?.route ?: summary
-                val stops = if (details?.success == true) details.stops else (summary.stops ?: emptyList())
-
-                dao.insertRoute(
-                    RouteEntity(
-                        id = route.id,
-                        name = route.name,
-                        nameAm = route.nameAm,
-                        description = route.description ?: "",
-                        morningDeparture = route.morningDeparture ?: "06:30",
-                        eveningDeparture = route.eveningDeparture ?: "17:30",
-                        distanceKm = route.distanceKm ?: 12.0,
-                        basePriceEtb = route.basePriceEtb ?: 2500.0,
-                        active = route.active ?: true
-                    )
-                )
-
-                // The server is authoritative for stops. Remove obsolete cached stop rows
-                // before inserting the current ordered route stop list.
-                if (details?.success == true) dao.deleteStopsForRoute(route.id)
-                stops.forEach { stop ->
-                    dao.insertStop(
-                        RouteStopEntity(
-                            id = stop.id,
-                            routeId = stop.routeId,
-                            stopName = stop.stopName,
-                            stopNameAm = stop.stopNameAm,
-                            stopOrder = stop.stopOrder,
-                            latitude = stop.latitude,
-                            longitude = stop.longitude,
-                            scheduledMorningTime = stop.scheduledMorningTime ?: route.morningDeparture.orEmpty(),
-                            scheduledEveningTime = stop.scheduledEveningTime ?: route.eveningDeparture.orEmpty(),
-                            maxCapacity = stop.maxCapacity ?: 25
-                        )
-                    )
-                }
+        val response = apiService.getRoutes()
+        if (!response.isSuccessful) throw HttpException(response)
+        val result = response.body() ?: error("Daily routes returned an empty response.")
+        check(result.success) { "Daily routes could not be loaded." }
+        val routeList = result.routes
+        if (routeList.isEmpty()) dao.clearRouteCache()
+        else dao.removeRoutesOutsideScope(routeList.map { it.id })
+        // Discovery summaries are sufficient to browse. Do not hold the whole list behind
+        // a series of slower stop-detail requests, especially on a first installation.
+        dao.insertRoutes(routeList.map(::cachedRoute))
+        for (summary in routeList) {
+            // Details hydrate stops after the public summaries have already been published.
+            val detailsResponse = try {
+                apiService.getRouteById(summary.id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
             }
-        } catch (e: Exception) {
-            // Keep last-known cache if the server is temporarily unavailable.
+            val details = detailsResponse?.takeIf { it.isSuccessful }?.body()
+            val route = details?.route
+            if (details?.success == true && route != null && route.id == summary.id) {
+                cacheRouteDetails(route, details.stops)
+            } else {
+                summary.stops?.let { cacheRouteStops(summary, it, replace = false) }
+            }
         }
     }
+
+    /** Hydrates an assigned route even when it is absent from the active public directory. */
+    suspend fun refreshRouteDetailsFromBackend(routeId: String) {
+        if (routeId.isBlank()) return
+        val response = apiService.getRouteById(routeId)
+        if (!response.isSuccessful) throw HttpException(response)
+        val details = response.body() ?: error("Route details returned an empty response.")
+        val route = details.route
+        check(details.success && route?.id == routeId) { "Assigned route details could not be loaded." }
+        cacheRouteDetails(requireNotNull(route), details.stops)
+    }
+
+    private suspend fun cacheRouteDetails(route: RouteDto, stops: List<RouteStopDto>) {
+        check(stops.all { it.routeId == route.id }) { "Route stops did not match the assigned route." }
+        dao.insertRoute(cachedRoute(route))
+        cacheRouteStops(route, stops, replace = true)
+    }
+
+    private suspend fun cacheRouteStops(route: RouteDto, stops: List<RouteStopDto>, replace: Boolean) {
+        if (replace) dao.deleteStopsForRoute(route.id)
+        dao.insertStops(stops.filter { it.routeId == route.id }.map { stop ->
+            RouteStopEntity(
+                id = stop.id, routeId = stop.routeId, stopName = stop.stopName, stopNameAm = stop.stopNameAm,
+                stopOrder = stop.stopOrder, latitude = stop.latitude, longitude = stop.longitude,
+                scheduledMorningTime = stop.scheduledMorningTime ?: route.morningDeparture.orEmpty(),
+                scheduledEveningTime = stop.scheduledEveningTime ?: route.eveningDeparture.orEmpty(),
+                maxCapacity = stop.maxCapacity ?: 25
+            )
+        })
+    }
+
+    private fun cachedRoute(route: RouteDto) = RouteEntity(
+        id = route.id,
+        name = route.name,
+        nameAm = route.nameAm,
+        description = route.description ?: "",
+        morningDeparture = route.morningDeparture ?: "06:30",
+        eveningDeparture = route.eveningDeparture ?: "17:30",
+        distanceKm = route.distanceKm ?: 12.0,
+        basePriceEtb = route.basePriceEtb ?: 2500.0,
+        active = route.active ?: true
+    )
 
     suspend fun createRoute(
         name: String,
