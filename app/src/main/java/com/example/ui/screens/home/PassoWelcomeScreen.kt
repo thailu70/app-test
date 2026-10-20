@@ -79,14 +79,23 @@ fun PassoWelcomeScreen(
             BoxWithConstraints(if (portrait) Modifier.fillMaxWidth().weight(1f).testTag("welcome_hero") else Modifier.fillMaxWidth().testTag("welcome_hero")) {
                 val sceneWidth = maxWidth
                 // The hero contains only brand artwork; every control is rendered below.
-                Box(if (portrait) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(sceneWidth * 0.98f)) {
-                    ReferenceArtwork(0, 0, 853, 850, Modifier.fillMaxSize(), Alignment.TopCenter)
-                    Box(Modifier.align(Alignment.TopCenter).offset(y = sceneWidth * 0.211f)
-                        .width(sceneWidth * 0.55f).height(sceneWidth * 0.06f).background(WelcomeCream), contentAlignment = Alignment.Center) {
+                Column(if (portrait) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(sceneWidth * 0.98f)) {
+                    // Keep branding at its source aspect ratio so the responsive
+                    // photo crop can never move the motto over the PASSO logo.
+                    Box(Modifier.fillMaxWidth().height(sceneWidth * (230f / 853f))) {
+                    ReferenceArtwork(0, 0, 853, 230, Modifier.fillMaxSize())
+                    Box(Modifier.align(Alignment.TopCenter).offset(y = sceneWidth * 0.214f)
+                        .width(sceneWidth * 0.62f).height(sceneWidth * 0.055f).background(WelcomeCream), contentAlignment = Alignment.Center) {
                         Text("Go Further, Together.", color = WelcomeInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
+                    }
+                    Box(Modifier.fillMaxWidth().weight(1f)) {
+                    // A separate photo crop retains faces and the vehicle on
+                    // short phones instead of showing only the sky and logo.
+                    ReferenceArtwork(0, 230, 853, 620, Modifier.fillMaxSize())
                     if (portrait) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(24.dp)
                         .background(Brush.verticalGradient(listOf(Color.Transparent, WelcomeCream))))
+                    }
                 }
             }
             Column(Modifier.fillMaxWidth().testTag("welcome_controls").padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -131,7 +140,7 @@ fun PassoWelcomeScreen(
 /** Reflow portrait at screen width; retain a contained composition in landscape. */
 @Composable
 private fun WelcomeViewport(content: @Composable (Boolean, androidx.compose.ui.unit.Dp) -> Unit) {
-    BoxWithConstraints(Modifier.fillMaxSize().testTag("welcome_viewport")) {
+    BoxWithConstraints(Modifier.fillMaxSize().testTag("welcome_viewport"), contentAlignment = Alignment.TopCenter) {
     val portrait = maxHeight >= maxWidth
     if (portrait) {
         content(true, maxHeight)
@@ -159,7 +168,7 @@ private fun WelcomeServiceCard(title: String, subtitle: String, artworkX: Int, i
                 // Only the decorative photograph and badge are sampled from the reference.
                 // The card label, description, selection and action remain native UI.
                 ReferenceArtwork(artworkX, 1240, if (artworkX == 306) 242 else 256, 276,
-                    Modifier.fillMaxWidth().aspectRatio(1.25f).clip(RoundedCornerShape(18.dp)))
+                    Modifier.fillMaxWidth().aspectRatio(1.25f).clip(RoundedCornerShape(18.dp)), Alignment.TopCenter)
                 if (selected) Icon(Icons.Default.CheckCircle, "Selected", Modifier.align(Alignment.TopEnd).padding(5.dp).size(20.dp), tint = WelcomeTeal)
             }
             Column(Modifier.padding(9.dp).heightIn(min = 47.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
