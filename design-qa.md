@@ -1,4 +1,22 @@
-# Current verification: welcome screen fills the phone
+# Current verification: discovery, assigned locations, expiry and launcher icon
+
+APK 1.1.14/code 17, production changes 87810d8, final verification source 73bfec7. Daily public route summaries now reach Room before serial stop-detail requests, with loading/error/retry and refresh on browse entry. The live public service returned five routes; subsequent detail calls could take about 15 seconds each. Assigned passenger/driver routes separately hydrate their scoped stops even when absent from the active public directory. Passenger personal stop IDs take precedence; missing IDs use the actual route endpoints. Driver return journeys reverse those endpoints. Stop names and coordinates are preserved from the system.
+
+Intercity initial discovery now displays the server's upcoming scheduled departures directly, without applying the form's default exact-date search. Explicit Search remains date-specific, and Refresh keeps its applied query. The live upcoming endpoint returned two later departures which the old implicit today search hid.
+
+The backend now derives remaining validity from the signed QR expiry or the recorded expiry, with zero for expired/inactive passes. Reading status does not rewrite subscription dates or updatedAt. The native countdown follows expiry and updates every minute; missing expiry displays unavailable. Driver maps now contain only a fresh current-device location marker, without stop markers or a straight route line. GPS/geofence and boarding checks remain in place. Launcher resources use the welcome pin-P silhouette, navy/teal gradient and cream background, with legacy and monochrome resources.
+
+Tests include fresh Room loading from complete live public JSON fixtures, deliberately blocked stop hydration, initial failure/retry, scoped assigned-stop decoding, upcoming discovery/search modes, exact expiry and renewal calculations, native stop labels, map overlays and launcher resources. Local affected backend checks: 19 passed. Final Android run 39381844819 passed all 77 checks; CI 39381844794 passed SQLite, PostgreSQL, deployment syntax and Android build checks. A duplicated pickup-name test selector was scoped to the trip details, preserving the separate roster label. Native evidence artifact 12245651887 is extracted at `../routepass-1.1.14-final-checks/`. Reviewed fresh daily browse, upcoming intercity cards without Search, driver assigned locations/current-location state, commuter expiry display and all launcher variants. No blocking visual issue. No payment, SMS, authentication or route assignment changes.
+
+VPS deployment updated only the two expiry-related services and published the APK built by CI 39381844794/artifact 12246095687 at `/company/downloads/routepass-1.1.14.apk`. Existing services matched the previous source before deployment; rollback image/service backup retained. API readiness and APK HTTP 200 passed; running-container APK hash matches the published file: `5f6320cb2989551af1e4bb9c6cd4fcdeb6e2ab0fe6e9aa4d5902e33c0e1b471b`. The live calculation corrected stale counters on six of twelve stored passes without rewriting subscription records. VPS source 73bfec7.
+
+Existing data note: the live Bole medhanialem stop stores longitude `8.786702`; the fixture retains it exactly. No production stop coordinates were inferred or rewritten. Physical-device installation and live GPS movement are outside these renderer/contract checks.
+
+final result: passed
+
+---
+
+# Welcome screen fills the phone verification
 
 APK 1.1.13/code 16, app source 3051888. Sizing-only correction to the existing native welcome screen. Portrait now uses the full safe width with intentional 16dp control gutters and 8dp beneath Continue. The photo adapts to the height left by the controls; the whole page is no longer uniformly scaled into a narrower column. Translated service cards share equal heights. Existing artwork, wording, language/service selection and destination callbacks remain in use; no authentication, API or backend changes.
 
