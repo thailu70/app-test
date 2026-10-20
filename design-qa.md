@@ -1,4 +1,14 @@
-# Current verification: native intercity passenger console
+# Current verification: passenger and driver authentication
+
+APK 1.1.12/code 15, app source b425abd. Implemented the four approved native passenger/driver sign-in and sign-up designs, including photographic headers, PASSO identity, three language choices, editable forms and password visibility. Registration keeps SMS verification, active/custom commuter route selection and driver service/vehicle/company details; drivers still require approval.
+
+Android run 39351724522 and CI 39351724500 passed. All 50 checks passed. All four native captures were paired directly with their approved mockups; initial hero, heading and language-spacing issues were fixed and recaptured. Independent visual review found no P0/P1/P2 issues. See [authentication verification](design-qa-auth.md) for source/evidence paths, test scope and limits.
+
+final result: passed
+
+---
+
+# Native intercity passenger console verification
 
 APK 1.1.11/code 14, source commit 899ed22. The intercity passenger flow now uses native Android screens instead of the travel WebView: route search and suggestions, date selection, real seat inventory, private booking access, Telebirr handoff/reconciliation, paid QR and short ticket numbers, recent tickets, route requests and native PDF saving. Existing backend payment/SMS logic is retained.
 
