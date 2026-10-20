@@ -101,8 +101,8 @@ class DriverLayoutTest {
                     routeId = "test-route")
             }
         }
-        compose.onNodeWithText("Test pickup").assertExists()
-        compose.onNodeWithText("Test destination").assertExists()
+        compose.onNode(hasText("Test pickup") and hasAnyAncestor(hasTestTag("driver_route_overview"))).assertExists()
+        compose.onNode(hasText("Test destination") and hasAnyAncestor(hasTestTag("driver_route_overview"))).assertExists()
         compose.onNodeWithTag("driver_location_unavailable").assertIsDisplayed()
         compose.onNodeWithText("Your current GPS location will appear here.").assertExists()
     }
