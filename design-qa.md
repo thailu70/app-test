@@ -1,4 +1,16 @@
-# Current verification: passenger and driver authentication
+# Current verification: welcome screen fills the phone
+
+APK 1.1.13/code 16, app source 3051888. Sizing-only correction to the existing native welcome screen. Portrait now uses the full safe width with intentional 16dp control gutters and 8dp beneath Continue. The photo adapts to the height left by the controls; the whole page is no longer uniformly scaled into a narrower column. Translated service cards share equal heights. Existing artwork, wording, language/service selection and destination callbacks remain in use; no authentication, API or backend changes.
+
+Regression coverage checks actual rendered edges, native language touch-target heights, equal card bounds, bottom spacing, zero scroll containers and all destination actions in English, Amharic and Afaan Oromoo at 360 x 640, 393 x 852 and 412 x 915 dp. Landscape retains the existing contained presentation with reachable controls. The branding crop and photo crop adapt separately on short phones to retain the logo, faces and vehicle. Normal portrait uses a continuous photo.
+
+Final Android run 39372791118 and CI 39372791047 passed. All 52 checks passed with zero failures/skips. Evidence artifact 12242287919 was extracted to `../welcome-size-1.1.13-release/`. Root and independent visual review passed the 393 x 852 Amharic, 360 x 640 Amharic and 412 x 915 Oromo captures: full portrait width, continuous normal/tall photo, legible branding, visible compact-photo subjects and Continue, aligned cards and no unintended outer gutters. The small-phone Oromo language option wraps without clipping. Existing matte motto backing and flat fills remain minor optical differences. These are native renderer checks, not physical-device installation tests. Android status/navigation areas remain reserved for system controls. Installable debug APK artifact: 12241679876.
+
+final result: passed
+
+---
+
+# Passenger and driver authentication verification
 
 APK 1.1.12/code 15, app source b425abd. Implemented the four approved native passenger/driver sign-in and sign-up designs, including photographic headers, PASSO identity, three language choices, editable forms and password visibility. Registration keeps SMS verification, active/custom commuter route selection and driver service/vehicle/company details; drivers still require approval.
 
