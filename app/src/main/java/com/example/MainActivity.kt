@@ -215,8 +215,10 @@ fun MainTransportApp(viewModel: MainViewModel) {
                 onCompanyAccess = { showCompanyPortal = true; showPublicHome = false }
             )
         } else {
-        // Independent Authentication Screen (Passenger, Driver/Transporter, Operator/Admin)
-        Scaffold(
+        if (requestedAuthPortal != AppRole.ADMIN) {
+            AuthScreen(viewModel, Modifier.fillMaxSize(), requestedAuthPortal, requestedRegisterFirst,
+                requestedRouteId, requestedRouteName, requestedServiceTier, onExit = { returnFromAuthentication() })
+        } else Scaffold(
             modifier = Modifier.fillMaxSize(),
             contentWindowInsets = WindowInsets.safeDrawing,
             topBar = {

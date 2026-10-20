@@ -25,6 +25,14 @@ enum class AppRole {
     ADMIN
 }
 
+/** A route request is registration metadata, never an assigned route or an active paid pass. */
+internal fun isCompleteCustomCommuterRequest(routeId: String, routeName: String): Boolean {
+    if (routeId.isNotBlank()) return false
+    val request = Regex("^Requested commuter route \\| Pickup: ([^|\\r\\n]+) \\| Destination: ([^|\\r\\n]+) \\| Journey: (One way|Two way) \\| Tier: (Economy|Deluxe|VIP)$")
+        .matchEntire(routeName.trim()) ?: return false
+    return request.groupValues[1].isNotBlank() && request.groupValues[2].isNotBlank()
+}
+
 enum class NetworkStatus {
     ONLINE,
     OFFLINE,
@@ -134,6 +142,9 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
     private val _authError = MutableStateFlow<String?>(null)
     val authError: StateFlow<String?> = _authError.asStateFlow()
+
+    private val _authBusy = MutableStateFlow(false)
+    val authBusy: StateFlow<Boolean> = _authBusy.asStateFlow()
 
     private val _registrationMessage = MutableStateFlow<String?>(null)
     val registrationMessage: StateFlow<String?> = _registrationMessage.asStateFlow()
@@ -379,7 +390,9 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
     // Authentication Actions
     fun login(identifier: String, password: String, role: AppRole) {
+        if (!_authBusy.compareAndSet(false, true)) return
         viewModelScope.launch {
+            try {
             _authError.value = null
             val roleStr = when (role) {
                 AppRole.PASSENGER -> "PASSENGER"
@@ -427,6 +440,9 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 _authError.value = repository.lastAuthError
                     ?: "Account not found for $identifier as ${role.name}. Please check credentials or Register."
             }
+            } finally {
+                _authBusy.value = false
+            }
         }
     }
 
@@ -446,14 +462,17 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         appliedRouteName: String = "",
         otpVerificationToken: String = ""
     ) {
+        if (!_authBusy.compareAndSet(false, true)) return
         viewModelScope.launch {
+            try {
             _authError.value = null
             _registrationMessage.value = null
             if (fullName.isBlank() || phone.isBlank()) {
                 _authError.value = "Full Name and Phone Number are required."
                 return@launch
             }
-            if (role == AppRole.PASSENGER && appliedRouteId.isBlank()) {
+            if (role == AppRole.PASSENGER && appliedRouteId.isBlank() &&
+                !isCompleteCustomCommuterRequest(appliedRouteId, appliedRouteName)) {
                 _authError.value = "Please select the route you want to subscribe to."
                 return@launch
             }
@@ -527,6 +546,9 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 }
             } catch (e: Exception) {
                 _authError.value = e.message ?: "Registration failed. Check the information and try again."
+            }
+            } finally {
+                _authBusy.value = false
             }
         }
     }

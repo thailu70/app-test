@@ -46,8 +46,14 @@ fun AuthScreen(
     initialRegisterMode: Boolean = false,
     initialRouteId: String? = null,
     initialRouteName: String? = null,
-    initialServiceTier: String? = null
+    initialServiceTier: String? = null,
+    onExit: () -> Unit = {}
 ) {
+    if (initialPortal != AppRole.ADMIN) {
+        NativeAuthFlow(viewModel, initialPortal ?: AppRole.PASSENGER, initialRegisterMode,
+            initialRouteId, initialRouteName, initialServiceTier, onExit, modifier)
+        return
+    }
     val context = LocalContext.current
     val lang by viewModel.currentLanguage.collectAsState()
     val authError by viewModel.authError.collectAsState()

@@ -68,15 +68,15 @@ class BrowseBackNavigationTest {
     @Test fun passengerSignInTopBackReturnsToDailyRoutes() {
         enterDailyRoutes()
         compose.onNodeWithTag("commuter_browse_sign_in").performClick()
-        compose.onNodeWithText("Passenger Sign In").assertExists()
-        compose.onNodeWithText("Back").performClick()
+        compose.onNodeWithTag("auth_form_card").assertExists()
+        compose.onNodeWithTag("auth_header_back").performClick()
         assertDailyRoutes()
     }
 
     @Test fun myPassHardwareBackReturnsToDailyRoutes() {
         enterDailyRoutes()
         compose.onNodeWithText("My pass").performClick()
-        compose.onNodeWithText("Passenger Sign In").assertExists()
+        compose.onNodeWithTag("auth_form_card").assertExists()
         compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
         assertDailyRoutes()
     }
