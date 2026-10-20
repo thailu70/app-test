@@ -34,6 +34,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.items
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
+import kotlinx.coroutines.ensureActive
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -99,7 +100,8 @@ fun DriverTripScreen(
     var activeTrip by remember(currentUser?.id) { mutableStateOf<com.example.data.api.TripDto?>(null) }
     var selectedKey by rememberSaveable(currentUser?.id) { mutableStateOf("") }
     var direction by rememberSaveable(currentUser?.id) { mutableStateOf("OUTBOUND") }
-    var roster by remember(currentUser?.id) { mutableStateOf(emptyList<com.example.data.api.DriverRosterPassenger>()) }
+    val rosterRouteId = vehicles.firstOrNull { selectedKey == "commute:${it.id}" }?.assignedRouteId
+    var roster by remember(currentUser?.id, selectedKey, rosterRouteId) { mutableStateOf(emptyList<com.example.data.api.DriverRosterPassenger>()) }
     var statusFilter by rememberSaveable(currentUser?.id) { mutableStateOf("ALL") }
     var freshFix by remember(currentUser?.id) { mutableStateOf<com.example.data.api.DriverGpsFix?>(null) }
     var gpsStatus by remember { mutableStateOf("Waiting for a precise GPS fix") }
@@ -233,15 +235,24 @@ fun DriverTripScreen(
             kotlinx.coroutines.delay(20000)
         }
     }
-    LaunchedEffect(selectedKey, rosterVersion) {
-        roster = emptyList()
+    LaunchedEffect(currentUser?.id, api, selectedKey, rosterRouteId, rosterVersion) {
         validation = null
         try {
-            roster = when {
-                vehicle != null -> driverBody(api.commuteRoster(vehicle.id)).roster
-                journey != null -> driverBody(api.intercityRoster(journey.id)).roster
+            // Keep the current journey's last successful roster visible during refresh.
+            // A different account, vehicle, route or intercity journey gets its own empty state.
+            val refreshedRoster = when {
+                vehicle != null -> driverBody(api.commuteRoster(vehicle.id)).let { result ->
+                    check(result.success) { result.error ?: "Could not load passenger roster." }
+                    result.roster
+                }
+                journey != null -> driverBody(api.intercityRoster(journey.id)).let { result ->
+                    check(result.success) { result.error ?: "Could not load passenger roster." }
+                    result.roster
+                }
                 else -> emptyList()
             }
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            roster = refreshedRoster
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
         catch (error: Exception) { notice = error.message ?: "Could not load passenger roster." }
     }

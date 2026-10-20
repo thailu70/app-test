@@ -55,6 +55,11 @@ class DriverAssignmentsLoadingTest {
     private var intercityResponse: String? = null
     private var pendingActiveTrip: Continuation<Response<ActiveTripResponse>>? = null
     private var pendingIntercity: Continuation<Response<DriverIntercityResponse>>? = null
+    private var pauseRoster = false
+    private var rosterUnavailable = false
+    private var rosterResponse = DriverRosterResponse(success = true)
+    private var pendingRoster: Continuation<Response<DriverRosterResponse>>? = null
+    private var pendingRosterAssignment: String? = null
     private val adapter = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
         .adapter(DriverAssignmentsResponse::class.java)
     private var response = ""
@@ -123,7 +128,20 @@ class DriverAssignmentsLoadingTest {
                             .adapter(DriverIntercityResponse::class.java).fromJson(json)))
                     } ?: unavailable<DriverIntercityResponse>()
                 }
-                "commuteRoster", "intercityRoster" -> { rosterRequests++; Response.success(DriverRosterResponse(success = true)) }
+                "commuteRoster", "intercityRoster" -> {
+                    rosterRequests++
+                    when {
+                        pauseRoster -> {
+                            @Suppress("UNCHECKED_CAST")
+                            val continuation = args!!.last() as Continuation<Response<DriverRosterResponse>>
+                            pendingRoster = continuation
+                            pendingRosterAssignment = args.first().toString()
+                            COROUTINE_SUSPENDED
+                        }
+                        rosterUnavailable -> unavailable<DriverRosterResponse>()
+                        else -> Response.success(rosterResponse)
+                    }
+                }
                 else -> unavailable<Any>()
             }
         } as DriverOperationsApi
@@ -144,6 +162,8 @@ class DriverAssignmentsLoadingTest {
 
     @After fun closeDriverInstallation() {
         compose.runOnIdle {
+            pendingRoster?.resumeWithException(CancellationException("Test finished"))
+            pendingRoster = null
             pendingActiveTrip?.resumeWithException(CancellationException("Test finished"))
             pendingActiveTrip = null
             pendingIntercity?.resumeWithException(CancellationException("Test finished"))
@@ -265,5 +285,91 @@ class DriverAssignmentsLoadingTest {
         assertEndpoints("Active pickup", "Active destination")
         routeText("Garment pickup").assertDoesNotExist()
         compose.onNodeWithTag("driver_complete_route").assertExists()
+    }
+
+    private fun twoPassengers() = DriverRosterResponse(success = true, roster = listOf(
+        DriverRosterPassenger(id = "first-passenger", passengerName = "First fixture passenger", status = "ASSIGNED"),
+        DriverRosterPassenger(id = "second-passenger", passengerName = "Second fixture passenger", status = "PENDING")
+    ))
+
+    private fun showPopulatedRoster() {
+        rosterResponse = twoPassengers()
+        showDriver()
+        compose.waitUntil(5_000) { rosterRequests > 0 }
+        compose.onNodeWithTag("driver_nav_passengers").performClick()
+        assertRosterCount(2)
+        compose.onNodeWithTag("driver_roster_row_first-passenger").assertIsDisplayed()
+        compose.onNodeWithTag("driver_roster_row_second-passenger").assertIsDisplayed()
+    }
+
+    private fun assertRosterCount(count: Int) {
+        compose.onNodeWithTag("driver_roster_filter_all").assertTextContains(count.toString())
+    }
+
+    private fun refreshRoster() {
+        val previous = rosterRequests
+        compose.onNodeWithText("Refresh roster").performScrollTo().performClick()
+        compose.waitUntil(5_000) { rosterRequests > previous }
+    }
+
+    @Test fun refreshingRosterKeepsVisiblePassengersUntilSuccessfulReplacement() {
+        showPopulatedRoster()
+        compose.runOnIdle { pauseRoster = true }
+        refreshRoster()
+        compose.waitUntil(5_000) { pendingRoster != null }
+        assertRosterCount(2)
+        compose.onNodeWithTag("driver_roster_row_first-passenger").assertIsDisplayed()
+        compose.onNodeWithTag("driver_roster_row_second-passenger").assertIsDisplayed()
+        compose.runOnIdle {
+            pauseRoster = false
+            pendingRoster!!.resume(Response.success(DriverRosterResponse(success = true, roster = listOf(
+                twoPassengers().roster.first().copy(status = "BOARDED")
+            ))))
+            pendingRoster = null
+        }
+        compose.waitForIdle()
+        assertRosterCount(1)
+        compose.onNode(hasText("Boarded") and hasAnyAncestor(hasTestTag("driver_roster_status_first-passenger"))).assertExists()
+        compose.onNodeWithTag("driver_roster_row_second-passenger").assertDoesNotExist()
+    }
+
+    @Test fun failedHttpAndLogicalRosterResponsesPreserveLastSuccessfulPassengers() {
+        showPopulatedRoster()
+        compose.runOnIdle { rosterUnavailable = true }
+        refreshRoster()
+        assertRosterCount(2)
+        compose.onNodeWithTag("driver_roster_row_first-passenger").assertIsDisplayed()
+        compose.runOnIdle {
+            rosterUnavailable = false
+            rosterResponse = DriverRosterResponse(success = false, error = "Roster temporarily unavailable")
+        }
+        refreshRoster()
+        assertRosterCount(2)
+        compose.onNodeWithTag("driver_roster_row_first-passenger").assertIsDisplayed()
+        compose.onNodeWithTag("driver_roster_row_second-passenger").assertIsDisplayed()
+    }
+
+    @Test fun switchingAssignmentsClearsPreviousPassengersWhileNewRosterIsPendingThenAcceptsEmptyRoster() {
+        val first = org.json.JSONObject(assignmentJson()).getJSONArray("vehicles").getJSONObject(0)
+        val second = org.json.JSONObject(assignmentJson("Other pickup", "Other destination", "other-vehicle", "other-route"))
+            .getJSONArray("vehicles").getJSONObject(0).put("routeName", "Another assigned service")
+        response = """{"success":true,"vehicles":[$first,$second]}"""
+        showPopulatedRoster()
+        compose.runOnIdle { pauseRoster = true }
+        compose.onNodeWithTag("driver_nav_home").performClick()
+        compose.onNodeWithText("Another assigned service · TEST-4321").performScrollTo().performClick()
+        compose.waitUntil(5_000) { pendingRoster != null && pendingRosterAssignment == "other-vehicle" }
+        compose.onNodeWithTag("driver_nav_passengers").performClick()
+        assertRosterCount(0)
+        compose.onNodeWithTag("driver_roster_row_first-passenger").assertDoesNotExist()
+        compose.onNodeWithTag("driver_roster_row_second-passenger").assertDoesNotExist()
+        compose.runOnIdle {
+            pauseRoster = false
+            pendingRoster!!.resume(Response.success(DriverRosterResponse(success = true)))
+            pendingRoster = null
+        }
+        compose.waitForIdle()
+        assertRosterCount(0)
+        compose.onNodeWithText("No passengers assigned yet.").assertIsDisplayed()
     }
 }
