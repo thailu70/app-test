@@ -78,21 +78,33 @@ fun PassoWelcomeScreen(
         Column(if (portrait) Modifier.fillMaxSize() else Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             BoxWithConstraints(if (portrait) Modifier.fillMaxWidth().weight(1f).testTag("welcome_hero") else Modifier.fillMaxWidth().testTag("welcome_hero")) {
                 val sceneWidth = maxWidth
+                val sceneHeight = if (portrait) maxHeight else sceneWidth * 0.98f
                 // The hero contains only brand artwork; every control is rendered below.
-                Column(if (portrait) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(sceneWidth * 0.98f)) {
+                if (sceneHeight >= sceneWidth * 0.75f) {
+                    // Use one continuous photograph on regular/tall phones. Derive
+                    // the motto position from the actual crop, including its scale.
+                    val artworkScale = maxOf(sceneWidth.value / 853f, sceneHeight.value / 850f)
+                    Box(Modifier.fillMaxWidth().height(sceneHeight)) {
+                        ReferenceArtwork(0, 0, 853, 850, Modifier.fillMaxSize(), Alignment.TopCenter)
+                        WelcomeMotto(artworkScale)
+                        if (portrait) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(24.dp)
+                            .background(Brush.verticalGradient(listOf(Color.Transparent, WelcomeCream))))
+                    }
+                } else Column(Modifier.fillMaxSize()) {
                     // Keep branding at its source aspect ratio so the responsive
                     // photo crop can never move the motto over the PASSO logo.
                     Box(Modifier.fillMaxWidth().height(sceneWidth * (230f / 853f))) {
                     ReferenceArtwork(0, 0, 853, 230, Modifier.fillMaxSize())
-                    Box(Modifier.align(Alignment.TopCenter).offset(y = sceneWidth * 0.214f)
-                        .width(sceneWidth * 0.62f).height(sceneWidth * 0.055f).background(WelcomeCream), contentAlignment = Alignment.Center) {
-                        Text("Go Further, Together.", color = WelcomeInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    }
+                    WelcomeMotto(sceneWidth.value / 853f)
+                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(8.dp)
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, WelcomeCream))))
                     }
                     Box(Modifier.fillMaxWidth().weight(1f)) {
                     // A separate photo crop retains faces and the vehicle on
                     // short phones instead of showing only the sky and logo.
                     ReferenceArtwork(0, 230, 853, 620, Modifier.fillMaxSize())
+                    Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(8.dp)
+                        .background(Brush.verticalGradient(listOf(WelcomeCream, Color.Transparent))))
                     if (portrait) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(24.dp)
                         .background(Brush.verticalGradient(listOf(Color.Transparent, WelcomeCream))))
                     }
@@ -135,6 +147,15 @@ fun PassoWelcomeScreen(
     }
 }
 
+}
+
+@Composable
+private fun BoxScope.WelcomeMotto(artworkScale: Float) {
+    Box(Modifier.align(Alignment.TopCenter).offset(y = (182f * artworkScale).dp)
+        .width((480f * artworkScale).dp).height((48f * artworkScale).dp).background(WelcomeCream),
+        contentAlignment = Alignment.Center) {
+        Text("Go Further, Together.", color = WelcomeInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    }
 }
 
 /** Reflow portrait at screen width; retain a contained composition in landscape. */
