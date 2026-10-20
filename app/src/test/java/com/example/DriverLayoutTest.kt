@@ -147,8 +147,8 @@ class DriverLayoutTest {
         }
         compose.onNodeWithText("Test!").assertExists()
         compose.onNodeWithText("TEST-4321 · MINIVAN 8").assertExists()
-        compose.onNodeWithText("Test pickup").assertExists()
-        compose.onNodeWithText("Test destination").assertExists()
+        compose.onNode(hasText("Test pickup") and hasAnyAncestor(hasTestTag("driver_route_overview"))).assertExists()
+        compose.onNode(hasText("Test destination") and hasAnyAncestor(hasTestTag("driver_route_overview"))).assertExists()
         compose.onNodeWithText("Assigned pickup").assertDoesNotExist()
         compose.onNodeWithText("See assigned route").assertDoesNotExist()
         compose.onNodeWithText("Fuel 78%").assertDoesNotExist()
