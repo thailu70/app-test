@@ -3,7 +3,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
-const { passengerAssignment } = require('../services/passenger-assignment');
+const { passengerAssignment, populatePassengerStopLocations } = require('../services/passenger-assignment');
 
 function resolveQrSigningKey() {
   if (process.env.QR_SIGNING_KEY && process.env.QR_SIGNING_KEY.trim().length > 0) {
@@ -90,6 +90,10 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), async (req, res
           daysRemaining: sub.daysRemaining,
           pickupStopId: sub.pickupStopId,
           destinationStopId: sub.destinationStopId,
+          pickupStopName: sub.pickupStopName,
+          pickupStopNameAm: sub.pickupStopNameAm,
+          destinationStopName: sub.destinationStopName,
+          destinationStopNameAm: sub.destinationStopNameAm,
           morningSchedule: sub.morningSchedule || sub.morningDeparture,
           eveningSchedule: sub.eveningSchedule || sub.eveningDeparture,
           startDate: sub.startDate, endDate: sub.endDate, vehicleId: sub.vehicleId,
@@ -118,6 +122,10 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), async (req, res
         qrToken: sub.qrToken,
         pickupStopId: sub.pickupStopId,
         destinationStopId: sub.destinationStopId,
+        pickupStopName: sub.pickupStopName,
+        pickupStopNameAm: sub.pickupStopNameAm,
+        destinationStopName: sub.destinationStopName,
+        destinationStopNameAm: sub.destinationStopNameAm,
         morningSchedule: sub.morningSchedule || sub.morningDeparture,
         eveningSchedule: sub.eveningSchedule || sub.eveningDeparture,
         vehicleId: sub.vehicleId
@@ -416,20 +424,28 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
     );
 
     // Activate Subscription & Assign Signed QR
-    const existingSub = await DB.prepare('SELECT id FROM subscriptions WHERE passengerId = ?').get(passengerId);
+    const existingSub = await DB.prepare('SELECT * FROM subscriptions WHERE passengerId = ?').get(passengerId);
+    const assignedStops = await populatePassengerStopLocations({
+      routeId: targetRouteId,
+      pickupStopId: existingSub?.routeId === targetRouteId ? existingSub.pickupStopId : null,
+      destinationStopId: existingSub?.routeId === targetRouteId ? existingSub.destinationStopId : null
+    });
 
     if (existingSub) {
       await DB.prepare(`
         UPDATE subscriptions
         SET routeId = ?, priceEtb = ?, paymentStatus = 'PAID', subscriptionStatus = 'ACTIVE',
-            startDate = ?, endDate = ?, daysRemaining = 30, qrToken = ?, updatedAt = CURRENT_TIMESTAMP
+            startDate = ?, endDate = ?, daysRemaining = 30, qrToken = ?,
+            pickupStopId = ?, destinationStopId = ?, morningSchedule = ?, eveningSchedule = ?, updatedAt = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(targetRouteId, price, startDate, endDate, signedQrToken, existingSub.id);
+      `).run(targetRouteId, price, startDate, endDate, signedQrToken,
+        assignedStops.pickupStopId, assignedStops.destinationStopId, route.morningDeparture, route.eveningDeparture, existingSub.id);
     } else {
       await DB.prepare(`
         INSERT INTO subscriptions (id, passengerId, routeId, pickupStopId, destinationStopId, morningSchedule, eveningSchedule, startDate, endDate, priceEtb, paymentStatus, subscriptionStatus, daysRemaining, qrToken)
-        VALUES (?, ?, ?, 'stop_atlas', 'stop_merkato', ?, ?, ?, ?, ?, 'PAID', 'ACTIVE', 30, ?)
-      `).run(subId, passengerId, targetRouteId, route.morningDeparture, route.eveningDeparture, startDate, endDate, price, signedQrToken);
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PAID', 'ACTIVE', 30, ?)
+      `).run(subId, passengerId, targetRouteId, assignedStops.pickupStopId, assignedStops.destinationStopId,
+        route.morningDeparture, route.eveningDeparture, startDate, endDate, price, signedQrToken);
     }
 
     // Insert notification
@@ -461,6 +477,14 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
         routeId: targetRouteId,
         routeName: route.name,
         routeNameAm: route.nameAm,
+        pickupStopId: assignedStops.pickupStopId,
+        destinationStopId: assignedStops.destinationStopId,
+        pickupStopName: assignedStops.pickupStopName,
+        pickupStopNameAm: assignedStops.pickupStopNameAm,
+        destinationStopName: assignedStops.destinationStopName,
+        destinationStopNameAm: assignedStops.destinationStopNameAm,
+        morningSchedule: route.morningDeparture,
+        eveningSchedule: route.eveningDeparture,
         status: 'ACTIVE',
         paymentStatus: 'PAID',
         daysRemaining: 30,

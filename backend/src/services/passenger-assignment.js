@@ -3,6 +3,37 @@
 const { DB } = require('../db');
 const { remainingSubscriptionDays } = require('./subscription-days');
 
+const LEGACY_DEMO_STOPS = new Set(['stop_atlas', 'stop_merkato']);
+
+// Resolve the selected route's current stops without changing stored assignments or QR tokens.
+// A deleted legacy ID is unambiguous only on a route with exactly two stops. An explicit ID
+// belonging to another route is never used, except the two historical demo defaults.
+async function populatePassengerStopLocations(subscription) {
+  const stops = await DB.prepare('SELECT id, stopName, stopNameAm FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC, id ASC')
+    .all(subscription.routeId);
+  const ownStops = new Map(stops.map(stop => [stop.id, stop]));
+  const unknownIds = [...new Set([subscription.pickupStopId, subscription.destinationStopId]
+    .filter(id => id && !ownStops.has(id) && !LEGACY_DEMO_STOPS.has(id)))];
+  const foreignStops = unknownIds.length ? await DB.prepare('SELECT id FROM route_stops WHERE id IN (' + unknownIds.map(() => '?').join(',') + ')')
+    .all(...unknownIds) : [];
+  const foreignIds = new Set(foreignStops.map(stop => stop.id));
+  function resolve(id, fallback) {
+    if (!id) return fallback;
+    if (ownStops.has(id)) return ownStops.get(id);
+    if (stops.length === 2 && !foreignIds.has(id)) return fallback;
+    return null;
+  }
+  const pickup = resolve(subscription.pickupStopId, stops[0] || null);
+  const destination = resolve(subscription.destinationStopId, stops.length > 1 ? stops[stops.length - 1] : null);
+  subscription.pickupStopId = pickup?.id || subscription.pickupStopId || null;
+  subscription.destinationStopId = destination?.id || subscription.destinationStopId || null;
+  subscription.pickupStopName = pickup?.stopName || '';
+  subscription.pickupStopNameAm = pickup?.stopNameAm || '';
+  subscription.destinationStopName = destination?.stopName || '';
+  subscription.destinationStopNameAm = destination?.stopNameAm || '';
+  return subscription;
+}
+
 // Status, driver details and tracking select the same pass, never another vehicle
 // on its route or an older pass after the current pass is pending/cancelled.
 async function passengerAssignment(passengerId) {
@@ -14,6 +45,7 @@ async function passengerAssignment(passengerId) {
     WHERE s.passengerId=? ORDER BY s.updatedAt DESC, s.id DESC LIMIT 1
   `).get(passengerId);
   if (!subscription) return { subscription: null, vehicle: null, active: false };
+  await populatePassengerStopLocations(subscription);
   subscription.daysRemaining = remainingSubscriptionDays(subscription);
   const active = subscription.subscriptionStatus === 'ACTIVE' && subscription.paymentStatus === 'PAID' && Number(subscription.daysRemaining) > 0;
   const vehicle = subscription.vehicleId ? await DB.prepare(`
@@ -35,4 +67,4 @@ async function passengerAssignment(passengerId) {
   return { subscription, vehicle: vehicle || null, active };
 }
 
-module.exports = { passengerAssignment };
+module.exports = { passengerAssignment, populatePassengerStopLocations };

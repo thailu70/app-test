@@ -439,7 +439,10 @@ class TransportRepository(
     /**
      * Refresh passenger subscription status from VPS Backend.
      */
-    suspend fun refreshSubscriptionFromBackend(passengerId: String): SubscriptionEntity? {
+    suspend fun refreshSubscriptionFromBackend(passengerId: String): SubscriptionEntity? =
+        refreshSubscriptionSnapshotFromBackend(passengerId).subscription
+
+    suspend fun refreshSubscriptionSnapshotFromBackend(passengerId: String): PassengerSubscriptionSnapshot {
         val response = apiService.getMySubscriptionStatus()
         if (!response.isSuccessful) throw retrofit2.HttpException(response)
         val body = response.body()?.takeIf { it.success }
@@ -458,7 +461,12 @@ class TransportRepository(
         // A successful empty response revokes the cached pass too; a failed request
         // must never resurrect a demo/older subscription from Room.
         dao.replacePassengerSubscription(passengerId, entity)
-        return entity
+        val assignment = body.subscription?.let { sub ->
+            PassengerStopAssignment(passengerId, sub.id, sub.routeId,
+                sub.pickupStopId.orEmpty(), sub.destinationStopId.orEmpty(),
+                sub.pickupStopName, sub.pickupStopNameAm, sub.destinationStopName, sub.destinationStopNameAm)
+        }
+        return PassengerSubscriptionSnapshot(entity, assignment)
     }
 
     // Telebirr hosted checkout status is always read from the VPS, never inferred from a browser redirect.

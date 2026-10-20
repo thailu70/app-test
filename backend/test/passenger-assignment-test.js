@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 process.env.NODE_ENV = 'test';
+process.env.PAYMENT_MODE = 'TEST';
 delete process.env.DATABASE_URL;
 process.env.JWT_SECRET = 'passenger-assignment-regression-secret';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'routepass-passenger-assignment-'));
@@ -118,5 +119,116 @@ test('passenger assignment, pass and location remain consistent without fabricat
     const pass = await get('/api/subscriptions/my-status'); assert.equal(pass.data.subscription.id,'pa_new');
     assert.equal((await get('/api/commute/my-driver')).data.driver,null);
     const tracked = await tracking(); assert.equal(tracked.status,'INACTIVE'); assert.equal(tracked.vehicle,null);
+  });
+});
+
+test('passenger stop names resolve current own-route assignments without rewriting legacy passes', async t => {
+  const express = require('express');
+  const app = express(); app.use(express.json());
+  app.use('/api/subscriptions', require('../src/routes/subscriptions'));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const base = 'http://127.0.0.1:' + server.address().port;
+  const tokens = {};
+  for (const id of ['ps_legacy', 'ps_deleted', 'ps_null', 'ps_exact', 'ps_ambiguous', 'ps_foreign_id', 'ps_pending', 'ps_activate', 'ps_change']) {
+    await DB.prepare('INSERT INTO users(id,role,fullName,phone,passwordHash,status) VALUES(?,?,?,?,?,?)')
+      .run(id, 'PASSENGER', id, id, 'unused', 'ACTIVE');
+    tokens[id] = signToken({ id, role: 'PASSENGER' });
+  }
+  for (const id of ['ps_two', 'ps_many', 'ps_foreign'])
+    await DB.prepare('INSERT INTO routes(id,name,nameAm,morningDeparture,eveningDeparture,basePriceEtb) VALUES(?,?,?,?,?,?)')
+      .run(id, 'Published daily route', 'የዕለት መስመር', '05:40', '17:55', 1200);
+  for (const [id, route, name, am, order] of [
+    ['ps_start', 'ps_two', 'Garment', 'ጋርመንት', 1],
+    ['ps_end', 'ps_two', 'Bole Medhanialem', 'ቦሌ መድሃኒአለም', 2],
+    ['ps_many_start', 'ps_many', 'Route origin', 'መነሻ', 1],
+    ['ps_personal', 'ps_many', 'Personal pickup', 'የግል መሳፈሪያ', 2],
+    ['ps_many_end', 'ps_many', 'Personal destination', 'የግል መድረሻ', 3],
+    ['ps_foreign_stop', 'ps_foreign', 'Unrelated route pickup', 'ሌላ መስመር', 1]
+  ]) await DB.prepare('INSERT INTO route_stops(id,routeId,stopName,stopNameAm,stopOrder,latitude,longitude) VALUES(?,?,?,?,?,?,?)')
+    .run(id, route, name, am, order, 9.03, 38.74);
+  for (const [id, route, pickup, destination, status, payment] of [
+    ['ps_legacy', 'ps_two', 'stop_atlas', 'stop_merkato', 'ACTIVE', 'PAID'],
+    ['ps_deleted', 'ps_two', 'deleted_pickup', 'deleted_destination', 'ACTIVE', 'PAID'],
+    ['ps_null', 'ps_two', null, null, 'ACTIVE', 'PAID'],
+    ['ps_exact', 'ps_many', 'ps_personal', 'ps_many_end', 'ACTIVE', 'PAID'],
+    ['ps_ambiguous', 'ps_many', 'deleted_middle', 'deleted_end', 'ACTIVE', 'PAID'],
+    ['ps_foreign_id', 'ps_two', 'ps_foreign_stop', 'ps_end', 'ACTIVE', 'PAID'],
+    ['ps_pending', 'ps_two', 'stop_atlas', 'stop_merkato', 'PENDING', 'UNPAID'],
+    ['ps_change', 'ps_many', 'ps_personal', 'ps_many_end', 'ACTIVE', 'PAID']
+  ]) await DB.prepare('INSERT INTO subscriptions(id,passengerId,routeId,pickupStopId,destinationStopId,priceEtb,paymentStatus,subscriptionStatus,daysRemaining,qrToken,updatedAt) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
+    .run('sub_' + id, id, route, pickup, destination, 1200, payment, status, status === 'ACTIVE' ? 30 : 0, 'private-qr-' + id, '2026-10-01T00:00:00.000Z');
+  async function request(id, method = 'GET', path = '/my-status', body) {
+    const response = await fetch(base + '/api/subscriptions' + path, {
+      method, headers: { Authorization: 'Bearer ' + tokens[id], 'Content-Type': 'application/json' },
+      ...(body ? { body: JSON.stringify(body) } : {})
+    });
+    return { status: response.status, data: await response.json() };
+  }
+
+  await t.test('explicit current personal stops retain the real intermediate pickup rather than the route origin', async () => {
+    const result = await request('ps_exact');
+    assert.equal(result.status, 200);
+    assert.equal(result.data.subscription.pickupStopId, 'ps_personal');
+    assert.equal(result.data.subscription.pickupStopName, 'Personal pickup');
+    assert.equal(result.data.subscription.pickupStopNameAm, 'የግል መሳፈሪያ');
+    assert.equal(result.data.subscription.destinationStopName, 'Personal destination');
+  });
+  await t.test('two-stop routes recover known demo, deleted and unset assignments in response only', async () => {
+    for (const id of ['ps_legacy', 'ps_deleted', 'ps_null']) {
+      const before = await DB.prepare('SELECT * FROM subscriptions WHERE passengerId=?').get(id);
+      const result = await request(id);
+      assert.equal(result.status, 200, JSON.stringify(result.data));
+      assert.equal(result.data.subscription.pickupStopId, 'ps_start');
+      assert.equal(result.data.subscription.destinationStopId, 'ps_end');
+      assert.equal(result.data.subscription.pickupStopName, 'Garment');
+      assert.equal(result.data.subscription.pickupStopNameAm, 'ጋርመንት');
+      assert.equal(result.data.subscription.destinationStopName, 'Bole Medhanialem');
+      assert.equal(result.data.subscription.destinationStopNameAm, 'ቦሌ መድሃኒአለም');
+      assert.equal(result.data.subscription.qrToken, before.qrToken);
+      assert.deepEqual(await DB.prepare('SELECT * FROM subscriptions WHERE passengerId=?').get(id), before);
+    }
+  });
+  await t.test('ambiguous orphan and existing cross-route personal IDs stay unresolved', async () => {
+    const ambiguous = (await request('ps_ambiguous')).data.subscription;
+    assert.equal(ambiguous.pickupStopId, 'deleted_middle');
+    assert.equal(ambiguous.destinationStopId, 'deleted_end');
+    assert.equal(ambiguous.pickupStopName, '');
+    assert.equal(ambiguous.destinationStopName, '');
+    const foreign = (await request('ps_foreign_id')).data.subscription;
+    assert.equal(foreign.pickupStopId, 'ps_foreign_stop');
+    assert.equal(foreign.pickupStopName, '');
+    assert.equal(foreign.destinationStopId, 'ps_end');
+    assert.equal(foreign.destinationStopName, 'Bole Medhanialem');
+  });
+  await t.test('pending passes receive real location names without activation or a QR token', async () => {
+    const result = await request('ps_pending');
+    assert.equal(result.data.isSubscribed, false);
+    assert.equal(result.data.subscription.status, 'PENDING');
+    assert.equal(result.data.subscription.paymentStatus, 'UNPAID');
+    assert.equal(result.data.subscription.qrToken, null);
+    assert.equal(result.data.subscription.pickupStopName, 'Garment');
+    assert.equal(result.data.subscription.destinationStopName, 'Bole Medhanialem');
+  });
+  await t.test('test activation uses target route stops and schedules for new and changed routes', async () => {
+    for (const id of ['ps_activate', 'ps_change']) {
+      const result = await request(id, 'POST', '/telebirr/pay', { routeId: 'ps_two' });
+      assert.equal(result.status, 200, JSON.stringify(result.data));
+      const stored = await DB.prepare('SELECT * FROM subscriptions WHERE passengerId=?').get(id);
+      assert.equal(stored.routeId, 'ps_two');
+      assert.equal(stored.pickupStopId, 'ps_start');
+      assert.equal(stored.destinationStopId, 'ps_end');
+      assert.equal(stored.morningSchedule, '05:40');
+      assert.equal(stored.eveningSchedule, '17:55');
+      assert.equal(result.data.subscription.pickupStopName, 'Garment');
+      assert.equal(result.data.subscription.destinationStopName, 'Bole Medhanialem');
+      assert.match(stored.qrToken, /^RP1:/);
+    }
+    const sameRoute = await request('ps_exact', 'POST', '/telebirr/pay', { routeId: 'ps_many' });
+    assert.equal(sameRoute.status, 200);
+    const storedPersonal = await DB.prepare('SELECT * FROM subscriptions WHERE passengerId=?').get('ps_exact');
+    assert.equal(storedPersonal.pickupStopId, 'ps_personal');
+    assert.equal(storedPersonal.destinationStopId, 'ps_many_end');
   });
 });

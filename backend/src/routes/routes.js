@@ -6,6 +6,56 @@ const { authenticate, requireRole } = require('../middleware/auth');
 const { optionalPrincipal, commuteRoute } = require('../services/commute-scope');
 const { routeSearch } = require('../services/route-search');
 
+const stopNameKey = value => String(value ?? '').normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase();
+function stopPoint(stop) {
+  if (stop.latitude == null || stop.longitude == null || String(stop.latitude).trim() === '' || String(stop.longitude).trim() === '') return null;
+  const latitude = Number(stop.latitude), longitude = Number(stop.longitude);
+  return Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 && (latitude !== 0 || longitude !== 0)
+    ? { latitude, longitude } : null;
+}
+function sameStopPoint(a, b) {
+  return a && b && Math.abs(a.latitude - b.latitude) <= 0.000001 && Math.abs(a.longitude - b.longitude) <= 0.000001;
+}
+function stopIdentityCandidates(stop, existing) {
+  const names = [stopNameKey(stop.stopName), stopNameKey(stop.stopNameAm)].filter(Boolean);
+  const point = stopPoint(stop);
+  const byName = existing.filter(old => names.some(name => name === stopNameKey(old.stopName) || name === stopNameKey(old.stopNameAm))
+    && (!point || !stopPoint(old) || sameStopPoint(point, stopPoint(old))));
+  const byPoint = point ? existing.filter(old => sameStopPoint(point, stopPoint(old))) : [];
+  const byBoth = byPoint.filter(old => byName.includes(old));
+  if (byBoth.length === 1) return byBoth;
+  // A unique physical point remains the same stop even if its label is corrected.
+  // Shared coordinates/names are ambiguous; never guess its identity by row order.
+  return byPoint.length ? byPoint : byName;
+}
+async function routeStopIdentities(tx, routeId, incoming) {
+  const existing = await tx.prepare('SELECT * FROM route_stops WHERE routeId = ?').all(routeId);
+  const ownedIds = new Set(existing.map(stop => stop.id)), declaredIds = new Set();
+  const invalid = message => { throw Object.assign(new Error(message), { status: 400 }); };
+  const explicit = [];
+  for (const stop of incoming) {
+    if (!stop || typeof stop !== 'object' || Array.isArray(stop)) invalid('Each stop must be an object.');
+    const id = String(stop.id || '').trim();
+    if (id) {
+      if (declaredIds.has(id)) invalid('A stop ID can appear only once in a route.');
+      declaredIds.add(id);
+      if (!ownedIds.has(id)) {
+        const other = await tx.prepare('SELECT routeId FROM route_stops WHERE id = ?').get(id);
+        if (other) invalid('A stop ID from another route cannot be used.');
+      }
+    }
+    explicit.push(id || null);
+  }
+  const unclaimed = existing.filter(stop => !declaredIds.has(stop.id));
+  const candidates = incoming.map((stop, index) => explicit[index] ? [] : stopIdentityCandidates(stop, unclaimed));
+  const claims = new Map();
+  for (const matches of candidates) if (matches.length === 1) claims.set(matches[0].id, (claims.get(matches[0].id) || 0) + 1);
+  return incoming.map((stop, index) => {
+    const matches = candidates[index];
+    return explicit[index] || (matches.length === 1 && claims.get(matches[0].id) === 1 ? matches[0].id : `stop_${crypto.randomUUID().slice(0, 8)}`);
+  });
+}
+
 /**
  * GET /api/routes
  * List all active transit lines
@@ -154,6 +204,9 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
     if (!name || !nameAm) return res.status(400).json({ success: false, error: 'Route names in English and Amharic are required.' });
 
     await DB.transaction(async (tx) => {
+      // The admin text editor omits IDs. Resolve stable identities before deleting
+      // rows so existing passenger pickup/destination references remain valid.
+      const stopIds = Array.isArray(req.body.stops) ? await routeStopIdentities(tx, req.params.id, req.body.stops) : null;
       await tx.prepare(`
         UPDATE routes SET name = ?, nameAm = ?, description = ?,
           morningDeparture = ?, eveningDeparture = ?, distanceKm = ?, basePriceEtb = ?, active = ?
@@ -178,7 +231,7 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
               (id, routeId, stopName, stopNameAm, stopOrder, latitude, longitude, scheduledMorningTime, scheduledEveningTime, maxCapacity)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(
-            String(stop.id || `stop_${crypto.randomUUID().slice(0, 8)}`),
+            stopIds[idx],
             req.params.id,
             String(stop.stopName || `Stop ${idx + 1}`).trim(),
             String(stop.stopNameAm || `ማቆሚያ ${idx + 1}`).trim(),
@@ -202,6 +255,7 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
     const stops = await DB.prepare(`SELECT * FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC`).all(req.params.id);
     res.json({ success: true, route, stops });
   } catch (err) {
+    if (err.status === 400) return res.status(400).json({ success: false, error: err.message });
     console.error('[RoutePass] route update failed:', err);
     res.status(500).json({ success: false, error: 'Could not update route.' });
   }

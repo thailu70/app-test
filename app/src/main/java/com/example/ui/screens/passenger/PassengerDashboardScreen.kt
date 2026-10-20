@@ -78,7 +78,8 @@ fun PassengerDashboardScreen(
     val uriHandler = LocalUriHandler.current
     val trackedVehicle by viewModel.trackedVehicle.collectAsState()
     val trackingMessage by viewModel.trackingMessage.collectAsState()
-    val subscription by viewModel.activeSubscription.collectAsState()
+    val subscriptionSnapshot by viewModel.passengerSubscriptionSnapshot.collectAsState()
+    val subscription = subscriptionSnapshot.subscription
     val routeStops by viewModel.passengerRouteStops.collectAsState()
     val subscriptionLoading by viewModel.passengerSubscriptionLoading.collectAsState()
     val subscriptionError by viewModel.passengerSubscriptionError.collectAsState()
@@ -211,7 +212,8 @@ fun PassengerDashboardScreen(
                     item {
                         AssignedDriverCard(subscription = subscription, route = selectedRoute, routeName = routeName,
                             stops = routeStops, lang = lang, onShowPass = { passengerSection = "My Pass" },
-                            onRenew = { viewModel.openTelebirrDialog() }, paymentAvailable = canPay)
+                            onRenew = { viewModel.openTelebirrDialog() }, paymentAvailable = canPay,
+                            stopAssignment = subscriptionSnapshot.stopAssignment)
                     }
                     item { CommuterLocationCard(trackedVehicle, trackingMessage, lang) { passengerSection = "Live Location" } }
                     if (!subscriptionLoading && subscriptionError == null) item {

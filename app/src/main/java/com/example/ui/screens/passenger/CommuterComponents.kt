@@ -105,14 +105,20 @@ fun CommuterActiveTripCard(
     subscription: SubscriptionEntity?, route: RouteEntity?, routeName: String?, stops: List<RouteStopEntity>,
     driver: AssignedDriver?, loadingDriver: Boolean, driverError: String?, lang: AppLanguage,
     onRetry: () -> Unit, onShowPass: () -> Unit, onRenew: () -> Unit, paymentAvailable: Boolean,
+    stopAssignment: com.example.data.repository.PassengerStopAssignment? = null,
     driverPortrait: @Composable (String) -> Unit = { AuthenticatedProfilePhoto(it, Modifier.size(56.dp)) }
 ) {
     val context = LocalContext.current
     val canBoard = canShowPassengerBoardingPass(subscription)
     val locations = assignedRouteLocations(subscription?.routeId?.takeIf { it.isNotBlank() } ?: route?.id, routeName ?: route?.name,
         stops, lang, subscription?.pickupStopId, subscription?.destinationStopId)
-    val pickup = locations.departure
-    val destination = locations.destination
+    val assignment = stopAssignment?.takeIf { it.matches(subscription) }
+    fun assignedName(english: String?, amharic: String?, cached: String?): String? =
+        if (lang == AppLanguage.AMHARIC && !amharic.isNullOrBlank()) amharic.trim()
+        else if (english != null) english.trim().takeIf { it.isNotBlank() }
+        else cached
+    val pickup = assignedName(assignment?.pickupStopName, assignment?.pickupStopNameAm, locations.departure)
+    val destination = assignedName(assignment?.destinationStopName, assignment?.destinationStopNameAm, locations.destination)
     val daysLeft = rememberSubscriptionDaysLeft(subscription)
     val morning = subscription?.morningSchedule?.takeIf { it.isNotBlank() } ?: route?.morningDeparture.orEmpty()
     val evening = subscription?.eveningSchedule?.takeIf { it.isNotBlank() } ?: route?.eveningDeparture.orEmpty()

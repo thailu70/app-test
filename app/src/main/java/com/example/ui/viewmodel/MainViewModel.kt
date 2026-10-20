@@ -12,6 +12,7 @@ import com.example.data.api.LiveTrackingWebSocket
 import com.example.data.api.TrackedVehicleDto
 import com.example.data.entity.*
 import com.example.data.repository.TransportRepository
+import com.example.data.repository.PassengerSubscriptionSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -79,6 +80,8 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     private var paymentRequestJob: Job? = null
     private var sessionGeneration = 0L
     private val _passengerSubscription = MutableStateFlow<SubscriptionEntity?>(null)
+    private val _passengerSubscriptionSnapshot = MutableStateFlow(PassengerSubscriptionSnapshot())
+    val passengerSubscriptionSnapshot: StateFlow<PassengerSubscriptionSnapshot> = _passengerSubscriptionSnapshot.asStateFlow()
     private val _passengerSubscriptionLoading = MutableStateFlow(false)
     val passengerSubscriptionLoading: StateFlow<Boolean> = _passengerSubscriptionLoading.asStateFlow()
     private val _passengerSubscriptionError = MutableStateFlow<String?>(null)
@@ -86,9 +89,10 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
     private suspend fun refreshPassengerSubscription(passengerId: String) {
         try {
-            val subscription = repository.refreshSubscriptionFromBackend(passengerId)
+            val snapshot = repository.refreshSubscriptionSnapshotFromBackend(passengerId)
             if (currentPassengerId == passengerId) {
-                _passengerSubscription.value = subscription
+                _passengerSubscriptionSnapshot.value = snapshot
+                _passengerSubscription.value = snapshot.subscription
                 _passengerSubscriptionError.value = null
             }
         } catch (cancelled: CancellationException) {
@@ -100,6 +104,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
                 else "Could not refresh your pass. Check your connection and try again."
                 // Never present a cached QR/paid status as currently verified after an error.
                 _passengerSubscription.value = null
+                _passengerSubscriptionSnapshot.value = PassengerSubscriptionSnapshot()
             }
         } finally {
             if (currentPassengerId == passengerId) _passengerSubscriptionLoading.value = false
@@ -109,6 +114,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     private fun startPassengerSubscriptionRefresh(passengerId: String) {
         passengerSubscriptionRefreshJob?.cancel()
         _passengerSubscription.value = null
+        _passengerSubscriptionSnapshot.value = PassengerSubscriptionSnapshot()
         _passengerSubscriptionError.value = null
         _passengerSubscriptionLoading.value = true
         passengerSubscriptionRefreshJob = viewModelScope.launch {
@@ -129,6 +135,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         passengerSubscriptionRefreshJob?.cancel()
         passengerSubscriptionRefreshJob = null
         _passengerSubscription.value = null
+        _passengerSubscriptionSnapshot.value = PassengerSubscriptionSnapshot()
         _passengerSubscriptionError.value = null
         _passengerSubscriptionLoading.value = false
     }

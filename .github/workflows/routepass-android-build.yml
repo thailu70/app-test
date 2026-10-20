@@ -52,7 +52,7 @@ jobs:
           ROUTEPASS_API_BASE_URL: ${{ github.event.inputs.api_base_url || 'https://routepass.duckdns.org/' }}
         run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=$ROUTEPASS_API_BASE_URL"
       - name: Verify portal interactions and capture native previews
-        run: gradle :app:testDebugUnitTest --tests com.example.LauncherIconTest --tests com.example.WelcomeLayoutTest --tests com.example.CommuterLayoutTest --tests com.example.CommuterBrowseTest --tests com.example.PublicCommuterLoadingTest --tests com.example.BrowseBackNavigationTest --tests com.example.AuthLayoutTest --tests com.example.IntercityApiContractTest --tests com.example.IntercityPassengerStateTest --tests com.example.IntercityLayoutTest --tests com.example.DriverLayoutTest --tests com.example.DriverUiStateTest --tests com.example.DriverAssignmentsLoadingTest --tests com.example.PassengerPresentationTest --tests com.example.BoardingQrTest
+        run: gradle :app:testDebugUnitTest --tests com.example.LauncherIconTest --tests com.example.WelcomeLayoutTest --tests com.example.CommuterLayoutTest --tests com.example.CommuterBrowseTest --tests com.example.PublicCommuterLoadingTest --tests com.example.BrowseBackNavigationTest --tests com.example.AuthLayoutTest --tests com.example.IntercityApiContractTest --tests com.example.IntercityPassengerStateTest --tests com.example.IntercityLayoutTest --tests com.example.DriverLayoutTest --tests com.example.DriverUiStateTest --tests com.example.DriverAssignmentsLoadingTest --tests com.example.PassengerAssignmentLoadingTest --tests com.example.PassengerPresentationTest --tests com.example.BoardingQrTest
       - name: Upload welcome verification evidence
         if: always()
         uses: actions/upload-artifact@v4

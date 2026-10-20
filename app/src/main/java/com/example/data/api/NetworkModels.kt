@@ -131,7 +131,11 @@ data class SubscriptionDto(
     val eveningSchedule: String? = null,
     val vehicleId: String? = null,
     val pickupStopId: String? = null,
-    val destinationStopId: String? = null
+    val destinationStopId: String? = null,
+    val pickupStopName: String? = null,
+    val pickupStopNameAm: String? = null,
+    val destinationStopName: String? = null,
+    val destinationStopNameAm: String? = null
 )
 
 @JsonClass(generateAdapter = true)

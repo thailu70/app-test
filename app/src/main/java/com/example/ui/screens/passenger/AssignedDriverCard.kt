@@ -79,7 +79,8 @@ fun AssignedDriverCard(
     lang: com.example.core.localization.AppLanguage = com.example.core.localization.AppLanguage.ENGLISH,
     onShowPass: () -> Unit = {},
     onRenew: () -> Unit = {},
-    paymentAvailable: Boolean = false
+    paymentAvailable: Boolean = false,
+    stopAssignment: com.example.data.repository.PassengerStopAssignment? = null
 ) {
     var driver by remember { mutableStateOf<AssignedDriver?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -111,5 +112,6 @@ fun AssignedDriverCard(
     }
 
     CommuterActiveTripCard(subscription, route, routeName, stops, driver, loading, error, lang,
-        onRetry = { retry++ }, onShowPass = onShowPass, onRenew = onRenew, paymentAvailable = paymentAvailable)
+        onRetry = { retry++ }, onShowPass = onShowPass, onRenew = onRenew, paymentAvailable = paymentAvailable,
+        stopAssignment = stopAssignment)
 }
