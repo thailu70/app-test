@@ -75,6 +75,9 @@ app.use(express.urlencoded({ extended: true }));
 
 // Welcome & API Status
 app.get('/', async (req, res) => {
+  if (String(req.headers.accept || '').toLowerCase().includes('text/html')) {
+    return res.redirect(302, '/join/');
+  }
   res.json({
     service: 'Transport Navigator VPS API',
     region: 'Ethiopia (Addis Ababa)',

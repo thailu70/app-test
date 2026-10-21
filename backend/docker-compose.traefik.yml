@@ -8,6 +8,17 @@ services:
       - "traefik.http.routers.routepass-api.tls=true"
       - "traefik.http.routers.routepass-api.tls.certresolver=letsencrypt"
       - "traefik.http.routers.routepass-api.service=routepass-api"
+      # DNS aliases still need their own valid certificate before HTTPS can redirect.
+      # This router requests www independently and keeps path/query on the canonical host.
+      - "traefik.http.routers.routepass-www.rule=Host(`www.${ROUTEPASS_DOMAIN}`)"
+      - "traefik.http.routers.routepass-www.entrypoints=websecure"
+      - "traefik.http.routers.routepass-www.tls=true"
+      - "traefik.http.routers.routepass-www.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.routepass-www.service=routepass-api"
+      - "traefik.http.routers.routepass-www.middlewares=routepass-canonical"
+      - "traefik.http.middlewares.routepass-canonical.redirectregex.regex=^https?://[^/]+(.*)"
+      - "traefik.http.middlewares.routepass-canonical.redirectregex.replacement=https://${ROUTEPASS_DOMAIN}$${1}"
+      - "traefik.http.middlewares.routepass-canonical.redirectregex.permanent=true"
       # Optional migration alias; use the primary host when no legacy hostname is configured.
       # Separate routers keep certificate renewal independent for the two domains.
       - "traefik.http.routers.routepass-legacy.rule=Host(`${ROUTEPASS_LEGACY_DOMAIN:-${ROUTEPASS_DOMAIN}}`)"

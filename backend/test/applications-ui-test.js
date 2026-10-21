@@ -52,3 +52,28 @@ test('switching applicants discards an older response and cleanup prevents a lat
   await flush();
   assert.doesNotMatch(f.node('[data-application-detail]').innerHTML, /After sign out/);
 });
+test('initial acceptance reviews the route and whole-vehicle fee while final allocation approval remains disabled', async () => {
+  let decision;
+  const account = { id: 'daily', role: 'DRIVER', fullName: 'Daily applicant', status: 'PENDING' };
+  const onboarding = { acceptanceRequired: true, acceptanceStatus: 'PENDING', canVerifyAndUpload: false, reviewStatus: 'AWAITING_ACCEPTANCE', ready: false, missing: ['ADMIN_ACCEPTANCE','PHONE_VERIFICATION'],
+    routePreference: { mode: 'PROPOSED', departure: '<script>departure</script>', destination: 'Destination', proposedMonthlyFeeEtb: 45000, proposedMonthlyFeeBasis: 'PER_VEHICLE' }, documents: [] };
+  const f = fixture(async (path, options) => {
+    if (path.endsWith('/review')) { decision = JSON.parse(options.body); return {}; }
+    if (path.endsWith('/applications')) return { applications: [{ ...account, onboarding }] };
+    return { account, onboarding };
+  });
+  await flush();
+  assert.match(f.node('[data-application-list]').innerHTML, /Awaiting admin acceptance/);
+  assert.match(f.node('[data-application-list]').innerHTML, /After admin acceptance/);
+  f.click('[data-application-open]', { applicationRole: 'DRIVER', applicationOpen: 'daily' }); await flush();
+  const html = f.node('[data-application-detail]').innerHTML;
+  assert.match(html, /45,000\.00 ETB \/ vehicle \/ month/);
+  assert.match(html, /&lt;script&gt;departure/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /data-application-decision="ACCEPT">Accept application/);
+  assert.match(html, /data-application-decision="APPROVE" disabled/);
+  f.click('[data-application-decision]', { applicationDecision: 'ACCEPT' }); await flush();
+  assert.equal(decision.decision, 'ACCEPT');
+  assert.match(f.node('[data-application-message]').textContent, /Passenger allocation stays locked/);
+  f.cleanup();
+});

@@ -22,6 +22,8 @@ getent ahostsv4 routepass-test-4827.duckdns.org
 
 The returned IPv4 address must be the VPS address. Also ensure the hosting provider's external firewall/security group permits inbound TCP 80 and 443. Do not open TCP 3000 or 5432 publicly.
 
+For a public site such as `passo.live`, also create `www.passo.live` as a CNAME to `passo.live` (or an A record to the same VPS). Remove stale AAAA records unless IPv6 reaches this server. The Compose overlay gives `www.${ROUTEPASS_DOMAIN}` its own Let's Encrypt HTTPS router, then permanently redirects it to `https://${ROUTEPASS_DOMAIN}` while preserving the path and query. A DNS CNAME alone does not supply an HTTPS certificate. The primary and legacy host routers retain separate certificates; the existing legacy API hostname does not redirect.
+
 ## 2. Fetch this branch
 
 From your SSH terminal (logged in to the VPS), run:
@@ -88,6 +90,16 @@ curl -fsS https://routepass-test-4827.duckdns.org/api/ready
 ```
 
 Replace the sample host with your actual hostname. Health should return a minimal healthy status; readiness checks database connectivity. WebSocket traffic uses `wss://YOUR-HOST/ws`.
+
+After deploying the public site's `www` alias, verify it with normal certificate validation:
+
+```bash
+curl -sSI https://passo.live/join/
+curl -sSI 'https://www.passo.live/join/?role=driver'
+curl -fsSL 'https://www.passo.live/join/?role=driver' >/dev/null
+```
+
+The second request should return a permanent redirect to `https://passo.live/join/?role=driver`; the last should complete without a TLS error. The existing shared Traefik HTTP entrypoint already redirects HTTP to HTTPS. Do not change global proxy entrypoints or restart other hosted applications to add this alias.
 
 If HTTPS fails, first verify the DNS A record, the hosting provider's inbound TCP 80/443 firewall, then inspect `docker logs --tail=100 traefik-traefik-1`. Never work around TLS failures by publishing port 3000. Avoid running `docker compose down -v`, because it can delete the PostgreSQL data volume.
 

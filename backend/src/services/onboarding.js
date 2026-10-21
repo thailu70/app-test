@@ -52,6 +52,36 @@ async function initOnboardingSchema(db = DB) {
     if (db.isPostgres) {
       await db.exec("ALTER TABLE transport_companies DROP CONSTRAINT IF EXISTS transport_companies_status_check; ALTER TABLE transport_companies ADD CONSTRAINT transport_companies_status_check CHECK(status IN ('ACTIVE','INACTIVE','INVITED','PENDING'));");
     }
+    const additions = {
+      service_type: "TEXT NOT NULL DEFAULT ''", route_choice: "TEXT NOT NULL DEFAULT ''", route_id: "TEXT NOT NULL DEFAULT ''",
+      route_name: "TEXT NOT NULL DEFAULT ''", proposed_departure: "TEXT NOT NULL DEFAULT ''", proposed_destination: "TEXT NOT NULL DEFAULT ''",
+      proposed_monthly_fee_etb: 'NUMERIC', proposed_monthly_fee_basis: "TEXT NOT NULL DEFAULT ''",
+      initial_submitted_at: 'TEXT', acceptance_status: "TEXT NOT NULL DEFAULT 'PENDING'", accepted_at: 'TEXT', accepted_by: 'TEXT',
+      acceptance_grandfathered: 'BOOLEAN NOT NULL DEFAULT FALSE'
+    };
+    const existing = db.isPostgres ? [] : await db.prepare('PRAGMA table_info(onboarding_accounts)').all();
+    for (const [column, definition] of Object.entries(additions)) {
+      if (db.isPostgres) await db.exec(`ALTER TABLE onboarding_accounts ADD COLUMN IF NOT EXISTS ${column} ${definition}`);
+      else if (!existing.some(item => item.name === column)) await db.exec(`ALTER TABLE onboarding_accounts ADD COLUMN ${column} ${definition}`);
+    }
+    // Only accounts approved under the previous complete workflow retain their acceptance.
+    // Pending applications move to the initial review without deleting already-uploaded records.
+    const legacy = await db.prepare("SELECT * FROM onboarding_accounts WHERE service_type=''").all();
+    for (const record of legacy) {
+      const account = await loadAccount(record.account_id, record.role, db);
+      const required = record.role === 'DRIVER' && account && !companyId(account);
+      let approved = false;
+      if (required && account.status === 'ACTIVE' && record.review_status === 'APPROVED' && record.submitted_at && record.phone_verified_at && record.phone_verified_for === normalizePhone(account.phone) && record.normalized_phone === normalizePhone(account.phone)) {
+        const saved = await documents(record.account_id, 'DRIVER', db), profile = await db.prepare('SELECT * FROM user_profiles WHERE user_id=?').get(record.account_id) || {};
+        approved = REQUIRED.DRIVER.every(kind => saved.some(doc => doc.kind === kind)) && Boolean(profile.emergency_contact_name && normalizePhone(profile.emergency_contact_phone) && profile.vehicle_color);
+      }
+      const instant = new Date().toISOString();
+      await db.prepare(`UPDATE onboarding_accounts SET service_type=?,acceptance_status=?,accepted_at=?,accepted_by=?,acceptance_grandfathered=?,initial_submitted_at=?,
+        review_status=?,submitted_at=? WHERE account_id=?`).run(record.role === 'COMPANY' ? 'COMPANY' : required ? 'DAILY_COMMUTE' : 'INTERCITY',
+        required ? approved ? 'ACCEPTED' : 'PENDING' : 'NOT_REQUIRED', approved ? record.reviewed_at || instant : null,
+        approved ? record.reviewed_by || 'LEGACY_APPROVAL' : null, db.isPostgres ? Boolean(approved) : approved ? 1 : 0, required ? record.created_at || instant : null,
+        required && !approved ? 'AWAITING_ACCEPTANCE' : record.review_status, required && !approved ? null : record.submitted_at, record.account_id);
+    }
   })().catch(error => { schemaTasks.delete(db); throw error; }));
   return schemaTasks.get(db);
 }
@@ -74,13 +104,68 @@ async function documents(id, role, db = DB) {
   const key = role === 'COMPANY' ? 'company_id' : 'user_id';
   return db.prepare(`SELECT * FROM ${table} WHERE ${key}=? ORDER BY kind`).all(id);
 }
+function routePreference(record) {
+  return { mode: record.route_choice || '', routeId: record.route_id || '', routeName: record.route_name || '',
+    departure: record.proposed_departure || '', destination: record.proposed_destination || '',
+    proposedMonthlyFeeEtb: record.proposed_monthly_fee_etb == null ? null : Number(record.proposed_monthly_fee_etb), proposedMonthlyFeeBasis: record.proposed_monthly_fee_basis || '' };
+}
+function feeProposal(amount, basis = 'PER_VEHICLE') {
+  if ((typeof amount !== 'number' && typeof amount !== 'string') || (typeof amount === 'string' && !/^\d+(?:\.\d{1,2})?$/.test(amount))) fail(400, 'Enter a proposed monthly fee in ETB with no more than two decimal places.');
+  const value = Number(amount);
+  if (!Number.isFinite(value) || value <= 0 || value > 1000000 || Math.abs(value * 100 - Math.round(value * 100)) > 0.000001) fail(400, 'Propose a monthly fee greater than zero and no more than ETB 1,000,000 per vehicle.');
+  if (basis !== 'PER_VEHICLE') fail(400, 'The proposed monthly fee must be for the whole vehicle per month.');
+  return { proposedMonthlyFeeEtb: Math.round(value * 100) / 100, proposedMonthlyFeeBasis: basis };
+}
+function completePreference(record) {
+  if (record.acceptance_grandfathered === true || record.acceptance_grandfathered === 1) return true;
+  try { feeProposal(record.proposed_monthly_fee_etb, record.proposed_monthly_fee_basis); } catch (_) { return false; }
+  return record.route_choice === 'EXISTING' ? Boolean(record.route_id) : record.route_choice === 'PROPOSED' && Boolean(record.proposed_departure && record.proposed_destination);
+}
+function acceptance(account, record) {
+  const required = record.role === 'DRIVER' && !companyId(account || {});
+  const accepted = !required || Boolean(record.acceptance_status === 'ACCEPTED' && record.accepted_at && record.accepted_by && record.normalized_phone === normalizePhone(account?.phone));
+  const initialMissing = [];
+  if (required && !completePreference(record)) {
+    if (!['EXISTING','PROPOSED'].includes(record.route_choice) || (record.route_choice === 'EXISTING' ? !record.route_id : !(record.proposed_departure && record.proposed_destination))) initialMissing.push('ROUTE_PREFERENCE');
+    try { feeProposal(record.proposed_monthly_fee_etb, record.proposed_monthly_fee_basis); } catch (_) { initialMissing.push('PROPOSED_MONTHLY_FEE'); }
+  }
+  return { acceptanceRequired: required, acceptanceStatus: required ? accepted ? 'ACCEPTED' : record.acceptance_status === 'REJECTED' ? 'REJECTED' : 'PENDING' : 'NOT_REQUIRED',
+    acceptedAt: required && accepted ? record.accepted_at : null, acceptedBy: required && accepted ? record.accepted_by : null,
+    initialSubmittedAt: record.initial_submitted_at || null, canVerifyAndUpload: Boolean(mayContinue(account) && accepted), routePreference: routePreference(record),
+    initialApplicationComplete: initialMissing.length === 0, initialMissing,
+    canInitiallySubmit: Boolean(required && !accepted && mayContinue(account) && initialMissing.length === 0) };
+}
+function requireAcceptance(account, record) {
+  if (!acceptance(account, record).canVerifyAndUpload) fail(428, 'Your daily commute application must be accepted by an administrator before phone verification or document upload.');
+}
+async function validatePreference(input, db = DB) {
+  const mode = String(input.routeChoice || '').toUpperCase(), fee = feeProposal(input.proposedMonthlyFeeEtb, input.proposedMonthlyFeeBasis);
+  if (mode === 'EXISTING') {
+    const id = text(input.appliedRouteId, 'daily commute route', 64);
+    const route = await db.prepare("SELECT id,name FROM routes WHERE id=? AND active=TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'").get(id);
+    if (!route) fail(400, 'Choose an active daily commute route.');
+    return { mode, routeId: route.id, routeName: route.name, departure: '', destination: '', ...fee };
+  }
+  if (mode !== 'PROPOSED') fail(400, 'Choose an existing daily commute route or propose a route.');
+  const departure = text(input.proposedDeparture, 'proposed departure', 120), destination = text(input.proposedDestination, 'proposed destination', 120);
+  const key = value => value.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+  if ((departure.match(/[\p{L}\p{N}]/gu) || []).length < 2 || (destination.match(/[\p{L}\p{N}]/gu) || []).length < 2 || key(departure) === key(destination)) fail(400, 'Propose two distinct departure and destination places.');
+  return { mode, routeId: '', routeName: departure + ' → ' + destination, departure, destination, ...fee };
+}
+async function savePreference(id, preference, db) {
+  await db.prepare('UPDATE onboarding_accounts SET route_choice=?,route_id=?,route_name=?,proposed_departure=?,proposed_destination=?,proposed_monthly_fee_etb=?,proposed_monthly_fee_basis=? WHERE account_id=?')
+    .run(preference.mode, preference.routeId, preference.routeName, preference.departure, preference.destination, preference.proposedMonthlyFeeEtb, preference.proposedMonthlyFeeBasis, id);
+}
 async function getOnboardingReadiness(id, role, db = DB, { requireSubmission = true } = {}) {
   const record = await enrollment(id, role, db);
   if (!record) return { tracked: false, ready: true, missing: [], phoneVerified: false, submittedAt: null, reviewStatus: null };
   const account = await loadAccount(id, role, db);
+  const initial = acceptance(account, record);
   const currentPhone = normalizePhone(account?.phone);
   const phoneVerified = Boolean(currentPhone && record.phone_verified_at && record.phone_verified_for === currentPhone && record.normalized_phone === currentPhone);
   const missing = phoneVerified ? [] : ['PHONE_VERIFICATION'];
+  if (initial.acceptanceRequired && !initial.acceptedAt) missing.unshift('ADMIN_ACCEPTANCE');
+  missing.unshift(...initial.initialMissing);
   const saved = await documents(id, role, db);
   for (const kind of REQUIRED[role] || []) if (!saved.some(doc => doc.kind === kind)) missing.push(kind);
   if (role === 'DRIVER') {
@@ -91,7 +176,7 @@ async function getOnboardingReadiness(id, role, db = DB, { requireSubmission = t
   }
   if (requireSubmission && !record.submitted_at) missing.push('SUBMIT_FOR_REVIEW');
   return { tracked: true, ready: missing.length === 0, missing, phoneVerified,
-    submittedAt: record.submitted_at || null, reviewStatus: record.review_status, reviewNote: record.review_note || '' };
+    submittedAt: record.submitted_at || null, reviewStatus: record.review_status, reviewNote: record.review_note || '', ...initial };
 }
 async function isOperationallyEligible(id, role, db = DB) {
   if (!['DRIVER', 'COMPANY'].includes(role)) return true;
@@ -107,23 +192,57 @@ async function markOnboardingReviewed(id, role, decision, reviewer, note = '', d
   if (!['APPROVED', 'REJECTED'].includes(decision)) fail(400, 'Invalid review decision.');
   if (decision === 'APPROVED' && !mayContinue(account)) fail(409, 'This account is disabled. Restore it explicitly before reviewing onboarding.');
   if (decision === 'APPROVED' && !(await getOnboardingReadiness(id, role, db)).ready) fail(428, 'The applicant must verify their phone, complete all required information and submit for review.');
+  if (decision === 'REJECTED' && acceptance(account, record).acceptanceRequired) {
+    await db.prepare("UPDATE onboarding_accounts SET acceptance_status='REJECTED',accepted_at=NULL,accepted_by=NULL,acceptance_grandfathered=FALSE WHERE account_id=?").run(id);
+    await db.prepare('DELETE FROM onboarding_otps WHERE account_id=?').run(id);
+  }
   await db.prepare('UPDATE onboarding_accounts SET review_status=?,reviewed_by=?,reviewed_at=?,review_note=?,submitted_at=?,updated_at=? WHERE account_id=? AND role=?')
     .run(decision, reviewer, new Date().toISOString(), text(String(note), 'review note', 500, false), decision === 'REJECTED' ? null : record.submitted_at, new Date().toISOString(), id, role);
   return true;
 }
-async function invalidateOnboarding(id, role, db = DB, { phoneChanged = false } = {}) {
+async function invalidateOnboarding(id, role, db = DB, { phoneChanged = false, identityChanged = false, routeChanged = false } = {}) {
   if (!REQUIRED[role]) return false;
   const account = await loadAccount(id, role, db, true);
   if (!mayContinue(account)) return false;
-  if (!(await enrollment(id, role, db, true))) return false;
-  await db.prepare("UPDATE onboarding_accounts SET submitted_at=NULL,review_status='DRAFT',reviewed_by=NULL,reviewed_at=NULL,review_note='',updated_at=? WHERE account_id=?")
-    .run(new Date().toISOString(), id);
-  if (phoneChanged) {
+  const record = await enrollment(id, role, db, true);
+  if (!record) return false;
+  const initial = acceptance(account, record), revoke = initial.acceptanceRequired && (phoneChanged || identityChanged || routeChanged);
+  if (revoke) await db.prepare("UPDATE onboarding_accounts SET acceptance_status='PENDING',accepted_at=NULL,accepted_by=NULL,acceptance_grandfathered=FALSE,initial_submitted_at=? WHERE account_id=?").run(new Date().toISOString(), id);
+  await db.prepare('UPDATE onboarding_accounts SET submitted_at=NULL,review_status=?,reviewed_by=NULL,reviewed_at=NULL,review_note=\'\',updated_at=? WHERE account_id=?')
+    .run(initial.acceptanceRequired && (revoke || !initial.acceptedAt) ? 'AWAITING_ACCEPTANCE' : 'DRAFT', new Date().toISOString(), id);
+  if (phoneChanged || revoke) {
+    const phone = normalizePhone(account.phone);
+    if (phoneChanged && phone && record.normalized_phone !== phone) {
+      if (!(await phoneAvailable(phone, id, db))) fail(409, 'This phone number is already registered.');
+      await db.prepare('UPDATE onboarding_accounts SET normalized_phone=? WHERE account_id=?').run(phone, id);
+    }
     await db.prepare('UPDATE onboarding_accounts SET phone_verified_at=NULL,phone_verified_for=NULL WHERE account_id=?').run(id);
     await db.prepare('DELETE FROM onboarding_otps WHERE account_id=?').run(id);
   }
   if (role === 'COMPANY') await db.prepare("UPDATE transport_companies SET status='PENDING',updated_at=CURRENT_TIMESTAMP WHERE id=?").run(id);
   else await db.prepare("UPDATE users SET status='PENDING' WHERE id=? AND role='DRIVER'").run(id);
+  return true;
+}
+async function acceptInitialOnboarding(id, reviewer, note = '', db = DB) {
+  const admin = await db.prepare("SELECT id FROM users WHERE id=? AND role='ADMIN' AND status='ACTIVE'").get(reviewer);
+  if (!admin) fail(403, 'Only a system administrator can accept a daily commute application.');
+  const account = await loadAccount(id, 'DRIVER', db, true), record = await enrollment(id, 'DRIVER', db, true);
+  if (!account || !record || companyId(account)) fail(404, 'Daily commute application unavailable.');
+  if (!mayContinue(account)) fail(403, 'This account is disabled. Contact support.');
+  if (acceptance(account, record).acceptedAt) return false;
+  if (!completePreference(record)) fail(428, 'The applicant must select or propose a route and propose a monthly fee before acceptance.');
+  if (record.route_choice === 'EXISTING') await validatePreference({ routeChoice: 'EXISTING', appliedRouteId: record.route_id, proposedMonthlyFeeEtb: record.proposed_monthly_fee_etb, proposedMonthlyFeeBasis: record.proposed_monthly_fee_basis }, db);
+  const phone = normalizePhone(account.phone);
+  if (!phone) fail(428, 'The applicant must provide a valid phone number before acceptance.');
+  if (record.normalized_phone !== phone) {
+    if (!(await phoneAvailable(phone, id, db))) fail(409, 'This phone number is already registered.');
+    await db.prepare('UPDATE onboarding_accounts SET normalized_phone=?,phone_verified_at=NULL,phone_verified_for=NULL WHERE account_id=?').run(phone, id);
+    await db.prepare('DELETE FROM onboarding_otps WHERE account_id=?').run(id);
+  }
+  const instant = new Date().toISOString();
+  await db.prepare("UPDATE onboarding_accounts SET acceptance_status='ACCEPTED',accepted_at=?,accepted_by=?,review_status='DRAFT',review_note=?,submitted_at=NULL,reviewed_at=NULL,reviewed_by=NULL,updated_at=? WHERE account_id=?")
+    .run(instant, reviewer, text(note, 'acceptance note', 500, false), instant, id);
+  await db.prepare("UPDATE users SET status='PENDING' WHERE id=? AND role='DRIVER'").run(id);
   return true;
 }
 async function phoneAvailable(phone, except, db = DB) {
@@ -172,8 +291,8 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
     if (!mayContinue(account)) fail(403, 'This account is disabled. Contact support.');
     return { account, record };
   }
-  async function invalidate(tx, id, role, phoneChanged = false) {
-    await invalidateOnboarding(id, role, tx, { phoneChanged });
+  async function invalidate(tx, id, role, phoneChanged = false, routeChanged = false) {
+    await invalidateOnboarding(id, role, tx, { phoneChanged, routeChanged });
   }
   async function snapshot(id, role, { review = false } = {}) {
     const account = await loadAccount(id, role, db), record = await enrollment(id, role, db);
@@ -195,7 +314,7 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
     const fullName = text(input.fullName, 'full name', 120), phone = normalizePhone(input.phone);
     if (!phone) fail(400, 'Enter a valid Ethiopian phone number.');
     if (typeof input.password !== 'string' || input.password.length < 10 || Buffer.byteLength(input.password, 'utf8') > 72) fail(400, 'Use a password with at least 10 characters and at most 72 bytes.');
-    let name = '', company = null, plate = '', model = '', type = null;
+    let name = '', company = null, plate = '', model = '', type = null, preference = null;
     if (role === 'COMPANY') name = text(input.companyName, 'company name', 100);
     else {
       text(input.licenseNumber, 'driving licence number', 50);
@@ -208,6 +327,7 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
         plate = text(input.assignedVehiclePlate, 'vehicle plate', 30).toUpperCase(); model = text(input.vehicleModel, 'vehicle model', 80);
         type = await require('./master-data').getVehicleType(String(input.vehicleType || '').toUpperCase(), db);
         if (!type) fail(400, 'Choose an available vehicle type.');
+        preference = await validatePreference(input, db);
       }
     }
     const hash = await bcrypt.hash(input.password, 12), id = (role === 'COMPANY' ? 'company_' : 'usr_drv_') + crypto.randomUUID().replace(/-/g, '').slice(0, 20);
@@ -238,7 +358,9 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
         if (plate) await tx.prepare("INSERT INTO vehicles(id,plateNumber,model,vehicleType,capacityLimit,currentOccupancy,assignedRouteId,driverId,driverName,status) VALUES(?,?,?,?,?,0,NULL,?,?,'OFF_DUTY')")
           .run('veh_' + crypto.randomUUID().replace(/-/g, '').slice(0, 20), plate, model, type.code, type.capacity, id, fullName);
       }
-      await tx.prepare('INSERT INTO onboarding_accounts(account_id,role,normalized_phone,created_at,updated_at) VALUES(?,?,?,?,?)').run(id, role, phone, time(), time());
+      await tx.prepare('INSERT INTO onboarding_accounts(account_id,role,normalized_phone,created_at,updated_at,service_type,review_status,initial_submitted_at,acceptance_status) VALUES(?,?,?,?,?,?,?,?,?)')
+        .run(id, role, phone, time(), time(), role === 'COMPANY' ? 'COMPANY' : company ? 'INTERCITY' : 'DAILY_COMMUTE', preference ? 'AWAITING_ACCEPTANCE' : 'DRAFT', preference ? time() : null, preference ? 'PENDING' : 'NOT_REQUIRED');
+      if (preference) await savePreference(id, preference.mode === 'EXISTING' ? await validatePreference(input, tx) : preference, tx);
     });
     return snapshot(id, role);
   }
@@ -254,6 +376,7 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
     const challenge = crypto.randomUUID(), code = String(crypto.randomInt(100000, 1000000));
     const account = await transact(async tx => {
       const { account, record } = await lock(tx, id, role), phone = normalizePhone(account.phone);
+      requireAcceptance(account, record);
       if (!phone) fail(400, 'Update your account phone before requesting a code.');
       if (record.phone_verified_for === phone && record.phone_verified_at) fail(409, 'This phone number is already verified.');
       const previous = await tx.prepare('SELECT * FROM onboarding_otps WHERE account_id=?').get(id);
@@ -283,7 +406,9 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
   async function verifyOtp(id, role, code) {
     if (typeof code !== 'string' || !/^\d{6}$/.test(code)) fail(400, 'Enter the six-digit verification code.');
     const result = await transact(async tx => {
-      const { account } = await lock(tx, id, role), otp = await tx.prepare('SELECT * FROM onboarding_otps WHERE account_id=?').get(id);
+      const { account, record } = await lock(tx, id, role);
+      requireAcceptance(account, record);
+      const otp = await tx.prepare('SELECT * FROM onboarding_otps WHERE account_id=?').get(id);
       if (!otp || !otp.sent_at || otp.consumed_at || Date.parse(otp.expires_at) <= now() || otp.attempts >= 5 || otp.phone !== normalizePhone(account.phone)) return false;
       const claimed = await tx.prepare('UPDATE onboarding_otps SET attempts=attempts+1 WHERE account_id=? AND attempts<5 AND consumed_at IS NULL').run(id);
       if (claimed.changes !== 1 || !crypto.timingSafeEqual(Buffer.from(otp.code_hash, 'hex'), Buffer.from(codeHash(account, otp.challenge_id, code), 'hex'))) return false;
@@ -295,17 +420,27 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
     return snapshot(id, role);
   }
   async function updateProfile(id, role, input) {
-    const allowed = role === 'DRIVER' ? ['phone','emergencyContactName','emergencyContactPhone','vehicleColor'] : ['phone','address','registrationNumber'];
+    const routeKeys = ['routeChoice','appliedRouteId','proposedDeparture','proposedDestination','proposedMonthlyFeeEtb','proposedMonthlyFeeBasis'];
+    const allowed = role === 'DRIVER' ? ['phone','emergencyContactName','emergencyContactPhone','vehicleColor', ...routeKeys] : ['phone','address','registrationNumber'];
     if (Object.keys(input).some(key => !allowed.includes(key))) fail(400, 'Only onboarding profile fields may be changed.');
     const normalized = {};
     for (const [key, value] of Object.entries(input)) {
+      if (routeKeys.includes(key)) continue;
       if (['phone','emergencyContactPhone'].includes(key)) { normalized[key] = normalizePhone(value); if (!normalized[key]) fail(400, 'Enter a valid Ethiopian phone number.'); }
       else normalized[key] = text(value, key, key === 'address' ? 300 : key === 'vehicleColor' ? 40 : 100, false);
     }
     await transact(async tx => {
       const { account, record } = await lock(tx, id, role);
-      let changed = false, phoneChanged = false;
-      if (normalized.phone && normalized.phone !== normalizePhone(account.phone)) {
+      let changed = false, phoneChanged = false, routeChanged = false;
+      if (routeKeys.some(key => Object.hasOwn(input, key))) {
+        if (role !== 'DRIVER' || companyId(account)) fail(400, 'Route proposals are only available for daily commute applicants.');
+        const old = routePreference(record);
+        const preference = await validatePreference({ routeChoice: old.mode, appliedRouteId: old.routeId, proposedDeparture: old.departure, proposedDestination: old.destination,
+          proposedMonthlyFeeEtb: old.proposedMonthlyFeeEtb, proposedMonthlyFeeBasis: old.proposedMonthlyFeeBasis || 'PER_VEHICLE', ...Object.fromEntries(Object.entries(input).filter(([key]) => routeKeys.includes(key))) }, tx);
+        routeChanged = JSON.stringify(old) !== JSON.stringify(preference);
+        if (routeChanged) { await savePreference(id, preference, tx); changed = true; }
+      }
+      if (normalized.phone && (normalized.phone !== normalizePhone(account.phone) || normalized.phone !== record.normalized_phone)) {
         if (!(await phoneAvailable(normalized.phone, id, tx))) fail(409, 'This phone number is already registered.');
         await tx.prepare(role === 'COMPANY' ? 'UPDATE transport_companies SET phone=? WHERE id=?' : 'UPDATE users SET phone=? WHERE id=?').run(normalized.phone, id);
         await tx.prepare('UPDATE onboarding_accounts SET normalized_phone=? WHERE account_id=?').run(normalized.phone, id);
@@ -322,7 +457,7 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
         changed ||= address !== record.company_address || number !== record.company_registration_number;
         await tx.prepare('UPDATE onboarding_accounts SET company_address=?,company_registration_number=? WHERE account_id=?').run(address, number, id);
       }
-      if (changed) await invalidate(tx, id, role, phoneChanged);
+      if (changed) await invalidate(tx, id, role, phoneChanged, routeChanged);
     });
     return snapshot(id, role);
   }
@@ -332,12 +467,16 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
     if (bytes.length > MAX_DOCUMENT_BYTES) fail(413, 'Each document must be 5 MB or smaller.');
     const detected = detectDocument(bytes);
     if (!detected || detected.mime !== mime || (kind === 'PHOTO' && detected.mime === 'application/pdf')) fail(415, 'Choose a valid JPEG, PNG or PDF matching its file type. Photos must be images.');
+    const account = await loadAccount(id, role, db), record = await enrollment(id, role, db);
+    if (!mayContinue(account) || !record) fail(403, 'Onboarding account unavailable.');
+    requireAcceptance(account, record);
     const folder = directory(role), name = crypto.randomUUID() + '.' + detected.extension, destination = path.join(folder, name);
     await fs.mkdir(folder, { recursive: true, mode: 0o700 }); await fs.writeFile(destination, bytes, { flag: 'wx', mode: 0o600 });
     let previous;
     try {
       await transact(async tx => {
-        await lock(tx, id, role);
+        const { account: currentAccount, record: currentRecord } = await lock(tx, id, role);
+        requireAcceptance(currentAccount, currentRecord);
         const table = role === 'COMPANY' ? 'onboarding_company_documents' : 'user_profile_documents', key = role === 'COMPANY' ? 'company_id' : 'user_id';
         previous = await tx.prepare(`SELECT storage_name FROM ${table} WHERE ${key}=? AND kind=?`).get(id, kind);
         await tx.prepare(`INSERT INTO ${table}(${key},kind,storage_name,content_type,byte_size,uploaded_at) VALUES(?,?,?,?,?,?) ON CONFLICT(${key},kind) DO UPDATE SET storage_name=excluded.storage_name,content_type=excluded.content_type,byte_size=excluded.byte_size,uploaded_at=excluded.uploaded_at`)
@@ -356,7 +495,14 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
   }
   async function submit(id, role) {
     await transact(async tx => {
-      await lock(tx, id, role);
+      const { account, record } = await lock(tx, id, role);
+      const initial = acceptance(account, record);
+      if (initial.acceptanceRequired && !initial.acceptedAt) {
+        if (!completePreference(record)) fail(428, 'Choose or propose a daily route and propose a monthly vehicle fee before submitting your application.');
+        if (record.route_choice === 'EXISTING') await validatePreference({ routeChoice: 'EXISTING', appliedRouteId: record.route_id, proposedMonthlyFeeEtb: record.proposed_monthly_fee_etb, proposedMonthlyFeeBasis: record.proposed_monthly_fee_basis }, tx);
+        await tx.prepare("UPDATE onboarding_accounts SET initial_submitted_at=?,acceptance_status='PENDING',review_status='AWAITING_ACCEPTANCE',review_note='',submitted_at=NULL,reviewed_at=NULL,reviewed_by=NULL,updated_at=? WHERE account_id=?").run(time(), time(), id);
+        return;
+      }
       const ready = await getOnboardingReadiness(id, role, tx, { requireSubmission: false });
       if (!ready.ready) fail(428, 'Complete phone verification and every required document and profile field before submitting.');
       if (ready.reviewStatus === 'APPROVED') return;
@@ -386,11 +532,17 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
   }
   async function review(principal, id, role, decision, note = '') {
     if (!(await mayReview(principal, id, role))) fail(404, 'Application unavailable.');
-    if (!['APPROVE','REJECT'].includes(decision)) fail(400, 'Choose APPROVE or REJECT.');
+    if (!['ACCEPT','APPROVE','REJECT'].includes(decision)) fail(400, 'Choose ACCEPT, APPROVE or REJECT.');
     text(note, 'review note', 500, false);
     await transact(async tx => {
       const { account } = await lock(tx, id, role);
       if (!reviewAllowed(principal, account, role)) fail(404, 'Application unavailable.');
+      if (decision === 'ACCEPT') {
+        if (principal.role !== 'ADMIN' || role !== 'DRIVER' || companyId(account)) fail(403, 'Only an administrator may accept a daily commute driver application.');
+        if (await acceptInitialOnboarding(id, principal.id, note, tx)) await tx.prepare('INSERT INTO audit_logs(action,userId,role,details) VALUES(?,?,?,?)')
+          .run('ONBOARDING_ACCEPT', principal.id, principal.role, `Accepted initial DRIVER application ${id}`);
+        return;
+      }
       await markOnboardingReviewed(id, role, decision === 'APPROVE' ? 'APPROVED' : 'REJECTED', principal.id, note, tx);
       if (role === 'COMPANY') await tx.prepare('UPDATE transport_companies SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').run(decision === 'APPROVE' ? 'ACTIVE' : 'PENDING', id);
       else await tx.prepare("UPDATE users SET status=? WHERE id=? AND role='DRIVER'").run(decision === 'APPROVE' ? 'ACTIVE' : 'PENDING', id);
@@ -401,4 +553,4 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
   return { register, login, snapshot, requestOtp, verifyOtp, updateProfile, upload, readDocument, submit, mayReview, applications, review };
 }
 module.exports = { createOnboardingService, initOnboardingSchema, getOnboardingReadiness, isOperationallyEligible,
-  markOnboardingReviewed, invalidateOnboarding, normalizePhone, phoneAvailable, findAccountByPhone, OnboardingError, REQUIRED, MAX_DOCUMENT_BYTES };
+  markOnboardingReviewed, acceptInitialOnboarding, invalidateOnboarding, normalizePhone, phoneAvailable, findAccountByPhone, OnboardingError, REQUIRED, MAX_DOCUMENT_BYTES };

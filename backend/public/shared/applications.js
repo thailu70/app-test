@@ -7,10 +7,12 @@
   const esc = value => String(value ?? '').replace(/[&<>"']/g,
     ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
   const labels = { LICENSE: 'Driving licence', VEHICLE_REGISTRATION: 'Vehicle registration', INSURANCE: 'Insurance',
-    PHOTO: 'Profile photo', BUSINESS_LICENSE: 'Business licence', REGISTRATION: 'Company registration', REPRESENTATIVE_ID: 'Representative ID' };
+    PHOTO: 'Profile photo', BUSINESS_LICENSE: 'Business licence', REGISTRATION: 'Company registration', REPRESENTATIVE_ID: 'Representative ID',
+    ADMIN_ACCEPTANCE: 'Initial admin acceptance', ROUTE_PREFERENCE: 'Route choice or proposal', MONTHLY_FEE: 'Whole-vehicle monthly fee proposal', PROPOSED_MONTHLY_FEE: 'Whole-vehicle monthly fee proposal' };
+  const reviewLabel = state => ({ AWAITING_ACCEPTANCE: 'Awaiting admin acceptance', DRAFT: 'In progress', SUBMITTED: 'Documents submitted', APPROVED: 'Approved', REJECTED: 'Returned' })[state] || state || 'In progress';
   function markup() {
     return '<section id="applications-panel" class="card section-card applications-panel">' +
-      '<div class="section-title"><div><h3>Web applications</h3><p>Review phone verification and documents before approving an applicant for passenger allocation.</p></div>' +
+      '<div class="section-title"><div><h3>Web applications</h3><p>Accept daily commute route and fee proposals first. Review completed verification and documents before approving passenger allocation.</p></div>' +
       '<button class="btn btn-secondary" type="button" data-application-refresh>Refresh applications</button></div>' +
       '<p class="application-share">Recruit drivers and companies: <a href="/join/" target="_blank" rel="noopener">passo.live/join/ ↗</a></p>' +
       '<p data-application-message role="status" aria-live="polite"></p><div data-application-list></div><div data-application-detail hidden></div></section>';
@@ -33,8 +35,8 @@
     function renderList(applications) {
       const rows = applications.map(a => '<tr><td><strong>' + esc(a.companyName || a.fullName) + '</strong><br>' + esc(a.phone) +
         '</td><td>' + esc(a.role === 'COMPANY' ? 'Company' : 'Driver') + '</td><td>' + esc(a.status) + '</td><td>' +
-        (a.onboarding?.phoneVerified ? 'Verified' : 'Needs verification') + '</td><td>' +
-        esc(a.onboarding?.reviewStatus || (a.onboarding?.submittedAt ? 'Submitted' : 'In progress')) +
+        (a.onboarding?.phoneVerified ? 'Verified' : a.onboarding?.acceptanceRequired && !a.onboarding?.acceptedAt ? 'After admin acceptance' : 'Needs verification') + '</td><td>' +
+        esc(reviewLabel(a.onboarding?.reviewStatus)) +
         '</td><td><button type="button" class="btn btn-secondary small" data-application-open="' + esc(a.id) +
         '" data-application-role="' + esc(a.role) + '">Review</button></td></tr>').join('');
       find('[data-application-list]').innerHTML = '<div class="table-wrap"><table><thead><tr><th>Applicant</th><th>Type</th><th>Account</th><th>Phone</th><th>Application</th><th>Action</th></tr></thead><tbody>' +
@@ -65,23 +67,34 @@
       const missing = Array.isArray(onboarding.missing) ? onboarding.missing : [];
       const profile = onboarding.profile || {};
       const readyForReview = onboarding.ready && Boolean(onboarding.submittedAt);
+      const proposal = onboarding.routePreference || {};
+      const fee = Number(proposal.proposedMonthlyFeeEtb);
+      const needsAcceptance = onboarding.acceptanceRequired && !onboarding.acceptedAt;
+      const canAccept = needsAcceptance && ['PENDING','ACTIVE'].includes(account.status) && ['EXISTING','PROPOSED'].includes(proposal.mode) && Number.isFinite(fee) && fee > 0;
+      const routeDetails = !onboarding.acceptanceRequired ? '' : '<h4>Daily commute proposal</h4><dl class="application-facts"><div><dt>Route preference</dt><dd>' +
+        esc(proposal.mode === 'EXISTING' ? proposal.routeName || 'Selected existing route' : proposal.mode === 'PROPOSED' ? 'Proposed new route' : 'Not provided yet') + '</dd></div>' +
+        '<div><dt>Proposed monthly fee for the whole vehicle</dt><dd>' + (Number.isFinite(fee) && fee > 0 ? esc(fee.toLocaleString('en-ET', {minimumFractionDigits:2, maximumFractionDigits:2})) + ' ETB / vehicle / month' : 'Not provided yet') + '</dd></div>' +
+        (proposal.departure ? '<div><dt>Departure</dt><dd>' + esc(proposal.departure) + '</dd></div>' : '') +
+        (proposal.destination ? '<div><dt>Destination</dt><dd>' + esc(proposal.destination) + '</dd></div>' : '') +
+        '<div><dt>Initial acceptance</dt><dd>' + (onboarding.acceptedAt ? 'Accepted' : esc(onboarding.acceptanceStatus === 'REJECTED' ? 'Returned to applicant' : 'Awaiting admin acceptance')) + '</dd></div></dl>';
       const detail = find('[data-application-detail]'); detail.hidden = false;
       detail.innerHTML = '<div class="application-detail"><div class="section-title"><div><h3>' + esc(account.companyName || account.fullName) +
         '</h3><p>' + esc(account.phone) + ' · ' + esc(account.role) + '</p></div><button type="button" class="btn btn-secondary" data-application-close>Close review</button></div>' +
         '<dl class="application-facts"><div><dt>Phone</dt><dd>' + (onboarding.phoneVerified ? 'Verified by SMS' : 'Not yet verified') +
-        '</dd></div><div><dt>Account status</dt><dd>' + esc(account.status) + '</dd></div><div><dt>Review status</dt><dd>' + esc(onboarding.reviewStatus || 'Not submitted') +
+        '</dd></div><div><dt>Account status</dt><dd>' + esc(account.status) + '</dd></div><div><dt>Review status</dt><dd>' + esc(reviewLabel(onboarding.reviewStatus)) +
         '</dd></div><div><dt>Representative / driver</dt><dd>' + esc(account.fullName) + '</dd></div>' +
         (account.licenseNumber ? '<div><dt>Driving licence number</dt><dd>' + esc(account.licenseNumber) + '</dd></div>' : '') +
         (account.assignedVehiclePlate ? '<div><dt>Vehicle plate</dt><dd>' + esc(account.assignedVehiclePlate) + '</dd></div>' : '') +
         ['registrationNumber','address','emergencyContactName','emergencyContactPhone','vehicleColor'].filter(key => profile[key]).map(key =>
-          '<div><dt>' + esc(({registrationNumber:'Registration number',address:'Company address',emergencyContactName:'Emergency contact',emergencyContactPhone:'Emergency phone',vehicleColor:'Vehicle colour'})[key]) + '</dt><dd>' + esc(profile[key]) + '</dd></div>').join('') + '</dl>' +
+          '<div><dt>' + esc(({registrationNumber:'Registration number',address:'Company address',emergencyContactName:'Emergency contact',emergencyContactPhone:'Emergency phone',vehicleColor:'Vehicle colour'})[key]) + '</dt><dd>' + esc(profile[key]) + '</dd></div>').join('') + '</dl>' + routeDetails +
         '<h4>Uploaded documents</h4><div class="application-documents">' + (docs.map(doc => '<button type="button" class="btn btn-secondary" data-application-document="' + esc(doc.kind) + '">' +
           esc(labels[doc.kind] || doc.kind) + ' ↓</button>').join('') || '<p>No documents uploaded.</p>') + '</div>' +
-        (!readyForReview ? '<p class="notice">Cannot approve yet. ' + (missing.length ? 'Missing: ' + missing.map(x => esc(labels[x] || x.replace(/_/g, ' ').toLowerCase())).join(', ') + '.' : 'The applicant must complete and submit their application.') + '</p>' :
+        (needsAcceptance ? '<p class="notice">Review the driver, vehicle, route and whole-vehicle fee proposal. Accepting this application unlocks SMS verification and file uploads. Passenger allocation stays locked until the completed documents receive final approval.</p>' : !readyForReview ? '<p class="notice">Cannot approve yet. ' + (missing.length ? 'Missing: ' + missing.map(x => esc(labels[x] || x.replace(/_/g, ' ').toLowerCase())).join(', ') + '.' : 'The applicant must complete and submit their application.') + '</p>' :
           '<p class="notice">The phone and required documents are complete. Review the uploaded files before approving.</p>') +
         '<label class="application-note">Review note (optional)<textarea data-application-note maxlength="500" rows="2" placeholder="A short note visible to the applicant"></textarea></label>' +
-        '<div class="form-actions"><button type="button" class="btn btn-primary" data-application-decision="APPROVE"' + (!readyForReview ? ' disabled' : '') +
-        '>Approve application</button><button type="button" class="btn btn-secondary" data-application-decision="REJECT">Return / reject application</button></div></div>';
+        '<div class="form-actions">' + (needsAcceptance ? '<button type="button" class="btn btn-primary" data-application-decision="ACCEPT"' + (!canAccept ? ' disabled' : '') + '>Accept application</button>' : '') +
+        '<button type="button" class="btn btn-primary" data-application-decision="APPROVE"' + (!readyForReview ? ' disabled' : '') +
+        '>Approve completed application</button><button type="button" class="btn btn-secondary" data-application-decision="REJECT">Return / reject application</button></div></div>';
     }
     async function open(role, id) {
       const current = ++revision; message('Loading application…');
@@ -101,7 +114,7 @@
         if (!active()) return;
         selected = null; find('[data-application-detail]').hidden = true;
         busy = false; await load();
-        message(decision === 'APPROVE' ? 'Application approved. Passenger allocation is now available through the existing operations tools.' : 'Application returned. The applicant can see your review note.');
+        message(decision === 'ACCEPT' ? 'Application accepted. The driver can now verify their phone and upload documents. Passenger allocation stays locked until final approval.' : decision === 'APPROVE' ? 'Application approved. Passenger allocation is now available through the existing operations tools.' : 'Application returned. The applicant can see your review note.');
         onReviewed();
       } catch (error) {
         message(error.message, true);

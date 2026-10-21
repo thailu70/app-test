@@ -1,0 +1,25 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+process.env.NODE_ENV = 'test';
+process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'passo-public-entry-'));
+delete process.env.DATABASE_URL;
+const { server } = require('../src/server');
+test('browser home opens registration while JSON clients retain API status and join uses only secure local assets', async t => {
+  server.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve));
+  t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
+  const base = 'http://127.0.0.1:' + server.address().port;
+  const browser = await fetch(base + '/', { headers: { Accept: 'text/html,application/xhtml+xml' }, redirect: 'manual' });
+  assert.equal(browser.status, 302); assert.equal(browser.headers.get('location'), '/join/');
+  const client = await fetch(base + '/', { headers: { Accept: 'application/json' }, redirect: 'manual' });
+  assert.equal(client.status, 200); assert.equal((await client.json()).status, 'ONLINE');
+  const page = await fetch(base + '/join/?role=driver');
+  assert.equal(page.status, 200); assert.match(page.headers.get('content-type'), /text\/html/);
+  assert.match(page.headers.get('content-security-policy'), /script-src 'self'/);
+  const html = await page.text();
+  assert.match(html, /name="proposedMonthlyFeeEtb"/);
+  assert.doesNotMatch(html, /(?:src|href)="http:\/\//);
+});

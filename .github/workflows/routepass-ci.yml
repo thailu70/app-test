@@ -38,6 +38,8 @@ jobs:
         run: bash -n backend/deploy-traefik-vps.sh
       - name: Validate Compose configuration without starting containers
         run: docker compose -f backend/docker-compose.yml -f backend/docker-compose.traefik.yml config --quiet
+      - name: Verify HTTPS host routing and canonical redirects
+        run: docker compose -f backend/docker-compose.yml -f backend/docker-compose.traefik.yml config --format json | node backend/test/traefik-routing-test.js
 
   backend-sqlite:
     name: Backend syntax and SQLite integration
@@ -65,7 +67,7 @@ jobs:
         run: node --check public/admin/admin.js && node --check public/admin/resources.js && node --check public/admin/master-data.js
         working-directory: backend
       - name: Test public registration and allocation gates
-        run: node --test test/onboarding-test.js test/onboarding-allocation-test.js test/applications-ui-test.js test/join-ui-test.js
+        run: node --test test/onboarding-test.js test/onboarding-allocation-test.js test/applications-ui-test.js test/join-ui-test.js test/public-entry-test.js
         working-directory: backend
       - name: Check recruitment portal JavaScript syntax
         run: node --check public/join/join.js && node --check public/shared/applications.js
