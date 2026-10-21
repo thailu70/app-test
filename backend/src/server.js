@@ -553,7 +553,7 @@ async function runDatabaseMigrations() {
   // PostgreSQL production constraint migration. SQLite does not support DROP CONSTRAINT.
   if (process.env.DATABASE_URL) {
     await DB.prepare('ALTER TABLE transport_companies DROP CONSTRAINT IF EXISTS transport_companies_status_check').run();
-    await DB.prepare("ALTER TABLE transport_companies ADD CONSTRAINT transport_companies_status_check CHECK (status IN ('ACTIVE', 'INACTIVE', 'INVITED'))").run();
+    await DB.prepare("ALTER TABLE transport_companies ADD CONSTRAINT transport_companies_status_check CHECK (status IN ('ACTIVE', 'INACTIVE', 'INVITED', 'PENDING'))").run();
   }
   await DB.prepare('ALTER TABLE transport_companies ADD COLUMN IF NOT EXISTS phone VARCHAR(40)').run();
   await DB.prepare('ALTER TABLE transport_companies ADD COLUMN IF NOT EXISTS representative_name VARCHAR(120)').run();

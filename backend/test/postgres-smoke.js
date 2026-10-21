@@ -79,6 +79,8 @@ async function run() {
     assert.equal(result.status, 201, 'Public company registration works without an invitation or OTP');
     assert.equal(result.data.account.status, 'PENDING');
     assert.equal((await requestJson(baseUrl, '/api/companies/operations/fleet', 'GET', null, result.data.token)).status, 401, 'Company applicants cannot access operations');
+    await runDatabaseMigrations();
+    assert.equal((await DB.prepare("SELECT status FROM transport_companies WHERE name='CI Public Web Transport'").get()).status, 'PENDING', 'Restart migrations preserve pending company applications');
 
     result = await requestJson(baseUrl, '/api/master-data/vehicle-types');
     assert.equal(result.status, 200);
