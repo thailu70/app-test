@@ -327,7 +327,7 @@ fun AuthScreen(
                     buttonText = if (lang == AppLanguage.AMHARIC) "የድርጅት ፖርታል ክፈት →" else "Open Company Sign-up / Login →",
                     testTag = "open_company_portal_button",
                     onClick = {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://routepass.duckdns.org/company/"))
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(ApiClient.portalUrl("company/")))
                         context.startActivity(intent)
                     }
                 )

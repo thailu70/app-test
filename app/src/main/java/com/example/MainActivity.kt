@@ -451,7 +451,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                                 style = MaterialTheme.typography.titleMedium,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
-                            Text("Open https://routepass.duckdns.org/admin/ to manage RoutePass.")
+                            Text("Open ${ApiClient.portalUrl("admin/")} to manage RoutePass.")
                             Button(onClick = { viewModel.logout() }) { Text("Return to sign in") }
                         }
                     }
@@ -567,7 +567,7 @@ private fun LiveFleetMap(vehicles: List<Map<String, Any>>) {
                     },
                     update = { webView ->
                         val page = html.replace("${markerJs}", markerJs)
-                        webView.loadDataWithBaseURL("https://routepass.duckdns.org", page, "text/html", "UTF-8", null)
+                        webView.loadDataWithBaseURL(ApiClient.portalUrl(), page, "text/html", "UTF-8", null)
                     }
                 )
             } else {

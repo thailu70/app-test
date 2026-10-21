@@ -14,7 +14,7 @@ on:
       api_base_url:
         description: "Public HTTPS RoutePass API base URL (include trailing slash)"
         required: true
-        default: "https://routepass.duckdns.org/"
+        default: "https://passo.live/"
         type: string
 
 permissions:
@@ -31,6 +31,7 @@ jobs:
       QR_SIGNING_KEY: ci_qr_secret_only_for_compose_validation
       PAYMENT_MODE: PRODUCTION
       ROUTEPASS_DOMAIN: routepass.example.com
+      ROUTEPASS_LEGACY_DOMAIN: legacy.routepass.example.com
     steps:
       - uses: actions/checkout@v4
       - name: Check deployment script syntax
@@ -140,9 +141,9 @@ jobs:
         with:
           gradle-version: "9.3.1"
       - name: Assemble debug APK against configured HTTPS host
-        run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://routepass.duckdns.org/' }}"
+        run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://passo.live/' }}"
       - name: Verify passenger layout and decode rendered boarding QR
-        run: gradle :app:testDebugUnitTest --tests com.example.BoardingQrTest --tests com.example.PassengerPresentationTest --tests com.example.PassengerSubscriptionRepositoryTest --tests com.example.DriverGpsSharingTest --tests com.example.VehicleTypeCatalogTest
+        run: gradle :app:testDebugUnitTest "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://passo.live/' }}" --tests com.example.ApiBaseUrlTest --tests com.example.BoardingQrTest --tests com.example.PassengerPresentationTest --tests com.example.PassengerSubscriptionRepositoryTest --tests com.example.DriverGpsSharingTest --tests com.example.VehicleTypeCatalogTest
       - name: Upload passenger screen previews and test reports
         if: always()
         uses: actions/upload-artifact@v4

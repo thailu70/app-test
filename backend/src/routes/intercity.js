@@ -9,6 +9,7 @@ const rateLimit = require('express-rate-limit');
 const { DB } = require('../db');
 const { authenticate, requireRole, JWT_SECRET } = require('../middleware/auth');
 const telebirr = require('../services/telebirr');
+const { publicBaseUrl, httpsCallbackUrl } = require('../services/public-url');
 const { sendSms } = require('../services/afro-sms');
 const { effectiveBoardingRadius, getGlobalGpsRadius } = require('../services/master-data');
 const router = express.Router();
@@ -58,6 +59,7 @@ function ticketToken(b, d) {
 }
 function ticketDownloadUrl(b) {
   const token = jwt.sign({ kind: 'INTERCITY_PDF', bookingId: b.id }, JWT_SECRET, { expiresIn: '5m', audience: 'intercity-pdf-download', issuer: 'routepass' });
+  // Keep this capability on the current API origin, including supported legacy domains.
   return '/api/intercity/tickets/' + encodeURIComponent(b.id) + '.pdf?token=' + encodeURIComponent(token);
 }
 function shortTicketNumber(b) { return 'RP-' + String(b.id).replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase(); }
@@ -191,8 +193,9 @@ router.post('/bookings/:id/checkout', publicLimiter, asyncRoute(async (req, res)
   const orderId = telebirr.merchantOrderId();
   await write(async tx => { await departure(tx, b.departure_id, true); const current = await tx.prepare('SELECT * FROM intercity_bookings WHERE id=?').get(b.id); if (current.order_id) throw fail(409, 'Payment is already being prepared. Refresh your booking.'); await tx.prepare("UPDATE intercity_bookings SET passenger_name=?,passenger_phone=?,order_id=?,status='PAYMENT_PENDING',expires_at=? WHERE id=?").run(p.name, p.phone, orderId, new Date(Date.now() + 125 * 60000).toISOString(), b.id); });
   try {
-    const base = String(process.env.PUBLIC_BASE_URL || 'https://routepass.duckdns.org').replace(/\/$/, '');
-    const payment = await telebirr.createCheckout(orderId, b.amount_etb, 'RoutePass intercity ticket', { notifyUrl: base + '/api/intercity/payments/webhook', redirectUrl: base + '/travel/?booking=' + encodeURIComponent(b.id) });
+    const base = publicBaseUrl();
+    const notifyUrl = httpsCallbackUrl(process.env.TELEBIRR_INTERCITY_NOTIFY_URL || base + '/api/intercity/payments/webhook');
+    const payment = await telebirr.createCheckout(orderId, b.amount_etb, 'RoutePass intercity ticket', { notifyUrl, redirectUrl: base + '/travel/?booking=' + encodeURIComponent(b.id) });
     await DB.prepare('UPDATE intercity_bookings SET prepay_id=?,checkout_url=? WHERE id=? AND order_id=?').run(payment.prepayId, payment.checkoutUrl, b.id, orderId);
     res.json({ success: true, checkoutUrl: payment.checkoutUrl });
   } catch (err) { console.error('[Intercity checkout]', err.message); throw fail(502, 'The payment provider could not prepare checkout. Contact the company if you were charged.'); }

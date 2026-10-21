@@ -1,5 +1,6 @@
 'use strict';
 const crypto = require('node:crypto');
+const { publicBaseUrl } = require('./public-url');
 const TEST_API='https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway';
 const PROD_API='https://superapp.ethiomobilemoney.et:38443/apiaccess/payment/gateway';
 const TEST_WEB='https://developerportal.ethiotelebirr.et:38443/payment/web/paygate?';
@@ -15,8 +16,8 @@ function config(){
   fabricAppId:String(process.env.TELEBIRR_FABRIC_APP_ID||'').trim(),appSecret:String(process.env.TELEBIRR_APP_SECRET||'').trim(),
   merchantAppId:String(process.env.TELEBIRR_MERCHANT_APP_ID||'').trim(),merchantCode:String(process.env.TELEBIRR_MERCHANT_CODE||'').trim(),
   privateKey:String(process.env.TELEBIRR_PRIVATE_KEY||'').trim(),publicKey:String(process.env.TELEBIRR_PUBLIC_KEY||'').trim(),
-  notifyUrl:String(process.env.TELEBIRR_NOTIFY_URL||'https://routepass.duckdns.org/api/subscriptions/telebirr/webhook').trim(),
-  redirectUrl:String(process.env.TELEBIRR_REDIRECT_URL||'https://routepass.duckdns.org/api/subscriptions/telebirr/return').trim()};
+  notifyUrl:String(process.env.TELEBIRR_NOTIFY_URL||publicBaseUrl()+'/api/subscriptions/telebirr/webhook').trim(),
+  redirectUrl:String(process.env.TELEBIRR_REDIRECT_URL||publicBaseUrl()+'/api/subscriptions/telebirr/return').trim()};
 }
 function missingConfiguration(){
  const c=config(),missing=[];

@@ -19,7 +19,7 @@ on:
       api_base_url:
         description: "Public HTTPS RoutePass API base URL (include trailing slash)"
         required: true
-        default: "https://routepass.duckdns.org/"
+        default: "https://passo.live/"
         type: string
 
 permissions:
@@ -49,10 +49,12 @@ jobs:
           gradle-version: "9.3.1"
       - name: Assemble debug APK against configured HTTPS host
         env:
-          ROUTEPASS_API_BASE_URL: ${{ github.event.inputs.api_base_url || 'https://routepass.duckdns.org/' }}
+          ROUTEPASS_API_BASE_URL: ${{ github.event.inputs.api_base_url || 'https://passo.live/' }}
         run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=$ROUTEPASS_API_BASE_URL"
       - name: Verify portal interactions and capture native previews
-        run: gradle :app:testDebugUnitTest --tests com.example.DriverGpsSharingTest --tests com.example.VehicleTypeCatalogTest --tests com.example.LauncherIconTest --tests com.example.WelcomeLayoutTest --tests com.example.CommuterLayoutTest --tests com.example.CommuterBrowseTest --tests com.example.PublicCommuterLoadingTest --tests com.example.BrowseBackNavigationTest --tests com.example.AuthLayoutTest --tests com.example.IntercityApiContractTest --tests com.example.IntercityPassengerStateTest --tests com.example.IntercityLayoutTest --tests com.example.DriverLayoutTest --tests com.example.DriverUiStateTest --tests com.example.DriverAssignmentsLoadingTest --tests com.example.PassengerAssignmentLoadingTest --tests com.example.PassengerPresentationTest --tests com.example.BoardingQrTest
+        env:
+          ROUTEPASS_API_BASE_URL: ${{ github.event.inputs.api_base_url || 'https://passo.live/' }}
+        run: gradle :app:testDebugUnitTest "-PROUTEPASS_API_BASE_URL=$ROUTEPASS_API_BASE_URL" --tests com.example.ApiBaseUrlTest --tests com.example.DriverGpsSharingTest --tests com.example.VehicleTypeCatalogTest --tests com.example.LauncherIconTest --tests com.example.WelcomeLayoutTest --tests com.example.CommuterLayoutTest --tests com.example.CommuterBrowseTest --tests com.example.PublicCommuterLoadingTest --tests com.example.BrowseBackNavigationTest --tests com.example.AuthLayoutTest --tests com.example.IntercityApiContractTest --tests com.example.IntercityPassengerStateTest --tests com.example.IntercityLayoutTest --tests com.example.DriverLayoutTest --tests com.example.DriverUiStateTest --tests com.example.DriverAssignmentsLoadingTest --tests com.example.PassengerAssignmentLoadingTest --tests com.example.PassengerPresentationTest --tests com.example.BoardingQrTest
       - name: Upload welcome verification evidence
         if: always()
         uses: actions/upload-artifact@v4

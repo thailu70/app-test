@@ -55,15 +55,36 @@ test('intercity guest tickets, tenant isolation, seat locks and boarding lifecyc
   });
   await t.test('verified server provider reconciliation alone settles a guest ticket',async()=>{
     const r=await req('/departures/'+id+'/hold','POST',{seatNumber:4});guest=r.body;
-    const originals={missingConfiguration:telebirr.missingConfiguration,config:telebirr.config,createCheckout:telebirr.createCheckout,queryOrderStatus:telebirr.queryOrderStatus};let order;
-    telebirr.missingConfiguration=()=>[];telebirr.config=()=>({environment:'production'});telebirr.createCheckout=async o=>{order=o;return {prepayId:'prepay-1',checkoutUrl:'https://payments.example.test/checkout'};};
+    const originals={missingConfiguration:telebirr.missingConfiguration,config:telebirr.config,createCheckout:telebirr.createCheckout,queryOrderStatus:telebirr.queryOrderStatus};let order,callbacks;
+    const originalBase=process.env.PUBLIC_BASE_URL,originalNotify=process.env.TELEBIRR_INTERCITY_NOTIFY_URL;delete process.env.PUBLIC_BASE_URL;delete process.env.TELEBIRR_INTERCITY_NOTIFY_URL;
+    telebirr.missingConfiguration=()=>[];telebirr.config=()=>({environment:'production'});telebirr.createCheckout=async (o,_amount,_title,urls)=>{order=o;callbacks=urls;return {prepayId:'prepay-1',checkoutUrl:'https://payments.example.test/checkout'};};
     telebirr.queryOrderStatus=async()=>({paid:true,failed:false,merchantOrderId:order,currency:'ETB',amount:'1',transactionId:'tx-wrong'});
     try {
       const c=await req('/bookings/'+guest.booking.id+'/checkout','POST',{passengerName:'Verified Guest',passengerPhone:'0911556677'},null,guest.bookingSecret);assert.equal(c.status,200);assert.match(c.body.checkoutUrl,/^https:/);
+      assert.deepEqual(callbacks,{notifyUrl:'https://passo.live/api/intercity/payments/webhook',redirectUrl:'https://passo.live/travel/?booking='+encodeURIComponent(guest.booking.id)});
+      assert.equal(JSON.stringify(callbacks).includes(guest.bookingSecret),false,'Private booking capabilities never enter provider callback URLs.');
       assert.equal((await req('/bookings/'+guest.booking.id,'GET',null,null,guest.bookingSecret)).status,502);
       telebirr.queryOrderStatus=async()=>({paid:true,failed:false,merchantOrderId:order,currency:'ETB',amount:'450.00',transactionId:'tx-verified'});
       const paid=await req('/bookings/'+guest.booking.id,'GET',null,null,guest.bookingSecret);assert.equal(paid.status,200);assert.equal(paid.body.booking.paymentStatus,'PAID');assert.equal(paid.body.booking.passengerName,'Verified Guest');assert.match(paid.body.booking.qrImage,/^data:image\/png;base64,/);
-    }finally{Object.assign(telebirr,originals);}
+    }finally{Object.assign(telebirr,originals);if(originalBase===undefined)delete process.env.PUBLIC_BASE_URL;else process.env.PUBLIC_BASE_URL=originalBase;if(originalNotify===undefined)delete process.env.TELEBIRR_INTERCITY_NOTIFY_URL;else process.env.TELEBIRR_INTERCITY_NOTIFY_URL=originalNotify;}
+  });
+  await t.test('registered legacy intercity webhook remains configurable while payment return uses the canonical domain',async()=>{
+    const booking=(await req('/departures/'+id+'/hold','POST',{seatNumber:5})).body;
+    const originals={missingConfiguration:telebirr.missingConfiguration,config:telebirr.config,createCheckout:telebirr.createCheckout};
+    const originalBase=process.env.PUBLIC_BASE_URL,originalNotify=process.env.TELEBIRR_INTERCITY_NOTIFY_URL;
+    process.env.PUBLIC_BASE_URL='https://passo.live';process.env.TELEBIRR_INTERCITY_NOTIFY_URL='https://routepass.duckdns.org/api/intercity/payments/webhook';
+    let callbacks;telebirr.missingConfiguration=()=>[];telebirr.config=()=>({environment:'production'});
+    telebirr.createCheckout=async (_order,_amount,_title,urls)=>{callbacks=urls;return {prepayId:'legacy-notify-prepay',checkoutUrl:'https://payments.example.test/checkout'};};
+    try {
+      const result=await req('/bookings/'+booking.booking.id+'/checkout','POST',{passengerName:'Migration Rider',passengerPhone:'0911556688'},null,booking.bookingSecret);
+      assert.equal(result.status,200);
+      assert.deepEqual(callbacks,{notifyUrl:'https://routepass.duckdns.org/api/intercity/payments/webhook',redirectUrl:'https://passo.live/travel/?booking='+encodeURIComponent(booking.booking.id)});
+      assert.equal(JSON.stringify(callbacks).includes(booking.bookingSecret),false);
+    } finally {
+      Object.assign(telebirr,originals);
+      if(originalBase===undefined)delete process.env.PUBLIC_BASE_URL;else process.env.PUBLIC_BASE_URL=originalBase;
+      if(originalNotify===undefined)delete process.env.TELEBIRR_INTERCITY_NOTIFY_URL;else process.env.TELEBIRR_INTERCITY_NOTIFY_URL=originalNotify;
+    }
   });
   await t.test('manual tickets require an explicit company cash collection and include a signed QR/PDF',async()=>{
     const p={seatNumber:3,passengerName:'Walk In Passenger',passengerPhone:'+251911222333',paymentNote:'Receipt 240',paymentCollected:false};
@@ -71,7 +92,11 @@ test('intercity guest tickets, tenant isolation, seat locks and boarding lifecyc
     p.paymentCollected=true;assert.equal((await req('/company/departures/'+id+'/bookings','POST',p,'other')).status,404);
     const r=await req('/company/departures/'+id+'/bookings','POST',p,'company');assert.equal(r.status,201);manual=r.body.booking;assert.equal(manual.paymentStatus,'PAID');assert.equal(manual.paymentMethod,'CASH_COLLECTED');assert.ok(manual.qrToken);
     const pdf=await req('/company/bookings/'+manual.id+'/ticket.pdf','GET',null,'company');assert.equal(pdf.status,200);assert.equal(pdf.type,'application/pdf');assert.equal(pdf.body.subarray(0,4).toString(),'%PDF');
-    const link=await req('/company/bookings/'+manual.id+'/download','GET',null,'company');assert.equal(link.status,200);const signedPath=link.body.ticketDownloadUrl.replace('/api/intercity','');assert.equal((await req(signedPath)).status,200);assert.equal((await req(signedPath+'tamper')).status,401);assert.equal((await req('/company/bookings/'+manual.id+'/download','GET',null,'other')).status,404);
+    const link=await req('/company/bookings/'+manual.id+'/download','GET',null,'company');assert.equal(link.status,200);
+    assert.match(link.body.ticketDownloadUrl,/^\/api\/intercity\/tickets\//);
+    for(const origin of ['https://passo.live','https://routepass.duckdns.org'])assert.equal(new URL(link.body.ticketDownloadUrl,origin).origin,origin,'PDF capability stays on the current first-party API origin.');
+    assert.equal(link.body.ticketDownloadUrl.includes(tokens.company),false,'Downloads never forward the company login token.');
+    const signedPath=link.body.ticketDownloadUrl.replace('/api/intercity','');assert.equal((await req(signedPath)).status,200);assert.equal((await req(signedPath+'tamper')).status,401);assert.equal((await req('/company/bookings/'+manual.id+'/download','GET',null,'other')).status,404);
     assert.equal((await req('/company/bookings/'+manual.id+'/ticket.pdf','GET',null,'other')).status,404);
     assert.equal((await req('/company/bookings/'+manual.id+'/ticket.pdf','GET',null,'admin')).status,403);
   });

@@ -7,6 +7,14 @@ services:
       - "traefik.http.routers.routepass-api.entrypoints=websecure"
       - "traefik.http.routers.routepass-api.tls=true"
       - "traefik.http.routers.routepass-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.routepass-api.service=routepass-api"
+      # Optional migration alias; use the primary host when no legacy hostname is configured.
+      # Separate routers keep certificate renewal independent for the two domains.
+      - "traefik.http.routers.routepass-legacy.rule=Host(`${ROUTEPASS_LEGACY_DOMAIN:-${ROUTEPASS_DOMAIN}}`)"
+      - "traefik.http.routers.routepass-legacy.entrypoints=websecure"
+      - "traefik.http.routers.routepass-legacy.tls=true"
+      - "traefik.http.routers.routepass-legacy.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.routepass-legacy.service=routepass-api"
       - "traefik.http.services.routepass-api.loadbalancer.server.port=3000"
   # Existing Traefik already owns host ports 80/443. Keep the bundled Nginx
   # service available only for deployments that explicitly opt into this profile.

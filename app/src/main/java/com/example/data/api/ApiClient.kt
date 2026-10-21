@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit
 object ApiClient {
 
     // Build with -PROUTEPASS_API_BASE_URL=https://api.yourdomain.com/ for each environment.
-    // The production default is a placeholder rather than an insecure hard-coded VPS IP/port.
+    // API requests and portal links share the host selected by this build.
     val DEFAULT_HTTPS_URL: String = BuildConfig.ROUTEPASS_API_BASE_URL
     val DEFAULT_VPS_HOST: String
         get() = DEFAULT_HTTPS_URL.removePrefix("https://").removeSuffix("/")
@@ -109,4 +109,6 @@ object ApiClient {
     }
 
     fun getBaseUrl(): String = baseUrl
+
+    fun portalUrl(path: String = ""): String = getBaseUrl().trimEnd('/') + "/" + path.trimStart('/')
 }
