@@ -6,6 +6,8 @@ const { authenticate, requireRole } = require('../middleware/auth');
 const { adminScope } = require('../services/commute-scope');
 const { generateSignedQrToken } = require('./subscriptions');
 const { sendSms } = require('../services/afro-sms');
+const { getOnboardingReadiness, markOnboardingReviewed, invalidateOnboarding } = require('../services/onboarding');
+const { assertDriverEligible } = require('../services/operational-onboarding');
 
 /**
  * All endpoints here require ADMIN role
@@ -99,7 +101,12 @@ router.patch('/drivers/:id/approval', async (req, res) => {
     if (!driver) return res.status(404).json({ success: false, error: 'Driver account not found.' });
 
     await DB.transaction(async (tx) => {
+      if (status === 'ACTIVE') {
+        const readiness = await getOnboardingReadiness(driver.id, 'DRIVER', tx);
+        if (!readiness.ready) throw Object.assign(new Error('Driver must verify their phone, complete required documents and submit their application before approval.'), { status: 409, code: 'ONBOARDING_REQUIRED' });
+      }
       await tx.prepare("UPDATE users SET status = ? WHERE id = ? AND role = 'DRIVER' AND COALESCE(companyId,'')=''").run(status, driver.id);
+      await markOnboardingReviewed(driver.id, 'DRIVER', status === 'ACTIVE' ? 'APPROVED' : 'REJECTED', req.user.id, '', tx);
       await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
         .run(status === 'ACTIVE' ? 'DRIVER_APPROVED' : 'DRIVER_REJECTED', req.user.id, 'ADMIN', `${status === 'ACTIVE' ? 'Approved' : 'Rejected/suspended'} driver ${driver.id} (${driver.phone})`);
     });
@@ -107,6 +114,7 @@ router.patch('/drivers/:id/approval', async (req, res) => {
     res.json({ success: true, driver: { id: driver.id, fullName: driver.fullName, status }, message: status === 'ACTIVE' ? 'Driver approved. You can now assign an active route.' : 'Driver registration rejected/suspended.' });
   } catch (err) {
     console.error('[Admin] driver approval failed:', err);
+    if (err.status) return res.status(err.status).json({ success: false, code: err.code, error: err.message });
     res.status(500).json({ success: false, error: 'Could not update driver approval.' });
   }
 });
@@ -124,6 +132,7 @@ router.patch('/drivers/:id/contact', async (req, res) => {
     if (duplicate) return res.status(409).json({ success: false, error: 'That phone number is already in use.' });
     await DB.transaction(async tx => {
       await tx.prepare('UPDATE users SET phone=? WHERE id=? AND role=\'DRIVER\'').run(phone, driver.id);
+      await invalidateOnboarding(driver.id, 'DRIVER', tx, { phoneChanged: true });
       await tx.prepare('INSERT INTO audit_logs (action,userId,role,details) VALUES (?,?,?,?)').run('DRIVER_PHONE_UPDATED', req.user.id, 'ADMIN', `Updated phone for driver ${driver.id}`);
     });
     res.json({ success: true, driver: { id: driver.id, fullName: driver.fullName, phone }, message: 'Driver phone number updated.' });
@@ -167,6 +176,7 @@ router.patch('/drivers/:id/route', async (req, res) => {
     if (!vehicle) return res.status(409).json({ success: false, error: 'This driver has not registered an owned vehicle yet.' });
 
     await DB.transaction(async (tx) => {
+      await assertDriverEligible(driver.id, tx);
       await tx.prepare(`
         UPDATE vehicles
         SET assignedRouteId = ?, status = 'IN_SERVICE', updatedAt = CURRENT_TIMESTAMP
@@ -186,6 +196,7 @@ router.patch('/drivers/:id/route', async (req, res) => {
     });
   } catch (err) {
     console.error('[Admin] driver route assignment failed:', err);
+    if (err.status) return res.status(err.status).json({ success: false, code: err.code, error: err.message });
     res.status(500).json({ success: false, error: 'Could not assign route to driver.' });
   }
 });
@@ -399,6 +410,7 @@ router.patch('/subscriptions/:id/assignment', async (req, res) => {
     }
 
     await DB.transaction(async (tx) => {
+      await assertDriverEligible(vehicle.driverId, tx);
       await tx.prepare('UPDATE subscriptions SET vehicleId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?').run(vehicle.id, sub.id);
       await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
         .run('SUBSCRIPTION_VEHICLE_ASSIGNED', req.user.id, 'ADMIN', `Assigned owner vehicle ${vehicle.plateNumber} to subscription ${sub.id}`);
@@ -407,6 +419,7 @@ router.patch('/subscriptions/:id/assignment', async (req, res) => {
     res.json({ success: true, subscriptionId: sub.id, vehicle: { id: vehicle.id, plateNumber: vehicle.plateNumber, driverName: vehicle.driverName || '', routeId: vehicle.assignedRouteId } });
   } catch (err) {
     console.error('[Admin] subscription vehicle assignment failed:', err);
+    if (err.status) return res.status(err.status).json({ success: false, code: err.code, error: err.message });
     res.status(500).json({ success: false, error: 'Could not assign vehicle to passenger subscription.' });
   }
 });

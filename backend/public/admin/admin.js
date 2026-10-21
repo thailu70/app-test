@@ -7,11 +7,13 @@
   let fleetMapCleanup = null;
   let resourcePanelCleanup = null;
   let masterDataCleanup = null;
+  let applicationsCleanup = null;
   let renderRevision = 0;
   const labels = {
     overview: ["Overview", "A live snapshot of RoutePass service operations."],
     reports: ["Performance reports", "Daily commute performance in Addis Ababa time."],
     drivers: ["Drivers & routes", "Review driver-owned vehicles and assign approved operating routes."],
+    applications: ["Applications", "Review new driver and company applications from the public registration portal."],
     gps: ["Driver GPS", "Live and last reported GPS locations for daily commute drivers."],
     companies: ["Company access", "Invite transport companies and issue one-time registration codes."],
     routes: ["Manage routes", "Create, edit, activate and deactivate RoutePass transit routes."],
@@ -89,6 +91,8 @@
     resourcePanelCleanup = null;
     masterDataCleanup?.();
     masterDataCleanup = null;
+    applicationsCleanup?.();
+    applicationsCleanup = null;
     renderRevision++;
     sessionStorage.removeItem(TOKEN_KEY);
     state.token = "";
@@ -416,6 +420,8 @@
     resourcePanelCleanup = null;
     masterDataCleanup?.();
     masterDataCleanup = null;
+    applicationsCleanup?.();
+    applicationsCleanup = null;
     const title = labels[state.view] || labels.overview;
     $("#page-title").textContent = title[0];
     $$(".nav-item").forEach(button => button.classList.toggle("active", button.dataset.view === state.view));
@@ -426,6 +432,7 @@
         case "gps": html = pageHeader("Driver GPS", "Track your daily commute fleet. Company intercity vehicles are visible only to their company.") + '<section class="card section-card"><div id="admin-fleet-map"></div></section>'; break;
         case "reports": html = pageHeader("Performance reports", "Daily, weekly and monthly commute performance. Admin grants are excluded from revenue."); break;
         case "drivers": html = await renderDrivers(); break;
+        case "applications": html = pageHeader("Driver & company applications", "Registration is open. Passenger allocation requires phone verification, complete documents and approval.") + window.PassoApplications.markup(); break;
         case "companies": html = await renderCompanyAccess(); break;
         case "routes": html = await renderRoutes(); break;
         case "vehicles": html = await renderVehicles(); break;
@@ -440,6 +447,12 @@
       }
       if (revision !== renderRevision) return;
       $("#page-content").innerHTML = html;
+      if (view === "applications" && window.PassoApplications) {
+        applicationsCleanup = window.PassoApplications.mount({
+          container: $("#applications-panel"), api, token: state.token,
+          isActive: () => state.view === "applications" && Boolean(state.token) && revision === renderRevision
+        });
+      }
       if (view === "master-data" && window.RoutepassMasterData) {
         masterDataCleanup = window.RoutepassMasterData.mount({
           container: $("#master-data-panel"), api,

@@ -146,8 +146,10 @@ router.post('/register', authLimiter, async (req, res) => {
       const commuteRoute = await DB.prepare("SELECT id FROM routes WHERE id=? AND active=TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'").get(appliedRouteId);
       if (!commuteRoute) return res.status(400).json({success:false,error:'Choose an active daily commute route. Intercity tickets do not require registration.'});
     }
+    const normalizedPhone = require('../services/onboarding').normalizePhone(phone);
     const existing = await DB.prepare('SELECT id FROM users WHERE phone = ?').get(phone.trim());
-    if (existing) {
+    const phoneAvailable = !normalizedPhone || await require('../services/onboarding').phoneAvailable(normalizedPhone, null);
+    if (existing || !phoneAvailable) {
       return res.status(409).json({
         success: false,
         error: `User with phone number ${phone} is already registered.`

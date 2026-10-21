@@ -64,6 +64,12 @@ jobs:
       - name: Check admin portal JavaScript syntax
         run: node --check public/admin/admin.js && node --check public/admin/resources.js && node --check public/admin/master-data.js
         working-directory: backend
+      - name: Test public registration and allocation gates
+        run: node --test test/onboarding-test.js test/onboarding-allocation-test.js test/applications-ui-test.js test/join-ui-test.js
+        working-directory: backend
+      - name: Check recruitment portal JavaScript syntax
+        run: node --check public/join/join.js && node --check public/shared/applications.js
+        working-directory: backend
       - name: Check company portal JavaScript syntax
         run: node --check public/company/company.js && node --check public/company/intercity.js && node --check public/shared/fleet-map.js
         working-directory: backend

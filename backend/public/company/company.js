@@ -1,4 +1,4 @@
-(()=>{const $=s=>document.querySelector(s),key='passo_company_token';let token=sessionStorage.getItem(key)||'',company={},mapCleanup=null,currentView='overview';
+(()=>{const $=s=>document.querySelector(s),key='passo_company_token';let token=sessionStorage.getItem(key)||'',company={},mapCleanup=null,applicationsCleanup=null,currentView='overview';
 const esc=v=>String(v??'—').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 async function api(p,o={}){
   const controller=new AbortController();let timedOut=false;
@@ -90,12 +90,20 @@ function showView(name){
   document.querySelectorAll('[data-view]').forEach(el=>{el.classList.toggle('active',el.dataset.view===currentView);el.setAttribute('aria-current',el.dataset.view===currentView?'page':'false');});
   $('#page-title').textContent=views[currentView][1];$('#view-title').textContent=views[currentView][2];
   if(mapCleanup){mapCleanup();mapCleanup=null;}
+  if(applicationsCleanup){applicationsCleanup();applicationsCleanup=null;}
+  if(currentView==='drivers'&&token&&typeof window!=='undefined'&&window.PassoApplications){
+    let panel=$('#company-applications');
+    if(!panel){panel=document.createElement('div');panel.id='company-applications';$('#driverSection').appendChild(panel);}
+    panel.innerHTML=window.PassoApplications.markup();
+    applicationsCleanup=window.PassoApplications.mount({container:panel.querySelector('#applications-panel'),api:(path,options)=>api(path.replace(/^\/api/,''),options),token,isActive:()=>currentView==='drivers'&&Boolean(token),onReviewed:()=>load()});
+  }
   if(currentView==='gps'&&token&&typeof window!=='undefined'&&window.RoutepassFleetMap)mapCleanup=window.RoutepassFleetMap.mount({container:$('#companyFleetMap'),apiUrl:'/api/fleet/tracking',token});
 }
 document.querySelectorAll('[data-view],[data-open-view]').forEach(el=>el.onclick=()=>{const name=el.dataset.view||el.dataset.openView;showView(name);if(typeof history!=='undefined')history.replaceState(null,'','#'+name);});
 for(const id of ['overviewStatus','driversStatus','fleetStatus','routesStatus','assignmentsStatus','bookingsStatus'])$('#'+id).onclick=e=>{const retry=e.target.closest?.('[data-retry]');if(retry)load(retry.dataset.retry.split(','));};
 function logout(reason){
   token='';sessionStorage.removeItem(key);if(mapCleanup){mapCleanup();mapCleanup=null;}
+  if(applicationsCleanup){applicationsCleanup();applicationsCleanup=null;}
   Object.values(resources).forEach(r=>{delete r.data;delete r.error;});
   drivers=[];vehicles=[];routes=[];assignments=[];bookings=[];roster=[];company={};
   for(const id of ['driverRows','fleetRows','routeRows','assignmentRows','bookingRows','rosterRows','overviewStatus','driversStatus','fleetStatus','routesStatus','assignmentsStatus','bookingsStatus'])$('#'+id).innerHTML='';

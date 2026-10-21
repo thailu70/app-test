@@ -4,6 +4,8 @@ const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const { DB } = require('../db');
 const { authenticate, requireRole, signToken } = require('../middleware/auth');
+const { getOnboardingReadiness, isOperationallyEligible, markOnboardingReviewed, invalidateOnboarding, findAccountByPhone } = require('../services/onboarding');
+const { assertDriverEligible, operationalAccount } = require('../services/operational-onboarding');
 const router = express.Router();
 const companyAuthLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 8, standardHeaders: true, legacyHeaders: false });
 
@@ -44,8 +46,8 @@ router.post('/register', companyAuthLimiter, async (req, res) => {
 router.post('/login', companyAuthLimiter, async (req,res) => {
   try {
     const phone=String(req.body.phone||'').trim(), password=req.body.password;
-    const c=await DB.prepare("SELECT * FROM transport_companies WHERE phone=? AND status='ACTIVE'").get(phone);
-    if (!c || !c.password_hash || !(await bcrypt.compare(String(password||''),c.password_hash))) return res.status(401).json({success:false,error:'Invalid company credentials.'});
+    const c=await findAccountByPhone(phone, 'COMPANY');
+    if (!c || c.status !== 'ACTIVE' || !c.password_hash || !(await bcrypt.compare(String(password||''),c.password_hash))) return res.status(401).json({success:false,error:'Invalid company credentials.'});
     const fullName=c.representative_name||c.name;
     res.json({success:true,token:signToken({id:c.id,role:'COMPANY',companyId:c.id,companyName:c.name,fullName,phone}),user:{id:c.id,role:'COMPANY',companyId:c.id,companyName:c.name,fullName,phone}});
   } catch(e) { console.error('[Company] login failed:',e); res.status(500).json({success:false,error:'Company login failed.'}); }
@@ -102,6 +104,8 @@ router.post('/operations/assignments',authenticate,requireRole('COMPANY'),async(
    const d=await tx.prepare("SELECT id FROM users WHERE id=? AND role='DRIVER' AND companyId=? AND status='ACTIVE'"+lockSuffix).get(driverId,cid);
    const v=await tx.prepare('SELECT id FROM vehicles WHERE id=? AND companyId=?'+lockSuffix).get(vehicleId,cid);
    if(!r||!d||!v)return {status:'INVALID_SCOPE'};
+   if (!await isOperationallyEligible(cid, 'COMPANY', tx)) return {status:'ONBOARDING_REQUIRED'};
+   await assertDriverEligible(driverId, tx);
    const activeTrip=await tx.prepare("SELECT id FROM trips WHERE vehicleId=? AND status='IN_PROGRESS' LIMIT 1").get(vehicleId);
    if(activeTrip)return {status:'ACTIVE_TRIP'};
    const activeDeparture=await tx.prepare("SELECT id FROM intercity_departures WHERE vehicle_id=? AND status='BOARDING' LIMIT 1").get(vehicleId);
@@ -116,10 +120,11 @@ router.post('/operations/assignments',authenticate,requireRole('COMPANY'),async(
    return {status:'CREATED'};
  });
  if(result.status==='INVALID_SCOPE')return res.status(403).json({success:false,error:'Route, driver and vehicle must be active and belong to this company.'});
+ if(result.status==='ONBOARDING_REQUIRED')return res.status(409).json({success:false,code:'ONBOARDING_REQUIRED',error:'Complete company verification, documents and approval before assigning passengers.'});
  if(result.status==='ACTIVE_TRIP')return res.status(409).json({success:false,error:'End the vehicle’s active trip before assigning it.'});
  if(result.status==='CONFLICT')return res.status(409).json({success:false,error:'Driver or vehicle already has an active assignment.'});
  res.status(201).json({success:true,assignment:{id,companyId:cid,routeId,driverId,vehicleId,status:'ACTIVE'}});
- }catch(e){console.error('[Company] assignment:',e);res.status(500).json({success:false,error:'Could not assign route.'});}
+ }catch(e){if(e.status)return res.status(e.status).json({success:false,code:e.code,error:e.message});console.error('[Company] assignment:',e);res.status(500).json({success:false,error:'Could not assign route.'});}
 });
 
 router.delete('/operations/assignments/:id',authenticate,requireRole('COMPANY'),async(req,res)=>{
@@ -162,9 +167,16 @@ router.patch('/operations/drivers/:id/approval', authenticate, requireRole('COMP
     if(!driver) return res.status(404).json({success:false,error:'Driver not found in your company.'});
     if(driver.status==='DELETED') return res.status(409).json({success:false,error:'Deleted driver accounts cannot be reactivated.'});
     const status=action==='APPROVE'?'ACTIVE':'SUSPENDED';
-    await DB.prepare("UPDATE users SET status=? WHERE id=? AND companyId=? AND role='DRIVER'").run(status,req.params.id,companyId);
+    await DB.transaction(async tx => {
+      if (action === 'APPROVE') {
+        const readiness = await getOnboardingReadiness(driver.id, 'DRIVER', tx);
+        if (!readiness.ready || !await isOperationallyEligible(companyId, 'COMPANY', tx)) throw Object.assign(new Error('Complete company approval and driver phone verification, required documents and submission before approval.'), { status: 409, code: 'ONBOARDING_REQUIRED' });
+      }
+      await tx.prepare("UPDATE users SET status=? WHERE id=? AND companyId=? AND role='DRIVER'").run(status,req.params.id,companyId);
+      await markOnboardingReviewed(driver.id, 'DRIVER', action === 'APPROVE' ? 'APPROVED' : 'REJECTED', req.user.id, '', tx);
+    });
     res.json({success:true,driver:{id:req.params.id,status},message:action==='APPROVE'?'Driver approved. Assign a company vehicle and route next.':'Driver application rejected.'});
-  } catch(e){console.error('[Company] driver approval:',e);res.status(500).json({success:false,error:'Could not update driver approval.'});}
+  } catch(e){if(e.status)return res.status(e.status).json({success:false,code:e.code,error:e.message});console.error('[Company] driver approval:',e);res.status(500).json({success:false,error:'Could not update driver approval.'});}
 });
 
 router.patch('/operations/drivers/:id/contact', authenticate, requireRole('COMPANY'), async (req,res) => {
@@ -177,6 +189,7 @@ router.patch('/operations/drivers/:id/contact', authenticate, requireRole('COMPA
     if(duplicate)return res.status(409).json({success:false,error:'That phone number is already in use.'});
     await DB.transaction(async tx=>{
       await tx.prepare("UPDATE users SET phone=? WHERE id=? AND role='DRIVER' AND companyId=?").run(phone,driver.id,companyId);
+      await invalidateOnboarding(driver.id, 'DRIVER', tx, { phoneChanged: true });
       await tx.prepare('INSERT INTO audit_logs (action,userId,role,details) VALUES (?,?,?,?)').run('COMPANY_DRIVER_PHONE_UPDATED',req.user.id,'COMPANY',`Updated phone for driver ${driver.id}`);
     });
     res.json({success:true,driver:{id:driver.id,fullName:driver.fullName,phone},message:'Driver phone number updated.'});
@@ -239,7 +252,7 @@ router.put('/operations/routes/:id', authenticate, requireRole('COMPANY'), async
 });
 
 /** Bookings and passenger roster limited to this company's active route assignments. */
-router.get('/operations/bookings', authenticate, requireRole('COMPANY'), async (req,res) => {
+router.get('/operations/bookings', authenticate, requireRole('COMPANY'), operationalAccount, async (req,res) => {
   try { const companyId=req.user.companyId||req.user.id;
     const bookings=await DB.prepare(`
       SELECT s.id AS subscription_id,s.subscriptionStatus AS subscription_status,s.paymentStatus AS payment_status,

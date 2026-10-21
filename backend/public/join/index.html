@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#006b63">
+  <meta name="description" content="Join Passo as a driver or transport company. Create your account, complete your documents and apply for review.">
+  <meta name="referrer" content="no-referrer">
+  <title>Join Passo · Go Further, Together.</title>
+  <link rel="icon" href="/join/assets/passo-wordmark.png" type="image/png">
+  <link rel="stylesheet" href="/join/join.css?v=20261021">
+  <script src="/join/join.js?v=20261021" defer></script>
+</head>
+<body>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+    <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M4 12h15m-6-6 6 6-6 6"/></symbol>
+    <symbol id="icon-bus" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="16" rx="3"/><path d="M5 11h14M8 6h8M8 19v2m8-2v2"/><path d="M8 15h.01M16 15h.01"/></symbol>
+    <symbol id="icon-company" viewBox="0 0 24 24"><path d="M4 21V7l8-4v18M12 9h8v12M2 21h20M7 9h2m-2 4h2m-2 4h2m6-4h2m-2 4h2"/></symbol>
+    <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="icon-file" viewBox="0 0 24 24"><path d="M14 3H6v18h12V7l-4-4Zm0 0v5h5M9 12h6m-6 4h6"/></symbol>
+    <symbol id="icon-phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 5h4m-3 14h2"/></symbol>
+    <symbol id="icon-person" viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></symbol>
+    <symbol id="icon-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 16v5h16v-5"/></symbol>
+    <symbol id="icon-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></symbol>
+  </defs></svg>
+  <a class="skip-link" href="#main" data-i18n="skip">Skip to content</a>
+  <header class="site-header">
+    <a class="brand" href="/join/" aria-label="Passo home"><img src="/join/assets/passo-wordmark.png" width="300" height="100" alt="PASSO"><span>Go Further, Together.</span></a>
+    <div class="header-end">
+      <div class="languages" role="group" aria-label="Language">
+        <button type="button" data-language="en" aria-pressed="true">English</button><button type="button" data-language="am" aria-pressed="false">አማርኛ</button><button type="button" data-language="om" aria-pressed="false">Afaan Oromoo</button>
+      </div>
+      <button id="logout" class="text-button" type="button" hidden data-i18n="logout">Sign out</button>
+    </div>
+  </header>
+  <main id="main" tabindex="-1">
+    <section id="entry" class="entry-layout">
+      <div class="hero-panel">
+        <img class="hero-photo" src="/join/assets/driver-welcome.png" width="853" height="496" alt="A Passo driver at the wheel, with a teal passenger bus in the background" fetchpriority="high">
+        <div class="hero-topline"><span class="soft-pill"><svg><use href="#icon-bus"/></svg><span data-i18n="joinLabel">DRIVERS & TRANSPORT COMPANIES</span></span></div>
+        <div class="hero-copy"><p class="eyebrow" data-i18n="heroEyebrow">PEOPLE. PLACES. POSSIBILITIES.</p><h1 data-i18n="heroTitle">Your next chapter starts with Passo.</h1><p data-i18n="heroBody">Bring your experience. Connect communities. Let’s go further, together.</p></div>
+      </div>
+      <section class="application-card" aria-labelledby="formTitle">
+        <div class="card-kicker"><span class="status-dot"></span><span data-i18n="welcome">WELCOME TO PASSO</span></div>
+        <h2 id="formTitle" data-i18n="createTitle">Let’s get you started.</h2><p id="formIntro" class="muted" data-i18n="createIntro">Create an account now. Verify your phone and add your documents afterwards.</p>
+        <div class="role-picker" role="group" aria-label="Account type"><button type="button" data-role="DRIVER" aria-pressed="true"><svg><use href="#icon-bus"/></svg><span data-i18n="driver">Driver</span><svg class="chosen"><use href="#icon-check"/></svg></button><button type="button" data-role="COMPANY" aria-pressed="false"><svg><use href="#icon-company"/></svg><span data-i18n="company">Transport company</span><svg class="chosen"><use href="#icon-check"/></svg></button></div>
+        <div class="auth-tabs" role="group" aria-label="Account access"><button type="button" id="registerTab" aria-pressed="true" data-i18n="signUp">Create account</button><button type="button" id="loginTab" aria-pressed="false" data-i18n="signIn">Sign in</button></div>
+        <form id="accountForm" class="form-stack">
+          <div data-registration data-company hidden><label for="companyName" data-i18n="companyName">Company name</label><input id="companyName" name="companyName" autocomplete="organization" maxlength="150"></div>
+          <div data-registration><label id="fullNameLabel" for="fullName" data-i18n="fullName">Full name</label><input id="fullName" name="fullName" autocomplete="name" maxlength="100" minlength="2" required></div>
+          <div class="field-pair"><div><label for="phone" data-i18n="phone">Mobile phone number</label><input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="username" placeholder="09… / +251…" maxlength="30" required></div><div><label for="password" data-i18n="password">Password</label><div class="password-field"><input id="password" name="password" type="password" autocomplete="new-password" minlength="10" maxlength="200" required><button id="showPassword" class="password-toggle" type="button" aria-pressed="false" data-i18n="show">Show</button></div></div></div>
+          <p id="passwordHelp" class="field-hint" data-registration data-i18n="passwordHelp">Use at least 10 characters.</p>
+          <div data-registration data-driver><label for="serviceType" data-i18n="serviceType">How would you like to drive?</label><select id="serviceType" name="serviceType"><option value="DAILY_COMMUTE" data-i18n="dailyOption">Daily commute · my own vehicle</option><option value="INTERCITY" data-i18n="intercityOption">Intercity · a company vehicle</option></select></div>
+          <div data-registration data-driver data-intercity hidden><label for="driverCompany" data-i18n="driverCompany">Your transport company</label><select id="driverCompany" name="companyId"><option value="" data-i18n="chooseCompany">Choose your company</option></select><p id="companyLookupStatus" class="field-hint" role="status"></p><button type="button" class="inline-link" id="retryCompanies" hidden data-i18n="retry">Try again</button></div>
+          <div data-registration data-driver><label for="licenseNumber" data-i18n="licenseNumber">Driving licence number</label><input id="licenseNumber" name="licenseNumber" autocomplete="off" maxlength="100"></div>
+          <fieldset data-registration data-driver data-daily><legend data-i18n="yourVehicle">Your vehicle</legend><div class="field-pair"><div><label for="assignedVehiclePlate" data-i18n="plate">Plate number</label><input id="assignedVehiclePlate" name="assignedVehiclePlate" autocomplete="off" maxlength="30"></div><div><label for="vehicleModel" data-i18n="model">Make / model</label><input id="vehicleModel" name="vehicleModel" maxlength="100"></div></div><label for="vehicleType" data-i18n="vehicleType">Vehicle type</label><select id="vehicleType" name="vehicleType"><option value="" data-i18n="chooseType">Choose a vehicle type</option></select><p id="typeLookupStatus" class="field-hint" role="status"></p><button type="button" class="inline-link" id="retryTypes" hidden data-i18n="retry">Try again</button></fieldset>
+          <p id="accountMessage" class="message" role="status" aria-live="polite"></p>
+          <button id="accountSubmit" type="submit" class="primary"><span data-i18n="createButton">Create my account</span><svg><use href="#icon-arrow"/></svg></button>
+        </form>
+        <p class="account-note" id="accountNote" data-i18n="accountNote">Your application is reviewed before any passenger or route assignment.</p>
+        <p class="data-use-note" data-i18n="dataUse">We use your contact and vehicle or company details to review your application. Phone verification is required before passenger allocation.</p>
+        <div class="existing-links"><a href="/company/" data-i18n="invitedCompany">Have a company invitation?</a><span>·</span><a href="/company/" data-i18n="companyDashboard">Company dashboard</a></div>
+        <p class="support-line"><a href="mailto:info@passo.live?subject=Passo%20application%20support" data-i18n="support">Need help? Contact info@passo.live</a></p>
+      </section>
+      <div class="how-it-works"><div><span class="step-number">01</span><strong data-i18n="stepAccount">Create your account</strong><p data-i18n="stepAccountBody">Your phone and password get you started.</p></div><div><span class="step-number">02</span><strong data-i18n="stepDetails">Complete your details</strong><p data-i18n="stepDetailsBody">Verify your phone and upload your documents.</p></div><div><span class="step-number">03</span><strong data-i18n="stepReview">Send for review</strong><p data-i18n="stepReviewBody">We’ll review your application before assignment.</p></div></div>
+    </section>
+    <section id="dashboard" class="dashboard" hidden aria-labelledby="dashboardTitle">
+      <div class="dashboard-welcome"><div><p class="eyebrow" data-i18n="applicationLabel">YOUR PASSO APPLICATION</p><h1 id="dashboardTitle"></h1><p id="accountIdentity"></p></div><button id="refreshDashboard" class="secondary" type="button" data-i18n="refresh">Refresh status</button></div>
+      <p id="dashboardMessage" class="message" role="status" aria-live="polite"></p>
+      <div class="progress-banner"><div><span id="reviewBadge" class="pill"></span><h2 id="progressTitle"></h2><p id="progressBody"></p></div><div class="progress-ring" id="progressCount" aria-label="Application completion"></div></div>
+      <nav class="checklist-nav" aria-label="Application steps"><a href="#phoneStep"><span>1</span><span data-i18n="verifyPhone">Verify phone</span><svg data-check="phone"><use href="#icon-check"/></svg></a><a href="#profileStep"><span>2</span><span data-i18n="yourDetails">Your details</span><svg data-check="profile"><use href="#icon-check"/></svg></a><a href="#documentsStep"><span>3</span><span data-i18n="documents">Documents</span><svg data-check="documents"><use href="#icon-check"/></svg></a><a href="#reviewStep"><span>4</span><span data-i18n="submitReview">Send for review</span><svg data-check="submitted"><use href="#icon-check"/></svg></a></nav>
+      <div class="dashboard-grid">
+        <section id="phoneStep" class="panel"><div class="panel-heading"><span class="panel-icon"><svg><use href="#icon-phone"/></svg></span><div><p class="eyebrow" data-i18n="stepOne">STEP 1</p><h2 data-i18n="verifyPhone">Verify phone</h2></div><span id="phoneBadge" class="pill"></span></div><p id="phoneSummary" class="muted"></p><form id="otpForm"><div class="otp-row"><div><label for="otpCode" data-i18n="otpCode">SMS verification code</label><input id="otpCode" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required></div><button class="secondary" id="requestOtp" type="button" data-i18n="sendCode">Send code</button></div><button id="verifyOtp" class="primary" type="submit" data-i18n="verifyButton">Verify my phone</button></form><p id="otpMessage" class="message" role="status" aria-live="polite"></p></section>
+        <section id="profileStep" class="panel"><div class="panel-heading"><span class="panel-icon"><svg><use href="#icon-person"/></svg></span><div><p class="eyebrow" data-i18n="stepTwo">STEP 2</p><h2 data-i18n="yourDetails">Your details</h2></div></div><form id="profileForm" class="form-stack"><div data-driver-profile><label for="emergencyContactName" data-i18n="emergencyName">Emergency contact name</label><input id="emergencyContactName" name="emergencyContactName" maxlength="100" minlength="2"></div><div data-driver-profile><label for="emergencyContactPhone" data-i18n="emergencyPhone">Emergency contact phone</label><input id="emergencyContactPhone" name="emergencyContactPhone" type="tel" maxlength="30"></div><div data-driver-profile><label for="vehicleColor" data-i18n="vehicleColor">Vehicle colour</label><input id="vehicleColor" name="vehicleColor" maxlength="40" minlength="2"></div><div data-company-profile hidden><label for="address" data-i18n="companyAddress">Company address (optional)</label><input id="address" name="address" maxlength="250"></div><div data-company-profile hidden><label for="registrationNumber" data-i18n="registrationNumber">Business registration number (optional)</label><input id="registrationNumber" name="registrationNumber" maxlength="100"></div><button class="secondary" type="submit" id="saveProfile" data-i18n="saveDetails">Save details</button></form><p id="profileMessage" class="message" role="status" aria-live="polite"></p></section>
+        <section id="documentsStep" class="panel document-panel"><div class="panel-heading"><span class="panel-icon"><svg><use href="#icon-file"/></svg></span><div><p class="eyebrow" data-i18n="stepThree">STEP 3</p><h2 data-i18n="documents">Documents</h2></div></div><p class="muted" data-i18n="documentsHelp">Upload a clear JPEG, PNG or PDF, up to 5 MB each. Profile photos must be JPEG or PNG.</p><p class="data-use-note" data-i18n="privateDocuments">Uploaded documents are available only to authorized administrators or your company’s reviewers for application review.</p><div id="documentCards" class="document-grid"></div><p id="documentMessage" class="message" role="status" aria-live="polite"></p></section>
+        <section id="reviewStep" class="panel review-panel"><div><p class="eyebrow" data-i18n="stepFour">STEP 4</p><h2 data-i18n="readyReview">Ready for the next step?</h2><p id="reviewSummary"></p><ul id="missingItems"></ul></div><button id="submitReview" class="primary" type="button"><span data-i18n="submitReview">Send for review</span><svg><use href="#icon-arrow"/></svg></button><p id="reviewMessage" class="message" role="status" aria-live="polite"></p></section>
+      </div>
+      <p class="dashboard-footer" data-i18n="allocationNote">Phone verification, required documents and approval are needed before passenger allocation.</p>
+      <p class="support-line"><a href="mailto:info@passo.live?subject=Passo%20application%20support" data-i18n="support">Need help? Contact info@passo.live</a></p>
+    </section>
+  </main>
+  <footer class="site-footer"><span>PASSO · Go Further, Together.</span><a href="/travel/" data-i18n="lookingTravel">Looking for intercity travel?</a></footer>
+  <noscript><p class="no-script">Please enable JavaScript to create an account or complete your Passo application.</p></noscript>
+</body></html>

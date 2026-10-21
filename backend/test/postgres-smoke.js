@@ -59,6 +59,27 @@ async function run() {
     const adminToken = result.data.token;
     assert.ok(adminToken, 'Admin JWT must be returned');
 
+    result = await requestJson(baseUrl, '/api/onboarding/register', 'POST', {
+      role: 'DRIVER', fullName: 'CI Web Applicant', phone: '+251900000109', password: 'CI_Web_Applicant#2026',
+      licenseNumber: 'CI-WEB-LICENCE', assignedVehiclePlate: 'CI-WEB-109', vehicleModel: 'CI Minibus', vehicleType: 'MINIBUS_14'
+    });
+    assert.equal(result.status, 201, 'Web driver registration must work without OTP on PostgreSQL');
+    assert.equal(result.data.account.status, 'PENDING');
+    const applicantId = result.data.account.id;
+    const applicantToken = result.data.token;
+    assert.ok(applicantToken);
+    assert.equal((await requestJson(baseUrl, '/api/onboarding/me', 'GET', null, applicantToken)).status, 200, 'Applicants may sign in and complete onboarding');
+    assert.equal((await requestJson(baseUrl, '/api/trips/assignments', 'GET', null, applicantToken)).status, 401, 'Onboarding tokens never grant driver operations');
+    assert.notEqual((await requestJson(baseUrl, '/api/admin/drivers/' + applicantId + '/approval', 'PATCH', { status: 'ACTIVE' }, adminToken)).status, 200, 'An incomplete web applicant cannot be approved via the old API');
+    result = await requestJson(baseUrl, '/api/onboarding/login', 'POST', { role: 'DRIVER', phone: '+251900000109', password: 'CI_Web_Applicant#2026' });
+    assert.equal(result.status, 200, 'Pending web applicants can log in without OTP');
+    result = await requestJson(baseUrl, '/api/onboarding/register', 'POST', {
+      role: 'COMPANY', companyName: 'CI Public Web Transport', fullName: 'CI Representative', phone: '+251900000110', password: 'CI_Web_Company#2026'
+    });
+    assert.equal(result.status, 201, 'Public company registration works without an invitation or OTP');
+    assert.equal(result.data.account.status, 'PENDING');
+    assert.equal((await requestJson(baseUrl, '/api/companies/operations/fleet', 'GET', null, result.data.token)).status, 401, 'Company applicants cannot access operations');
+
     result = await requestJson(baseUrl, '/api/master-data/vehicle-types');
     assert.equal(result.status, 200);
     assert.equal(result.data.vehicleTypes.length, 4, 'Master data migration seeds the four existing vehicle types');

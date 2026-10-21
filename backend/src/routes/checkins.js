@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { verifySignedQrToken } = require('./subscriptions');
+const { operationalAccount } = require('../services/operational-onboarding');
 
 // Standard vehicle capacity limits
 const VEHICLE_TYPE_CAPACITIES = {
@@ -22,7 +23,7 @@ const VEHICLE_TYPE_CAPACITIES = {
  * 4. Checks duplicate check-in on this trip.
  * 5. Records check-in and updates vehicle occupancy.
  */
-router.post('/scan', authenticate, requireRole('DRIVER'), async (req, res) => {
+router.post('/scan', authenticate, requireRole('DRIVER'), operationalAccount, async (req, res) => {
   try {
     const driverId = req.user.id;
     const {
@@ -311,7 +312,7 @@ router.get('/recent', authenticate, requireRole('ADMIN'), async (req, res) => {
  * GET /api/checkins/trip/:tripId
  * Get passenger list for a specific trip
  */
-router.get('/trip/:tripId', authenticate, requireRole('ADMIN', 'DRIVER'), async (req, res) => {
+router.get('/trip/:tripId', authenticate, requireRole('ADMIN', 'DRIVER'), operationalAccount, async (req, res) => {
   try {
     const { tripId } = req.params;
     if (req.user.role !== 'ADMIN') {

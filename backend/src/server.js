@@ -116,6 +116,7 @@ app.get('/api/admin/system/resources', authenticate, requireRole('ADMIN'), (_req
 });
 app.use('/api/master-data', require('./routes/master-data'));
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/onboarding', require('./routes/onboarding'));
 app.use('/api/companies', require('./routes/companies'));
 app.use('/api/companies', require('./routes/company-portal'));
 app.use('/api/routes', require('./routes/routes'));
@@ -138,6 +139,12 @@ app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/sync', require('./routes/sync'));
 
 // Browser portals are same-origin. External scripts let their route-specific CSP reject inline JS.
+app.use('/join', (req, res, next) => {
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+}, express.static(path.join(__dirname, '..', 'public', 'join'), { index: 'index.html', maxAge: 0, etag: false }));
 app.use('/company', (req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org; font-src 'self'; connect-src 'self' wss:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
@@ -585,6 +592,7 @@ async function initializeFeatureSchemas() {
   await require('./services/profile-schema').initProfileSchema();
   await require('./services/ops-schema').initOpsSchema(DB);
   await require('./services/intercity-schema').initIntercitySchema();
+  await require('./services/onboarding').initOnboardingSchema();
   await DB.exec('CREATE INDEX IF NOT EXISTS idx_reports_trip_time ON trips(startTime); CREATE INDEX IF NOT EXISTS idx_reports_checkin_time ON checkin_records(timestamp); CREATE INDEX IF NOT EXISTS idx_reports_payment_date ON payment_transactions(date);');
   await DB.prepare("CREATE TABLE IF NOT EXISTS app_settings (key VARCHAR(100) PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)").run();
   await DB.prepare("CREATE TABLE IF NOT EXISTS auth_otps (id VARCHAR(100) PRIMARY KEY, phone VARCHAR(40) NOT NULL, purpose VARCHAR(40) NOT NULL, code_hash VARCHAR(128) NOT NULL, verification_token_hash VARCHAR(128), expires_at TIMESTAMP NOT NULL, verified_at TIMESTAMP, attempts INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)").run();

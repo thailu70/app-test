@@ -2,6 +2,7 @@
 
 const { DB } = require('../db');
 const { remainingSubscriptionDays } = require('./subscription-days');
+const { driverEligible } = require('./operational-onboarding');
 
 const LEGACY_DEMO_STOPS = new Set(['stop_atlas', 'stop_merkato']);
 
@@ -48,7 +49,7 @@ async function passengerAssignment(passengerId) {
   await populatePassengerStopLocations(subscription);
   subscription.daysRemaining = remainingSubscriptionDays(subscription);
   const active = subscription.subscriptionStatus === 'ACTIVE' && subscription.paymentStatus === 'PAID' && Number(subscription.daysRemaining) > 0;
-  const vehicle = subscription.vehicleId ? await DB.prepare(`
+  let vehicle = subscription.vehicleId ? await DB.prepare(`
     SELECT v.*, r.name AS routeName, r.morningDeparture,
       u.fullName AS driverName, u.phone AS assignment_driver_phone,
       p.vehicle_color AS assignment_vehicle_color,
@@ -64,6 +65,7 @@ async function passengerAssignment(passengerId) {
     WHERE v.id=? AND COALESCE(v.companyId,'')=''
     ORDER BY t.startTime DESC LIMIT 1
   `).get(subscription.routeId, subscription.vehicleId) : null;
+  if (vehicle && !await driverEligible(vehicle.driverId)) vehicle = null;
   return { subscription, vehicle: vehicle || null, active };
 }
 

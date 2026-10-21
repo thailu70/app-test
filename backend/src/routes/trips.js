@@ -5,6 +5,7 @@ const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { checkCommuteDeparture } = require('../services/departure-rules');
 const { sendSms } = require('../services/afro-sms');
+const { operationalAccount } = require('../services/operational-onboarding');
 
 async function assignedCommuteVehicle(driverId, vehicleId) {
   const query = `SELECT v.*, r.name AS routeName, r.morningDeparture, r.eveningDeparture
@@ -15,7 +16,7 @@ async function assignedCommuteVehicle(driverId, vehicleId) {
     .get(...(vehicleId ? [driverId, vehicleId] : [driverId]));
 }
 
-router.get('/assignments', authenticate, requireRole('DRIVER'), async (req, res) => {
+router.get('/assignments', authenticate, requireRole('DRIVER'), operationalAccount, async (req, res) => {
   try {
     const vehicles = await DB.prepare(`SELECT v.*, r.name AS routeName, r.morningDeparture, r.eveningDeparture
       FROM vehicles v JOIN routes r ON r.id = v.assignedRouteId
@@ -41,7 +42,7 @@ router.get('/assignments', authenticate, requireRole('DRIVER'), async (req, res)
   } catch (err) { console.error('[Driver assignments]', err); res.status(500).json({ success: false, error: 'Could not load driver assignments.' }); }
 });
 
-router.post('/departure-check', authenticate, requireRole('DRIVER'), async (req, res) => {
+router.post('/departure-check', authenticate, requireRole('DRIVER'), operationalAccount, async (req, res) => {
   try {
     const vehicle = await assignedCommuteVehicle(req.user.id, req.body.vehicleId);
     if (!vehicle || (req.body.routeId && req.body.routeId !== vehicle.assignedRouteId)) return res.status(403).json({ success: false, error: 'This commute route is not assigned to your vehicle.' });
@@ -53,7 +54,7 @@ router.post('/departure-check', authenticate, requireRole('DRIVER'), async (req,
   } catch (err) { console.error('[Departure preview]', err); res.status(500).json({ success: false, error: 'Could not validate departure.' }); }
 });
 
-router.get('/roster', authenticate, requireRole('DRIVER'), async (req, res) => {
+router.get('/roster', authenticate, requireRole('DRIVER'), operationalAccount, async (req, res) => {
   try {
     const vehicle = await assignedCommuteVehicle(req.user.id, req.query.vehicleId);
     if (!vehicle) return res.status(403).json({ success: false, error: 'No commute vehicle and route are assigned to your driver account.' });
@@ -82,7 +83,7 @@ router.get('/roster', authenticate, requireRole('DRIVER'), async (req, res) => {
  * POST /api/trips/start
  * Driver starts a scheduled transit trip on a route.
  */
-router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
+router.post('/start', authenticate, requireRole('DRIVER'), operationalAccount, async (req, res) => {
   try {
     const driverId = req.user.id;
     const { routeId, direction = 'OUTBOUND', vehicleId } = req.body;
@@ -213,7 +214,7 @@ router.post('/start', authenticate, requireRole('DRIVER'), async (req, res) => {
  * GET /api/trips/active
  * Get active trip for the logged-in driver.
  */
-router.get('/active', authenticate, requireRole('DRIVER'), async (req, res) => {
+router.get('/active', authenticate, requireRole('DRIVER'), operationalAccount, async (req, res) => {
   try {
     const driverId = req.user.id;
     const trip = await DB.prepare(`
@@ -259,7 +260,7 @@ router.get('/active', authenticate, requireRole('DRIVER'), async (req, res) => {
  * POST /api/trips/:id/stop-arrival
  * Driver records arrival at a scheduled route stop.
  */
-router.post('/:id/stop-arrival', authenticate, requireRole('DRIVER'), async (req, res) => {
+router.post('/:id/stop-arrival', authenticate, requireRole('DRIVER'), operationalAccount, async (req, res) => {
   try {
     const { id } = req.params;
     const { stopName } = req.body;
@@ -313,7 +314,7 @@ router.post('/:id/stop-arrival', authenticate, requireRole('DRIVER'), async (req
  * POST /api/trips/:id/end
  * End trip and finalize stats
  */
-router.post('/:id/end', authenticate, requireRole('DRIVER'), async (req, res) => {
+router.post('/:id/end', authenticate, requireRole('DRIVER'), operationalAccount, async (req, res) => {
   try {
     const { id } = req.params;
     const trip = await DB.prepare('SELECT t.*, v.companyId FROM trips t JOIN vehicles v ON v.id=t.vehicleId WHERE t.id = ?').get(id);

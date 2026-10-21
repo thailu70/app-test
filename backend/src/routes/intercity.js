@@ -12,6 +12,8 @@ const telebirr = require('../services/telebirr');
 const { publicBaseUrl, httpsCallbackUrl } = require('../services/public-url');
 const { sendSms } = require('../services/afro-sms');
 const { effectiveBoardingRadius, getGlobalGpsRadius } = require('../services/master-data');
+const { isOperationallyEligible } = require('../services/onboarding');
+const { assertDriverEligible, driverEligible, operationalAccount } = require('../services/operational-onboarding');
 const router = express.Router();
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const uuid = () => crypto.randomUUID();
@@ -21,8 +23,14 @@ const clean = (value, max = 150) => String(value || '').trim().slice(0, max);
 const validDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value + 'T12:00:00Z').toISOString().slice(0, 10) === value;
 const publicLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, standardHeaders: true, legacyHeaders: false });
 const ensureAuth = (req, res, next) => req.user ? next() : authenticate(req, res, next);
-const companyGuard = [ensureAuth, requireRole('COMPANY')];
-const driverGuard = [ensureAuth, requireRole('DRIVER')];
+const companyGuard = [ensureAuth, requireRole('COMPANY'), operationalAccount];
+const driverGuard = [ensureAuth, requireRole('DRIVER'), operationalAccount];
+async function departureEligible(d, db = DB) {
+  return Boolean(d.driver_id) && await isOperationallyEligible(d.company_id, 'COMPANY', db) && await driverEligible(d.driver_id, db);
+}
+async function requireDepartureEligible(d, db = DB) {
+  if (!await departureEligible(d, db)) throw fail(409, 'This departure is awaiting verified company and driver approval.');
+}
 let sqliteWrites = Promise.resolve();
 function write(fn) {
   if (DB.isPostgres) return DB.transaction(fn);
@@ -98,6 +106,7 @@ function person(input) {
   return { name, phone };
 }
 async function holdSeat(tx, d, number, data = {}) {
+  await requireDepartureEligible(d, tx);
   await expire(tx, d.id);
   if (!await tx.prepare("SELECT id FROM transport_companies WHERE id=? AND status='ACTIVE'").get(d.company_id)) throw fail(409, 'This transport company is not accepting bookings.');
   if (d.status !== 'SCHEDULED' || Date.parse(d.departure_at) <= Date.now()) throw fail(409, 'This departure is closed for booking.');
@@ -147,7 +156,8 @@ router.get('/departures', publicLimiter, asyncRoute(async (req, res) => {
   // Dates are interpreted in Ethiopia, where the transport operates (UTC+03).
   if (date) { const start = new Date(date + 'T00:00:00+03:00'); clauses.push('d.departure_at >= ? AND d.departure_at < ?'); args.push(start.toISOString(), new Date(start.getTime() + 86400000).toISOString()); }
   const rows = await DB.prepare(`SELECT d.*,c.name AS company_name,v.model AS vehicle_model,v.vehicleType AS vehicle_type,(SELECT COUNT(*) FROM intercity_seats s JOIN intercity_bookings b ON b.id=s.booking_id WHERE s.departure_id=d.id AND (b.payment_status='PAID' OR b.expires_at > ?)) AS reserved FROM intercity_departures d JOIN transport_companies c ON c.id=d.company_id LEFT JOIN vehicles v ON v.id=d.vehicle_id WHERE ${clauses.join(' AND ')} ORDER BY d.departure_at ASC LIMIT 100`).all(new Date().toISOString(), ...args);
-  res.json({ success: true, departures: rows.map(d => ({ id: d.id, origin: d.origin, destination: d.destination, departureAt: d.departure_at, companyName: d.company_name, companyId: d.company_id, vehicleType: d.vehicle_type, vehicleModel: d.vehicle_model, seats: d.seats, availableSeats: d.seats - Number(d.reserved), fareEtb: Number(d.fare_etb) })) });
+  const eligibility = await Promise.all(rows.map(d => departureEligible(d)));
+  res.json({ success: true, departures: rows.filter((_, index) => eligibility[index]).map(d => ({ id: d.id, origin: d.origin, destination: d.destination, departureAt: d.departure_at, companyName: d.company_name, companyId: d.company_id, vehicleType: d.vehicle_type, vehicleModel: d.vehicle_model, seats: d.seats, availableSeats: d.seats - Number(d.reserved), fareEtb: Number(d.fare_etb) })) });
 }));
 router.get('/departures/:id/seats', publicLimiter, asyncRoute(async (req, res) => {
   const d = await departure(DB, req.params.id);
@@ -180,6 +190,7 @@ router.get('/bookings/:id', publicLimiter, asyncRoute(async (req, res) => {
 router.post('/bookings/:id/checkout', publicLimiter, asyncRoute(async (req, res) => {
   let b = await guestBooking(req); const p = person(req.body);
   if (b.payment_status === 'PAID') return res.json({ success: true, paid: true });
+  await requireDepartureEligible(await departure(DB, b.departure_id));
   if (b.status === 'EXPIRED' || Date.parse(b.expires_at) < Date.now()) throw fail(409, 'Your reservation expired. Choose a seat again.');
   if (p.phone.replace(/\D/g, '') === '0912469923') {
     await write(async tx => { await tx.prepare("UPDATE intercity_bookings SET passenger_name=?,passenger_phone=?,status='CONFIRMED',payment_status='PAID',payment_method='TEST_AUTO',payment_reference='TEST-0912469923' WHERE id=?").run(p.name, p.phone, b.id); });
@@ -245,6 +256,7 @@ router.post('/company/departures', ...companyGuard, asyncRoute(async (req, res) 
   const u = await DB.prepare("SELECT id FROM users WHERE id=? AND companyId=? AND role='DRIVER' AND status='ACTIVE'").get(driverId, req.user.id);
   const seats = Number(x.seats), fare = Number(x.fareEtb), lat = Number(x.latitude), lng = Number(x.longitude), radius = x.radiusMeters === undefined ? 300 : Number(x.radiusMeters);
   if (!r || !v || !u) throw fail(400, 'Select an active company intercity route, approved driver and company vehicle.');
+  await assertDriverEligible(u.id);
   if (!Number.isInteger(seats) || seats < 1 || seats > Math.min(Number(v.capacityLimit), 100) || !Number.isFinite(fare) || fare <= 0 || fare > 100000 || !Number.isInteger(radius) || radius < 25 || radius > 5000 || !Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180 || Date.parse(departureAt) < Date.now()) throw fail(400, 'Check departure time, fare, seat capacity, radius (25–5000m) and departure coordinates.');
   const id = uuid();
   await DB.prepare('INSERT INTO intercity_departures (id,company_id,route_id,driver_id,vehicle_id,origin,destination,departure_at,latitude,longitude,radius_m,seats,fare_etb,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id, req.user.id, r.id, u.id, v.id, r.origin, r.destination, departureAt, lat, lng, radius, seats, fare, new Date().toISOString());
@@ -264,6 +276,7 @@ router.patch('/company/departures/:id', ...companyGuard, asyncRoute(async (req, 
     const vehicle = await tx.prepare('SELECT id,capacityLimit FROM vehicles WHERE id=? AND companyId=?').get(vehicleId, req.user.id);
     const driver = await tx.prepare("SELECT id,status FROM users WHERE id=? AND companyId=? AND role='DRIVER'").get(driverId, req.user.id);
     if (!vehicle || !driver || driver.status !== 'ACTIVE') throw fail(400, 'Select an active driver and vehicle owned by this company.');
+    await assertDriverEligible(driver.id, tx);
     if (!Number.isInteger(Number(current.seats)) || Number(current.seats) > Number(vehicle.capacityLimit)) throw fail(400, 'The selected vehicle does not have enough seats for this departure.');
     if (!Number.isInteger(radius) || radius < 25 || radius > 5000 || !Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180 || Date.parse(time) < Date.now()) throw fail(400, 'Check the departure time, coordinates and radius (25–5000 metres).');
     await tx.prepare('UPDATE intercity_departures SET driver_id=?,vehicle_id=?,radius_m=?,latitude=?,longitude=?,departure_at=? WHERE id=?').run(driver.id, vehicle.id, radius, lat, lng, time, current.id);

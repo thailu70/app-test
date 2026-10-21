@@ -5,6 +5,8 @@ const path = require('path');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { initProfileSchema } = require('../services/profile-schema');
+const { driverEligible } = require('../services/operational-onboarding');
+const { invalidateOnboarding } = require('../services/onboarding');
 
 const router = express.Router();
 const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
@@ -57,13 +59,20 @@ router.patch('/me', requireRole('DRIVER'), asyncRoute(async (req, res) => {
   if (input.emergencyContactPhone !== undefined && !/^\+?[0-9 ()-]{7,24}$/.test(input.emergencyContactPhone.trim())) return fail(res, 400, 'Enter a valid emergency contact phone number.');
   if (input.vehicleColor !== undefined && (input.vehicleColor.trim().length < 2 || input.vehicleColor.length > 40)) return fail(res, 400, 'Enter a vehicle color between 2 and 40 characters.');
   const current = await DB.prepare('SELECT * FROM user_profiles WHERE user_id = ?').get(req.user.id) || {};
-  await DB.prepare(`INSERT INTO user_profiles (user_id, emergency_contact_name, emergency_contact_phone, vehicle_color, updated_at)
+  await DB.transaction(async tx => {
+  await tx.prepare(tx.isPostgres ? 'SELECT id FROM users WHERE id=? FOR UPDATE' : 'SELECT id FROM users WHERE id=?').get(req.user.id);
+  await tx.prepare(`INSERT INTO user_profiles (user_id, emergency_contact_name, emergency_contact_phone, vehicle_color, updated_at)
     VALUES (?, ?, ?, ?, ?) ON CONFLICT (user_id) DO UPDATE SET
     emergency_contact_name = excluded.emergency_contact_name, emergency_contact_phone = excluded.emergency_contact_phone,
     vehicle_color = excluded.vehicle_color, updated_at = excluded.updated_at`).run(
     req.user.id, (input.emergencyContactName === undefined ? current.emergency_contact_name || '' : input.emergencyContactName.trim()),
     (input.emergencyContactPhone === undefined ? current.emergency_contact_phone || '' : input.emergencyContactPhone.trim()),
     (input.vehicleColor === undefined ? current.vehicle_color || '' : input.vehicleColor.trim()), new Date().toISOString());
+  const changed = (input.emergencyContactName !== undefined && input.emergencyContactName.trim() !== (current.emergency_contact_name || '')) ||
+    (input.emergencyContactPhone !== undefined && input.emergencyContactPhone.trim() !== (current.emergency_contact_phone || '')) ||
+    (input.vehicleColor !== undefined && input.vehicleColor.trim() !== (current.vehicle_color || ''));
+  if (changed) await invalidateOnboarding(req.user.id, req.user.role, tx);
+  });
   res.json({ success: true, profile: await profileFor(req.user) });
 }));
 
@@ -101,6 +110,7 @@ router.put('/me/documents/:kind', requireRole('DRIVER', 'PASSENGER'),
           VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (user_id, kind) DO UPDATE SET storage_name = excluded.storage_name,
           content_type = excluded.content_type, byte_size = excluded.byte_size, uploaded_at = excluded.uploaded_at`).run(
           req.user.id, kind, storageName, detected.mime, req.body.length, new Date().toISOString());
+        await invalidateOnboarding(req.user.id, req.user.role, tx);
       });
     } catch (err) { await fs.unlink(destination).catch(() => {}); throw err; }
     if (previous && /^[a-f0-9-]+\.(jpg|png|pdf)$/.test(previous.storage_name)) await fs.unlink(path.join(uploadDirectory, previous.storage_name)).catch(() => {});
@@ -118,7 +128,7 @@ async function maySeePhoto(principal, target) {
   if (companyId(target) || companyId(principal)) return false;
   const driver = principal.role === 'DRIVER' && target.role === 'PASSENGER' ? principal : target.role === 'DRIVER' && principal.role === 'PASSENGER' ? target : null;
   const passenger = driver === principal ? target : principal;
-  if (!driver) return false;
+  if (!driver || !await driverEligible(driver.id)) return false;
   const assigned = await DB.prepare(`SELECT s.id FROM subscriptions s
     JOIN vehicles v ON v.assignedRouteId = s.routeId
     JOIN routes r ON r.id = s.routeId

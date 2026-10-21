@@ -33,10 +33,13 @@ function verifyToken(token) {
 async function resolveActivePrincipal(token) {
   const decoded = verifyToken(token);
   if (!decoded || typeof decoded.id !== 'string' || !decoded.id) return null;
+  // Recruitment credentials can only be used by the dedicated onboarding router.
+  if (decoded.scope !== undefined || decoded.aud === 'routepass-onboarding') return null;
 
   if (String(decoded.role || '').toUpperCase() === 'COMPANY') {
     const company = await DB.prepare("SELECT id, name, phone, representative_name, status FROM transport_companies WHERE id = ? AND status = 'ACTIVE'").get(decoded.id);
     if (!company) return null;
+    if (!(await require('../services/onboarding').isOperationallyEligible(company.id, 'COMPANY'))) return null;
     return {
       ...decoded,
       id: company.id,
@@ -51,6 +54,7 @@ async function resolveActivePrincipal(token) {
   const user = await DB.prepare("SELECT id, role, fullName, phone, status, companyId FROM users WHERE id = ? AND status = 'ACTIVE'").get(decoded.id);
   if (!user || !['ADMIN', 'DRIVER', 'PASSENGER'].includes(String(user.role || '').toUpperCase())) return null;
   if (String(decoded.role || '').toUpperCase() !== String(user.role).toUpperCase()) return null;
+  if (user.role === 'DRIVER' && !(await require('../services/onboarding').isOperationallyEligible(user.id, 'DRIVER'))) return null;
   return { ...decoded, ...user, role: String(user.role).toUpperCase() };
 }
 

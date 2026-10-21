@@ -1,5 +1,6 @@
 const express = require('express');
 const { DB } = require('../db');
+const { isOperationallyEligible } = require('../services/onboarding');
 
 const router = express.Router();
 
@@ -9,7 +10,8 @@ router.get('/', async (_req, res) => {
   try {
     const companies = await DB.prepare("SELECT id, name FROM transport_companies WHERE status = 'ACTIVE' ORDER BY name ASC").all();
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ success: true, companies });
+    const eligible = await Promise.all(companies.map(company => isOperationallyEligible(company.id, 'COMPANY')));
+    res.json({ success: true, companies: companies.filter((_, index) => eligible[index]) });
   } catch (err) {
     console.error('[Companies] list failed:', err);
     res.status(503).json({ success: false, error: 'Company list unavailable.' });
