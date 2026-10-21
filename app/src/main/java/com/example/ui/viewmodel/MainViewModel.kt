@@ -759,6 +759,8 @@ class MainViewModel(
         }
     }
 
+    suspend fun fetchRegistrationVehicleTypes(): List<com.example.data.api.VehicleTypeOption> = repository.fetchActiveVehicleTypes()
+
     /** Refresh separately from GPS callbacks; a failed request keeps the last working interval. */
     suspend fun refreshDriverGpsSharingInterval() {
         val user = _currentUser.value?.takeIf { it.role == "DRIVER" } ?: return

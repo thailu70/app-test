@@ -124,10 +124,7 @@ internal fun NativeAuthFlow(
         vehicleTypesLoading = true
         vehicleTypesError = null
         try {
-            val response = ApiClient.getService().getVehicleTypes()
-            val body = response.body()
-            if (!response.isSuccessful || body?.success != true) throw IllegalStateException("Unavailable vehicle catalog")
-            vehicleTypes = body.activeOptions()
+            vehicleTypes = model.fetchRegistrationVehicleTypes()
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) {
             vehicleTypes = VehicleTypeOption.DEFAULTS

@@ -382,6 +382,14 @@ class TransportRepository(
         return requireNotNull(body.intervalSeconds)
     }
 
+    suspend fun fetchActiveVehicleTypes(): List<VehicleTypeOption> {
+        val response = apiService.getVehicleTypes()
+        if (!response.isSuccessful) throw HttpException(response)
+        val body = response.body()
+        if (body?.success != true) throw IllegalStateException("Vehicle types are unavailable.")
+        return body.activeOptions()
+    }
+
     suspend fun submitDriverLocation(latitude: Double, longitude: Double, speed: Double = 0.0, currentStop: String = "") {
         val response = apiService.updateMyLocation(LocationUpdateRequest(latitude, longitude, speed, currentStop))
         if (!response.isSuccessful || response.body()?.success != true) {

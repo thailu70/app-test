@@ -19,6 +19,8 @@ import com.example.data.api.RoutePassApiService
 import com.example.data.api.TransportCompaniesResponse
 import com.example.data.api.TransportCompanyDto
 import com.example.data.api.UserDto
+import com.example.data.api.VehicleTypeOption
+import com.example.data.api.VehicleTypesResponse
 import com.example.data.database.TransportDatabase
 import com.example.data.entity.RouteEntity
 import com.example.data.repository.TransportRepository
@@ -53,6 +55,8 @@ class AuthLayoutTest {
     private val registrations = mutableListOf<RegisterRequest>()
     private val requestedCodes = mutableListOf<Map<String, String>>()
     private val verifiedCodes = mutableListOf<Map<String, String>>()
+    private var vehicleCatalog = VehicleTypesResponse(true, listOf(VehicleTypeOption("COACH_53", "Executive Coach", 53)))
+    private var vehicleCatalogRequests = 0
 
     @Before fun createLocalAuthSession() {
         ApiClient.setAuthToken(null)
@@ -84,6 +88,7 @@ class AuthLayoutTest {
                     else Response.error<AuthResponse>(503, """{"success":false,"error":"Test registration recorded."}""".toResponseBody("application/json".toMediaType()))
                 }
                 "getTransportCompanies" -> Response.success(TransportCompaniesResponse(true, listOf(TransportCompanyDto("company-test", "Test Transport"))))
+                "getVehicleTypes" -> { vehicleCatalogRequests++; Response.success(vehicleCatalog) }
                 else -> Response.error<Any>(503, "{}".toResponseBody("application/json".toMediaType()))
             }
         } as RoutePassApiService
@@ -221,7 +226,7 @@ class AuthLayoutTest {
         capture("05-driver-details-after-verified-phone")
     }
 
-    @Test fun verifiedDriverSubmissionPreservesLicenceVehicleAndPendingApproval() {
+    private fun completeVerifiedDriverDetails() {
         show(AppRole.DRIVER, signup = true)
         compose.onNodeWithTag("auth_full_name_input").performTextInput("Native Test Driver")
         compose.onNodeWithTag("auth_phone_input").performTextInput("0912345678")
@@ -235,6 +240,13 @@ class AuthLayoutTest {
         compose.onNodeWithTag("auth_driver_vehicle_plate_input").performScrollTo().performTextInput("AA-TEST-24")
         compose.onNodeWithTag("auth_driver_vehicle_model_input").performScrollTo().performTextInput("Toyota Hiace")
         compose.onNodeWithTag("auth_route_route-auth-test").performScrollTo().performClick()
+    }
+
+    @Test fun verifiedDriverSubmissionPreservesLicenceVehicleAndPendingApproval() {
+        completeVerifiedDriverDetails()
+        assertEquals("Registration details use the injected catalog client", 1, vehicleCatalogRequests)
+        compose.onNodeWithTag("auth_driver_vehicle_type").performScrollTo()
+        compose.onNodeWithText("Executive Coach · 53 seats").assertExists()
         compose.onNodeWithTag("auth_driver_submit").performScrollTo().performClick()
         try {
             compose.waitUntil(10_000) { registrations.isNotEmpty() &&
@@ -252,9 +264,21 @@ class AuthLayoutTest {
         assertEquals("LIC-TEST-24", request.licenseNumber)
         assertEquals("AA-TEST-24", request.assignedVehiclePlate)
         assertEquals("Toyota Hiace", request.vehicleModel)
+        assertEquals("COACH_53", request.vehicleType)
         assertFalse("Pending drivers must not receive an authenticated session", model.isAuthenticated.value)
         assertTrue(logins.isEmpty())
         assertNull(ApiClient.getAuthToken())
+    }
+
+    @Test fun successfulEmptyVehicleCatalogDoesNotOfferFallbackTypesOrSubmitAnUnavailableVehicle() {
+        vehicleCatalog = VehicleTypesResponse(true, emptyList())
+        completeVerifiedDriverDetails()
+        assertEquals(1, vehicleCatalogRequests)
+        compose.onNodeWithTag("auth_driver_vehicle_type").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText("No vehicle types are currently available. Contact your administrator.").assertExists()
+        compose.onNodeWithTag("auth_driver_submit").performScrollTo().performClick()
+        compose.onNodeWithText("Choose an available vehicle type.").assertExists()
+        assertTrue(registrations.isEmpty())
     }
 
     @Test fun verifiedPassengerSubmissionKeepsSelectedDailyRouteAndServerAuthenticationGate() {
