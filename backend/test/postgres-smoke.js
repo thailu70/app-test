@@ -59,6 +59,24 @@ async function run() {
     const adminToken = result.data.token;
     assert.ok(adminToken, 'Admin JWT must be returned');
 
+    result = await requestJson(baseUrl, '/api/master-data/vehicle-types');
+    assert.equal(result.status, 200);
+    assert.equal(result.data.vehicleTypes.length, 4, 'Master data migration seeds the four existing vehicle types');
+    result = await requestJson(baseUrl, '/api/master-data/vehicle-types', 'POST', { code: 'CI_COACH_50', name: 'CI Coach', capacity: 50 }, adminToken);
+    assert.equal(result.status, 201, 'Admin creates a new PostgreSQL vehicle type');
+    result = await requestJson(baseUrl, '/api/master-data/gps-radius', 'GET', null, adminToken);
+    assert.equal(result.data.overrideEnabled, false);
+    result = await requestJson(baseUrl, '/api/master-data/gps-radius', 'PUT', { radiusMeters: 450 }, adminToken);
+    assert.equal(result.status, 200); assert.equal(result.data.radiusMeters, 450);
+    assert.equal((await DB.prepare("SELECT value FROM app_settings WHERE key='GPS_BOARDING_RADIUS_METERS'").get()).value, '450');
+    assert.equal((await requestJson(baseUrl, '/api/master-data/gps-radius', 'PUT', { radiusMeters: 24 }, adminToken)).status, 400);
+    result = await requestJson(baseUrl, '/api/master-data/gps-sharing', 'GET', null, adminToken);
+    assert.equal(result.data.intervalSeconds, 5);
+    assert.equal((await requestJson(baseUrl, '/api/master-data/gps-sharing', 'PUT', { intervalSeconds: 61 }, adminToken)).status, 400);
+    result = await requestJson(baseUrl, '/api/master-data/gps-sharing', 'PUT', { intervalSeconds: 20 }, adminToken);
+    assert.equal(result.status, 200); assert.equal(result.data.intervalSeconds, 20);
+    assert.equal((await DB.prepare("SELECT value FROM app_settings WHERE key='GPS_SHARING_INTERVAL_SECONDS'").get()).value, '20');
+
     result = await requestJson(baseUrl, '/api/routes', 'POST', {
       name: 'CI Sample Route',
       nameAm: 'የፈተና መስመር',
@@ -172,10 +190,16 @@ async function run() {
     assert.equal(result.status, 200, 'Company should approve its own driver');
 
     result = await requestJson(baseUrl, '/api/companies/operations/vehicles', 'POST', {
-      plateNumber: '3-CI-0200', model: 'CI Company Minibus', vehicleType: 'MINIBUS_14'
+      plateNumber: '3-CI-0200', model: 'CI Company Coach', vehicleType: 'CI_COACH_50'
     }, companyToken);
     assert.equal(result.status, 201, 'Company should register its own vehicle');
     const companyVehicleId = result.data.vehicle.id;
+    assert.equal(result.data.vehicle.capacityLimit, 50, 'New catalog type must pass the migrated PostgreSQL vehicle-type constraint');
+    result = await requestJson(baseUrl, '/api/master-data/vehicle-types/CI_COACH_50', 'PATCH', { name: 'CI Premium Coach', capacity: 52 }, adminToken);
+    assert.equal(result.status, 200);
+    assert.equal((await DB.prepare('SELECT capacityLimit FROM vehicles WHERE id=?').get(companyVehicleId)).capacityLimit, 50, 'Catalog edits retain registered physical vehicle capacity');
+    await require('../src/services/master-data').initMasterDataSchema(DB);
+    assert.equal((await DB.prepare("SELECT capacity FROM vehicle_types WHERE code='CI_COACH_50'").get()).capacity, 52, 'Repeated master-data migration must preserve administrator edits');
 
     result = await requestJson(baseUrl, '/api/companies/operations/routes', 'POST', {
       name: 'CI Company Route', nameAm: 'የኩባንያ መስመር', routeType: 'INTERCITY',

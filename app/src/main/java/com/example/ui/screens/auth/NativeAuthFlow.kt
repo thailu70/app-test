@@ -20,6 +20,7 @@ import com.example.R
 import com.example.core.localization.AppLanguage
 import com.example.data.api.ApiClient
 import com.example.data.api.TransportCompanyDto
+import com.example.data.api.VehicleTypeOption
 import com.example.ui.screens.passenger.*
 import com.example.ui.viewmodel.AppRole
 import com.example.ui.viewmodel.MainViewModel
@@ -78,6 +79,9 @@ internal fun NativeAuthFlow(
     var epoch by remember { mutableIntStateOf(0) }
     var companies by remember { mutableStateOf<List<TransportCompanyDto>>(emptyList()) }
     var companyError by remember { mutableStateOf<String?>(null) }
+    var vehicleTypes by remember { mutableStateOf<List<VehicleTypeOption>>(emptyList()) }
+    var vehicleTypesLoading by remember { mutableStateOf(false) }
+    var vehicleTypesError by remember { mutableStateOf<String?>(null) }
     fun t(en: String, am: String, om: String) = authText(language, en, am, om)
     fun invalidatePhone() { draft.code = ""; draft.verification = ""; epoch++ }
     fun switchMode(value: Boolean) {
@@ -114,6 +118,22 @@ internal fun NativeAuthFlow(
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { companyError = "Could not load companies. Check your connection and try again." }
         }
+    }
+    LaunchedEffect(driver, register, draft.service, step) {
+        if (!driver || !register || step != 2 || draft.service == "Intercity") return@LaunchedEffect
+        vehicleTypesLoading = true
+        vehicleTypesError = null
+        try {
+            val response = ApiClient.getService().getVehicleTypes()
+            val body = response.body()
+            if (!response.isSuccessful || body?.success != true) throw IllegalStateException("Unavailable vehicle catalog")
+            vehicleTypes = body.activeOptions()
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) {
+            vehicleTypes = VehicleTypeOption.DEFAULTS
+            vehicleTypesError = "Could not refresh vehicle types. Standard options are shown."
+        } finally { vehicleTypesLoading = false }
+        if (vehicleTypes.none { it.code == draft.vehicleType }) draft.vehicleType = vehicleTypes.firstOrNull()?.code.orEmpty()
     }
     fun requestCode() {
         val problem = when {
@@ -157,6 +177,8 @@ internal fun NativeAuthFlow(
             driver && draft.license.isBlank() -> "Enter your commercial driving licence number."
             driver && draft.service == "Intercity" && companies.none { it.name == draft.company } -> "Choose a registered transport company."
             driver && draft.service != "Intercity" && (draft.plate.isBlank() || draft.vehicleModel.isBlank()) -> "Enter your vehicle plate and model."
+            driver && draft.service != "Intercity" && vehicleTypesLoading -> "Wait for vehicle types to finish loading."
+            driver && draft.service != "Intercity" && vehicleTypes.none { it.code == draft.vehicleType } -> "Choose an available vehicle type."
             driver && draft.service != "Intercity" && draft.routeMode == "existing" && routes.none { it.id == draft.selectedRoute && it.active } -> "Choose an active route or propose a route."
             driver && draft.service != "Intercity" && draft.routeMode == "custom" && (draft.pickup.isBlank() || draft.destination.isBlank() || !Regex("^([01][0-9]|2[0-3]):[0-5][0-9]$").matches(draft.departure)) -> "Enter pickup, destination and a valid 24-hour departure time (HH:mm)."
             else -> null
@@ -224,7 +246,8 @@ internal fun NativeAuthFlow(
                         }
                     }
                     if (register && step == 2) {
-                        AuthRegistrationDetails(draft, driver, routes.filter { it.active }, companies, companyError, language, !busy)
+                        AuthRegistrationDetails(draft, driver, routes.filter { it.active }, companies, companyError, language, !busy,
+                            vehicleTypes, vehicleTypesLoading, vehicleTypesError)
                     }
                     (message ?: authError?.takeIf { waitingForAuth })?.let { Text(it, color = androidx.compose.ui.graphics.Color(0xFFAC2F2F), fontSize = 12.sp, modifier = Modifier.testTag("auth_error")) }
                     registrationMessage?.let { Text(it, color = CommuteTeal, fontSize = 13.sp, modifier = Modifier.testTag("auth_registration_message")) }

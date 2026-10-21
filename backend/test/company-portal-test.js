@@ -15,7 +15,7 @@ test('company portal keeps rendering and permits retry after summary failure', a
     sessionStorage: { getItem: () => 'local-test-token', removeItem() {} },
     fetch: async url => ({
       ok: !(fail && url.endsWith('/summary')), status: fail && url.endsWith('/summary') ? 503 : 200,
-      json: async () => url.endsWith('/summary') ? { summary: { activeAssignments: 3 } } : url.endsWith('/fleet') ? { vehicles: [{ plateNumber: 'TEST-001', model: 'Bus' }] } : {}
+      json: async () => url.endsWith('/vehicle-types') ? { success: true, vehicleTypes: [] } : url.endsWith('/summary') ? { summary: { activeAssignments: 3 } } : url.endsWith('/fleet') ? { vehicles: [{ plateNumber: 'TEST-001', model: 'Bus' }] } : {}
     }),
     Date, console, AbortController, setTimeout, clearTimeout
   });

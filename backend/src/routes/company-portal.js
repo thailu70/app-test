@@ -77,13 +77,13 @@ router.post('/operations/vehicles', authenticate, requireRole('COMPANY'), async 
     const plateNumber=String(req.body.plateNumber||'').trim().toUpperCase();
     const model=String(req.body.model||'').trim();
     const vehicleType=String(req.body.vehicleType||'MINIBUS_14').trim().toUpperCase();
-    const capacities={MINIVAN_8:8,MINIBUS_14:14,HIGER_24:24,ANBESSA_BUS_30:30};
-    if(!plateNumber||!model||!capacities[vehicleType])return res.status(400).json({success:false,error:'Plate, model and supported vehicle type are required.'});
+    const registeredType=await require('../services/master-data').getVehicleType(vehicleType);
+    if(!plateNumber||!model||!registeredType)return res.status(400).json({success:false,error:'Plate, model and supported vehicle type are required.'});
     const duplicate=await DB.prepare('SELECT id FROM vehicles WHERE plateNumber=?').get(plateNumber);
     if(duplicate)return res.status(409).json({success:false,error:'Vehicle plate already exists.'});
     const id='veh_'+crypto.randomUUID().replace(/-/g,'').slice(0,12);
-    await DB.prepare("INSERT INTO vehicles(id,plateNumber,model,vehicleType,capacityLimit,currentOccupancy,assignedRouteId,driverId,driverName,status,companyId) VALUES(?,?,?,?,?,0,NULL,NULL,'','OFF_DUTY',?)").run(id,plateNumber,model,vehicleType,capacities[vehicleType],companyId);
-    res.status(201).json({success:true,vehicle:{id,plateNumber,model,vehicleType,capacityLimit:capacities[vehicleType],companyId,status:'OFF_DUTY'}});
+    await DB.prepare("INSERT INTO vehicles(id,plateNumber,model,vehicleType,capacityLimit,currentOccupancy,assignedRouteId,driverId,driverName,status,companyId) VALUES(?,?,?,?,?,0,NULL,NULL,'','OFF_DUTY',?)").run(id,plateNumber,model,vehicleType,registeredType.capacity,companyId);
+    res.status(201).json({success:true,vehicle:{id,plateNumber,model,vehicleType,capacityLimit:registeredType.capacity,companyId,status:'OFF_DUTY'}});
   }catch(e){console.error('[Company] vehicle registration failed:',e);res.status(500).json({success:false,error:'Could not register company vehicle.'});}
 });
 

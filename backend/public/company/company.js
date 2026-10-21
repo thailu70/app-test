@@ -21,11 +21,12 @@ let drivers=[],vehicles=[],routes=[],assignments=[],bookings=[],roster=[];
 const resources={
   profile:{path:'/companies/me'},summary:{path:'/companies/operations/summary'},
   fleet:{path:'/companies/operations/fleet'},drivers:{path:'/companies/operations/drivers'},
-  routes:{path:'/companies/operations/routes'},bookings:{path:'/companies/operations/bookings'}
+  routes:{path:'/companies/operations/routes'},bookings:{path:'/companies/operations/bookings'},
+  vehicleTypes:{path:'/master-data/vehicle-types',label:'Vehicle types'}
 };
 function feedback(id,names){
   const el=$(id),failed=names.filter(n=>resources[n].error);
-  el.innerHTML=failed.length?'<div>'+failed.map(n=>esc(n.charAt(0).toUpperCase()+n.slice(1))+': '+esc(resources[n].error)+(resources[n].data?' Last loaded data is still shown.':'')).join('<br>')+'</div><button class="retry" data-retry="'+failed.join(',')+'">Retry</button>':'';
+  el.innerHTML=failed.length?'<div>'+failed.map(n=>esc(resources[n].label||n.charAt(0).toUpperCase()+n.slice(1))+': '+esc(resources[n].error)+(resources[n].data?' Last loaded data is still shown.':'')).join('<br>')+'</div><button class="retry" data-retry="'+failed.join(',')+'">Retry</button>':'';
 }
 function preserveOptions(id,html){const el=$(id),value=el.value;el.innerHTML=html;if(Array.from(el.options||[]).some(o=>o.value===value))el.value=value;}
 async function load(only){
@@ -35,14 +36,14 @@ async function load(only){
     const names=Array.isArray(only)?only:Object.keys(resources);
     await Promise.allSettled(names.map(async name=>{
       const item=resources[name];
-      try{const data=await api(item.path);if(token!==requestedToken)return;item.data=data;item.error='';}
+      try{const data=await api(item.path);if(token!==requestedToken)return;if(name==='vehicleTypes'&&(!data.success||!Array.isArray(data.vehicleTypes)))throw Error('Could not refresh vehicle types. Existing choices are still available.');item.data=data;item.error='';}
       catch(e){if(token===requestedToken)item.error=e.message;}
     }));
     if(token!==requestedToken)return;
     const me=resources.profile.data||{},s=resources.summary.data||{},f=resources.fleet.data||{},d=resources.drivers.data||{},rr=resources.routes.data||{},b=resources.bookings.data||{};
     company=me.company||company;$('#companyName').textContent=company.name||company.companyName||'Company';
     drivers=d.drivers||f.drivers||drivers;vehicles=f.vehicles||vehicles;routes=rr.routes||routes;assignments=rr.routes||assignments;bookings=b.bookings||bookings;roster=b.roster||roster;
-    feedback('#overviewStatus',Object.keys(resources));feedback('#driversStatus',['drivers']);feedback('#fleetStatus',['fleet']);feedback('#routesStatus',['routes']);feedback('#assignmentsStatus',['routes','drivers','fleet']);feedback('#bookingsStatus',['bookings']);
+    feedback('#overviewStatus',Object.keys(resources));feedback('#driversStatus',['drivers']);feedback('#fleetStatus',['fleet','vehicleTypes']);feedback('#routesStatus',['routes']);feedback('#assignmentsStatus',['routes','drivers','fleet']);feedback('#bookingsStatus',['bookings']);
     const errors=Object.keys(resources).filter(n=>resources[n].error);
     $('#portalStatus').textContent=errors.length?'Some data could not load. Open a section to retry, or use Refresh data.':'Updated '+new Date().toLocaleTimeString();
 $('#pendingCount').textContent=drivers.filter(x=>x.status==='PENDING').length;$('#driversCount').textContent=drivers.filter(x=>x.status==='ACTIVE').length;$('#vehiclesCount').textContent=vehicles.length;$('#assignmentsCount').textContent=s.summary?.activeAssignments??'—';$('#bookingCount').textContent=bookings.length;
@@ -52,6 +53,7 @@ $('#routeRows').innerHTML=routes.map(r=>'<tr><td>'+esc(r.name)+'<br><span class=
 preserveOptions('#assignRoute','<option value="">Select company route</option>'+routes.filter(r=>r.active).map(r=>'<option value="'+esc(r.id)+'">'+esc(r.name)+'</option>').join(''));
 preserveOptions('#assignDriver','<option value="">Approved company driver</option>'+drivers.filter(d=>d.status==='ACTIVE').map(d=>'<option value="'+esc(d.id)+'">'+esc(d.fullName)+' · '+esc(d.phone)+'</option>').join(''));
 preserveOptions('#assignVehicle','<option value="">Company vehicle</option>'+vehicles.map(v=>'<option value="'+esc(v.id)+'">'+esc(v.plateNumber)+' · '+esc(v.model)+'</option>').join(''));
+if(Array.isArray(resources.vehicleTypes.data?.vehicleTypes))preserveOptions('#vehicleType',resources.vehicleTypes.data.vehicleTypes.filter(type=>type.active).map(type=>'<option value="'+esc(type.code)+'">'+esc(type.name)+' · '+esc(type.capacity)+' seats</option>').join('')||'<option value="">No vehicle types currently available</option>');
 $('#assignmentRows').innerHTML=assignments.map(a=>'<tr><td>'+esc(a.name)+'</td><td>'+esc(drivers.find(d=>d.id===a.driver_id)?.fullName||a.driver_id||'Unassigned')+'</td><td>'+esc(vehicles.find(v=>v.id===a.vehicle_id)?.plateNumber||a.vehicle_id||'Unassigned')+'</td><td>'+esc(a.assignment_status||'Route created')+'</td><td>'+(a.assignment_status==='ACTIVE'&&a.assignment_id?'<button class="small danger" data-unassign="'+esc(a.assignment_id)+'">Unassign</button>':'—')+'</td></tr>').join('')||'<tr><td colspan="5">No route assignments yet.</td></tr>';
 $('#bookingRows').innerHTML=bookings.map(b=>'<tr><td>'+esc(b.passenger_name)+'</td><td>'+esc(b.passenger_phone)+'</td><td>'+esc(b.route_name)+'</td><td>'+esc(b.pickup_stop_id)+' → '+esc(b.destination_stop_id)+'</td><td>'+esc(b.subscription_status)+'</td><td>'+esc(b.payment_status)+'</td><td>'+esc(b.days_remaining)+'</td><td>'+esc(b.vehicle_plate||'Not assigned')+' '+esc(b.vehicle_model||'')+'</td></tr>').join('')||'<tr><td colspan="8">No bookings on assigned company routes.</td></tr>';
 $('#rosterRows').innerHTML=roster.map(r=>'<tr><td>'+esc(r.passenger_name)+'</td><td>'+esc(routes.find(x=>x.id===r.route_id)?.name||r.route_id)+'</td><td>'+esc(r.stop_name)+'</td><td>'+esc(r.status)+'</td><td>'+esc(r.trip_id)+'</td><td>'+esc(r.timestamp)+'</td></tr>').join('')||'<tr><td colspan="6">No passenger boarding records yet.</td></tr>';

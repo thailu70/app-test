@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.core.localization.AppLanguage
+import com.example.core.location.DriverGpsUploadGate
 import com.example.core.payment.TelebirrGateway
 import com.example.core.payment.TelebirrPaymentResult
 import com.example.core.qr.QrSecurityEngine
@@ -18,6 +19,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 
 enum class AppRole {
@@ -66,7 +68,10 @@ data class DriverTripState(
     val totalPassengers: Int = 0
 )
 
-class MainViewModel(private val repository: TransportRepository) : ViewModel() {
+class MainViewModel(
+    private val repository: TransportRepository,
+    private val driverGpsUploads: DriverGpsUploadGate = DriverGpsUploadGate()
+) : ViewModel() {
 
     // Language
     private val _currentLanguage = MutableStateFlow(AppLanguage.ENGLISH)
@@ -79,6 +84,7 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
     private var passengerSubscriptionRefreshJob: Job? = null
     private var paymentRequestJob: Job? = null
     private var sessionGeneration = 0L
+    private var driverLocationUploadJob: Job? = null
     private val _passengerSubscription = MutableStateFlow<SubscriptionEntity?>(null)
     private val _passengerSubscriptionSnapshot = MutableStateFlow(PassengerSubscriptionSnapshot())
     val passengerSubscriptionSnapshot: StateFlow<PassengerSubscriptionSnapshot> = _passengerSubscriptionSnapshot.asStateFlow()
@@ -608,6 +614,9 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
 
     fun logout() {
         ++sessionGeneration
+        driverLocationUploadJob?.cancel()
+        driverLocationUploadJob = null
+        driverGpsUploads.reset()
         stopPassengerSubscriptionRefresh()
         paymentRequestJob?.cancel()
         paymentRequestJob = null
@@ -750,25 +759,45 @@ class MainViewModel(private val repository: TransportRepository) : ViewModel() {
         }
     }
 
+    /** Refresh separately from GPS callbacks; a failed request keeps the last working interval. */
+    suspend fun refreshDriverGpsSharingInterval() {
+        val user = _currentUser.value?.takeIf { it.role == "DRIVER" } ?: return
+        val generation = sessionGeneration
+        try {
+            val interval = withTimeoutOrNull(12_000L) { repository.fetchGpsSharingIntervalSeconds() } ?: return
+            if (generation == sessionGeneration && _currentUser.value?.id == user.id) driverGpsUploads.updateInterval(interval)
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { /* Keep the last valid setting, or the five-second default. */ }
+    }
+
     fun submitDriverLocation(
         latitude: Double,
         longitude: Double,
         speed: Double = 0.0,
         currentStop: String = "",
         onResult: ((Boolean, String) -> Unit)? = null
-    ) {
-        viewModelScope.launch {
+    ): Boolean {
+        val user = _currentUser.value?.takeIf { it.role == "DRIVER" } ?: return false
+        val generation = sessionGeneration
+        val claim = driverGpsUploads.tryBeginUpload() ?: return false
+        driverLocationUploadJob = viewModelScope.launch {
             try {
                 repository.submitDriverLocation(latitude, longitude, speed, currentStop)
+                if (generation != sessionGeneration || _currentUser.value?.id != user.id) return@launch
                 val message = "RoutePass server accepted the live GPS update."
                 _driverActionMessage.value = message
                 onResult?.invoke(true, message)
-            } catch (e: Exception) {
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (e: Exception) {
+                if (generation != sessionGeneration || _currentUser.value?.id != user.id) return@launch
                 val message = e.message ?: "GPS update failed."
                 _driverActionMessage.value = message
                 onResult?.invoke(false, message)
+            } finally {
+                driverGpsUploads.finishUpload(claim)
             }
         }
+        return true
     }
 
     fun arriveAtCurrentStop() {

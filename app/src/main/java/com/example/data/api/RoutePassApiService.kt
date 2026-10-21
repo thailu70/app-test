@@ -29,6 +29,9 @@ interface RoutePassApiService {
     @GET("api/routes")
     suspend fun getRoutes(): Response<RoutesResponse>
 
+    @GET("api/master-data/vehicle-types")
+    suspend fun getVehicleTypes(): Response<VehicleTypesResponse>
+
     @GET("api/companies")
     suspend fun getTransportCompanies(): Response<TransportCompaniesResponse>
 
@@ -112,6 +115,9 @@ interface RoutePassApiService {
 
     @GET("api/vehicles/tracking")
     suspend fun getTrackingVehicle(): Response<TrackingVehicleResponse>
+
+    @GET("api/master-data/gps-sharing")
+    suspend fun getGpsSharing(): Response<GpsSharingResponse>
 
     @POST("api/vehicles/my-location")
     suspend fun updateMyLocation(@Body request: LocationUpdateRequest): Response<GenericResponse>

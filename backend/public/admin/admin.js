@@ -5,6 +5,8 @@
   const TOKEN_KEY = "routepass_admin_token";
   const state = { token: sessionStorage.getItem(TOKEN_KEY) || "", user: null, view: "overview", cache: {} };
   let fleetMapCleanup = null;
+  let resourcePanelCleanup = null;
+  let masterDataCleanup = null;
   let renderRevision = 0;
   const labels = {
     overview: ["Overview", "A live snapshot of RoutePass service operations."],
@@ -19,7 +21,8 @@
     checkins: ["Check-ins", "Recent passenger boarding records."],
     complaints: ["Complaints", "Review passenger reports and update case status."],
     "audit-logs": ["Audit log", "Recent administrative and operational changes."],
-    settings: ["Settings", "Configure integrations used by RoutePass operations."]
+    settings: ["Settings", "Monitor server capacity and configure RoutePass integrations."],
+    "master-data": ["Master Data", "Manage vehicle types and GPS settings for daily commute and intercity travel."]
   };
 
   function esc(value) {
@@ -82,6 +85,10 @@
   function logout(show = true) {
     fleetMapCleanup?.();
     fleetMapCleanup = null;
+    resourcePanelCleanup?.();
+    resourcePanelCleanup = null;
+    masterDataCleanup?.();
+    masterDataCleanup = null;
     renderRevision++;
     sessionStorage.removeItem(TOKEN_KEY);
     state.token = "";
@@ -137,9 +144,11 @@
         '<button class="btn btn-secondary" data-go="drivers">View all drivers</button>');
   }
   async function renderSettings() {
-    const result = await api("/api/admin/integrations/afro-sms");
+    const result = await api("/api/admin/integrations/afro-sms").catch(error => ({ settingsError: error.message }));
     const configured = result.configured || {};
-    return pageHeader("Settings", "Manage the SMS provider used for passenger arrival notifications.") +
+    return pageHeader("Settings", "Monitor server capacity and manage passenger SMS notifications.") +
+      (window.RoutepassResources ? window.RoutepassResources.markup() : "") +
+      (result.settingsError ? section("Afro SMS", "SMS settings could not be loaded.", '<div class="empty-note">' + esc(result.settingsError) + '</div>') :
       section("Afro SMS", "Enter the AfroMessage token and Identifier ID. The token is stored securely and is never displayed after saving.",
         '<form id="afro-sms-form" class="form-card" style="padding:0;border:0;box-shadow:none">' +
         '<div class="driver-form-grid">' +
@@ -147,7 +156,7 @@
         '<div class="field"><label for="afro-sms-identifier">Identifier ID (from, optional)</label><input id="afro-sms-identifier" name="identifier" maxlength="120" placeholder="Leave blank to use your default identifier"><span class="hint">Use an Identifier ID only when your AfroMessage account has multiple short codes. Otherwise leave it blank.</span></div>' +
         '<div class="field"><label for="afro-sms-sender">Approved sender name</label><input id="afro-sms-sender" name="sender" maxlength="40" value="WHALE" placeholder="Approved AfroMessage sender"><span class="hint">For the WHALE identifier, use the approved sender name from AfroMessage. The default is WHALE.</span></div>' +
         '<div class="field"><label for="afro-sms-url">API URL</label><input id="afro-sms-url" name="url" type="url" value="https://api.afromessage.com/api/send"><span class="hint">Leave the default Afro SMS endpoint unless your account uses another URL.</span></div>' +
-        '</div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Afro SMS settings</button></div><div class="driver-form-grid" style="margin-top:16px"><div class="field"><label for="afro-sms-test-phone">Test phone number</label><input id="afro-sms-test-phone" type="tel" placeholder="09XXXXXXXX"></div><div class="field"><label for="afro-sms-test-message">Test message</label><input id="afro-sms-test-message" maxlength="320" value="RoutePass test SMS: Afro SMS is connected."></div></div><div class="form-actions"><button class="btn btn-secondary" type="button" id="afro-sms-test">Send test message</button></div><p id="afro-sms-message" class="form-message" hidden></p></form>') ;
+        '</div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Afro SMS settings</button></div><div class="driver-form-grid" style="margin-top:16px"><div class="field"><label for="afro-sms-test-phone">Test phone number</label><input id="afro-sms-test-phone" type="tel" placeholder="09XXXXXXXX"></div><div class="field"><label for="afro-sms-test-message">Test message</label><input id="afro-sms-test-message" maxlength="320" value="RoutePass test SMS: Afro SMS is connected."></div></div><div class="form-actions"><button class="btn btn-secondary" type="button" id="afro-sms-test">Send test message</button></div><p id="afro-sms-message" class="form-message" hidden></p></form>'));
   }
   async function saveAfroSms(event) {
     event.preventDefault();
@@ -403,6 +412,10 @@
     const view = state.view;
     fleetMapCleanup?.();
     fleetMapCleanup = null;
+    resourcePanelCleanup?.();
+    resourcePanelCleanup = null;
+    masterDataCleanup?.();
+    masterDataCleanup = null;
     const title = labels[state.view] || labels.overview;
     $("#page-title").textContent = title[0];
     $$(".nav-item").forEach(button => button.classList.toggle("active", button.dataset.view === state.view));
@@ -422,10 +435,24 @@
         case "complaints": html = await renderComplaints(); break;
         case "audit-logs": html = await renderAuditLogs(); break;
         case "settings": html = await renderSettings(); break;
+        case "master-data": html = pageHeader("Master Data", "Vehicle types and GPS settings used across daily commute and intercity travel.") + window.RoutepassMasterData.markup(); break;
         default: html = await renderOverview();
       }
       if (revision !== renderRevision) return;
       $("#page-content").innerHTML = html;
+      if (view === "master-data" && window.RoutepassMasterData) {
+        masterDataCleanup = window.RoutepassMasterData.mount({
+          container: $("#master-data-panel"), api,
+          isActive: () => state.view === "master-data" && Boolean(state.token) && revision === renderRevision
+        });
+      }
+      if (view === "settings" && window.RoutepassResources && $("#resource-panel")) {
+        resourcePanelCleanup = window.RoutepassResources.mount({
+          container: $("#resource-panel"),
+          fetchResources: signal => api("/api/admin/system/resources", { signal }),
+          isActive: () => state.view === "settings" && Boolean(state.token) && revision === renderRevision
+        });
+      }
       if (view === "gps" && window.RoutepassFleetMap) {
         fleetMapCleanup = window.RoutepassFleetMap.mount({ container: $("#admin-fleet-map"), apiUrl: "/api/fleet/tracking", token: state.token });
       }

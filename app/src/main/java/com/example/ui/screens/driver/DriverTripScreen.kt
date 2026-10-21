@@ -430,6 +430,14 @@ private fun DriverLocationReporter(
     val latestUploadEnabled = rememberUpdatedState(uploadEnabled)
     val latestOnFix = rememberUpdatedState(onFix)
     val latestOnStatusChanged = rememberUpdatedState(onStatusChanged)
+    val signedInUser by viewModel.currentUser.collectAsState()
+    LaunchedEffect(viewModel, signedInUser?.id) {
+        if (signedInUser?.role != "DRIVER") return@LaunchedEffect
+        while (true) {
+            viewModel.refreshDriverGpsSharingInterval()
+            kotlinx.coroutines.delay(com.example.core.location.DriverGpsUploadGate.SETTINGS_REFRESH_MILLIS)
+        }
+    }
     var hasPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
@@ -471,8 +479,7 @@ private fun DriverLocationReporter(
                         latestOnStatusChanged.value("GPS ready · accuracy ${location.accuracy.toInt()} m · $coordinates")
                         return
                     }
-                    latestOnStatusChanged.value("Phone GPS fix received; uploading to RoutePass server… · $coordinates")
-                    viewModel.submitDriverLocation(
+                    val uploading = viewModel.submitDriverLocation(
                         latitude = location.latitude,
                         longitude = location.longitude,
                         speed = (location.speed.toDouble() * 3.6).coerceAtLeast(0.0),
@@ -484,6 +491,7 @@ private fun DriverLocationReporter(
                             )
                         }
                     )
+                    if (uploading) latestOnStatusChanged.value("Phone GPS fix received; uploading to RoutePass server… · $coordinates")
                 }
             }
             val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
@@ -493,7 +501,9 @@ private fun DriverLocationReporter(
             } else {
                 providers.forEach { provider ->
                     try {
-                        locationManager.requestLocationUpdates(provider, 5000L, 0f, listener, Looper.getMainLooper())
+                        // Keep departure validation fresh even when the admin slows server sharing.
+                        // The shared ViewModel gate limits uploads across both providers.
+                        locationManager.requestLocationUpdates(provider, 1000L, 0f, listener, Looper.getMainLooper())
                         locationManager.getLastKnownLocation(provider)?.let(listener::onLocationChanged)
                     } catch (_: SecurityException) {
                         onStatusChanged("Location access was denied. Re-enable permission in Android settings.")

@@ -97,10 +97,9 @@ router.post('/register', authLimiter, async (req, res) => {
 
     // Dual ownership model: no company selected means Daily Commute (driver-owned vehicle);
     // a selected company means Intercity (company-owned vehicle, assigned later by the company).
-    const vehicleCapacities = { MINIVAN_8: 8, MINIBUS_14: 14, HIGER_24: 24, ANBESSA_BUS_30: 30 };
     const requestedCompanyName = String(companyName || '').trim();
     let registeredCompany = null;
-    let driverVehiclePlate = '', driverVehicleModel = '', driverVehicleType = '';
+    let driverVehiclePlate = '', driverVehicleModel = '', driverVehicleType = '', driverVehicleCapacity = 0;
     if (normalizedRole === 'DRIVER') {
       if (!licenseNumber || !String(licenseNumber).trim()) {
         return res.status(400).json({ success: false, error: 'Driver registration requires a valid driving licence number.' });
@@ -113,9 +112,11 @@ router.post('/register', authLimiter, async (req, res) => {
         driverVehiclePlate = String(assignedVehiclePlate || '').trim().toUpperCase();
         driverVehicleModel = String(vehicleModel || '').trim();
         driverVehicleType = String(vehicleType || '').trim().toUpperCase();
-        if (!driverVehiclePlate || !driverVehicleModel || !vehicleCapacities[driverVehicleType]) {
+        const registeredType = await require('../services/master-data').getVehicleType(driverVehicleType);
+        if (!driverVehiclePlate || !driverVehicleModel || !registeredType) {
           return res.status(400).json({ success: false, error: 'Daily Commute driver registration requires your own vehicle plate, model, and valid vehicle type.' });
         }
+        driverVehicleCapacity = registeredType.capacity;
         const existingPlate = await DB.prepare('SELECT id FROM vehicles WHERE plateNumber = ?').get(driverVehiclePlate);
         if (existingPlate) return res.status(409).json({ success: false, error: 'That vehicle plate is already registered.' });
       }
@@ -197,7 +198,7 @@ router.post('/register', authLimiter, async (req, res) => {
         await tx.prepare(`
           INSERT INTO vehicles (id, plateNumber, model, vehicleType, capacityLimit, currentOccupancy, assignedRouteId, driverId, driverName, status)
           VALUES (?, ?, ?, ?, ?, 0, NULL, ?, ?, 'OFF_DUTY')
-        `).run(vehicleId, driverVehiclePlate, driverVehicleModel, driverVehicleType, vehicleCapacities[driverVehicleType], userId, fullName.trim());
+        `).run(vehicleId, driverVehiclePlate, driverVehicleModel, driverVehicleType, driverVehicleCapacity, userId, fullName.trim());
       }
       return { status: 'CREATED' };
     });

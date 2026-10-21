@@ -2,6 +2,7 @@ const express = require('express');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { commuteRoute } = require('../services/commute-scope');
+const { getGlobalGpsRadius } = require('../services/master-data');
 const router = express.Router();
 router.use(authenticate, requireRole('ADMIN'));
 router.get('/routes/:id/departure-settings', async (req,res) => {
@@ -9,7 +10,11 @@ router.get('/routes/:id/departure-settings', async (req,res) => {
     const route = await DB.prepare(`SELECT * FROM routes WHERE id=? AND ${commuteRoute('')}`).get(req.params.id);
     if (!route) return res.status(404).json({success:false,error:'Daily commute route not found.'});
     const settings = await DB.prepare('SELECT * FROM route_departure_settings WHERE route_id=?').get(route.id);
-    res.json({success:true,settings:settings||{route_id:route.id,latitude:null,longitude:null,radius_m:300},route});
+    const global = await getGlobalGpsRadius();
+    const configured = settings || {route_id:route.id,latitude:null,longitude:null,radius_m:300};
+    const effective = global.overrideEnabled ? global.radiusMeters : configured.radius_m;
+    res.json({success:true,settings:{...configured,radius_m:effective,configuredRadiusMeters:configured.radius_m,
+      effectiveRadiusMeters:effective,globalRadiusOverride:global.overrideEnabled},route});
   } catch(e) { res.status(500).json({success:false,error:'Could not load departure settings.'}); }
 });
 router.put('/routes/:id/departure-settings', async (req,res) => {

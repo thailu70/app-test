@@ -17,13 +17,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.localization.AppLanguage
 import com.example.data.api.TransportCompanyDto
+import com.example.data.api.VehicleTypeOption
 import com.example.data.entity.RouteEntity
 import com.example.ui.screens.passenger.*
 
 @Composable
 internal fun AuthRegistrationDetails(
     draft: AuthDraft, driver: Boolean, routes: List<RouteEntity>, companies: List<TransportCompanyDto>,
-    companyError: String?, language: AppLanguage, enabled: Boolean
+    companyError: String?, language: AppLanguage, enabled: Boolean,
+    vehicleTypes: List<VehicleTypeOption> = VehicleTypeOption.DEFAULTS,
+    vehicleTypesLoading: Boolean = false, vehicleTypesError: String? = null
 ) {
     fun t(en: String, am: String, om: String) = authText(language, en, am, om)
     Column(Modifier.fillMaxWidth().testTag("auth_details"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -47,9 +50,12 @@ internal fun AuthRegistrationDetails(
                     Modifier.fillMaxWidth().testTag("auth_driver_vehicle_plate_input"), enabled = enabled, language = language, leadingIcon = Icons.Default.DirectionsBus)
                 AuthField(draft.vehicleModel, { draft.vehicleModel = it }, t("Vehicle make / model", "የተሽከርካሪ ሞዴል", "Gosa / moodeela konkolaataa"),
                     Modifier.fillMaxWidth().testTag("auth_driver_vehicle_model_input"), enabled = enabled, language = language, leadingIcon = Icons.Default.DirectionsBus)
-                AuthChoiceDropdown(draft.vehicleType, t("Vehicle type", "የተሽከርካሪ ዓይነት", "Gosa konkolaataa"), listOf(
-                    "MINIVAN_8" to "Minivan · 8 seats", "MINIBUS_14" to "Minibus · 14 seats", "HIGER_24" to "Higer · 24 seats", "ANBESSA_BUS_30" to "Bus · 30 seats"),
-                    { draft.vehicleType = it }, enabled, "auth_driver_vehicle_type")
+                AuthChoiceDropdown(draft.vehicleType, t("Vehicle type", "የተሽከርካሪ ዓይነት", "Gosa konkolaataa"),
+                    vehicleTypes.map { it.code to "${it.name} · ${it.capacity} seats" },
+                    { draft.vehicleType = it }, enabled && !vehicleTypesLoading && vehicleTypes.isNotEmpty(), "auth_driver_vehicle_type")
+                if (vehicleTypesLoading) Text(t("Loading vehicle types…", "የተሽከርካሪ ዓይነቶችን በመጫን ላይ…", "Gosa konkolaataa fe'aa jira…"), color = CommuteInk, fontSize = 12.sp)
+                else if (vehicleTypes.isEmpty()) Text(t("No vehicle types are currently available. Contact your administrator.", "አሁን የተሽከርካሪ ዓይነቶች የሉም። አስተዳዳሪዎን ያነጋግሩ።", "Gosti konkolaataa hin jiru. Bulchaa kee qunnami."), color = Color(0xFFAC2F2F), fontSize = 12.sp)
+                vehicleTypesError?.let { Text(it, color = Color(0xFFAC2F2F), fontSize = 12.sp) }
                 AuthChoiceChips(listOf("existing" to t("Existing route", "ያለ መስመር", "Karaa jiru"), "custom" to t("Propose a route", "መስመር ይጠቁሙ", "Karaa yaada dhiheessi")),
                     draft.routeMode, enabled, { draft.routeMode = it }, "auth_route_mode")
             }

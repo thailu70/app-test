@@ -10,10 +10,11 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-const rateLimit = require('express-rate-limit');
 const { WebSocketServer, WebSocket } = require('ws');
 const { DB } = require('./db');
-const { resolveActivePrincipal } = require('./middleware/auth');
+const { resolveActivePrincipal, authenticate, requireRole } = require('./middleware/auth');
+const { createResourcePressureMonitor } = require('./services/resource-pressure');
+const { createApiTrafficMiddleware } = require('./services/api-traffic');
 
 if (process.env.NODE_ENV === 'production') {
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
@@ -57,9 +58,6 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true }));
-
 if (process.env.NODE_ENV !== 'test') {
   // Security Policy: Never log sensitive tokens, PINs, passwords, or secrets in HTTP request logs
   morgan.token('safe-url', (req) => {
@@ -68,18 +66,12 @@ if (process.env.NODE_ENV !== 'test') {
   app.use(morgan(':remote-addr - :remote-user [:date[clf]] ":method :safe-url HTTP/:http-version" :status :res[content-length]'));
 }
 
-// Rate Limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Max 1000 requests per 15 mins per IP
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    error: 'Too many requests from this IP. Please try again later.'
-  }
-});
-app.use('/api/', limiter);
+// Reject new work at the capacity threshold before parsing payloads or querying accounts.
+// Login/OTP limiters remain on their routes; verified active app users do not share an IP quota.
+const resourcePressure = createResourcePressureMonitor();
+app.use('/api/', createApiTrafficMiddleware({ resourceMonitor: resourcePressure, resolvePrincipal: resolveActivePrincipal }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true }));
 
 // Welcome & API Status
 app.get('/', async (req, res) => {
@@ -118,6 +110,11 @@ app.get('/api/ready', async (req, res) => {
 });
 
 // Mount Route Modules
+app.get('/api/admin/system/resources', authenticate, requireRole('ADMIN'), (_req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  res.json({ success: true, resources: resourcePressure.getSnapshot() });
+});
+app.use('/api/master-data', require('./routes/master-data'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/companies', require('./routes/companies'));
 app.use('/api/companies', require('./routes/company-portal'));
@@ -221,6 +218,10 @@ if (locationFlushTimer.unref) {
 }
 
 wss.on('connection', async (ws, req) => {
+  if (resourcePressure.getSnapshot().busy) {
+    ws.close(1013, 'Server busy. Retry shortly.');
+    return;
+  }
   // Avoid JWT query parameters: reverse proxies commonly log full request URLs.
   // The Android client authenticates using the first in-band AUTHENTICATE message.
   let token = null;
@@ -280,6 +281,11 @@ wss.on('connection', async (ws, req) => {
       // Handle Ping / Pong Heartbeat
       if (data.type === 'PING') {
         return ws.send(JSON.stringify({ type: 'PONG', timestamp: Date.now() }));
+      }
+
+      if (resourcePressure.getSnapshot().busy) {
+        return ws.send(JSON.stringify({ type: 'SERVER_BUSY', retryAfterSeconds: 10,
+          message: 'The server is busy. Please try again shortly.' }));
       }
 
       // Handle In-band Authentication
@@ -575,6 +581,7 @@ async function runDatabaseMigrations() {
 }
 
 async function initializeFeatureSchemas() {
+  await require('./services/master-data').initMasterDataSchema(DB);
   await require('./services/profile-schema').initProfileSchema();
   await require('./services/ops-schema').initOpsSchema(DB);
   await require('./services/intercity-schema').initIntercitySchema();
@@ -586,10 +593,12 @@ async function initializeFeatureSchemas() {
 
 async function startServer() {
   await runDatabaseMigrations();
+  resourcePressure.start();
   server.listen(PORT, HOST, () => {
     console.log('RoutePass API listening on the configured internal listener');
     console.log('REST API /api/health and /api/ready; WebSocket /ws');
     console.log(`Environment: ${process.env.NODE_ENV || 'production'}`);
+    console.log('API capacity guard: pause at 90% CPU or RAM; recover at 85%.');
   });
 }
 
@@ -603,6 +612,7 @@ if (process.env.NODE_ENV !== 'test') {
 // Graceful Shutdown
 function gracefulShutdown(signal) {
   console.log(`[Server] Received ${signal}. Shutting down gracefully...`);
+  resourcePressure.stop();
   server.close(() => {
     console.log('[Server] HTTP and WebSocket listeners closed.');
     process.exit(0);
@@ -612,4 +622,4 @@ function gracefulShutdown(signal) {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-module.exports = { app, server, runDatabaseMigrations, initializeFeatureSchemas };
+module.exports = { app, server, resourcePressure, runDatabaseMigrations, initializeFeatureSchemas };

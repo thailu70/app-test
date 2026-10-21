@@ -4,6 +4,7 @@ const WINDOW_MS = 30 * 60 * 1000;
 const MAX_FIX_AGE_MS = 120 * 1000;
 const MAX_ACCURACY_METERS = 100;
 const ADDIS_OFFSET_MS = 3 * 60 * 60 * 1000;
+const { effectiveBoardingRadius } = require('./master-data');
 
 function coordinatesValid(latitude, longitude) {
   return typeof latitude === 'number' && Number.isFinite(latitude) && latitude >= -90 && latitude <= 90 &&
@@ -76,7 +77,7 @@ async function checkCommuteDeparture(db, route, direction, location, now = Date.
     // defines the outbound origin; it must never replace the inbound origin.
     latitude: direction === 'INBOUND' ? stop?.latitude : (setting?.latitude ?? stop?.latitude),
     longitude: direction === 'INBOUND' ? stop?.longitude : (setting?.longitude ?? stop?.longitude),
-    radiusMeters: setting?.radius_m ?? 300,
+    radiusMeters: await effectiveBoardingRadius(db, setting?.radius_m ?? 300),
     departureAt: commuteDepartureAt(clock, now),
     location,
     now

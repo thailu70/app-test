@@ -52,6 +52,7 @@ function portal(file, responses, failures = {}) {
 }
 
 const data = () => ({
+  '/api/master-data/vehicle-types': { success: true, vehicleTypes: [{ code: 'MINIBUS_14', name: 'Minibus', capacity: 14, active: true }, { code: 'MINIVAN_8', name: 'Minivan', capacity: 8, active: true }] },
   '/api/companies/me': { company: { name: 'Sample Transport' } },
   '/api/companies/operations/summary': { summary: { activeAssignments: 1 } },
   '/api/companies/operations/fleet': { vehicles: [{ id: 'v1', plateNumber: 'AA-001', model: 'Coach', capacityLimit: 30 }] },
@@ -139,4 +140,42 @@ for (const file of ['company', 'intercity']) test(`${file} request timeout relea
   assert.deepEqual(app.calls.slice(before).map(c => c.endpoint), ['/api/companies/operations/routes']);
   assert.equal(app.get(status).innerHTML, '');
   assert.equal(app.pendingTimeouts(), 0);
+});
+
+test('company vehicle registration offers active master-data types and preserves selection when catalog changes', async () => {
+  const responses = data();
+  responses['/api/master-data/vehicle-types'].vehicleTypes.push(
+    { code: 'COACH_40', name: 'Express <Coach>', capacity: 40, active: true },
+    { code: 'RETIRED_20', name: 'Retired coach', capacity: 20, active: false }
+  );
+  const app = portal('company', responses); await app.flush();
+  assert.match(app.get('#vehicleType').innerHTML, /value="COACH_40">Express &lt;Coach&gt; · 40 seats/);
+  assert.doesNotMatch(app.get('#vehicleType').innerHTML, /RETIRED_20/);
+  app.get('#vehicleType').value = 'COACH_40';
+  responses['/api/master-data/vehicle-types'].vehicleTypes[2].capacity = 42;
+  await app.get('#refresh').onclick();
+  assert.equal(app.get('#vehicleType').value, 'COACH_40');
+  assert.match(app.get('#vehicleType').innerHTML, /42 seats/);
+  app.failures['/api/master-data/vehicle-types'] = 503;
+  await app.get('#refresh').onclick();
+  assert.equal(app.get('#vehicleType').value, 'COACH_40');
+  assert.match(app.get('#vehicleType').innerHTML, /42 seats/);
+  assert.match(app.get('#fleetStatus').innerHTML, /Vehicle types:.*Last loaded data/);
+});
+
+test('company catalog failure retains built-in vehicle choices and section retry loads newly added types', async () => {
+  const app = portal('company', data(), { '/api/master-data/vehicle-types': 503 });
+  app.get('#vehicleType').innerHTML = '<option value="MINIVAN_8">Minivan · 8 seats</option><option value="MINIBUS_14">Minibus · 14 seats</option>';
+  app.get('#vehicleType').value = 'MINIBUS_14';
+  await app.flush();
+  assert.equal(app.get('#vehicleType').value, 'MINIBUS_14');
+  assert.match(app.get('#fleetRows').innerHTML, /AA-001/);
+  assert.match(app.get('#fleetStatus').innerHTML, /data-retry="vehicleTypes"/);
+  delete app.failures['/api/master-data/vehicle-types'];
+  const before = app.calls.length;
+  await app.get('#fleetStatus').onclick({ target: { closest: () => ({ dataset: { retry: 'vehicleTypes' } }) } });
+  await app.flush();
+  assert.deepEqual(app.calls.slice(before).map(call => call.endpoint), ['/api/master-data/vehicle-types']);
+  assert.equal(app.get('#vehicleType').value, 'MINIBUS_14');
+  assert.equal(app.get('#fleetStatus').innerHTML, '');
 });

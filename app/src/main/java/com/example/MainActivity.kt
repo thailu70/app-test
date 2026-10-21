@@ -613,6 +613,8 @@ private fun LegacyCompanyPortalScreen(onExit: () -> Unit) {
     var plate by remember { mutableStateOf("") }
     var model by remember { mutableStateOf("") }
     var vehicleType by remember { mutableStateOf("MINIBUS_14") }
+    var vehicleTypes by remember { mutableStateOf(com.example.data.api.VehicleTypeOption.DEFAULTS) }
+    var vehicleTypesUnavailable by remember { mutableStateOf(false) }
     var routeName by remember { mutableStateOf("") }
     var routeType by remember { mutableStateOf("INTERCITY") }
     var routeOrigin by remember { mutableStateOf("") }
@@ -656,6 +658,16 @@ private fun LegacyCompanyPortalScreen(onExit: () -> Unit) {
                         }
                     }
                     "Fleet" -> {
+                        try {
+                            val catalog = api.getVehicleTypes()
+                            val body = catalog.body()
+                            if (catalog.isSuccessful && body?.success == true) {
+                                vehicleTypes = body.vehicleTypes.filter { it.active && it.code.isNotBlank() && it.name.isNotBlank() && it.capacity in 1..100 }
+                                if (vehicleTypes.none { it.code == vehicleType }) vehicleType = vehicleTypes.firstOrNull()?.code.orEmpty()
+                                vehicleTypesUnavailable = false
+                            } else vehicleTypesUnavailable = true
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                        catch (_: Exception) { vehicleTypesUnavailable = true }
                         val r = api.getCompanyFleet()
                         if (r.isSuccessful) {
                             val b = r.body().orEmpty()
@@ -817,13 +829,14 @@ private fun LegacyCompanyPortalScreen(onExit: () -> Unit) {
                     CompanyPortalField("Vehicle model", model, { model = it })
                     var typeExpanded by remember { mutableStateOf(false) }
                     ExposedDropdownMenuBox(expanded = typeExpanded, onExpandedChange = { typeExpanded = it }) {
-                        OutlinedTextField(value = vehicleType, onValueChange = {}, readOnly = true, label = { Text("Vehicle class") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(typeExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())
+                        OutlinedTextField(value = vehicleTypes.find { it.code == vehicleType }?.let { "${it.name} · ${it.capacity} seats" } ?: "No vehicle types available", onValueChange = {}, readOnly = true, label = { Text("Vehicle class") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(typeExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())
                         ExposedDropdownMenu(expanded = typeExpanded, onDismissRequest = { typeExpanded = false }) {
-                            listOf("MINIVAN_8", "MINIBUS_14", "HIGER_24", "ANBESSA_BUS_30").forEach { type ->
-                                DropdownMenuItem(text = { Text(type) }, onClick = { vehicleType = type; typeExpanded = false })
+                            vehicleTypes.forEach { type ->
+                                DropdownMenuItem(text = { Text("${type.name} · ${type.capacity} seats") }, onClick = { vehicleType = type.code; typeExpanded = false })
                             }
                         }
                     }
+                    if (vehicleTypesUnavailable) Text("Vehicle types could not be refreshed. Last available choices are shown.", style = MaterialTheme.typography.bodySmall)
                     Button(onClick = {
                         scope.launch {
                             busy = true
@@ -832,7 +845,7 @@ private fun LegacyCompanyPortalScreen(onExit: () -> Unit) {
                                 if (r.isSuccessful) { plate = ""; model = ""; message = "Company vehicle registered."; loadSection() } else message = errorText(r)
                             } catch (e: Exception) { message = e.message ?: "Could not register vehicle." } finally { busy = false }
                         }
-                    }, enabled = !busy && plate.isNotBlank() && model.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Register company vehicle") }
+                    }, enabled = !busy && plate.isNotBlank() && model.isNotBlank() && vehicleTypes.any { it.code == vehicleType }, modifier = Modifier.fillMaxWidth()) { Text("Register company vehicle") }
                     fleet.forEach { v -> Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) { Column(Modifier.padding(14.dp)) {
                         Text("${v["plateNumber"] ?: "No plate"} • ${v["model"] ?: ""}", fontWeight = FontWeight.Bold)
                         Text("${v["vehicleType"] ?: ""} • Seats: ${v["capacityLimit"] ?: "—"}")

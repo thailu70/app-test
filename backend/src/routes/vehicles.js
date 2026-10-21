@@ -4,13 +4,6 @@ const { DB } = require('../db');
 const { authenticate, requireRole, resolveActivePrincipal } = require('../middleware/auth');
 const { passengerAssignment } = require('../services/passenger-assignment');
 
-// Vehicle Type Standard Capacities
-const VEHICLE_TYPE_CAPACITIES = {
-  MINIVAN_8: 8,
-  MINIBUS_14: 14,
-  HIGER_24: 24,
-  ANBESSA_BUS_30: 30
-};
 const driverLastGpsTime = new Map();
 
 function consumeGpsRateLimit(driverId) {
@@ -255,15 +248,21 @@ router.get('/:id', async (req, res) => {
  */
 router.patch('/:id/type', authenticate, requireRole('ADMIN'), async (req, res) => {
   try {
-    const { vehicleType, capacityLimit } = req.body;
+    const { capacityLimit } = req.body;
+    const vehicleType = String(req.body.vehicleType || '').trim().toUpperCase();
     const vehicle = await DB.prepare("SELECT * FROM vehicles WHERE id = ? AND COALESCE(companyId,'')=''").get(req.params.id);
 
     if (!vehicle) {
       return res.status(404).json({ success: false, error: 'Vehicle not found' });
     }
 
-    const standardCapacity = capacityLimit !== undefined ? parseInt(capacityLimit, 10) : (VEHICLE_TYPE_CAPACITIES[vehicleType] || 14);
-    const newOccupancy = req.body.currentOccupancy !== undefined ? parseInt(req.body.currentOccupancy, 10) : Math.min(vehicle.currentOccupancy, standardCapacity);
+    const registeredType = await require('../services/master-data').getVehicleType(vehicleType);
+    if (!registeredType) return res.status(400).json({ success: false, error: 'Choose an active registered vehicle type.' });
+    const standardCapacity = capacityLimit !== undefined ? Number(capacityLimit) : registeredType.capacity;
+    const newOccupancy = req.body.currentOccupancy !== undefined ? Number(req.body.currentOccupancy) : Number(vehicle.currentOccupancy);
+    if (!Number.isInteger(standardCapacity) || standardCapacity < 1 || standardCapacity > 100 ||
+        !Number.isInteger(newOccupancy) || newOccupancy < 0 || newOccupancy > standardCapacity)
+      return res.status(400).json({ success: false, error: 'Seat capacity must be 1–100 and cannot be below current occupancy.' });
     const newStatus = newOccupancy >= standardCapacity ? 'FULL' : 'IN_SERVICE';
 
     await DB.prepare(`

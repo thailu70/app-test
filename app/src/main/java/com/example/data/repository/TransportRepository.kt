@@ -372,6 +372,16 @@ class TransportRepository(
 
     suspend fun fetchTrackedVehicle(): TrackedVehicleDto? = fetchTrackedVehicleStatus().vehicle
 
+    suspend fun fetchGpsSharingIntervalSeconds(): Int {
+        val response = apiService.getGpsSharing()
+        if (!response.isSuccessful) throw HttpException(response)
+        val body = response.body()
+        if (body?.success != true || !com.example.core.location.DriverGpsUploadGate.validInterval(body.intervalSeconds)) {
+            throw IllegalStateException("GPS sharing settings are unavailable.")
+        }
+        return requireNotNull(body.intervalSeconds)
+    }
+
     suspend fun submitDriverLocation(latitude: Double, longitude: Double, speed: Double = 0.0, currentStop: String = "") {
         val response = apiService.updateMyLocation(LocationUpdateRequest(latitude, longitude, speed, currentStop))
         if (!response.isSuccessful || response.body()?.success != true) {

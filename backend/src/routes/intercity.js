@@ -10,6 +10,7 @@ const { DB } = require('../db');
 const { authenticate, requireRole, JWT_SECRET } = require('../middleware/auth');
 const telebirr = require('../services/telebirr');
 const { sendSms } = require('../services/afro-sms');
+const { effectiveBoardingRadius, getGlobalGpsRadius } = require('../services/master-data');
 const router = express.Router();
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const uuid = () => crypto.randomUUID();
@@ -44,6 +45,13 @@ function own(d, user) {
 }
 function detail(d) {
   return { ...d, driverId: d.driver_id, vehicleId: d.vehicle_id, departureAt: d.departure_at, fareEtb: Number(d.fare_etb), companyId: d.company_id };
+}
+async function departureDetailsWithRadius(rows) {
+  const global = await getGlobalGpsRadius();
+  return rows.map(d => ({ ...detail(d), configuredRadiusMeters: Number(d.radius_m) || 300,
+    radius_m: global.overrideEnabled ? global.radiusMeters : Number(d.radius_m) || 300,
+    effectiveRadiusMeters: global.overrideEnabled ? global.radiusMeters : Number(d.radius_m) || 300,
+    globalRadiusOverride: global.overrideEnabled }));
 }
 function ticketToken(b, d) {
   return jwt.sign({ kind: 'INTERCITY_TICKET', bookingId: b.id, departureId: d.id, seat: b.seat_number }, JWT_SECRET, { expiresIn: Math.max(3600, Math.ceil((Date.parse(d.departure_at) + 48 * 3600000 - Date.now()) / 1000)), audience: 'intercity-boarding', issuer: 'routepass' });
@@ -224,7 +232,7 @@ router.get('/tickets/:id.pdf', publicLimiter, asyncRoute(async (req, res) => {
 
 router.get('/company/departures', ...companyGuard, asyncRoute(async (req, res) => {
   const departures = await DB.prepare('SELECT d.*,u.fullName AS driver_name,v.plateNumber AS vehicle_plate FROM intercity_departures d LEFT JOIN users u ON u.id=d.driver_id LEFT JOIN vehicles v ON v.id=d.vehicle_id WHERE d.company_id=? ORDER BY d.departure_at DESC LIMIT 500').all(req.user.id);
-  res.json({ success: true, departures: departures.map(detail) });
+  res.json({ success: true, departures: await departureDetailsWithRadius(departures) });
 }));
 router.post('/company/departures', ...companyGuard, asyncRoute(async (req, res) => {
   const x = req.body, routeId = clean(x.routeId), vehicleId = clean(x.vehicleId), departureAt = new Date(x.departureAt).toISOString();
@@ -294,7 +302,7 @@ router.get('/company/performance', ...companyGuard, asyncRoute(async (req, res) 
   for (const b of rows) { const d = new Date(Date.parse(b.created_at) + 3 * 3600000); if (period === 'weekly') d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); const label = d.toISOString().slice(0, period === 'monthly' ? 7 : 10); const g = groups.get(label) || { label, bookings: 0, boarded: 0, revenueEtb: 0 }; g.bookings++; g.boarded += b.status === 'BOARDED' ? 1 : 0; g.revenueEtb += Number(b.amount_etb); groups.set(label, g); }
   res.json({ success: true, period, points: [...groups.values()].sort((a,b) => a.label.localeCompare(b.label)), total: { bookings: rows.length, boarded: rows.filter(b => b.status === 'BOARDED').length, revenueEtb: rows.reduce((sum,b) => sum + Number(b.amount_etb), 0) } });
 }));
-router.get('/driver/departures', ...driverGuard, asyncRoute(async (req, res) => { const rows = await DB.prepare("SELECT * FROM intercity_departures WHERE driver_id=? AND status <> 'CANCELLED' ORDER BY departure_at DESC LIMIT 100").all(req.user.id); res.json({ success: true, departures: rows.map(detail) }); }));
+router.get('/driver/departures', ...driverGuard, asyncRoute(async (req, res) => { const rows = await DB.prepare("SELECT * FROM intercity_departures WHERE driver_id=? AND status <> 'CANCELLED' ORDER BY departure_at DESC LIMIT 100").all(req.user.id); res.json({ success: true, departures: await departureDetailsWithRadius(rows) }); }));
 router.get('/driver/departures/:id/roster', ...driverGuard, asyncRoute(async (req, res) => {
   const d = await departure(DB, req.params.id); own(d, req.user);
   const rows = await DB.prepare("SELECT id,passenger_name,passenger_phone,seat_number,status,payment_status FROM intercity_bookings WHERE departure_id=? AND status NOT IN ('EXPIRED','CANCELLED') AND (payment_status='PAID' OR expires_at>?) ORDER BY seat_number").all(d.id, new Date().toISOString());
@@ -325,7 +333,7 @@ router.post('/driver/departures/:id/arrival', ...driverGuard, asyncRoute(async (
     }
     const competing = await tx.prepare("SELECT id FROM intercity_departures WHERE status='BOARDING' AND id<>? AND (driver_id=? OR vehicle_id=?) LIMIT 1").get(d.id, d.driver_id, d.vehicle_id);
     if (competing) throw fail(409, 'Complete the current departure before opening boarding for another journey.');
-    const validation = evaluateDeparture({ latitude: Number(d.latitude), longitude: Number(d.longitude), radiusMeters: Number(d.radius_m) || 300, departureAt: d.departure_at, location: req.body.location || req.body });
+    const validation = evaluateDeparture({ latitude: Number(d.latitude), longitude: Number(d.longitude), radiusMeters: await effectiveBoardingRadius(tx, Number(d.radius_m) || 300), departureAt: d.departure_at, location: req.body.location || req.body });
     if (!validation.allowed) throw Object.assign(fail(403, validation.message), { validation });
     await tx.prepare("UPDATE intercity_departures SET status='BOARDING' WHERE id=?").run(d.id);
     return { departure: detail({ ...d, status: 'BOARDING' }), validation };
