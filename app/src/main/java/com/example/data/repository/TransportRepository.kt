@@ -29,6 +29,7 @@ class TransportRepository(
     val allDrivers: Flow<List<UserEntity>> = dao.getAllDrivers()
     suspend fun getUserById(userId: String): UserEntity? = dao.getUserById(userId)
     suspend fun insertUser(user: UserEntity) = dao.insertUser(user)
+    suspend fun clearPrivateCache() = dao.clearPrivateCache()
 
     var lastAuthError: String? = null
         private set
@@ -64,7 +65,6 @@ class TransportRepository(
                     status = userDto.status ?: "ACTIVE",
                     licenseNumber = userDto.licenseNumber ?: "",
                     avatarInitials = initials.ifBlank { "ET" },
-                    password = password,
                     companyName = userDto.companyName ?: "",
                     assignedVehiclePlate = userDto.assignedVehiclePlate ?: "",
                     appliedRouteId = userDto.appliedRouteId ?: "",
@@ -154,7 +154,6 @@ class TransportRepository(
                 status = userDto.status ?: "ACTIVE",
                 licenseNumber = userDto.licenseNumber ?: "",
                 avatarInitials = initials.ifBlank { "ET" },
-                password = password,
                 companyName = userDto.companyName ?: "",
                 assignedVehiclePlate = userDto.assignedVehiclePlate ?: "",
                 appliedRouteId = userDto.appliedRouteId ?: "",

@@ -16,6 +16,8 @@ import com.example.data.repository.TransportRepository
 import com.example.data.repository.PassengerSubscriptionSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -85,6 +87,20 @@ class MainViewModel(
     private var paymentRequestJob: Job? = null
     private var sessionGeneration = 0L
     private var driverLocationUploadJob: Job? = null
+    private var privateCacheCleanup: Deferred<Unit>? = null
+    private suspend fun finishPrivateCacheCleanup(): Boolean {
+        val cleanup = privateCacheCleanup ?: return true
+        return try {
+            cleanup.await()
+            privateCacheCleanup = null
+            true
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) {
+            _authError.value = "Private data could not be cleared. Please try signing in again."
+            privateCacheCleanup = viewModelScope.async { repository.clearPrivateCache() }
+            false
+        }
+    }
     private val _passengerSubscription = MutableStateFlow<SubscriptionEntity?>(null)
     private val _passengerSubscriptionSnapshot = MutableStateFlow(PassengerSubscriptionSnapshot())
     val passengerSubscriptionSnapshot: StateFlow<PassengerSubscriptionSnapshot> = _passengerSubscriptionSnapshot.asStateFlow()
@@ -439,6 +455,7 @@ class MainViewModel(
         viewModelScope.launch {
             try {
             _authError.value = null
+            if (!finishPrivateCacheCleanup()) return@launch
             val roleStr = when (role) {
                 AppRole.PASSENGER -> "PASSENGER"
                 AppRole.DRIVER -> "DRIVER"
@@ -512,6 +529,7 @@ class MainViewModel(
             try {
             _authError.value = null
             _registrationMessage.value = null
+            if (!finishPrivateCacheCleanup()) return@launch
             if (fullName.isBlank() || phone.isBlank()) {
                 _authError.value = "Full Name and Phone Number are required."
                 return@launch
@@ -614,6 +632,7 @@ class MainViewModel(
 
     fun logout() {
         ++sessionGeneration
+        com.example.core.location.DriverLocationSharing.stop()
         driverLocationUploadJob?.cancel()
         driverLocationUploadJob = null
         driverGpsUploads.reset()
@@ -637,6 +656,7 @@ class MainViewModel(
         _currentUser.value = null
         _isAuthenticated.value = false
         _authError.value = null
+        privateCacheCleanup = viewModelScope.async { repository.clearPrivateCache() }
     }
 
     fun setRole(role: AppRole) {

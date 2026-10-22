@@ -97,9 +97,15 @@ class IntercityLayoutTest {
         compose.onNodeWithTag("intercity_passenger_name").performScrollTo().performTextInput("Native Test Passenger")
         compose.onNodeWithTag("intercity_passenger_phone").performScrollTo().performTextInput("0912469923")
         compose.onNodeWithTag("intercity_pay").performScrollTo().performClick()
+        compose.waitUntil(5_000) { model.state.value.testVerificationPending && !model.state.value.busy }
+        assertNull(api.lastCheckout)
+        compose.onNodeWithTag("intercity_verify_test").assertIsNotEnabled()
+        compose.onNodeWithTag("intercity_test_otp").performTextInput("123456")
+        compose.onNodeWithTag("intercity_verify_test").assertIsEnabled().performClick()
         compose.waitUntil(5_000) { model.state.value.phase == IntercityPhase.TICKET && !model.state.value.busy }
         assertEquals("Native Test Passenger", api.lastCheckout?.passengerName)
         assertEquals("0912469923", api.lastCheckout?.passengerPhone)
+        assertEquals("native-one-use-proof", api.lastCheckout?.testPaymentVerificationToken)
         assertEquals("booking-native" to "private-native-capability", api.lastBookingAccess)
         compose.onNodeWithTag("intercity_ticket_number").assertTextEquals("RP-NATIVE24")
         compose.onNodeWithTag("intercity_content").performScrollToNode(hasTestTag("intercity_ticket_qr"))
@@ -224,6 +230,14 @@ class IntercityLayoutTest {
             current = current.copy(status = "CONFIRMED", paymentStatus = "PAID", paymentMethod = "TELEBIRR", passengerName = body.passengerName,
                 passengerPhone = body.passengerPhone, ticketNumber = "RP-NATIVE24", qrToken = "server-native-boarding-payload")
             return Response.success(IntercityCheckoutResponse(true, paid = true))
+        }
+        override suspend fun requestTestPaymentOtp(id: String, bookingSecret: String, body: IntercityTestOtpRequest): Response<IntercityTestOtpResponse> {
+            assertEquals("0912469923", body.passengerPhone)
+            return Response.success(IntercityTestOtpResponse(true, delivery = "SENT", retryAfterSeconds = 60))
+        }
+        override suspend fun verifyTestPaymentOtp(id: String, bookingSecret: String, body: IntercityTestOtpRequest): Response<IntercityTestOtpResponse> {
+            assertEquals("123456", body.code)
+            return Response.success(IntercityTestOtpResponse(true, testPaymentVerificationToken = "native-one-use-proof", expiresInSeconds = 120))
         }
         override suspend fun ticketPdf(id: String, secret: String): Response<ResponseBody> = Response.success("%PDF-test".toResponseBody("application/pdf".toMediaType()))
         override suspend fun companies() = Response.success(IntercityCompaniesResponse(true, listOf(IntercityCompany("company-native", "Native Test Transport"))))

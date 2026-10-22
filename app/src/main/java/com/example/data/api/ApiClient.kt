@@ -81,6 +81,16 @@ object ApiClient {
 
     fun <T> createFeatureService(serviceClass: Class<T>): T = createRetrofit().create(serviceClass)
 
+    /** A running trip cannot accidentally upload with a later account's bearer token. */
+    fun <T> createSessionService(serviceClass: Class<T>, token: String): T {
+        require(token.isNotBlank())
+        val client = okHttpClient.newBuilder().addInterceptor { chain ->
+            chain.proceed(chain.request().newBuilder().header("Authorization", "Bearer $token").build())
+        }.build()
+        return Retrofit.Builder().baseUrl(getBaseUrl().trimEnd('/') + "/").client(client)
+            .addConverterFactory(MoshiConverterFactory.create(moshi)).build().create(serviceClass)
+    }
+
     private fun createRetrofit(): Retrofit {
         val sanitizedBaseUrl = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
         return Retrofit.Builder()

@@ -139,7 +139,7 @@ fun ProfileCompletionPrompt(onOpen: () -> Unit, modifier: Modifier = Modifier) {
 
 /** Private uploads are offered after sign-in; identity files never enter public image storage. */
 @Composable
-fun ProfileCompletionScreen(role: String, onBack: () -> Unit) {
+fun ProfileCompletionScreen(role: String, onBack: () -> Unit, onPrivacy: (() -> Unit)? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val api = remember { ApiClient.createFeatureService(ProfileApi::class.java) }
@@ -205,6 +205,7 @@ fun ProfileCompletionScreen(role: String, onBack: () -> Unit) {
                 }
             }
 
+            if (onPrivacy != null) TextButton(onClick = onPrivacy) { Text("Privacy & account deletion", color = Color(0xFF007D75)) }
             if (loading) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 Text("Loading your registration…")

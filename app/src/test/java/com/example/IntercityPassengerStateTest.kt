@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.TestScope
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -163,7 +164,7 @@ class IntercityPassengerStateTest {
 
         // Even a complete ticket in the checkout response must not replace the authoritative GET.
         api.checkoutResult = IntercityCheckoutResponse(true, paid = true, booking = paidBooking)
-        model.checkout("Test Passenger", "0912469923")
+        model.checkout("Test Passenger", "0912000000")
         advanceUntilIdle()
         assertEquals(listOf("booking-1" to "private-capability"), api.bookingAccesses)
         assertEquals(IntercityPhase.DETAILS, model.state.value.phase)
@@ -300,7 +301,7 @@ class IntercityPassengerStateTest {
             model.selectSeat(2)
             model.holdSeat()
             advanceUntilIdle()
-            model.checkout("Test Passenger", "0912469923")
+            model.checkout("Test Passenger", "0912000000")
             runCurrent()
             assertTrue(model.state.value.busy)
             model.home()
@@ -326,6 +327,156 @@ class IntercityPassengerStateTest {
         assertEquals(listOf("booking-1", "booking-2"), model.state.value.recent.map { it.id })
     }
 
+    private fun TestScope.readyForCheckout(api: FakeApi, store: MemoryStore = MemoryStore()): IntercityPassengerViewModel {
+        val model = IntercityPassengerViewModel(api, store, ioDispatcher = dispatcher)
+        advanceUntilIdle()
+        model.selectDeparture(departure)
+        advanceUntilIdle()
+        model.selectSeat(2)
+        model.holdSeat()
+        advanceUntilIdle()
+        return model
+    }
+
+    @Test fun `only the designated test phone requests SENT OTP before a proof-bound checkout`() = runTest(dispatcher) {
+        for (phone in listOf("0912469923", "+251912469923", "00251912469923")) {
+            val api = FakeApi().apply { currentBooking = paidBooking }
+            val store = MemoryStore()
+            val model = readyForCheckout(api, store)
+            model.checkout(" Test Passenger ", phone)
+            advanceUntilIdle()
+            assertEquals(listOf(IntercityTestOtpRequest(phone)), api.otpRequests)
+            assertTrue(model.state.value.testVerificationPending)
+            assertTrue(api.checkoutRequests.isEmpty())
+            model.verifyTestPayment("123456")
+            advanceUntilIdle()
+            assertEquals(IntercityTestOtpRequest(phone, "123456"), api.otpVerifications.single())
+            assertEquals(IntercityCheckoutRequest("Test Passenger", phone, "one-use-fixture-proof"), api.checkoutRequests.single())
+            assertFalse(model.state.value.testVerificationPending)
+            assertEquals(IntercityPhase.TICKET, model.state.value.phase)
+            assertFalse(model.state.value.toString().contains("one-use-fixture-proof"))
+            assertEquals(listOf(IntercityBookingAccess("booking-1", "private-capability")), store.load())
+        }
+        for (phone in listOf("0912469924", "0912000000", "+251912469924")) {
+            val api = FakeApi()
+            val model = readyForCheckout(api)
+            model.checkout("Normal Passenger", phone)
+            advanceUntilIdle()
+            assertTrue(api.otpRequests.isEmpty())
+            assertTrue(api.otpVerifications.isEmpty())
+            assertNull(api.checkoutRequests.single().testPaymentVerificationToken)
+        }
+    }
+
+    @Test fun `missing SENT delivery rejected codes and missing proof never trigger payment`() = runTest(dispatcher) {
+        for (delivery in listOf(null, "SIMULATED", "FAILED")) {
+            val api = FakeApi().apply { otpRequestResult = Response.success(IntercityTestOtpResponse(true, delivery = delivery)) }
+            val model = readyForCheckout(api)
+            model.checkout("Test Passenger", "0912469923")
+            advanceUntilIdle()
+            assertFalse(model.state.value.testVerificationPending)
+            model.verifyTestPayment("123456")
+            advanceUntilIdle()
+            assertTrue(api.otpVerifications.isEmpty())
+            assertTrue(api.checkoutRequests.isEmpty())
+        }
+        for (result in listOf(IntercityTestOtpResponse(false, error = "Invalid code."), IntercityTestOtpResponse(true))) {
+            val api = FakeApi().apply { otpVerifyResult = Response.success(result) }
+            val model = readyForCheckout(api)
+            model.checkout("Test Passenger", "0912469923")
+            advanceUntilIdle()
+            model.verifyTestPayment("123")
+            advanceUntilIdle()
+            assertTrue(api.otpVerifications.isEmpty())
+            model.verifyTestPayment("123456")
+            advanceUntilIdle()
+            assertEquals(1, api.otpVerifications.size)
+            assertTrue(api.checkoutRequests.isEmpty())
+            assertTrue(model.state.value.testVerificationPending)
+        }
+    }
+
+    @Test fun `cancelled or changed booking context rejects late OTP verification before checkout`() = runTest(dispatcher) {
+        for (navigateHome in listOf(true, false)) {
+            val gate = CompletableDeferred<Unit>()
+            val api = FakeApi().apply { otpVerifyGate = gate }
+            val model = readyForCheckout(api)
+            model.checkout("Test Passenger", "0912469923")
+            advanceUntilIdle()
+            model.verifyTestPayment("123456")
+            runCurrent()
+            assertTrue(model.state.value.busy)
+            if (navigateHome) model.home() else model.cancelTestPaymentVerification()
+            assertFalse(model.state.value.testVerificationPending)
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertEquals(if (navigateHome) IntercityPhase.BROWSE else IntercityPhase.DETAILS, model.state.value.phase)
+            assertFalse(model.state.value.testVerificationPending)
+            assertTrue(api.checkoutRequests.isEmpty())
+        }
+
+        val cancelled = readyForCheckout(FakeApi())
+        cancelled.checkout("Test Passenger", "0912469923")
+        advanceUntilIdle()
+        cancelled.cancelTestPaymentVerification()
+        assertFalse(cancelled.state.value.testVerificationPending)
+        cancelled.verifyTestPayment("123456")
+        advanceUntilIdle()
+        assertTrue(cancelled.state.value.message.orEmpty().contains("Request a new"))
+    }
+
+    @Test fun `one-use proof is not replayed or restored when checkout outcome remains unpaid`() = runTest(dispatcher) {
+        val api = FakeApi().apply { checkoutFailure = java.io.IOException("Checkout response lost.") }
+        val store = MemoryStore()
+        val model = readyForCheckout(api, store)
+        model.checkout("Test Passenger", "0912469923")
+        advanceUntilIdle()
+        model.verifyTestPayment("123456")
+        advanceUntilIdle()
+        assertEquals(1, api.checkoutRequests.size)
+        assertEquals(1, api.bookingAccesses.size)
+        assertFalse(model.state.value.testVerificationPending)
+        model.verifyTestPayment("123456")
+        advanceUntilIdle()
+        assertEquals(1, api.otpVerifications.size)
+        assertEquals(1, api.checkoutRequests.size)
+        val restored = IntercityPassengerViewModel(FakeApi(), store, ioDispatcher = dispatcher)
+        advanceUntilIdle()
+        assertFalse(restored.state.value.testVerificationPending)
+        assertNull(restored.state.value.testVerificationPhone)
+        assertFalse(store.load().toString().contains("one-use-fixture-proof"))
+    }
+
+    @Test fun `uncertain checkout reconciles a paid booking without resubmission for both phone paths`() = runTest(dispatcher) {
+        for (phone in listOf("0912469923", "0912000000")) {
+            val api = FakeApi().apply { checkoutFailure = java.io.IOException("Checkout response lost."); currentBooking = paidBooking }
+            val model = readyForCheckout(api)
+            model.checkout("Test Passenger", phone)
+            advanceUntilIdle()
+            if (phone == "0912469923") { model.verifyTestPayment("123456"); advanceUntilIdle() }
+            assertEquals(1, api.checkoutRequests.size)
+            assertEquals(1, api.bookingAccesses.size)
+            assertEquals(IntercityPhase.TICKET, model.state.value.phase)
+            assertEquals("PAID", model.state.value.booking!!.paymentStatus)
+            assertNull(model.state.value.message)
+        }
+    }
+
+    @Test fun `checkout pending initialization and safe retry errors retain exact server message without replay`() = runTest(dispatcher) {
+        for ((status, code) in listOf(409 to "CHECKOUT_INITIALIZING", 502 to "CHECKOUT_RETRY_SAFE", 503 to "PAYMENT_CONFIRMATION_PENDING")) {
+            val api = FakeApi().apply {
+                checkoutError = Response.error(status, "{\"error\":\"$code: Please check your booking.\"}".toResponseBody("application/json".toMediaType()))
+            }
+            val model = readyForCheckout(api)
+            model.checkout("Normal Passenger", "0912000000")
+            advanceUntilIdle()
+            assertEquals("$code: Please check your booking.", model.state.value.message)
+            assertEquals(1, api.checkoutRequests.size)
+            assertEquals(1, api.bookingAccesses.size)
+            assertFalse(canShowIntercityQr(model.state.value.booking))
+        }
+    }
+
     private class MemoryStore(initial: List<IntercityBookingAccess> = emptyList()) : IntercityBookingAccessStore {
         private var entries = initial
         override fun load(): List<IntercityBookingAccess> = entries
@@ -342,6 +493,15 @@ class IntercityPassengerStateTest {
         var pdfAccess: Pair<String, String>? = null
         var holdGate: CompletableDeferred<Unit>? = null
         var checkoutGate: CompletableDeferred<Unit>? = null
+        var otpRequestGate: CompletableDeferred<Unit>? = null
+        var otpVerifyGate: CompletableDeferred<Unit>? = null
+        var otpRequestResult: Response<IntercityTestOtpResponse> = Response.success(IntercityTestOtpResponse(true, delivery = "SENT", retryAfterSeconds = 60))
+        var otpVerifyResult: Response<IntercityTestOtpResponse> = Response.success(IntercityTestOtpResponse(true, testPaymentVerificationToken = "one-use-fixture-proof", expiresInSeconds = 120))
+        var checkoutFailure: Exception? = null
+        var checkoutError: Response<IntercityCheckoutResponse>? = null
+        val otpRequests = mutableListOf<IntercityTestOtpRequest>()
+        val otpVerifications = mutableListOf<IntercityTestOtpRequest>()
+        val checkoutRequests = mutableListOf<IntercityCheckoutRequest>()
         var bookingGate: CompletableDeferred<Unit>? = null
         val bookingAccesses = mutableListOf<Pair<String, String>>()
         val departureQueries = mutableListOf<Triple<String?, String?, String?>>()
@@ -368,8 +528,23 @@ class IntercityPassengerStateTest {
         }
         override suspend fun checkout(id: String, bookingSecret: String, body: IntercityCheckoutRequest): Response<IntercityCheckoutResponse> {
             lastCheckoutSecret = bookingSecret
+            checkoutRequests += body
             checkoutGate?.await()
+            checkoutFailure?.let { throw it }
+            checkoutError?.let { return it }
             return Response.success(checkoutResult)
+        }
+        override suspend fun requestTestPaymentOtp(id: String, bookingSecret: String, body: IntercityTestOtpRequest): Response<IntercityTestOtpResponse> {
+            assertEquals("private-capability", bookingSecret)
+            otpRequests += body
+            otpRequestGate?.await()
+            return otpRequestResult
+        }
+        override suspend fun verifyTestPaymentOtp(id: String, bookingSecret: String, body: IntercityTestOtpRequest): Response<IntercityTestOtpResponse> {
+            assertEquals("private-capability", bookingSecret)
+            otpVerifications += body
+            otpVerifyGate?.await()
+            return otpVerifyResult
         }
         override suspend fun ticketPdf(id: String, secret: String): Response<ResponseBody> {
             pdfAccess = id to secret

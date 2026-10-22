@@ -5,6 +5,7 @@
 -->
 <data-extraction-rules>
     <cloud-backup>
+        <exclude domain="database" path="."/>
         <exclude domain="sharedpref" path="intercity_booking_access.xml"/>
         <!-- TODO: Use <include> and <exclude> to control what is backed up.
         <include .../>
@@ -12,6 +13,7 @@
         -->
     </cloud-backup>
     <device-transfer>
+        <exclude domain="database" path="."/>
         <exclude domain="sharedpref" path="intercity_booking_access.xml"/>
     </device-transfer>
     <!--

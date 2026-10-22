@@ -12,6 +12,28 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface TransportDao {
 
+    /** Account and operating data must not survive an explicit sign-out on a shared phone. */
+    @Query("DELETE FROM users") suspend fun clearUsers()
+    @Query("DELETE FROM subscriptions") suspend fun clearSubscriptions()
+    @Query("DELETE FROM payment_transactions") suspend fun clearPayments()
+    @Query("DELETE FROM check_ins") suspend fun clearCheckIns()
+    @Query("DELETE FROM complaints") suspend fun clearComplaints()
+    @Query("DELETE FROM audit_logs") suspend fun clearAuditLogs()
+    @Query("DELETE FROM notifications") suspend fun clearNotifications()
+    @Query("DELETE FROM vehicles") suspend fun clearVehicles()
+
+    @Transaction
+    suspend fun clearPrivateCache() {
+        clearUsers()
+        clearSubscriptions()
+        clearPayments()
+        clearCheckIns()
+        clearComplaints()
+        clearAuditLogs()
+        clearNotifications()
+        clearVehicles()
+    }
+
     // Users & Authentication
     @Query("SELECT * FROM users")
     fun getAllUsers(): Flow<List<UserEntity>>

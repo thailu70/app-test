@@ -67,7 +67,8 @@ fun PassoWelcomeScreen(
     onContinue: (WelcomeService) -> Unit,
     language: AppLanguage,
     onLanguage: (AppLanguage) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onPrivacy: (() -> Unit)? = null
 ) {
     var selectedService by rememberSaveable { mutableStateOf(WelcomeService.PASSENGER) }
     var languagePresented by remember { mutableStateOf(false) }
@@ -157,6 +158,10 @@ fun PassoWelcomeScreen(
                     Text(copy("Continue", "ቀጥል", "Itti fufi"), modifier = languageTextMotion, fontSize = 21.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.width(16.dp))
                     Icon(Icons.Default.ArrowForward, null)
+                }
+                if (onPrivacy != null) TextButton(onClick = onPrivacy, modifier = Modifier.heightIn(min = 40.dp).testTag("welcome_privacy"),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)) {
+                    Text(copy("Privacy policy", "የግላዊነት መመሪያ", "Imaammata dhuunfaa"), fontSize = 11.sp, color = WelcomeTeal)
                 }
                 Spacer(Modifier.height(8.dp))
             }

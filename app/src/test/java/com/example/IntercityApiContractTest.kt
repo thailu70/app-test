@@ -7,6 +7,8 @@ import com.example.data.api.IntercityDeparturesResponse
 import com.example.data.api.IntercityPassengerApi
 import com.example.data.api.IntercityRouteRequest
 import com.example.data.api.IntercitySeatHoldRequest
+import com.example.data.api.IntercityTestOtpRequest
+import com.example.data.api.IntercityTestOtpResponse
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import org.junit.Assert.assertEquals
@@ -101,10 +103,27 @@ class IntercityApiContractTest {
     }
 
     @Test fun `private booking checkout and PDF use booking secret header rather than query`() {
-        for (name in listOf("booking", "checkout", "ticketPdf")) {
+        for (name in listOf("booking", "checkout", "ticketPdf", "requestTestPaymentOtp", "verifyTestPaymentOtp")) {
             val method = IntercityPassengerApi::class.java.declaredMethods.single { it.name == name }
             val headers = method.parameterAnnotations.flatMap { it.toList() }.filterIsInstance<Header>()
             assertEquals(listOf("X-Booking-Secret"), headers.map { it.value })
         }
+    }
+
+    @Test fun `OTP contracts carry booking-bound private headers and a one-use proof only in checkout body`() {
+        val request = moshi.adapter(IntercityTestOtpRequest::class.java)
+        assertEquals("""{"passengerPhone":"0912469923"}""", request.toJson(IntercityTestOtpRequest("0912469923")))
+        assertEquals("""{"passengerPhone":"0912469923","code":"123456"}""", request.toJson(IntercityTestOtpRequest("0912469923", "123456")))
+        val sent = moshi.adapter(IntercityTestOtpResponse::class.java).fromJson("""{"success":true,"delivery":"SENT","retryAfterSeconds":60}""")!!
+        assertEquals("SENT", sent.delivery)
+        assertNull(sent.testPaymentVerificationToken)
+        val verified = moshi.adapter(IntercityTestOtpResponse::class.java).fromJson("""{"success":true,"testPaymentVerificationToken":"one-use-proof","expiresInSeconds":120}""")!!
+        val checkout = org.json.JSONObject(moshi.adapter(IntercityCheckoutRequest::class.java).toJson(IntercityCheckoutRequest("Test Passenger", "0912469923", verified.testPaymentVerificationToken)))
+        assertEquals("one-use-proof", checkout.getString("testPaymentVerificationToken"))
+        assertFalse(checkout.has("code"))
+        assertFalse(checkout.has("paid"))
+        val methods = IntercityPassengerApi::class.java.declaredMethods
+        assertEquals("api/intercity/bookings/{id}/test-payment/request-otp", methods.single { it.name == "requestTestPaymentOtp" }.getAnnotation(retrofit2.http.POST::class.java)!!.value)
+        assertEquals("api/intercity/bookings/{id}/test-payment/verify-otp", methods.single { it.name == "verifyTestPaymentOtp" }.getAnnotation(retrofit2.http.POST::class.java)!!.value)
     }
 }

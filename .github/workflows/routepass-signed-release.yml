@@ -1,0 +1,75 @@
+name: Passo signed Android release
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: Public HTTPS host, with trailing slash
+        required: true
+        default: https://passo.live/
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  signed-release:
+    name: Verify and package signed AAB and APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Load existing release signing key
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          ROUTEPASS_API_BASE_URL: ${{ inputs.api_base_url }}
+        run: |
+          python3 - <<'PY'
+          import base64, os
+          from pathlib import Path
+          from urllib.parse import urlparse
+          names = ['RELEASE_KEYSTORE_BASE64','RELEASE_STORE_PASSWORD','RELEASE_KEY_PASSWORD']
+          if any(not os.environ.get(name) for name in names):
+              raise SystemExit('Configure the existing upload keystore and its passwords in repository secrets before building a signed release.')
+          url = urlparse(os.environ['ROUTEPASS_API_BASE_URL'])
+          if url.scheme != 'https' or not url.hostname or url.username or url.password or url.query or url.fragment or url.path not in ('','/'):
+              raise SystemExit('Use a public HTTPS origin; API methods already include /api/.')
+          key = Path(os.environ['RUNNER_TEMP']) / 'passo-upload.jks'
+          key.write_bytes(base64.b64decode(os.environ['RELEASE_KEYSTORE_BASE64'], validate=True))
+          key.chmod(0o600)
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write('KEYSTORE_PATH=' + str(key) + '\n')
+          PY
+      - name: Run native release safety tests
+        env:
+          ROUTEPASS_API_BASE_URL: ${{ inputs.api_base_url }}
+        run: gradle :app:testDebugUnitTest "-PROUTEPASS_API_BASE_URL=$ROUTEPASS_API_BASE_URL" --tests com.example.CredentialStorageTest --tests com.example.DriverLocationServiceTest --tests com.example.AccountPrivacyTest --tests com.example.IntercityPassengerStateTest --tests com.example.IntercityApiContractTest
+      - name: Build and verify signatures
+        env:
+          STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          ROUTEPASS_API_BASE_URL: ${{ inputs.api_base_url }}
+        run: bash tools/build-signed-android.sh
+      - name: Upload signed artifacts for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: passo-signed-release
+          path: |
+            app/build/outputs/bundle/release/app-release.aab
+            app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove runner signing material
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/passo-upload.jks"

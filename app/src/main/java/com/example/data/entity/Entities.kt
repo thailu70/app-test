@@ -13,7 +13,6 @@ data class UserEntity(
     val status: String = "ACTIVE",
     val licenseNumber: String = "",
     val avatarInitials: String = "",
-    val password: String = "123456",
     val companyName: String = "",
     val assignedVehiclePlate: String = "",
     val appliedRouteId: String = "",

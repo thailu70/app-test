@@ -71,7 +71,10 @@ internal fun IntercityPassengerScreen(
     var showAll by rememberSaveable { mutableStateOf(false) }
     val favoritesPreferences = remember(context.applicationContext) { context.applicationContext.getSharedPreferences("intercity_favorites", android.content.Context.MODE_PRIVATE) }
     var saved by remember { mutableStateOf(favoritesPreferences.getStringSet("departures", emptySet())?.toSet().orEmpty()) }
-    fun back() { if (state.phase == IntercityPhase.BROWSE) onExit() else model.home() }
+    fun back() {
+        if (state.testVerificationPending) model.cancelTestPaymentVerification()
+        else if (state.phase == IntercityPhase.BROWSE) onExit() else model.home()
+    }
     BackHandler { back() }
     DisposableEffect(lifecycle, model) {
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) model.refreshOnResume() }
@@ -89,6 +92,42 @@ internal fun IntercityPassengerScreen(
     }
     val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         if (uri != null) model.savePdf { context.contentResolver.openOutputStream(uri) }
+    }
+    if (state.testVerificationPending) {
+        var verificationCode by remember(state.booking?.id) { mutableStateOf("") }
+        var now by remember { mutableStateOf(System.currentTimeMillis()) }
+        LaunchedEffect(state.testOtpResendAt) {
+            while (now < state.testOtpResendAt) { kotlinx.coroutines.delay(1000); now = System.currentTimeMillis() }
+        }
+        AlertDialog(
+            onDismissRequest = model::cancelTestPaymentVerification,
+            title = { Text(intercityText(language, "Verify your phone", "ስልክዎን ያረጋግጡ", "Bilbila kee mirkaneessi")) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(intercityText(language,
+                        "Enter the code sent to ${state.testVerificationPhone.orEmpty()} to confirm this test booking. No money will be collected.",
+                        "ይህን የሙከራ ቦታ ለማረጋገጥ ወደ ${state.testVerificationPhone.orEmpty()} የተላከውን ኮድ ያስገቡ። ገንዘብ አይከፈልም።",
+                        "Ajaja yaalii kana mirkaneessuuf koodii gara ${state.testVerificationPhone.orEmpty()} ergame galchi. Maallaqni hin kaffalamu."))
+                    OutlinedTextField(verificationCode, { verificationCode = it.filter(Char::isDigit).take(6) },
+                        enabled = !state.busy, singleLine = true,
+                        label = { Text(intercityText(language, "Six-digit code", "ባለ 6 አሃዝ ኮድ", "Koodii lakkoofsa ja'aa")) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        modifier = Modifier.fillMaxWidth().testTag("intercity_test_otp"))
+                    state.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    val seconds = ((state.testOtpResendAt - now).coerceAtLeast(0) + 999) / 1000
+                    TextButton(onClick = { verificationCode = ""; model.resendTestPaymentOtp() }, enabled = !state.busy && seconds == 0L) {
+                        Text(intercityText(language, "Resend code", "ኮድ እንደገና ላክ", "Koodii irra deebi'i ergi") + if (seconds > 0) " ($seconds)" else "")
+                    }
+                }
+            },
+            confirmButton = { TextButton(enabled = !state.busy && verificationCode.length == 6,
+                onClick = { val code = verificationCode; verificationCode = ""; model.verifyTestPayment(code) }, modifier = Modifier.testTag("intercity_verify_test")) {
+                Text(intercityText(language, "Verify & confirm", "አረጋግጥ", "Mirkaneessi"))
+            } },
+            dismissButton = { TextButton(onClick = model::cancelTestPaymentVerification, modifier = Modifier.testTag("intercity_cancel_test")) {
+                Text(intercityText(language, "Cancel", "ሰርዝ", "Dhiisi"))
+            } }
+        )
     }
     if (datePickerOpen) {
         val iso = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") } }

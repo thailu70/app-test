@@ -35,7 +35,10 @@ internal data class IntercityUiState(
     val inventory: IntercitySeatsResponse? = null, val seat: Int? = null,
     val booking: IntercityBooking? = null, val recent: List<IntercityBooking> = emptyList(),
     val checkoutUrl: String? = null, val searchCompleted: Boolean = false,
-    val showingUpcoming: Boolean = true
+    val showingUpcoming: Boolean = true,
+    val testVerificationPending: Boolean = false,
+    val testVerificationPhone: String? = null,
+    val testOtpResendAt: Long = 0L
 )
 
 internal fun intercityToday(now: Long = System.currentTimeMillis()): String =
@@ -48,6 +51,12 @@ internal fun trustedIntercityCheckout(url: String): Boolean = runCatching {
 
 internal fun canShowIntercityQr(booking: IntercityBooking?): Boolean = booking != null &&
     booking.paymentStatus == "PAID" && booking.status == "CONFIRMED" && !booking.qrToken.isNullOrBlank()
+
+/** Client UI hint only. Eligibility and proof are enforced independently by the server. */
+internal fun isIntercityTestPhone(value: String): Boolean {
+    val digits = value.filter(Char::isDigit)
+    return digits in setOf("0912469923", "912469923", "251912469923", "00251912469923")
+}
 
 /** Guest booking capabilities remain private; every payment and boarding credential comes from the server. */
 internal class IntercityPassengerViewModel(
@@ -62,6 +71,8 @@ internal class IntercityPassengerViewModel(
     private data class DepartureSearch(val origin: String?, val destination: String?, val date: String)
     // Draft fields are not applied until Search is pressed. Null means upcoming discovery.
     private var activeSearch: DepartureSearch? = null
+    private data class TestDraft(val bookingId: String, val name: String, val phone: String, val epoch: Long)
+    private var testDraft: TestDraft? = null
 
     init { action {
         try { withContext(ioDispatcher) { store.load() }.forEach { capabilities[it.id] = it.secret } }
@@ -133,11 +144,13 @@ internal class IntercityPassengerViewModel(
     fun refresh() = action { loadDepartures(); loadRecent() }
     fun home() {
         navigationEpoch++
+        clearTestDraft()
         mutable.update { it.copy(phase = IntercityPhase.BROWSE, checkoutUrl = null, message = null) }
     }
 
     fun selectDeparture(departure: IntercityDeparture) = action { expectedEpoch ->
         if (expectedEpoch != navigationEpoch) return@action
+        clearTestDraft()
         mutable.update { it.copy(phase = IntercityPhase.SEATS, selected = departure, inventory = null, seat = null, booking = null) }
         val result = body(api.seats(departure.id))
         check(result.success) { result.error ?: "Seats could not be loaded." }
@@ -194,15 +207,16 @@ internal class IntercityPassengerViewModel(
         mutable.update { it.copy(recent = recent) }
     }
 
-    fun openBooking(id: String) = action { expectedEpoch -> refreshBooking(id, true, expectedEpoch) }
+    fun openBooking(id: String) = action { expectedEpoch -> clearTestDraft(); refreshBooking(id, true, expectedEpoch) }
     fun showBookings() = action { expectedEpoch ->
         if (expectedEpoch != navigationEpoch) return@action
+        clearTestDraft()
         mutable.update { it.copy(phase = IntercityPhase.BOOKINGS) }
         loadRecent()
     }
     fun checkPayment() = action { expectedEpoch -> mutable.value.booking?.let { refreshBooking(it.id, true, expectedEpoch) } }
     fun refreshOnResume() {
-        if (!mutable.value.busy && mutable.value.phase in setOf(IntercityPhase.DETAILS, IntercityPhase.TICKET)) checkPayment()
+        if (!mutable.value.busy && !mutable.value.testVerificationPending && mutable.value.phase in setOf(IntercityPhase.DETAILS, IntercityPhase.TICKET)) checkPayment()
     }
 
     fun checkout(name: String, phone: String) = action { expectedEpoch ->
@@ -210,13 +224,77 @@ internal class IntercityPassengerViewModel(
         require(name.trim().length >= 2 && Regex("^\\+?[0-9 ()-]{7,24}$").matches(phone.trim()) && phone.count(Char::isDigit) in 7..15) { "Enter the passenger name and a valid phone number." }
         val booking = mutable.value.booking ?: error("Choose a seat first.")
         val secret = capabilities[booking.id] ?: error("Private booking access is unavailable.")
-        val result = body(api.checkout(booking.id, secret, IntercityCheckoutRequest(name.trim(), phone.trim())))
-        check(result.success) { result.error ?: "Payment could not be prepared." }
-        if (result.paid) refreshBooking(booking.id, true, expectedEpoch)
-        else {
-            val url = result.checkoutUrl?.takeIf(::trustedIntercityCheckout) ?: error("The payment provider returned an unsupported checkout link.")
-            if (expectedEpoch == navigationEpoch) mutable.update { it.copy(checkoutUrl = url, message = "Complete the secure Telebirr payment, then return here to check your ticket.") }
+        if (isIntercityTestPhone(phone)) {
+            clearTestDraft()
+            val draft = TestDraft(booking.id, name.trim(), phone.trim(), expectedEpoch)
+            val result = body(api.requestTestPaymentOtp(booking.id, secret, IntercityTestOtpRequest(draft.phone)))
+            check(result.success && result.delivery == "SENT") { result.error ?: "The verification code could not be sent." }
+            if (expectedEpoch == navigationEpoch && mutable.value.booking?.id == booking.id) {
+                testDraft = draft
+                mutable.update { it.copy(testVerificationPending = true, testVerificationPhone = draft.phone,
+                    testOtpResendAt = System.currentTimeMillis() + (result.retryAfterSeconds ?: 60).coerceAtLeast(1) * 1000L) }
+            }
+        } else {
+            clearTestDraft()
+            completeCheckout(booking.id, secret, IntercityCheckoutRequest(name.trim(), phone.trim()), expectedEpoch)
         }
+    }
+
+    private suspend fun completeCheckout(id: String, secret: String, request: IntercityCheckoutRequest, expectedEpoch: Long) {
+        try {
+            val result = body(api.checkout(id, secret, request))
+            check(result.success) { result.error ?: "Payment could not be prepared." }
+            if (result.paid) refreshBooking(id, true, expectedEpoch)
+            else {
+                val url = result.checkoutUrl?.takeIf(::trustedIntercityCheckout) ?: error("The payment provider returned an unsupported checkout link.")
+                if (expectedEpoch == navigationEpoch) mutable.update { it.copy(checkoutUrl = url, message = "Complete the secure Telebirr payment, then return here to check your ticket.") }
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            // A lost response can follow a successful payment. Read once; never replay a
+            // provider checkout or a one-use OTP proof to discover its outcome.
+            val reconciled = try { fetchBooking(id) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { null }
+            if (reconciled?.paymentStatus == "PAID") {
+                rememberBooking(reconciled)
+                if (expectedEpoch == navigationEpoch) mutable.update { it.copy(booking = reconciled, phase = IntercityPhase.TICKET) }
+            } else throw error
+        }
+    }
+
+    private fun clearTestDraft() {
+        testDraft = null
+        mutable.update { it.copy(testVerificationPending = false, testVerificationPhone = null, testOtpResendAt = 0L) }
+    }
+
+    // Cancelling an in-flight verify/resend discards its context. A late proof must never pay.
+    fun cancelTestPaymentVerification() { clearTestDraft() }
+
+    fun resendTestPaymentOtp() = action { expectedEpoch ->
+        val draft = testDraft ?: return@action
+        if (draft.epoch != expectedEpoch || mutable.value.booking?.id != draft.bookingId) return@action
+        require(System.currentTimeMillis() >= mutable.value.testOtpResendAt) { "Please wait before requesting another code." }
+        val secret = capabilities[draft.bookingId] ?: error("Private booking access is unavailable.")
+        val result = body(api.requestTestPaymentOtp(draft.bookingId, secret, IntercityTestOtpRequest(draft.phone)))
+        check(result.success && result.delivery == "SENT") { result.error ?: "The verification code could not be sent." }
+        if (testDraft == draft && expectedEpoch == navigationEpoch) mutable.update {
+            it.copy(testOtpResendAt = System.currentTimeMillis() + (result.retryAfterSeconds ?: 60).coerceAtLeast(1) * 1000L)
+        }
+    }
+
+    fun verifyTestPayment(code: String) = action { expectedEpoch ->
+        require(Regex("^[0-9]{6}$").matches(code.trim())) { "Enter the six-digit verification code." }
+        val draft = testDraft ?: error("Request a new verification code.")
+        if (draft.epoch != expectedEpoch || mutable.value.booking?.id != draft.bookingId) return@action
+        val secret = capabilities[draft.bookingId] ?: error("Private booking access is unavailable.")
+        val result = body(api.verifyTestPaymentOtp(draft.bookingId, secret, IntercityTestOtpRequest(draft.phone, code.trim())))
+        check(result.success) { result.error ?: "The code could not be verified." }
+        val proof = result.testPaymentVerificationToken?.takeIf(String::isNotBlank) ?: error("Request a new verification code.")
+        if (testDraft != draft || expectedEpoch != navigationEpoch || mutable.value.booking?.id != draft.bookingId) return@action
+        // One-use proof stays only in this request; never persist it or silently replay a checkout.
+        clearTestDraft()
+        completeCheckout(draft.bookingId, secret, IntercityCheckoutRequest(draft.name, draft.phone, proof), expectedEpoch)
     }
 
     fun checkoutOpened() { mutable.update { it.copy(checkoutUrl = null) } }

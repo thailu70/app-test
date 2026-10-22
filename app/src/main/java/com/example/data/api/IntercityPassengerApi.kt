@@ -113,7 +113,17 @@ data class IntercityCompaniesResponse(
 data class IntercitySeatHoldRequest(val seatNumber: Int)
 
 @JsonClass(generateAdapter = true)
-data class IntercityCheckoutRequest(val passengerName: String, val passengerPhone: String)
+data class IntercityCheckoutRequest(val passengerName: String, val passengerPhone: String, val testPaymentVerificationToken: String? = null)
+
+@JsonClass(generateAdapter = true)
+data class IntercityTestOtpRequest(val passengerPhone: String, val code: String? = null)
+
+@JsonClass(generateAdapter = true)
+data class IntercityTestOtpResponse(
+    val success: Boolean, val delivery: String? = null, val retryAfterSeconds: Int? = null,
+    val testPaymentVerificationToken: String? = null, val expiresInSeconds: Int? = null,
+    val error: String? = null
+)
 
 @JsonClass(generateAdapter = true)
 data class IntercityRouteRequest(
@@ -165,6 +175,20 @@ interface IntercityPassengerApi {
         @Header("X-Booking-Secret") bookingSecret: String,
         @Body body: IntercityCheckoutRequest
     ): Response<IntercityCheckoutResponse>
+
+    @POST("api/intercity/bookings/{id}/test-payment/request-otp")
+    suspend fun requestTestPaymentOtp(
+        @Path("id") id: String,
+        @Header("X-Booking-Secret") bookingSecret: String,
+        @Body body: IntercityTestOtpRequest
+    ): Response<IntercityTestOtpResponse>
+
+    @POST("api/intercity/bookings/{id}/test-payment/verify-otp")
+    suspend fun verifyTestPaymentOtp(
+        @Path("id") id: String,
+        @Header("X-Booking-Secret") bookingSecret: String,
+        @Body body: IntercityTestOtpRequest
+    ): Response<IntercityTestOtpResponse>
 
     @Streaming
     @GET("api/intercity/bookings/{id}/ticket.pdf")

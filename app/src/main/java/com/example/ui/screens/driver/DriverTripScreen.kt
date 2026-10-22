@@ -87,7 +87,8 @@ fun DriverTripScreen(
     viewModel: MainViewModel,
     modifier: Modifier = Modifier,
     operationsApi: com.example.data.api.DriverOperationsApi? = null,
-    providedProfileApi: com.example.data.api.ProfileApi? = null
+    providedProfileApi: com.example.data.api.ProfileApi? = null,
+    onPrivacy: (() -> Unit)? = null
 ) {
     val currentUser by viewModel.currentUser.collectAsState()
     val language by viewModel.currentLanguage.collectAsState()
@@ -116,8 +117,22 @@ fun DriverTripScreen(
     val journey = journeys.firstOrNull { selectedKey == "journey:${it.id}" }
     val commuteTrip = activeTrip?.takeIf { it.vehicleId == vehicle?.id && it.routeId == vehicle?.assignedRouteId }
     val boardingEnabled = commuteTrip != null || journey?.status == "BOARDING"
+    val sharingTarget = activeTrip?.let { trip ->
+        com.example.core.location.DriverLocationTarget(currentUser?.id.orEmpty(), trip.id, false, trip.currentStop.orEmpty())
+    } ?: journeys.firstOrNull { it.status == "BOARDING" && it.driver_id == currentUser?.id }?.let {
+        com.example.core.location.DriverLocationTarget(currentUser?.id.orEmpty(), it.id, true, it.origin)
+    }
     val selectedStops by remember(currentUser?.id, vehicle?.assignedRouteId) { viewModel.observeRouteStops(vehicle?.assignedRouteId.orEmpty()) }.collectAsState(initial = emptyList())
     var clockNow by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(currentUser?.id, sharingTarget) {
+        // An empty screen cache during rotation is not proof that a server trip ended.
+        if (sharingTarget != null) com.example.core.location.DriverLocationSharing.syncTarget(sharingTarget)
+    }
+    LaunchedEffect(currentUser?.id) {
+        com.example.core.location.DriverLocationSharing.fix.collect { fix ->
+            if (fix != null) { freshFix = fix; clockNow = System.currentTimeMillis() }
+        }
+    }
     val displayDirection = if (vehicle != null) commuteTrip?.direction ?: direction else "OUTBOUND"
     val scheduled = if (vehicle != null) { if (displayDirection == "OUTBOUND") vehicle.morningDeparture else vehicle.eveningDeparture } else journey?.departure_at.orEmpty()
     var completionProfile by remember { mutableStateOf<com.example.data.api.CompletionProfile?>(null) }
@@ -224,6 +239,7 @@ fun DriverTripScreen(
             check(result.success) { result.error ?: "Journey could not be completed." }
         }
         notice = "Route completed. Boarding is now closed."
+        com.example.core.location.DriverLocationSharing.stop("Trip completed. Location sharing stopped.")
         refreshAssignments()
     }
     fun openScanner() { scanResult = null; boardingNotice = null; scanOpen = true }
@@ -257,19 +273,17 @@ fun DriverTripScreen(
         catch (error: Exception) { notice = error.message ?: "Could not load passenger roster." }
     }
     if (documentsOpen) {
-        com.example.ui.screens.profile.ProfileCompletionScreen(role = "DRIVER", onBack = { documentsOpen = false })
+        com.example.ui.screens.profile.ProfileCompletionScreen(role = "DRIVER", onBack = { documentsOpen = false }, onPrivacy = onPrivacy)
         return
     }
     Box(modifier.fillMaxSize().background(com.example.ui.screens.passenger.CommuteCream)) {
-        DriverLocationReporter(viewModel,
-            commuteTrip?.currentStop ?: journey?.takeIf { it.status == "BOARDING" }?.origin.orEmpty(),
-            { gpsStatus = it }, onFix = { freshFix = it; clockNow = System.currentTimeMillis() },
-            uploadEnabled = activeTrip != null || journeys.any { it.status == "BOARDING" })
+        DriverLocationReporter({ gpsStatus = it }, onFix = { freshFix = it; clockNow = System.currentTimeMillis() })
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp).smoothPortalMotion(section, animateInitial = false),
             contentPadding = PaddingValues(top = 14.dp, bottom = 104.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if (section == "Home") item {
                 DriverGreeting(currentUser?.id.orEmpty(), currentUser?.fullName.orEmpty(), language, clockNow, onProfile = { documentsOpen = true })
             }
+            sharingTarget?.let { target -> item { DriverTripSharingControls(target, language) } }
             if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth(), color = TransportGreenPrimary) }
             notice?.let { message -> item {
                 Surface(color = com.example.ui.screens.passenger.CommuteMint, shape = RoundedCornerShape(16.dp)) {
@@ -410,34 +424,60 @@ private fun DriverPassengerRosterRow(passenger: com.example.data.api.DriverRoste
     }
 }
 
+@Composable
+private fun DriverTripSharingControls(target: com.example.core.location.DriverLocationTarget, language: AppLanguage) {
+    val context = LocalContext.current
+    val sharing by com.example.core.location.DriverLocationSharing.running.collectAsState()
+    val sharingStatus by com.example.core.location.DriverLocationSharing.status.collectAsState()
+    var explain by remember(target.tripId) { mutableStateOf(false) }
+    fun t(en: String, am: String, om: String) = when (language) {
+        AppLanguage.AMHARIC -> am
+        AppLanguage.OROMO -> om
+        else -> en
+    }
+    val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        com.example.core.location.DriverLocationSharing.start(context, target)
+    }
+    Surface(shape = RoundedCornerShape(18.dp), color = com.example.ui.screens.passenger.CommuteMint) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(t("Active trip location", "የጉዞ አካባቢ ማጋራት", "Bakka imala hojii irra jiru"), fontWeight = FontWeight.Bold)
+            Text(sharingStatus, style = MaterialTheme.typography.bodySmall)
+            Button(onClick = {
+                if (sharing) com.example.core.location.DriverLocationSharing.stop("You stopped trip location sharing.") else explain = true
+            }, modifier = Modifier.testTag("driver_location_sharing")) {
+                Text(if (sharing) t("Stop sharing", "ማጋራት አቁም", "Qooduu dhaabi") else t("Share trip location", "የጉዞ አካባቢ አጋራ", "Bakka imalaa qoodi"))
+            }
+        }
+    }
+    if (explain) AlertDialog(onDismissRequest = { explain = false },
+        title = { Text(t("Share during this trip?", "በዚህ ጉዞ አካባቢዎን ያጋሩ?", "Bakka kee imala kanaaf qooddaa?")) },
+        text = { Text(t("PASSO shares your phone's location with authorized transport staff and assigned passengers during the active trip, including when the screen is locked. An ongoing notification shows sharing and lets you stop it. Sharing ends when the trip ends or you sign out.",
+            "PASSO በጉዞው ወቅት፣ ማያ ገጹ ሲዘጋም፣ የስልክዎን አካባቢ ለተፈቀደላቸው የትራንስፖርት ሠራተኞች እና ለተመደቡ ተሳፋሪዎች ያጋራል። ቋሚ ማሳወቂያው ማጋራትን ያሳያል እና ማቆም ያስችላል። ጉዞው ሲያልቅ ወይም ሲወጡ ማጋራት ይቆማል።",
+            "PASSO yeroo imalaa, yeroo iskiriiniin cufames, bakka bilbila keetii hojjettoota geejjibaa hayyamamaniifi imaltoota ramadamaniif qooda. Beeksisni yeroo hunda mul'atu qooduu agarsiisee akka dhaabdu si dandeessisa. Imalli yeroo xumuramu ykn yeroo baatu qooduun ni dhaabata.")) },
+        confirmButton = { TextButton(onClick = {
+            explain = false
+            val requested = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            if (android.os.Build.VERSION.SDK_INT >= 33) requested += Manifest.permission.POST_NOTIFICATIONS
+            permissions.launch(requested.toTypedArray())
+        }) { Text(t("Allow and share", "ፍቀድ እና አጋራ", "Hayyamiitii qoodi")) } },
+        dismissButton = { TextButton(onClick = { explain = false }) { Text(t("Not now", "አሁን አይደለም", "Amma miti")) } })
+}
+
 /**
- * Requests foreground location permission and reports fresh phone GPS fixes to the VPS.
- * Reporting runs only while the driver screen is open; background tracking is not claimed.
+ * Foreground fixes support departure validation. Active-trip uploads belong to the visible
+ * foreground service, so leaving this screen cannot create a second upload stream.
  */
 @Composable
 private fun DriverLocationReporter(
-    viewModel: MainViewModel,
-    currentStop: String,
     onStatusChanged: (String) -> Unit,
-    onFix: (com.example.data.api.DriverGpsFix) -> Unit = {},
-    uploadEnabled: Boolean = false
+    onFix: (com.example.data.api.DriverGpsFix) -> Unit = {}
 ) {
     val context = LocalContext.current
     val locationManager = remember(context) {
         context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     }
-    val latestStop = rememberUpdatedState(currentStop)
-    val latestUploadEnabled = rememberUpdatedState(uploadEnabled)
     val latestOnFix = rememberUpdatedState(onFix)
     val latestOnStatusChanged = rememberUpdatedState(onStatusChanged)
-    val signedInUser by viewModel.currentUser.collectAsState()
-    LaunchedEffect(viewModel, signedInUser?.id) {
-        if (signedInUser?.role != "DRIVER") return@LaunchedEffect
-        while (true) {
-            viewModel.refreshDriverGpsSharingInterval()
-            kotlinx.coroutines.delay(com.example.core.location.DriverGpsUploadGate.SETTINGS_REFRESH_MILLIS)
-        }
-    }
     var hasPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
@@ -464,34 +504,18 @@ private fun DriverLocationReporter(
         } else {
             val listener = object : LocationListener {
                 override fun onLocationChanged(location: Location) {
-                    if (location.isFromMockProvider) {
+                if (location.isFromMockProvider) {
                         latestOnStatusChanged.value("Use your phone's precise GPS location to confirm departure.")
                         return
                     }
                     // A last-known fix may be hours old. Do not stamp it as a new
                     // live server report when the screen first opens.
-                    if (System.currentTimeMillis() - location.time !in 0L..120000L) return
+                    if (!com.example.core.location.isUsableDriverFix(location.latitude, location.longitude, location.time, System.currentTimeMillis(), false)) return
                     if (location.hasAccuracy()) {
                         latestOnFix.value(com.example.data.api.DriverGpsFix(location.latitude, location.longitude, location.accuracy.toDouble(), location.time))
                     }
                     val coordinates = String.format(java.util.Locale.US, "%.5f, %.5f", location.latitude, location.longitude)
-                    if (!latestUploadEnabled.value) {
-                        latestOnStatusChanged.value("GPS ready · accuracy ${location.accuracy.toInt()} m · $coordinates")
-                        return
-                    }
-                    val uploading = viewModel.submitDriverLocation(
-                        latitude = location.latitude,
-                        longitude = location.longitude,
-                        speed = (location.speed.toDouble() * 3.6).coerceAtLeast(0.0),
-                        currentStop = latestStop.value,
-                        onResult = { accepted, message ->
-                            latestOnStatusChanged.value(
-                                if (accepted) "GPS uploaded successfully to RoutePass server · $coordinates"
-                                else "Phone GPS works, but server upload failed: $message · $coordinates"
-                            )
-                        }
-                    )
-                    if (uploading) latestOnStatusChanged.value("Phone GPS fix received; uploading to RoutePass server… · $coordinates")
+                    latestOnStatusChanged.value("GPS ready · accuracy ${location.accuracy.toInt()} m · $coordinates")
                 }
             }
             val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)

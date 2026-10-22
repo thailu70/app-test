@@ -53,6 +53,7 @@ import com.example.ui.screens.home.WelcomeService
 import com.example.ui.screens.home.HostedPortalScreen
 import com.example.ui.screens.intercity.IntercityPassengerScreen
 import com.example.ui.screens.profile.ProfileCompletionScreen
+import com.example.ui.screens.profile.AccountPrivacyScreen
 import com.example.ui.screens.driver.DriverTripScreen
 import com.example.ui.screens.passenger.PassengerDashboardScreen
 import com.example.ui.screens.passenger.CommuterWordmark
@@ -144,6 +145,8 @@ fun MainTransportApp(viewModel: MainViewModel) {
     val transporterNotifs by viewModel.transporterNotifications.collectAsState()
     val allNotifs by viewModel.allNotifications.collectAsState()
     var showProfile by remember(currentUser?.id) { mutableStateOf(false) }
+    var showPrivacy by remember(currentUser?.id) { mutableStateOf(false) }
+    var closureNotice by remember { mutableStateOf<String?>(null) }
 
     fun t(key: String) = AppStrings.get(key, currentLang)
 
@@ -200,6 +203,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                 },
                 language = currentLang,
                 onLanguage = { viewModel.setLanguage(it) },
+                onPrivacy = { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(ApiClient.portalUrl("privacy/")))) },
                 modifier = Modifier.fillMaxSize()
             )
         } else if (showIntercityPortal) {
@@ -279,15 +283,17 @@ fun MainTransportApp(viewModel: MainViewModel) {
             modifier = Modifier.fillMaxSize(),
             contentWindowInsets = WindowInsets.safeDrawing,
             topBar = {
-                if (currentRole == AppRole.PASSENGER || currentRole == AppRole.DRIVER) {
+                if (showPrivacy) {
+                    // This screen owns its Back control, including while closure is in flight.
+                } else if (currentRole == AppRole.PASSENGER || currentRole == AppRole.DRIVER) {
                     PassengerTopBar(
                         fullName = currentUser?.fullName.orEmpty(),
                         initials = currentUser?.avatarInitials.orEmpty(),
                         language = currentLang,
-                        profileOpen = showProfile,
+                        profileOpen = showProfile || showPrivacy,
                         notificationCount = relevantNotifications.size,
                         onProfile = { showProfile = true },
-                        onBack = { showProfile = false },
+                        onBack = { if (showPrivacy) showPrivacy = false else showProfile = false },
                         onNotifications = { viewModel.openNotificationTray() },
                         onLanguage = { viewModel.toggleLanguage() },
                         onLogout = { viewModel.logout() },
@@ -420,8 +426,8 @@ fun MainTransportApp(viewModel: MainViewModel) {
             // A passenger ONLY sees their passenger account, a driver ONLY sees their driver account,
             // and an operator ONLY sees their operator dashboard.
         ) { innerPadding ->
-            androidx.activity.compose.BackHandler(enabled = showProfile || currentRole != AppRole.PASSENGER) {
-                if (showProfile) showProfile = false else viewModel.logout()
+            androidx.activity.compose.BackHandler(enabled = showPrivacy || showProfile || currentRole != AppRole.PASSENGER) {
+                if (showPrivacy) showPrivacy = false else if (showProfile) showProfile = false else viewModel.logout()
             }
             Box(
                 modifier = Modifier
@@ -430,15 +436,22 @@ fun MainTransportApp(viewModel: MainViewModel) {
                     .consumeWindowInsets(innerPadding)
                     .background(MaterialTheme.colorScheme.background)
             ) {
-                SmoothPortalContent("${currentRole.name}-${if (showProfile) "profile" else "portal"}") {
-                if (showProfile) {
-                    ProfileCompletionScreen(role = currentRole.name, onBack = { showProfile = false })
+                SmoothPortalContent("${currentRole.name}-${if (showPrivacy) "privacy" else if (showProfile) "profile" else "portal"}") {
+                if (showPrivacy) {
+                    AccountPrivacyScreen(currentLang, onBack = { showPrivacy = false }, onClosed = { message ->
+                        closureNotice = message
+                        showPrivacy = false
+                        showProfile = false
+                        viewModel.logout()
+                    })
+                } else if (showProfile) {
+                    ProfileCompletionScreen(role = currentRole.name, onBack = { showProfile = false }, onPrivacy = { showPrivacy = true })
                 } else when (currentRole) {
                     AppRole.PASSENGER -> {
                         PassengerDashboardScreen(viewModel = viewModel, onOpenProfile = { showProfile = true })
                     }
                     AppRole.DRIVER -> {
-                        DriverTripScreen(viewModel = viewModel)
+                        DriverTripScreen(viewModel = viewModel, onPrivacy = { showPrivacy = true })
                     }
                     AppRole.ADMIN -> {
                         Column(
@@ -472,6 +485,9 @@ fun MainTransportApp(viewModel: MainViewModel) {
             )
         }
     }
+    closureNotice?.let { message -> AlertDialog(onDismissRequest = { closureNotice = null },
+        title = { Text(when (currentLang) { AppLanguage.ENGLISH -> "Account closed"; AppLanguage.AMHARIC -> "መለያ ተዘግቷል"; AppLanguage.OROMO -> "Herregni cufame" }) },
+        text = { Text(message) }, confirmButton = { TextButton(onClick = { closureNotice = null }) { Text("OK") } }) }
 }
 
 /** Drawing-only entrance: keep one active destination and its existing state/lifecycle. */
