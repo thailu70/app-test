@@ -368,6 +368,28 @@ class IntercityPassengerStateTest {
         }
     }
 
+    @Test fun `resend during cooldown does not request another SMS or discard verification context`() = runTest(dispatcher) {
+        val api = FakeApi()
+        val model = readyForCheckout(api)
+        model.checkout("Test Passenger", "0912469923")
+        advanceUntilIdle()
+        val resendAt = model.state.value.testOtpResendAt
+        assertEquals(1, api.otpRequests.size)
+        assertTrue(resendAt > System.currentTimeMillis())
+
+        repeat(3) { model.resendTestPaymentOtp(); advanceUntilIdle() }
+
+        assertEquals(1, api.otpRequests.size)
+        assertEquals(resendAt, model.state.value.testOtpResendAt)
+        assertTrue(model.state.value.testVerificationPending)
+        assertTrue(model.state.value.message.orEmpty().contains("Please wait"))
+        assertTrue(api.checkoutRequests.isEmpty())
+        model.verifyTestPayment("123456")
+        advanceUntilIdle()
+        assertEquals(1, api.otpVerifications.size)
+        assertEquals("one-use-fixture-proof", api.checkoutRequests.single().testPaymentVerificationToken)
+    }
+
     @Test fun `missing SENT delivery rejected codes and missing proof never trigger payment`() = runTest(dispatcher) {
         for (delivery in listOf(null, "SIMULATED", "FAILED")) {
             val api = FakeApi().apply { otpRequestResult = Response.success(IntercityTestOtpResponse(true, delivery = delivery)) }

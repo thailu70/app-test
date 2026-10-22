@@ -94,23 +94,8 @@ internal fun IntercityPassengerScreen(
         if (uri != null) model.savePdf { context.contentResolver.openOutputStream(uri) }
     }
     if (state.testVerificationPending) {
-        var verificationCode by remember(state.booking?.id) { mutableStateOf("") }
-        var seconds by remember(state.testOtpResendAt) {
-            mutableLongStateOf(((state.testOtpResendAt - System.currentTimeMillis()).coerceAtLeast(0) + 999) / 1000)
-        }
-        LaunchedEffect(state.testOtpResendAt) {
-            // A bounded count also terminates under a virtual dispatcher whose delays do not
-            // advance wall time. The elapsed deadline handles screen-off/background time.
-            val ticks = seconds.coerceIn(0L, 3600L).toInt()
-            seconds = ticks.toLong()
-            val deadline = android.os.SystemClock.elapsedRealtime() + seconds * 1000L
-            repeat(ticks) {
-                kotlinx.coroutines.delay(1000)
-                val elapsedRemaining = ((deadline - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0) + 999) / 1000
-                seconds = minOf((seconds - 1).coerceAtLeast(0), elapsedRemaining)
-                if (seconds == 0L) return@LaunchedEffect
-            }
-        }
+        // Only a newly sent code resets input. An early or failed resend preserves it.
+        var verificationCode by remember(state.booking?.id, state.testOtpResendAt) { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = model::cancelTestPaymentVerification,
             title = { Text(intercityText(language, "Verify your phone", "ስልክዎን ያረጋግጡ", "Bilbila kee mirkaneessi")) },
@@ -126,9 +111,9 @@ internal fun IntercityPassengerScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                         modifier = Modifier.fillMaxWidth().testTag("intercity_test_otp"))
                     state.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    TextButton(onClick = { verificationCode = ""; model.resendTestPaymentOtp() }, enabled = !state.busy && seconds == 0L,
+                    TextButton(onClick = { model.resendTestPaymentOtp() }, enabled = !state.busy,
                         modifier = Modifier.testTag("intercity_resend_test")) {
-                        Text(intercityText(language, "Resend code", "ኮድ እንደገና ላክ", "Koodii irra deebi'i ergi") + if (seconds > 0) " ($seconds)" else "")
+                        Text(intercityText(language, "Resend code", "ኮድ እንደገና ላክ", "Koodii irra deebi'i ergi"))
                     }
                 }
             },
