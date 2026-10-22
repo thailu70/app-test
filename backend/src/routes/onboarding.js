@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const { authenticate, requireRole, verifyToken, JWT_SECRET } = require('../middleware/auth');
 const { createOnboardingService, initOnboardingSchema, OnboardingError, MAX_DOCUMENT_BYTES, REQUIRED } = require('../services/onboarding');
+const { commuteSuggestions, commuteQuote, CommuteQuoteError } = require('../services/commute-quote');
 
 function createOnboardingRouter({ service = createOnboardingService(), rateLimitMax = 10 } = {}) {
   const router = express.Router();
@@ -13,6 +14,8 @@ function createOnboardingRouter({ service = createOnboardingService(), rateLimit
   const registerLimit = limiter(), loginLimit = limiter(), smsLimit = limiter(), verifyLimit = limiter();
   router.use((_req, res, next) => { res.set('Cache-Control', 'private, no-store'); next(); });
   router.use(asyncRoute(async (_req, _res, next) => { await initOnboardingSchema(); next(); }));
+  router.get('/commute-suggestions', asyncRoute(async (req, res) => res.json({ success: true, ...await commuteSuggestions(req.query) })));
+  router.get('/commute-quote', asyncRoute(async (req, res) => res.json({ success: true, ...await commuteQuote(req.query) })));
   const issue = result => ({ success: true, ...result, token: jwt.sign({ id: result.account.id, role: result.account.role, scope: 'ONBOARDING' }, JWT_SECRET, { expiresIn: '2h', audience: 'routepass-onboarding' }) });
   router.post('/register', registerLimit, asyncRoute(async (req, res) => res.status(201).json(issue(await service.register(req.body || {})))));
   router.post('/login', loginLimit, asyncRoute(async (req, res) => res.json(issue(await service.login(req.body || {})))));
@@ -77,7 +80,7 @@ function createOnboardingRouter({ service = createOnboardingService(), rateLimit
   router.use((error, _req, res, next) => {
     if (res.headersSent) return next(error);
     if (error.type === 'entity.too.large') return res.status(413).json({ success: false, error: 'Each document must be 5 MB or smaller.' });
-    if (error instanceof OnboardingError) return res.status(error.status).json({ success: false, error: error.message });
+    if (error instanceof OnboardingError || error instanceof CommuteQuoteError) return res.status(error.status).json({ success: false, error: error.message });
     if (error.code === '23505' || error.code === 'SQLITE_CONSTRAINT_UNIQUE') return res.status(409).json({ success: false, error: 'That phone, company or vehicle is already registered.' });
     console.error('[Onboarding] request failed:', error.code || error.name || 'Error');
     res.status(500).json({ success: false, error: 'Onboarding is temporarily unavailable. Please try again.' });

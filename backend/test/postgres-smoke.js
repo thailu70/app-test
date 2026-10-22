@@ -59,13 +59,28 @@ async function run() {
     const adminToken = result.data.token;
     assert.ok(adminToken, 'Admin JWT must be returned');
 
+    result = await requestJson(baseUrl, '/api/onboarding/commute-suggestions');
+    assert.equal(result.status, 200, 'Driver endpoint suggestions must be public and available on PostgreSQL');
+    const suggestedRoute = result.data.routes.find(route => route.id === 'route_bole_merkato');
+    assert.ok(suggestedRoute?.departure && suggestedRoute?.destination, 'Ordered route stops supply missing origin/destination fields');
+    const routeFare = Number((await DB.prepare('SELECT basePriceEtb FROM routes WHERE id=?').get(suggestedRoute.id)).basePriceEtb);
+    const quotePath = '/api/onboarding/commute-quote?' + new URLSearchParams({ departure: suggestedRoute.departure, destination: suggestedRoute.destination, vehicleType: 'MINIBUS_14' });
+    result = await requestJson(baseUrl, quotePath);
+    assert.equal(result.status, 200);
+    assert.equal(result.data.routeMatch.status, 'EXACT');
+    assert.equal(result.data.price.mode, 'FIXED');
+    assert.equal(result.data.price.amountEtb, Math.round(routeFare * 14 * 100) / 100, 'Whole-vehicle monthly price uses the selected catalog capacity, not occupancy');
+    const expectedVehicleFee = result.data.price.amountEtb;
     result = await requestJson(baseUrl, '/api/onboarding/register', 'POST', {
       role: 'DRIVER', fullName: 'CI Web Applicant', phone: '+251900000109', password: 'CI_Web_Applicant#2026',
       licenseNumber: 'CI-WEB-LICENCE', assignedVehiclePlate: 'CI-WEB-109', vehicleModel: 'CI Minibus', vehicleType: 'MINIBUS_14',
-      routeChoice: 'EXISTING', appliedRouteId: 'route_bole_merkato', proposedMonthlyFeeEtb: 45000, proposedMonthlyFeeBasis: 'PER_VEHICLE'
+      proposedDeparture: suggestedRoute.departure, proposedDestination: suggestedRoute.destination,
+      proposedMonthlyFeeEtb: 1, proposedMonthlyFeeBasis: 'PER_VEHICLE'
     });
     assert.equal(result.status, 201, 'Web driver registration must work without OTP on PostgreSQL');
     assert.equal(result.data.account.status, 'PENDING');
+    assert.equal(result.data.onboarding.routePreference.routeId, suggestedRoute.id);
+    assert.equal(result.data.onboarding.routePreference.proposedMonthlyFeeEtb, expectedVehicleFee, 'Server recomputes the locked monthly vehicle price despite a tampered client amount');
     const applicantId = result.data.account.id;
     const applicantToken = result.data.token;
     assert.ok(applicantToken);

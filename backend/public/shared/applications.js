@@ -73,7 +73,8 @@
       const canAccept = needsAcceptance && ['PENDING','ACTIVE'].includes(account.status) && ['EXISTING','PROPOSED'].includes(proposal.mode) && Number.isFinite(fee) && fee > 0;
       const routeDetails = !onboarding.acceptanceRequired ? '' : '<h4>Daily commute proposal</h4><dl class="application-facts"><div><dt>Route preference</dt><dd>' +
         esc(proposal.mode === 'EXISTING' ? proposal.routeName || 'Selected existing route' : proposal.mode === 'PROPOSED' ? 'Proposed new route' : 'Not provided yet') + '</dd></div>' +
-        '<div><dt>Proposed monthly fee for the whole vehicle</dt><dd>' + (Number.isFinite(fee) && fee > 0 ? esc(fee.toLocaleString('en-ET', {minimumFractionDigits:2, maximumFractionDigits:2})) + ' ETB / vehicle / month' : 'Not provided yet') + '</dd></div>' +
+        '<div><dt>Monthly fee for the whole vehicle</dt><dd>' + (Number.isFinite(fee) && fee > 0 ? esc(fee.toLocaleString('en-ET', {minimumFractionDigits:2, maximumFractionDigits:2})) + ' ETB / vehicle / month' : 'Not provided yet') + '</dd></div>' +
+        (proposal.feeLocked ? '<div><dt>Calculated monthly fee</dt><dd>' + esc(proposal.passengerCapacity) + ' seats × ' + esc(Number(proposal.passengerMonthlyFareEtb).toLocaleString('en-ET', {minimumFractionDigits:2, maximumFractionDigits:2})) + ' ETB per passenger / month</dd></div>' : '') +
         (proposal.departure ? '<div><dt>Departure</dt><dd>' + esc(proposal.departure) + '</dd></div>' : '') +
         (proposal.destination ? '<div><dt>Destination</dt><dd>' + esc(proposal.destination) + '</dd></div>' : '') +
         '<div><dt>Initial acceptance</dt><dd>' + (onboarding.acceptedAt ? 'Accepted' : esc(onboarding.acceptanceStatus === 'REJECTED' ? 'Returned to applicant' : 'Awaiting admin acceptance')) + '</dd></div></dl>';

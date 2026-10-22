@@ -5,6 +5,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const { DB } = require('../db');
 const { initProfileSchema } = require('./profile-schema');
+const { commuteQuote, commuteEndpoints, vehicleMonthlyPrice } = require('./commute-quote');
 
 const REQUIRED = Object.freeze({ DRIVER: ['LICENSE', 'VEHICLE_REGISTRATION', 'INSURANCE', 'PHOTO'], COMPANY: ['BUSINESS_LICENSE', 'REGISTRATION', 'REPRESENTATIVE_ID'] });
 const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
@@ -56,6 +57,8 @@ async function initOnboardingSchema(db = DB) {
       service_type: "TEXT NOT NULL DEFAULT ''", route_choice: "TEXT NOT NULL DEFAULT ''", route_id: "TEXT NOT NULL DEFAULT ''",
       route_name: "TEXT NOT NULL DEFAULT ''", proposed_departure: "TEXT NOT NULL DEFAULT ''", proposed_destination: "TEXT NOT NULL DEFAULT ''",
       proposed_monthly_fee_etb: 'NUMERIC', proposed_monthly_fee_basis: "TEXT NOT NULL DEFAULT ''",
+      monthly_fee_source: "TEXT NOT NULL DEFAULT 'MANUAL_PROPOSAL'", quote_vehicle_type: "TEXT NOT NULL DEFAULT ''",
+      quote_passenger_capacity: 'INTEGER', quote_passenger_fare_etb: 'NUMERIC',
       initial_submitted_at: 'TEXT', acceptance_status: "TEXT NOT NULL DEFAULT 'PENDING'", accepted_at: 'TEXT', accepted_by: 'TEXT',
       acceptance_grandfathered: 'BOOLEAN NOT NULL DEFAULT FALSE'
     };
@@ -107,7 +110,10 @@ async function documents(id, role, db = DB) {
 function routePreference(record) {
   return { mode: record.route_choice || '', routeId: record.route_id || '', routeName: record.route_name || '',
     departure: record.proposed_departure || '', destination: record.proposed_destination || '',
-    proposedMonthlyFeeEtb: record.proposed_monthly_fee_etb == null ? null : Number(record.proposed_monthly_fee_etb), proposedMonthlyFeeBasis: record.proposed_monthly_fee_basis || '' };
+    proposedMonthlyFeeEtb: record.proposed_monthly_fee_etb == null ? null : Number(record.proposed_monthly_fee_etb), proposedMonthlyFeeBasis: record.proposed_monthly_fee_basis || '',
+    feeLocked: record.monthly_fee_source === 'ROUTE_PASSENGER_FARE_X_CAPACITY', feeSource: record.monthly_fee_source || 'MANUAL_PROPOSAL',
+    vehicleType: record.quote_vehicle_type || '', passengerCapacity: record.quote_passenger_capacity == null ? null : Number(record.quote_passenger_capacity),
+    passengerMonthlyFareEtb: record.quote_passenger_fare_etb == null ? null : Number(record.quote_passenger_fare_etb) };
 }
 function feeProposal(amount, basis = 'PER_VEHICLE') {
   if ((typeof amount !== 'number' && typeof amount !== 'string') || (typeof amount === 'string' && !/^\d+(?:\.\d{1,2})?$/.test(amount))) fail(400, 'Enter a proposed monthly fee in ETB with no more than two decimal places.');
@@ -139,22 +145,43 @@ function requireAcceptance(account, record) {
   if (!acceptance(account, record).canVerifyAndUpload) fail(428, 'Your daily commute application must be accepted by an administrator before phone verification or document upload.');
 }
 async function validatePreference(input, db = DB) {
-  const mode = String(input.routeChoice || '').toUpperCase(), fee = feeProposal(input.proposedMonthlyFeeEtb, input.proposedMonthlyFeeBasis);
+  const mode = String(input.routeChoice || '').toUpperCase();
+  if (input.proposedMonthlyFeeBasis !== undefined && input.proposedMonthlyFeeBasis !== 'PER_VEHICLE') fail(400, 'The proposed monthly fee must be for the whole vehicle per month.');
+  if (db.isPostgres) await db.prepare('SELECT code FROM vehicle_types WHERE code=? FOR SHARE').get(String(input.vehicleType || '').toUpperCase());
+  const type = await require('./master-data').getVehicleType(String(input.vehicleType || '').toUpperCase(), db);
+  if (!type) fail(400, 'Choose an active vehicle type.');
+  let resolved, departure = input.proposedDeparture, destination = input.proposedDestination;
   if (mode === 'EXISTING') {
     const id = text(input.appliedRouteId, 'daily commute route', 64);
-    const route = await db.prepare("SELECT id,name FROM routes WHERE id=? AND active=TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'").get(id);
+    const route = await db.prepare("SELECT id,name,basePriceEtb FROM routes WHERE id=? AND active=TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'" + (db.isPostgres ? ' FOR SHARE' : '')).get(id);
     if (!route) fail(400, 'Choose an active daily commute route.');
-    return { mode, routeId: route.id, routeName: route.name, departure: '', destination: '', ...fee };
+    const endpoints = (await commuteEndpoints(db)).find(item => item.id === route.id);
+    departure = endpoints?.departure || ''; destination = endpoints?.destination || '';
+    resolved = { routeMatch: { status: 'EXACT', routeId: route.id, routeName: route.name }, price: vehicleMonthlyPrice({ passengerMonthlyFareEtb: route.basePriceEtb }, type) };
+  } else {
+    if (mode && mode !== 'PROPOSED') fail(400, 'Choose an existing daily commute route or propose a route.');
+    resolved = await commuteQuote({ proposedDeparture: departure, proposedDestination: destination, vehicleType: type.code }, db);
+    if (db.isPostgres && resolved.routeMatch.routeId) {
+      await db.prepare('SELECT id FROM routes WHERE id=? FOR SHARE').get(resolved.routeMatch.routeId);
+      resolved = await commuteQuote({ proposedDeparture: departure, proposedDestination: destination, vehicleType: type.code }, db);
+    }
+    departure = departure.trim(); destination = destination.trim();
   }
-  if (mode !== 'PROPOSED') fail(400, 'Choose an existing daily commute route or propose a route.');
-  const departure = text(input.proposedDeparture, 'proposed departure', 120), destination = text(input.proposedDestination, 'proposed destination', 120);
-  const key = value => value.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
-  if ((departure.match(/[\p{L}\p{N}]/gu) || []).length < 2 || (destination.match(/[\p{L}\p{N}]/gu) || []).length < 2 || key(departure) === key(destination)) fail(400, 'Propose two distinct departure and destination places.');
-  return { mode, routeId: '', routeName: departure + ' → ' + destination, departure, destination, ...fee };
+  const { routeMatch: match, price } = resolved;
+  const fee = feeProposal(price.mode === 'FIXED' ? price.amountEtb : input.proposedMonthlyFeeEtb, 'PER_VEHICLE');
+  return { mode: match.status === 'EXACT' ? 'EXISTING' : 'PROPOSED', routeId: match.routeId || '', routeName: match.routeName || departure + ' → ' + destination,
+    departure, destination, ...fee, feeLocked: price.mode === 'FIXED', feeSource: price.source || 'MANUAL_PROPOSAL', vehicleType: type.code,
+    passengerCapacity: price.passengerCapacity, passengerMonthlyFareEtb: price.passengerMonthlyFareEtb };
 }
 async function savePreference(id, preference, db) {
-  await db.prepare('UPDATE onboarding_accounts SET route_choice=?,route_id=?,route_name=?,proposed_departure=?,proposed_destination=?,proposed_monthly_fee_etb=?,proposed_monthly_fee_basis=? WHERE account_id=?')
-    .run(preference.mode, preference.routeId, preference.routeName, preference.departure, preference.destination, preference.proposedMonthlyFeeEtb, preference.proposedMonthlyFeeBasis, id);
+  await db.prepare('UPDATE onboarding_accounts SET route_choice=?,route_id=?,route_name=?,proposed_departure=?,proposed_destination=?,proposed_monthly_fee_etb=?,proposed_monthly_fee_basis=?,monthly_fee_source=?,quote_vehicle_type=?,quote_passenger_capacity=?,quote_passenger_fare_etb=? WHERE account_id=?')
+    .run(preference.mode, preference.routeId, preference.routeName, preference.departure, preference.destination, preference.proposedMonthlyFeeEtb, preference.proposedMonthlyFeeBasis,
+      preference.feeSource, preference.vehicleType, preference.passengerCapacity, preference.passengerMonthlyFareEtb, id);
+}
+async function currentPreference(id, record, db) {
+  const vehicle = await db.prepare('SELECT vehicleType FROM vehicles WHERE driverId=? ORDER BY id LIMIT 1').get(id);
+  return validatePreference({ routeChoice: record.route_choice, appliedRouteId: record.route_id, proposedDeparture: record.proposed_departure, proposedDestination: record.proposed_destination,
+    proposedMonthlyFeeEtb: record.proposed_monthly_fee_etb, proposedMonthlyFeeBasis: record.proposed_monthly_fee_basis, vehicleType: vehicle?.vehicleType || record.quote_vehicle_type }, db);
 }
 async function getOnboardingReadiness(id, role, db = DB, { requireSubmission = true } = {}) {
   const record = await enrollment(id, role, db);
@@ -191,6 +218,9 @@ async function markOnboardingReviewed(id, role, decision, reviewer, note = '', d
   if (!record) return false;
   if (!['APPROVED', 'REJECTED'].includes(decision)) fail(400, 'Invalid review decision.');
   if (decision === 'APPROVED' && !mayContinue(account)) fail(409, 'This account is disabled. Restore it explicitly before reviewing onboarding.');
+  if (decision === 'APPROVED' && acceptance(account, record).acceptanceRequired && completePreference(record) && !(record.acceptance_grandfathered === true || record.acceptance_grandfathered === 1)) {
+    if (JSON.stringify(await currentPreference(id, record, db)) !== JSON.stringify(routePreference(record))) fail(409, 'The route or vehicle monthly price has changed. The applicant must refresh and resubmit their application.');
+  }
   if (decision === 'APPROVED' && !(await getOnboardingReadiness(id, role, db)).ready) fail(428, 'The applicant must verify their phone, complete all required information and submit for review.');
   if (decision === 'REJECTED' && acceptance(account, record).acceptanceRequired) {
     await db.prepare("UPDATE onboarding_accounts SET acceptance_status='REJECTED',accepted_at=NULL,accepted_by=NULL,acceptance_grandfathered=FALSE WHERE account_id=?").run(id);
@@ -231,7 +261,8 @@ async function acceptInitialOnboarding(id, reviewer, note = '', db = DB) {
   if (!mayContinue(account)) fail(403, 'This account is disabled. Contact support.');
   if (acceptance(account, record).acceptedAt) return false;
   if (!completePreference(record)) fail(428, 'The applicant must select or propose a route and propose a monthly fee before acceptance.');
-  if (record.route_choice === 'EXISTING') await validatePreference({ routeChoice: 'EXISTING', appliedRouteId: record.route_id, proposedMonthlyFeeEtb: record.proposed_monthly_fee_etb, proposedMonthlyFeeBasis: record.proposed_monthly_fee_basis }, db);
+  const refreshed = await currentPreference(id, record, db);
+  if (JSON.stringify(refreshed) !== JSON.stringify(routePreference(record))) fail(409, 'The route, vehicle or monthly price has changed. The applicant must refresh and resubmit before acceptance.');
   const phone = normalizePhone(account.phone);
   if (!phone) fail(428, 'The applicant must provide a valid phone number before acceptance.');
   if (record.normalized_phone !== phone) {
@@ -353,6 +384,11 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
         await tx.prepare("INSERT INTO transport_companies(id,name,phone,representative_name,password_hash,status) VALUES(?,?,?,?,?,'PENDING')").run(id, name, phone, fullName, hash);
       } else {
         if (plate && await tx.prepare('SELECT id FROM vehicles WHERE UPPER(plateNumber)=?').get(plate)) fail(409, 'This vehicle plate is already registered.');
+        if (type) {
+          if (tx.isPostgres) await tx.prepare('SELECT code FROM vehicle_types WHERE code=? FOR SHARE').get(type.code);
+          type = await require('./master-data').getVehicleType(type.code, tx);
+          if (!type) fail(400, 'Choose an active vehicle type.');
+        }
         await tx.prepare("INSERT INTO users(id,role,fullName,phone,email,passwordHash,status,licenseNumber,companyName,companyId,assignedVehiclePlate) VALUES(?,'DRIVER',?,?,?,?,'PENDING',?,?,?,?)")
           .run(id, fullName, phone, phone + '@transport.et', hash, input.licenseNumber.trim(), company?.name?.slice(0, 100) || '', company?.id || null, plate);
         if (plate) await tx.prepare("INSERT INTO vehicles(id,plateNumber,model,vehicleType,capacityLimit,currentOccupancy,assignedRouteId,driverId,driverName,status) VALUES(?,?,?,?,?,0,NULL,?,?,'OFF_DUTY')")
@@ -360,7 +396,7 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
       }
       await tx.prepare('INSERT INTO onboarding_accounts(account_id,role,normalized_phone,created_at,updated_at,service_type,review_status,initial_submitted_at,acceptance_status) VALUES(?,?,?,?,?,?,?,?,?)')
         .run(id, role, phone, time(), time(), role === 'COMPANY' ? 'COMPANY' : company ? 'INTERCITY' : 'DAILY_COMMUTE', preference ? 'AWAITING_ACCEPTANCE' : 'DRAFT', preference ? time() : null, preference ? 'PENDING' : 'NOT_REQUIRED');
-      if (preference) await savePreference(id, preference.mode === 'EXISTING' ? await validatePreference(input, tx) : preference, tx);
+      if (preference) await savePreference(id, await validatePreference(input, tx), tx);
     });
     return snapshot(id, role);
   }
@@ -420,7 +456,7 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
     return snapshot(id, role);
   }
   async function updateProfile(id, role, input) {
-    const routeKeys = ['routeChoice','appliedRouteId','proposedDeparture','proposedDestination','proposedMonthlyFeeEtb','proposedMonthlyFeeBasis'];
+    const routeKeys = ['routeChoice','appliedRouteId','proposedDeparture','proposedDestination','proposedMonthlyFeeEtb','proposedMonthlyFeeBasis','vehicleType'];
     const allowed = role === 'DRIVER' ? ['phone','emergencyContactName','emergencyContactPhone','vehicleColor', ...routeKeys] : ['phone','address','registrationNumber'];
     if (Object.keys(input).some(key => !allowed.includes(key))) fail(400, 'Only onboarding profile fields may be changed.');
     const normalized = {};
@@ -434,8 +470,14 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
       let changed = false, phoneChanged = false, routeChanged = false;
       if (routeKeys.some(key => Object.hasOwn(input, key))) {
         if (role !== 'DRIVER' || companyId(account)) fail(400, 'Route proposals are only available for daily commute applicants.');
-        const old = routePreference(record);
-        const preference = await validatePreference({ routeChoice: old.mode, appliedRouteId: old.routeId, proposedDeparture: old.departure, proposedDestination: old.destination,
+        const old = routePreference(record), vehicle = await tx.prepare('SELECT * FROM vehicles WHERE driverId=? ORDER BY id LIMIT 1').get(id);
+        if (tx.isPostgres) await tx.prepare('SELECT code FROM vehicle_types WHERE code=? FOR SHARE').get(String(input.vehicleType || vehicle?.vehicleType || '').toUpperCase());
+        const type = await require('./master-data').getVehicleType(String(input.vehicleType || vehicle?.vehicleType || '').toUpperCase(), tx);
+        if (!type || !vehicle) fail(400, 'Choose an active registered vehicle type.');
+        if (vehicle.vehicleType !== type.code) fail(400, 'Use the registered vehicle type. Contact the administrator to change vehicle details.');
+        const typedEndpoints = !Object.hasOwn(input, 'routeChoice') && (Object.hasOwn(input, 'proposedDeparture') || Object.hasOwn(input, 'proposedDestination'));
+        const preference = await validatePreference({ routeChoice: typedEndpoints ? '' : old.mode, appliedRouteId: old.routeId, proposedDeparture: old.departure, proposedDestination: old.destination,
+          vehicleType: type.code,
           proposedMonthlyFeeEtb: old.proposedMonthlyFeeEtb, proposedMonthlyFeeBasis: old.proposedMonthlyFeeBasis || 'PER_VEHICLE', ...Object.fromEntries(Object.entries(input).filter(([key]) => routeKeys.includes(key))) }, tx);
         routeChanged = JSON.stringify(old) !== JSON.stringify(preference);
         if (routeChanged) { await savePreference(id, preference, tx); changed = true; }
@@ -497,9 +539,15 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
     await transact(async tx => {
       const { account, record } = await lock(tx, id, role);
       const initial = acceptance(account, record);
+      if (initial.acceptanceRequired && completePreference(record) && !(record.acceptance_grandfathered === true || record.acceptance_grandfathered === 1)) {
+        const refreshed = await currentPreference(id, record, tx);
+        if (JSON.stringify(refreshed) !== JSON.stringify(routePreference(record))) {
+          await savePreference(id, refreshed, tx);
+          if (initial.acceptedAt) { await invalidate(tx, id, role, false, true); return; }
+        }
+      }
       if (initial.acceptanceRequired && !initial.acceptedAt) {
         if (!completePreference(record)) fail(428, 'Choose or propose a daily route and propose a monthly vehicle fee before submitting your application.');
-        if (record.route_choice === 'EXISTING') await validatePreference({ routeChoice: 'EXISTING', appliedRouteId: record.route_id, proposedMonthlyFeeEtb: record.proposed_monthly_fee_etb, proposedMonthlyFeeBasis: record.proposed_monthly_fee_basis }, tx);
         await tx.prepare("UPDATE onboarding_accounts SET initial_submitted_at=?,acceptance_status='PENDING',review_status='AWAITING_ACCEPTANCE',review_note='',submitted_at=NULL,reviewed_at=NULL,reviewed_by=NULL,updated_at=? WHERE account_id=?").run(time(), time(), id);
         return;
       }

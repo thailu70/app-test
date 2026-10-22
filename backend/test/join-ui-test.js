@@ -55,30 +55,31 @@ test('public forms send the correct driver ownership fields and cannot submit hi
   assert.deepEqual(portal.accountPayload('DRIVER','register',input),{role:'DRIVER',fullName:'Applicant',phone:'0912345678',password:'secret password',serviceType:'INTERCITY',licenseNumber:'LICENCE',companyId:'existing-company'});
   assert.deepEqual(portal.accountPayload('COMPANY','register',input),{role:'COMPANY',fullName:'Applicant',phone:'0912345678',password:'secret password',companyName:'Company'});
   assert.deepEqual(portal.accountPayload('COMPANY','login',input),{role:'COMPANY',phone:'0912345678',password:'secret password'});
-  const daily={...input,serviceType:'DAILY_COMMUTE',routeChoice:'EXISTING',appliedRouteId:'route-real',proposedDeparture:'hidden departure',proposedDestination:'hidden destination',proposedMonthlyFeeEtb:'45000.25'};
-  assert.deepEqual(portal.accountPayload('DRIVER','register',daily),{role:'DRIVER',fullName:'Applicant',phone:'0912345678',password:'secret password',serviceType:'DAILY_COMMUTE',licenseNumber:'LICENCE',assignedVehiclePlate:'HIDDEN',vehicleModel:'HIDDEN',vehicleType:'MINIBUS_14',routeChoice:'EXISTING',appliedRouteId:'route-real',proposedMonthlyFeeEtb:45000.25,proposedMonthlyFeeBasis:'PER_VEHICLE'});
-  const proposed=portal.accountPayload('DRIVER','register',{...daily,routeChoice:'PROPOSED',proposedDeparture:' Bole ',proposedDestination:' CMC '});
-  assert.equal(proposed.appliedRouteId,undefined);assert.equal(proposed.proposedDeparture,'Bole');assert.equal(proposed.proposedDestination,'CMC');
+  const daily={...input,serviceType:'DAILY_COMMUTE',routeChoice:'EXISTING',appliedRouteId:'untrusted-old-id',proposedDeparture:' Bole ',proposedDestination:' CMC ',proposedMonthlyFeeEtb:'45000.25'};
+  const proposed=portal.accountPayload('DRIVER','register',daily);
+  assert.equal(proposed.routeChoice,undefined);assert.equal(proposed.appliedRouteId,undefined);assert.equal(proposed.proposedDeparture,'Bole');assert.equal(proposed.proposedDestination,'CMC');assert.equal(proposed.proposedMonthlyFeeEtb,45000.25);assert.equal(proposed.proposedMonthlyFeeBasis,'PER_VEHICLE');
+  const fixed=portal.accountPayload('DRIVER','register',daily,{price:{mode:'FIXED',amountEtb:35000}});
+  assert.equal(fixed.proposedMonthlyFeeEtb,undefined,'A set price is recomputed by the backend, never posted as a manual proposal.');
   const html=fs.readFileSync(path.join(__dirname,'../public/join/index.html'),'utf8');
   assert.equal(html.includes('PER_PASSENGER'),false,'The user requested a whole-vehicle monthly fee, with no unit selector.');
   assert.equal(html.includes('name="proposedMonthlyFeeBasis"'),false);
+  assert.equal(html.includes('name="routeChoice"'),false);assert.equal(html.includes('name="appliedRouteId"'),false);
+  assert.equal(html.includes('<select id="serviceType"'),false);
+  for(const service of ['DAILY_COMMUTE','INTERCITY'])assert.ok(html.includes('data-service="'+service+'"'));
 });
 
-test('route choice disables every irrelevant required control, including switching to company or sign-in', () => {
+test('service buttons preserve ownership flows and disable irrelevant required controls', () => {
   const html=fs.readFileSync(path.join(__dirname,'../public/join/index.html'),'utf8').split('<form id="accountForm"')[1].split('</form>')[0];
   const controls=[...html.matchAll(/<(?:input|select)\b[^>]*name="([^"]+)"/g)].map(match=>({name:match[1],required:true,disabled:false}));
   const control=name=>controls.find(control=>control.name===name);
-  portal.applyRegistrationFields(controls,'DRIVER','register','DAILY_COMMUTE','EXISTING');
-  for(const name of ['appliedRouteId','routeChoice','proposedMonthlyFeeEtb'])assert.equal(control(name).required,true,name);
-  for(const name of ['companyId','companyName','proposedDeparture','proposedDestination'])assert.equal(control(name).disabled,true,name);
-  portal.applyRegistrationFields(controls,'DRIVER','register','DAILY_COMMUTE','PROPOSED');
-  assert.equal(control('appliedRouteId').disabled,true);assert.equal(control('appliedRouteId').required,false);
-  for(const name of ['proposedDeparture','proposedDestination'])assert.equal(control(name).required,true);
-  portal.applyRegistrationFields(controls,'DRIVER','register','INTERCITY','PROPOSED');
-  assert.equal(control('companyId').required,true);for(const name of ['routeChoice','proposedDeparture','proposedDestination','proposedMonthlyFeeEtb','vehicleType'])assert.equal(control(name).disabled,true,name);
-  portal.applyRegistrationFields(controls,'COMPANY','register','DAILY_COMMUTE','EXISTING');
-  assert.equal(control('companyName').required,true);assert.equal(control('appliedRouteId').disabled,true);
-  portal.applyRegistrationFields(controls,'DRIVER','login','DAILY_COMMUTE','EXISTING');
+  portal.applyRegistrationFields(controls,'DRIVER','register','DAILY_COMMUTE');
+  for(const name of ['proposedDeparture','proposedDestination','proposedMonthlyFeeEtb','vehicleType'])assert.equal(control(name).required,true,name);
+  for(const name of ['companyId','companyName'])assert.equal(control(name).disabled,true,name);
+  portal.applyRegistrationFields(controls,'DRIVER','register','INTERCITY');
+  assert.equal(control('companyId').required,true);for(const name of ['proposedDeparture','proposedDestination','proposedMonthlyFeeEtb','vehicleType'])assert.equal(control(name).disabled,true,name);
+  portal.applyRegistrationFields(controls,'COMPANY','register','DAILY_COMMUTE');
+  assert.equal(control('companyName').required,true);assert.equal(control('proposedDeparture').disabled,true);
+  portal.applyRegistrationFields(controls,'DRIVER','login','DAILY_COMMUTE');
   assert.deepEqual(controls.filter(item=>!item.disabled).map(item=>item.name).sort(),['password','phone']);
 });
 
@@ -94,6 +95,44 @@ test('administrator acceptance hides and disables verification/uploads before ac
   assert.equal(portal.onboardingAccess({acceptanceRequired:false,canVerifyAndUpload:true,reviewStatus:'DRAFT'}).locked,false,'Company/intercity onboarding retains existing verification flow.');
   for(const value of ['0',-1,Infinity,'NaN',1000000.01,'1.001',''])assert.equal(portal.validMonthlyFee(value),false,String(value));
   for(const value of [0.01,'45000.25',1000000])assert.equal(portal.validMonthlyFee(value),true,String(value));
+});
+
+const fixedQuote = amount => ({success:true,routeMatch:{status:'EXACT',routeId:'route-test',routeName:'Bole to Merkato'},price:{mode:'FIXED',amountEtb:amount,currency:'ETB',basis:'PER_VEHICLE',source:'ROUTE_PASSENGER_FARE_X_CAPACITY',passengerCapacity:14,passengerMonthlyFareEtb:amount/14}});
+const manualQuote = status => ({success:true,routeMatch:{status,routeId:null,routeName:null},price:{mode:'PROPOSED',amountEtb:null,currency:'ETB',basis:'PER_VEHICLE',source:null,passengerCapacity:14,passengerMonthlyFareEtb:null}});
+
+test('quote controller locks server prices, leaves unknown prices editable and blocks errors until retry', async () => {
+  let result=fixedQuote(35000),failed=false,calls=0,lastRequest;
+  const controller=portal.createCommuteQuoteController({fetchFn:async(url,options)=>{calls++;lastRequest={url,options};if(failed)throw new Error('offline');return {ok:true,json:async()=>result};}});
+  const values={departure:'Bole',destination:'Merkato',vehicleType:'MINIBUS_14'};
+  await controller.update({departure:'Bole',destination:'',vehicleType:'MINIBUS_14'},{immediate:true});assert.equal(calls,0);assert.equal(portal.quoteAccess(controller.getState()).canSubmit,false);
+  await controller.update(values,{immediate:true});assert.deepEqual(portal.quoteAccess(controller.getState()),{canSubmit:true,readOnly:true,fixedAmount:35000});
+  assert.ok(lastRequest.url.startsWith('/api/onboarding/commute-quote?'));assert.equal(lastRequest.options.method,'GET');assert.equal(lastRequest.options.credentials,'omit');assert.equal(lastRequest.options.redirect,'error');assert.equal(lastRequest.options.headers,undefined,'Public quotes carry no account token.');
+  result=manualQuote('NONE');await controller.update({...values,departure:'New place'},{immediate:true});assert.deepEqual(portal.quoteAccess(controller.getState()),{canSubmit:true,readOnly:false,fixedAmount:null});
+  result=manualQuote('AMBIGUOUS');await controller.update({...values,departure:'Shared point'},{immediate:true});assert.equal(controller.getState().quote.routeMatch.status,'AMBIGUOUS');assert.equal(portal.quoteAccess(controller.getState()).readOnly,false);
+  failed=true;await controller.update({...values,vehicleType:'MINIVAN_8'},{immediate:true});assert.equal(controller.getState().status,'ERROR');assert.equal(portal.quoteAccess(controller.getState()).canSubmit,false);
+  failed=false;result=fixedQuote(35000);await controller.update({...values,vehicleType:'MINIVAN_8'},{immediate:true,force:true});assert.equal(controller.getState().status,'READY');controller.dispose();
+});
+
+test('changing endpoints or vehicle type immediately discards old quotes and ignores late responses', async () => {
+  const requests=[];
+  const controller=portal.createCommuteQuoteController({fetchFn:(url,options)=>new Promise(resolve=>requests.push({url,options,resolve}))});
+  const original={departure:'Bole',destination:'Merkato',vehicleType:'MINIBUS_14'};
+  const old=controller.update(original,{immediate:true});assert.equal(controller.getState().status,'LOADING');
+  const changed=controller.update({...original,vehicleType:'MINIVAN_8'},{immediate:true});assert.equal(requests[0].options.signal.aborted,true);assert.equal(controller.getState().quote,null);assert.equal(portal.quoteAccess(controller.getState()).canSubmit,false);
+  requests[1].resolve({ok:true,json:async()=>fixedQuote(20000)});await changed;
+  requests[0].resolve({ok:true,json:async()=>fixedQuote(35000)});await old;
+  assert.equal(controller.getState().quote.price.amountEtb,20000);assert.equal(controller.getState().context.vehicleType,'MINIVAN_8');
+  await controller.update({...original,destination:''},{immediate:true});assert.equal(controller.getState().status,'INCOMPLETE');assert.equal(controller.getState().quote,null);controller.dispose();
+});
+
+test('typing is debounced and malformed fixed prices never become an editable fallback', async () => {
+  const timers=new Map();let nextId=0,calls=0;
+  const controller=portal.createCommuteQuoteController({setTimer:fn=>{const id=++nextId;timers.set(id,fn);return id;},clearTimer:id=>timers.delete(id),fetchFn:async()=>{calls++;return {ok:true,json:async()=>({...fixedQuote(35000),routeMatch:{status:'NONE'}})};}});
+  controller.update({departure:'Bo',destination:'Merkato',vehicleType:'MINIBUS_14'});
+  controller.update({departure:'Bole',destination:'Merkato',vehicleType:'MINIBUS_14'});
+  assert.equal(timers.size,1);assert.equal(calls,0);assert.equal(controller.getState().status,'LOADING');
+  [...timers.values()][0]();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(calls,1);assert.equal(controller.getState().status,'ERROR');assert.equal(portal.quoteAccess(controller.getState()).canSubmit,false);controller.dispose();
 });
 
 test('frontend API client completes real pending driver/company onboarding without OTP at signup', async t => {
@@ -135,9 +174,13 @@ test('frontend API client completes real pending driver/company onboarding witho
   await DB.prepare("INSERT INTO users(id,role,fullName,phone,passwordHash,status) VALUES('join_review_admin','ADMIN','Local Reviewer','0900000088','unused','ACTIVE')").run();
   const admin=require('../src/middleware/auth').signToken({id:'join_review_admin',role:'ADMIN'});
   const oldFare=(await DB.prepare("SELECT basePriceEtb FROM routes WHERE id='route_bole_merkato'").get()).basePriceEtb;
-  const dailyInput={fullName:'Daily Route Applicant',phone:'0912346703',password:'Local fixture password',serviceType:'DAILY_COMMUTE',licenseNumber:'DAILY-LICENCE',assignedVehiclePlate:'JOIN-DAILY-TEST',vehicleModel:'Minibus',vehicleType:'MINIBUS_14',routeChoice:'EXISTING',appliedRouteId:'route_bole_merkato',proposedMonthlyFeeEtb:'45000.25'};
-  token='';const daily=await api('/register',{method:'POST',anonymous:true,body:portal.accountPayload('DRIVER','register',dailyInput)});token=daily.token;
-  assert.equal(daily.onboarding.reviewStatus,'AWAITING_ACCEPTANCE');assert.equal(daily.onboarding.routePreference.routeId,'route_bole_merkato');assert.equal(daily.onboarding.routePreference.proposedMonthlyFeeEtb,45000.25);assert.equal(daily.onboarding.routePreference.proposedMonthlyFeeBasis,'PER_VEHICLE');
+  const dailyInput={fullName:'Daily Route Applicant',phone:'0912346703',password:'Local fixture password',serviceType:'DAILY_COMMUTE',licenseNumber:'DAILY-LICENCE',assignedVehiclePlate:'JOIN-DAILY-TEST',vehicleModel:'Minibus',vehicleType:'MINIBUS_14',proposedDeparture:'Bole Medhanialem',proposedDestination:'Merkato Bus Terminal',proposedMonthlyFeeEtb:'1'};
+  const quoteController=portal.createCommuteQuoteController({fetchFn:(url,options)=>fetch(base+url,options)});
+  await quoteController.update({departure:dailyInput.proposedDeparture,destination:dailyInput.proposedDestination,vehicleType:dailyInput.vehicleType},{immediate:true});
+  assert.equal(quoteController.getState().status,'READY');assert.equal(quoteController.getState().quote.price.amountEtb,35000);
+  const suggestions=await fetch(base+'/api/onboarding/commute-suggestions?field=departure&q=Bole');assert.ok((await suggestions.json()).places.some(place=>place.label==='Bole Medhanialem'));
+  token='';const daily=await api('/register',{method:'POST',anonymous:true,body:portal.accountPayload('DRIVER','register',dailyInput,quoteController.getState().quote)});token=daily.token;
+  assert.equal(daily.onboarding.reviewStatus,'AWAITING_ACCEPTANCE');assert.equal(daily.onboarding.routePreference.routeId,'route_bole_merkato');assert.equal(daily.onboarding.routePreference.proposedMonthlyFeeEtb,35000);assert.equal(daily.onboarding.routePreference.feeLocked,true);assert.equal(daily.onboarding.routePreference.proposedMonthlyFeeBasis,'PER_VEHICLE');
   assert.equal(portal.onboardingAccess(daily.onboarding).locked,true);
   await assert.rejects(api('/request-otp',{method:'POST',body:{}}),error=>error.status===428);
   await assert.rejects(api('/documents/PHOTO',{method:'PUT',raw:new Blob([png],{type:'image/png'})}),error=>error.status===428);
@@ -150,6 +193,11 @@ test('frontend API client completes real pending driver/company onboarding witho
   await api('/profile',{method:'PATCH',body:{emergencyContactName:'Local Contact',emergencyContactPhone:'0912000070',vehicleColor:'Teal'}});
   assert.equal((await api('/submit',{method:'POST',body:{}})).onboarding.reviewStatus,'SUBMITTED');
   assert.equal((await DB.prepare("SELECT basePriceEtb FROM routes WHERE id='route_bole_merkato'").get()).basePriceEtb,oldFare,'The proposal never changes published route fare.');
-  token='';const proposedDaily=await api('/register',{method:'POST',anonymous:true,body:portal.accountPayload('DRIVER','register',{...dailyInput,phone:'0912346704',assignedVehiclePlate:'JOIN-PROPOSED-TEST',routeChoice:'PROPOSED',proposedDeparture:'Garment',proposedDestination:'Bole'})});
+  await DB.prepare("UPDATE routes SET basePriceEtb=2600 WHERE id='route_bole_merkato'").run();
+  await quoteController.update({departure:dailyInput.proposedDeparture,destination:dailyInput.proposedDestination,vehicleType:dailyInput.vehicleType},{immediate:true,force:true});assert.equal(quoteController.getState().quote.price.amountEtb,36400);
+  const refreshed=await api('/profile',{method:'PATCH',body:portal.routePreferencePayload(dailyInput,quoteController.getState().quote)});assert.equal(refreshed.onboarding.routePreference.proposedMonthlyFeeEtb,36400);assert.equal(refreshed.onboarding.acceptanceStatus,'PENDING','Explicit route/price refresh reopens required acceptance after a fare change.');
+  await quoteController.update({departure:'Garment',destination:'Bole',vehicleType:'MINIBUS_14'},{immediate:true});assert.equal(quoteController.getState().quote.price.mode,'PROPOSED');
+  token='';const proposedDaily=await api('/register',{method:'POST',anonymous:true,body:portal.accountPayload('DRIVER','register',{...dailyInput,phone:'0912346704',assignedVehiclePlate:'JOIN-PROPOSED-TEST',proposedDeparture:'Garment',proposedDestination:'Bole',proposedMonthlyFeeEtb:'45000.25'},quoteController.getState().quote)});
   assert.equal(proposedDaily.onboarding.routePreference.mode,'PROPOSED');assert.equal(proposedDaily.onboarding.routePreference.departure,'Garment');assert.equal(proposedDaily.onboarding.routePreference.destination,'Bole');assert.equal(proposedDaily.onboarding.canVerifyAndUpload,false);
+  quoteController.dispose();
 });

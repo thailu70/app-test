@@ -67,7 +67,7 @@ jobs:
         run: node --check public/admin/admin.js && node --check public/admin/resources.js && node --check public/admin/master-data.js
         working-directory: backend
       - name: Test public registration and allocation gates
-        run: node --test test/onboarding-test.js test/onboarding-allocation-test.js test/applications-ui-test.js test/join-ui-test.js test/public-entry-test.js
+        run: node --test test/commute-quote-test.js test/onboarding-test.js test/onboarding-allocation-test.js test/applications-ui-test.js test/join-ui-test.js test/public-entry-test.js
         working-directory: backend
       - name: Check recruitment portal JavaScript syntax
         run: node --check public/join/join.js && node --check public/shared/applications.js

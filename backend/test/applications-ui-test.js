@@ -72,6 +72,10 @@ test('initial acceptance reviews the route and whole-vehicle fee while final all
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /data-application-decision="ACCEPT">Accept application/);
   assert.match(html, /data-application-decision="APPROVE" disabled/);
+  onboarding.routePreference = { mode: 'EXISTING', routeName: 'Bole to CMC', proposedMonthlyFeeEtb: 20000, proposedMonthlyFeeBasis: 'PER_VEHICLE', feeLocked: true, passengerCapacity: 8, passengerMonthlyFareEtb: 2500 };
+  f.click('[data-application-open]', { applicationRole: 'DRIVER', applicationOpen: 'daily' }); await flush();
+  assert.match(f.node('[data-application-detail]').innerHTML, /Calculated monthly fee/);
+  assert.match(f.node('[data-application-detail]').innerHTML, /8 seats × 2,500\.00 ETB per passenger \/ month/);
   f.click('[data-application-decision]', { applicationDecision: 'ACCEPT' }); await flush();
   assert.equal(decision.decision, 'ACCEPT');
   assert.match(f.node('[data-application-message]').textContent, /Passenger allocation stays locked/);

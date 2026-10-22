@@ -4,7 +4,11 @@ Public entry: `https://passo.live/join/`. Direct links accept `?role=driver` or 
 
 Applicants can create an account without SMS verification or a company invitation. Registration creates a **PENDING** driver/company and a dedicated onboarding record. A password login opens only their application workspace. It does not give access to passenger records, allocations, trip operations or the company console.
 
-Daily commute drivers choose an active commute route or propose distinct departure and destination places. They must propose a monthly fee in ETB **for the whole vehicle**, up to two decimal places. This is an application proposal; it never changes the route's published passenger fare or payment records automatically.
+Driver registration uses Daily commute and Intercity service buttons. Daily commute drivers enter distinct departure and destination places, with bilingual suggestions from active independent commute route endpoints. Explicit route endpoints are preferred; ordered first/last stops supply endpoints when those route fields are empty. There is no separate existing/proposed-route selector.
+
+For an exact, unambiguous directed route match and active selected vehicle type, the whole-vehicle monthly fee is **route monthly passenger fare × vehicle-type passenger capacity**, as requested. The calculated amount is visible and read-only; the server recomputes it rather than trusting the submitted amount or a client lock flag. Changing the endpoints or vehicle type refreshes the quote, and stale responses cannot lock in the wrong rate. No fare is inferred from route-name splitting, actual vehicle occupancy, private driver applications or a reversed route.
+
+For a new route, ambiguous route pair, or unavailable valid passenger fare, the driver enters a monthly whole-vehicle fee manually in ETB, up to two decimal places. This is an application proposal; it never changes the route's published passenger fare or payment records automatically. Initial acceptance, OTP, document review and allocation gates stay in place.
 
 Daily commute onboarding has two administrative stages:
 
@@ -35,6 +39,8 @@ Endpoints:
 | Method | Path under `/api/onboarding` | Access |
 | --- | --- | --- |
 | POST | `/register`, `/login` | Public, independently rate limited |
+| GET | `/commute-suggestions` | Public active independent commute endpoint suggestions |
+| GET | `/commute-quote?departure=&destination=&vehicleType=` | Public route match and calculated or manual whole-vehicle monthly fee |
 | GET | `/me` | Own onboarding session |
 | POST | `/request-otp`, `/verify-otp` | Own onboarding session, throttled |
 | PATCH | `/profile` | Own onboarding session |

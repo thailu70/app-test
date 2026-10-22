@@ -142,7 +142,7 @@ test('public driver and company onboarding isolates credentials, verifies real d
     await DB.prepare('INSERT INTO routes(id,name,nameAm,routeType,companyId,active) VALUES(?,?,?,?,?,?)').run('onb_inactive_route', 'Inactive route', 'Route', 'DAILY_COMMUTE', '', 0);
     const input = driverInput('0912346030', 'ONBOARD-EXISTING');
     for (const proposal of [
-      { routeChoice: '', proposedMonthlyFeeEtb: 50000 },
+      { routeChoice: 'INVALID', proposedMonthlyFeeEtb: 50000 },
       { proposedDeparture: ' Bole ', proposedDestination: 'bole' },
       { proposedDestination: '!!' }, { proposedMonthlyFeeEtb: 0 },
       { proposedMonthlyFeeEtb: 1000000.01 }, { proposedMonthlyFeeEtb: 100.001 },
@@ -156,7 +156,8 @@ test('public driver and company onboarding isolates credentials, verifies real d
     assert.equal(created.status, 201, JSON.stringify(created.data)); const applicant = created.data;
     assert.equal(applicant.onboarding.routePreference.routeId, 'onb_route');
     assert.equal(applicant.onboarding.routePreference.routeName, 'Bole to CMC');
-    assert.equal(applicant.onboarding.routePreference.proposedMonthlyFeeEtb, 50000.25);
+    assert.equal(applicant.onboarding.routePreference.proposedMonthlyFeeEtb, 20000, 'Known monthly vehicle price is the route fare multiplied by catalog capacity');
+    assert.equal(applicant.onboarding.routePreference.feeLocked, true);
     assert.equal((await DB.prepare('SELECT basePriceEtb FROM routes WHERE id=?').get('onb_route')).basePriceEtb, 2500, 'A proposal never changes passenger fares');
     await DB.prepare('UPDATE routes SET active=FALSE WHERE id=?').run('onb_route');
     assert.equal((await api('/applications/DRIVER/' + applicant.account.id + '/review', 'POST', admin, { decision: 'ACCEPT' })).status, 400, 'Acceptance rechecks current route availability');
