@@ -8,18 +8,23 @@ process.env.NODE_ENV = 'test';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'passo-public-entry-'));
 delete process.env.DATABASE_URL;
 const { server } = require('../src/server');
-test('browser home opens registration while JSON clients retain API status and join uses only secure local assets', async t => {
+test('browser home opens the marketing website while JSON API clients and existing portals retain their routes', async t => {
   server.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve));
   t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
   const base = 'http://127.0.0.1:' + server.address().port;
   const browser = await fetch(base + '/', { headers: { Accept: 'text/html,application/xhtml+xml' }, redirect: 'manual' });
-  assert.equal(browser.status, 302); assert.equal(browser.headers.get('location'), '/join/');
+  assert.equal(browser.status, 200); assert.match(browser.headers.get('content-type'), /text\/html/);
+  assert.match(browser.headers.get('content-security-policy'), /script-src 'self'/);
+  const home = await browser.text(); assert.match(home, /Passo Mobility/); assert.match(home, /id="hero-title"/); assert.match(home, /href="\/join\/"/);
   const client = await fetch(base + '/', { headers: { Accept: 'application/json' }, redirect: 'manual' });
   assert.equal(client.status, 200); assert.equal((await client.json()).status, 'ONLINE');
+  const apiRoot = await fetch(base + '/api/', { headers: { Accept: 'application/json' } }); assert.equal(apiRoot.status,200); assert.equal((await apiRoot.json()).status,'ONLINE');
   const page = await fetch(base + '/join/?role=driver');
   assert.equal(page.status, 200); assert.match(page.headers.get('content-type'), /text\/html/);
   assert.match(page.headers.get('content-security-policy'), /script-src 'self'/);
   const html = await page.text();
   assert.match(html, /name="proposedMonthlyFeeEtb"/);
   assert.doesNotMatch(html, /(?:src|href)="http:\/\//);
+  for (const page of ['/privacy/','/delete-account/','/company/','/admin/','/travel/']) { const response=await fetch(base+page); assert.equal(response.status,200,page); }
+  const hero=await fetch(base+'/home/assets/hero-road.webp');assert.equal(hero.status,200);assert.match(hero.headers.get('content-type'),/image\/webp/);assert.match(hero.headers.get('cache-control'),/max-age=86400/);
 });

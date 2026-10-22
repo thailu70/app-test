@@ -27,6 +27,27 @@ import java.io.File
 class WelcomeLayoutTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
+    @Test
+    @Config(qualifiers = "w320dp-h640dp-xhdpi")
+    fun `privacy remains reachable without scrolling or hiding Continue on a compact phone`() {
+        var opened = false
+        var language by mutableStateOf(AppLanguage.ENGLISH)
+        compose.setContent { MyApplicationTheme {
+            PassoWelcomeScreen({}, language, { language = it }, onPrivacy = { opened = true })
+        } }
+        for (item in AppLanguage.entries) {
+            compose.runOnIdle { language = item }
+            compose.onNodeWithTag("welcome_continue").assertIsDisplayed()
+            compose.onNodeWithTag("welcome_privacy").assertIsDisplayed()
+            val viewport = compose.onNodeWithTag("welcome_viewport").fetchSemanticsNode().boundsInWindow
+            val policy = compose.onNodeWithTag("welcome_privacy").fetchSemanticsNode().boundsInWindow
+            assertTrue(policy.bottom <= viewport.bottom + 1.5f)
+            compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
+        }
+        compose.onNodeWithTag("welcome_privacy").performClick()
+        assertTrue(opened)
+    }
+
     private fun captureWindow(): Bitmap {
         compose.waitForIdle()
         lateinit var bitmap: Bitmap

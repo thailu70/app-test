@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import retrofit2.Response
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
 import java.io.OutputStream
 import java.net.URI
 import java.text.SimpleDateFormat
@@ -73,6 +75,8 @@ internal class IntercityPassengerViewModel(
     private var activeSearch: DepartureSearch? = null
     private data class TestDraft(val bookingId: String, val name: String, val phone: String, val epoch: Long)
     private var testDraft: TestDraft? = null
+    private val errorAdapter = Moshi.Builder().build().adapter<Map<String, Any?>>(
+        Types.newParameterizedType(Map::class.java, String::class.java, Any::class.java))
 
     init { action {
         try { withContext(ioDispatcher) { store.load() }.forEach { capabilities[it.id] = it.secret } }
@@ -86,7 +90,7 @@ internal class IntercityPassengerViewModel(
 
     private fun <T> body(response: Response<T>): T {
         if (!response.isSuccessful) {
-            val message = runCatching { org.json.JSONObject(response.errorBody()?.string().orEmpty()).optString("error") }.getOrNull()
+            val message = runCatching { errorAdapter.fromJson(response.errorBody()?.string().orEmpty())?.get("error") as? String }.getOrNull()
             throw IllegalStateException(message?.takeIf { it.isNotBlank() } ?: "Could not connect. Please try again.")
         }
         return response.body() ?: throw IllegalStateException("The server returned an empty response.")

@@ -95,9 +95,21 @@ internal fun IntercityPassengerScreen(
     }
     if (state.testVerificationPending) {
         var verificationCode by remember(state.booking?.id) { mutableStateOf("") }
-        var now by remember { mutableStateOf(System.currentTimeMillis()) }
+        var seconds by remember(state.testOtpResendAt) {
+            mutableLongStateOf(((state.testOtpResendAt - System.currentTimeMillis()).coerceAtLeast(0) + 999) / 1000)
+        }
         LaunchedEffect(state.testOtpResendAt) {
-            while (now < state.testOtpResendAt) { kotlinx.coroutines.delay(1000); now = System.currentTimeMillis() }
+            // A bounded count also terminates under a virtual dispatcher whose delays do not
+            // advance wall time. The elapsed deadline handles screen-off/background time.
+            val ticks = seconds.coerceIn(0L, 3600L).toInt()
+            seconds = ticks.toLong()
+            val deadline = android.os.SystemClock.elapsedRealtime() + seconds * 1000L
+            repeat(ticks) {
+                kotlinx.coroutines.delay(1000)
+                val elapsedRemaining = ((deadline - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0) + 999) / 1000
+                seconds = minOf((seconds - 1).coerceAtLeast(0), elapsedRemaining)
+                if (seconds == 0L) return@LaunchedEffect
+            }
         }
         AlertDialog(
             onDismissRequest = model::cancelTestPaymentVerification,
@@ -114,7 +126,6 @@ internal fun IntercityPassengerScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                         modifier = Modifier.fillMaxWidth().testTag("intercity_test_otp"))
                     state.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    val seconds = ((state.testOtpResendAt - now).coerceAtLeast(0) + 999) / 1000
                     TextButton(onClick = { verificationCode = ""; model.resendTestPaymentOtp() }, enabled = !state.busy && seconds == 0L) {
                         Text(intercityText(language, "Resend code", "ኮድ እንደገና ላክ", "Koodii irra deebi'i ergi") + if (seconds > 0) " ($seconds)" else "")
                     }

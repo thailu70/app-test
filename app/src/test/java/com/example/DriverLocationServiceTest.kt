@@ -90,12 +90,18 @@ class DriverLocationServiceTest {
             shadowOf(manager).simulateLocation(fix(System.currentTimeMillis() - 120_001))
             shadowOf(Looper.getMainLooper()).idle(); scheduler.runCurrent()
             assertEquals(0, uploads)
+            assertNull(DriverLocationSharing.fix.value)
+            // The platform's 1s provider interval is separate from the 5s server upload gate.
+            // A stale delivered fix still advances the provider's last-delivery timestamp.
+            org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(1100))
             shadowOf(manager).simulateLocation(fix(System.currentTimeMillis()))
             shadowOf(Looper.getMainLooper()).idle(); scheduler.runCurrent()
             assertEquals(1, uploads)
             assertEquals("Actual pickup", lastUpload!!.currentStop)
-            shadowOf(manager).simulateLocation(fix(System.currentTimeMillis()))
+            org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(1100))
+            shadowOf(manager).simulateLocation(fix(System.currentTimeMillis()).apply { longitude = 38.1 })
             shadowOf(Looper.getMainLooper()).idle(); scheduler.runCurrent()
+            assertEquals(38.1, DriverLocationSharing.fix.value!!.longitude, 0.0)
             assertEquals(1, uploads)
             tripActive = false
             scheduler.advanceTimeBy(20_000); scheduler.runCurrent()

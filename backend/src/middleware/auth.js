@@ -35,6 +35,9 @@ async function resolveActivePrincipal(token) {
   if (!decoded || typeof decoded.id !== 'string' || !decoded.id) return null;
   // Recruitment credentials can only be used by the dedicated onboarding router.
   if (decoded.scope !== undefined || decoded.aud === 'routepass-onboarding') return null;
+  // A retained deletion receipt permanently revokes credentials, even if an
+  // operator later changes the tombstone's status by mistake.
+  if (await require('../services/account-deletion').isAccountClosed(decoded.id, String(decoded.role || '').toUpperCase())) return null;
 
   if (String(decoded.role || '').toUpperCase() === 'COMPANY') {
     const company = await DB.prepare("SELECT id, name, phone, representative_name, status FROM transport_companies WHERE id = ? AND status = 'ACTIVE'").get(decoded.id);

@@ -5,7 +5,7 @@ const path = require('path');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { initProfileSchema } = require('../services/profile-schema');
-const { driverEligible } = require('../services/operational-onboarding');
+const { passengerAssignment } = require('../services/passenger-assignment');
 const { invalidateOnboarding } = require('../services/onboarding');
 
 const router = express.Router();
@@ -60,7 +60,10 @@ router.patch('/me', requireRole('DRIVER'), asyncRoute(async (req, res) => {
   if (input.vehicleColor !== undefined && (input.vehicleColor.trim().length < 2 || input.vehicleColor.length > 40)) return fail(res, 400, 'Enter a vehicle color between 2 and 40 characters.');
   const current = await DB.prepare('SELECT * FROM user_profiles WHERE user_id = ?').get(req.user.id) || {};
   await DB.transaction(async tx => {
-  await tx.prepare(tx.isPostgres ? 'SELECT id FROM users WHERE id=? FOR UPDATE' : 'SELECT id FROM users WHERE id=?').get(req.user.id);
+  const lockedUser = await tx.prepare(tx.isPostgres ? 'SELECT id,status FROM users WHERE id=? FOR UPDATE' : 'SELECT id,status FROM users WHERE id=?').get(req.user.id);
+  if (!lockedUser || lockedUser.status !== 'ACTIVE' || await require('../services/account-deletion').isAccountClosed(req.user.id, req.user.role, tx)) {
+    const error = new Error('This account is no longer available.'); error.status = 401; throw error;
+  }
   await tx.prepare(`INSERT INTO user_profiles (user_id, emergency_contact_name, emergency_contact_phone, vehicle_color, updated_at)
     VALUES (?, ?, ?, ?, ?) ON CONFLICT (user_id) DO UPDATE SET
     emergency_contact_name = excluded.emergency_contact_name, emergency_contact_phone = excluded.emergency_contact_phone,
@@ -104,7 +107,10 @@ router.put('/me/documents/:kind', requireRole('DRIVER', 'PASSENGER'),
     try {
       await DB.transaction(async tx => {
         // Lock the user so simultaneous uploads serialize on both database adapters.
-        await tx.prepare(tx.isPostgres ? 'SELECT id FROM users WHERE id = ? FOR UPDATE' : 'SELECT id FROM users WHERE id = ?').get(req.user.id);
+        const lockedUser = await tx.prepare(tx.isPostgres ? 'SELECT id,status FROM users WHERE id = ? FOR UPDATE' : 'SELECT id,status FROM users WHERE id = ?').get(req.user.id);
+        if (!lockedUser || lockedUser.status !== 'ACTIVE' || await require('../services/account-deletion').isAccountClosed(req.user.id, req.user.role, tx)) {
+          const error = new Error('This account is no longer available.'); error.status = 401; throw error;
+        }
         previous = await tx.prepare('SELECT storage_name FROM user_profile_documents WHERE user_id = ? AND kind = ?').get(req.user.id, kind);
         await tx.prepare(`INSERT INTO user_profile_documents (user_id, kind, storage_name, content_type, byte_size, uploaded_at)
           VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (user_id, kind) DO UPDATE SET storage_name = excluded.storage_name,
@@ -128,14 +134,11 @@ async function maySeePhoto(principal, target) {
   if (companyId(target) || companyId(principal)) return false;
   const driver = principal.role === 'DRIVER' && target.role === 'PASSENGER' ? principal : target.role === 'DRIVER' && principal.role === 'PASSENGER' ? target : null;
   const passenger = driver === principal ? target : principal;
-  if (!driver || !await driverEligible(driver.id)) return false;
-  const assigned = await DB.prepare(`SELECT s.id FROM subscriptions s
-    JOIN vehicles v ON v.assignedRouteId = s.routeId
-    JOIN routes r ON r.id = s.routeId
-    WHERE s.passengerId = ? AND v.driverId = ? AND s.vehicleId = v.id
-      AND r.routeType = 'DAILY_COMMUTE' AND (r.companyId IS NULL OR r.companyId = '')
-      LIMIT 1`).get(passenger.id, driver.id);
-  return Boolean(assigned);
+  if (!driver || !await DB.prepare("SELECT id FROM users WHERE id=? AND role='PASSENGER' AND status='ACTIVE' AND COALESCE(companyId,'')=''").get(passenger.id)) return false;
+  // Use the same current pass, expiry and exact vehicle assignment as tracking.
+  // An older paid pass must not grant photo access after a replacement is pending.
+  const assignment = await passengerAssignment(passenger.id);
+  return Boolean(assignment.active && assignment.vehicle?.driverId === driver.id);
 }
 
 async function deliverDocument(res, userId, kind) {
@@ -170,6 +173,7 @@ router.get('/:userId/documents/:kind', asyncRoute(async (req, res) => {
 
 router.use((err, req, res, next) => {
   if (err.type === 'entity.too.large') return fail(res, 413, 'Each file must be 5 MB or smaller.');
+  if (err.status === 401) return fail(res, 401, 'This account is no longer available.');
   console.error('[Profiles] request failed:', err.message);
   if (!res.headersSent) return fail(res, 500, 'Profile update unavailable. Please try again.');
   next(err);

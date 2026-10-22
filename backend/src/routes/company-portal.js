@@ -6,6 +6,7 @@ const { DB } = require('../db');
 const { authenticate, requireRole, signToken } = require('../middleware/auth');
 const { getOnboardingReadiness, isOperationallyEligible, markOnboardingReviewed, invalidateOnboarding, findAccountByPhone } = require('../services/onboarding');
 const { assertDriverEligible, operationalAccount } = require('../services/operational-onboarding');
+const { isAccountClosed } = require('../services/account-deletion');
 const router = express.Router();
 const companyAuthLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 8, standardHeaders: true, legacyHeaders: false });
 
@@ -100,11 +101,13 @@ router.post('/operations/assignments',authenticate,requireRole('COMPANY'),async(
  const id='cassign_'+crypto.randomUUID().replace(/-/g,'').slice(0,16);
  const result=await DB.transaction(async(tx)=>{
    const lockSuffix=tx.isPostgres?' FOR UPDATE':'';
-   const r=await tx.prepare("SELECT id FROM routes WHERE id=? AND companyId=? AND routeType='INTERCITY' AND active=TRUE"+lockSuffix).get(routeId,cid);
-   const d=await tx.prepare("SELECT id FROM users WHERE id=? AND role='DRIVER' AND companyId=? AND status='ACTIVE'"+lockSuffix).get(driverId,cid);
+   // Match account closure/arrival: vehicle first, then driver and company.
    const v=await tx.prepare('SELECT id FROM vehicles WHERE id=? AND companyId=?'+lockSuffix).get(vehicleId,cid);
+   const d=await tx.prepare("SELECT id FROM users WHERE id=? AND role='DRIVER' AND companyId=? AND status='ACTIVE'"+lockSuffix).get(driverId,cid);
+   const company=await tx.prepare("SELECT id FROM transport_companies WHERE id=? AND status='ACTIVE'"+lockSuffix).get(cid);
+   const r=await tx.prepare("SELECT id FROM routes WHERE id=? AND companyId=? AND routeType='INTERCITY' AND active=TRUE"+lockSuffix).get(routeId,cid);
    if(!r||!d||!v)return {status:'INVALID_SCOPE'};
-   if (!await isOperationallyEligible(cid, 'COMPANY', tx)) return {status:'ONBOARDING_REQUIRED'};
+   if (!company || await isAccountClosed(cid, 'COMPANY', tx) || await isAccountClosed(driverId, 'DRIVER', tx) || !await isOperationallyEligible(cid, 'COMPANY', tx)) return {status:'ONBOARDING_REQUIRED'};
    await assertDriverEligible(driverId, tx);
    const activeTrip=await tx.prepare("SELECT id FROM trips WHERE vehicleId=? AND status='IN_PROGRESS' LIMIT 1").get(vehicleId);
    if(activeTrip)return {status:'ACTIVE_TRIP'};

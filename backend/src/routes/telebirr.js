@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const telebirr = require('../services/telebirr');
+const { isTestPaymentPhone, grantCommuterTestPass } = require('../services/payment-test');
 
 const router = express.Router();
 const PAYMENT_MODE = process.env.PAYMENT_MODE || 'TEST';
@@ -80,13 +81,6 @@ async function refreshOrder(orderId, force = false) {
 router.post('/pay', authenticate, requireRole('PASSENGER'), async (req, res, next) => {
   // Leave the existing deterministic simulator in place for automated TEST-mode development.
   if (PAYMENT_MODE !== 'PRODUCTION') return next();
-  const missing = telebirr.missingConfiguration();
-  if (!telebirr.config().publicKey) missing.push('TELEBIRR_PUBLIC_KEY');
-  if (missing.length) return res.status(503).json({
-    success: false, code: 'LIVE_TELEBIRR_NOT_CONFIGURED',
-    error: 'H5 checkout needs merchant credentials configured on the VPS.',
-    missingSettings: missing
-  });
   if (req.body && (req.body.pin || req.body.telebirrPin)) return res.status(400).json({
     success: false, error: 'RoutePass never collects a Telebirr PIN. Complete payment on the official Telebirr checkout page.'
   });
@@ -105,18 +99,12 @@ router.post('/pay', authenticate, requireRole('PASSENGER'), async (req, res, nex
     const amount = Number(route.basePriceEtb);
     if (!Number.isFinite(amount) || amount <= 0) return res.status(409).json({ success: false, error: 'Invalid route fare.' });
 
-    if (String(passenger.phone || '').replace(/\D/g, '') === '09000000') {
-      const current = await DB.prepare('SELECT * FROM subscriptions WHERE passengerId=? ORDER BY updatedAt DESC LIMIT 1').get(passengerId);
-      const subId = current?.id || ('sub_' + passengerId + '_' + Date.now().toString(36));
-      const expiry = Date.now() + 30 * 86400000;
-      const qr = signedQr(subId, passengerId, route.id, expiry);
-      const start = new Date().toISOString().slice(0, 10), end = new Date(expiry).toISOString().slice(0, 10);
-      if (current) await DB.prepare("UPDATE subscriptions SET routeId=?,priceEtb=?,paymentStatus='PAID',subscriptionStatus='ACTIVE',startDate=?,endDate=?,daysRemaining=30,qrToken=?,updatedAt=CURRENT_TIMESTAMP WHERE id=?").run(route.id, amount, start, end, qr, subId);
-      else await DB.prepare("INSERT INTO subscriptions (id,passengerId,routeId,pickupStopId,destinationStopId,morningSchedule,eveningSchedule,startDate,endDate,priceEtb,paymentStatus,subscriptionStatus,daysRemaining,qrToken) VALUES (?,?,?,'','',?,?,?,?,?,'PAID','ACTIVE',30,?)").run(subId, passengerId, route.id, route.morningDeparture, route.eveningDeparture, start, end, amount, qr);
-      const reference = 'TEST-09000000-' + Date.now().toString(36);
-      await DB.prepare("INSERT INTO payment_transactions (id,passengerId,referenceNumber,idempotencyKey,amountEtb,provider,phoneNumber,status,notes) VALUES (?,?,?,?,?,?,?,'VERIFIED',?)").run('tx_' + crypto.randomUUID().slice(0, 8), passengerId, reference, key, amount, 'TEST_AUTO', passenger.phone, 'Auto-confirmed test payment for 09000000');
-      return res.status(201).json({ success: true, status: 'PAID', paymentMode: 'TEST_AUTO', message: 'Test payment confirmed automatically for 09000000.' });
-    }
+    // Eligibility comes from the authenticated account's current database phone,
+    // never a payer phone supplied in the request body.
+    if (isTestPaymentPhone(passenger.phone)) return res.status(200).json(await grantCommuterTestPass({ passengerId, route, key, signedQr }));
+    const missing = telebirr.missingConfiguration();
+    if (!telebirr.config().publicKey) missing.push('TELEBIRR_PUBLIC_KEY');
+    if (missing.length) return res.status(503).json({ success: false, code: 'LIVE_TELEBIRR_NOT_CONFIGURED', error: 'H5 checkout needs merchant credentials configured on the VPS.', missingSettings: missing });
 
     const prior = await DB.prepare('SELECT * FROM telebirr_payment_orders WHERE idempotency_key=?').get(key);
     if (prior) {
@@ -128,6 +116,8 @@ router.post('/pay', authenticate, requireRole('PASSENGER'), async (req, res, nex
         success: true, status: 'PENDING', paymentMode: 'TELEBIRR_H5', merchantOrderId: prior.merchant_order_id,
         checkoutUrl: prior.checkout_url, message: 'Continue the existing Telebirr checkout.'
       });
+      if (prior.status === 'PENDING') return res.status(503).json({ success: false, code: 'PAYMENT_CONFIRMATION_PENDING', merchantOrderId: prior.merchant_order_id,
+        error: 'The existing payment order is still being confirmed. Check its status before starting another payment.' });
       return res.status(409).json({ success: false, error: 'This order cannot be restarted. Use a new idempotency key.' });
     }
 
@@ -156,11 +146,16 @@ router.post('/pay', authenticate, requireRole('PASSENGER'), async (req, res, nex
         message: 'Complete payment on Telebirr checkout. The pass activates only after server verification.'
       });
     } catch (e) {
-      await DB.prepare("UPDATE telebirr_payment_orders SET status='FAILED', updated_at=CURRENT_TIMESTAMP WHERE merchant_order_id=?").run(orderId);
+      // A timeout after preorder submission is not proof of failure. Preserve
+      // the order so provider status/webhook reconciliation can still settle it.
+      if (e.checkoutRetrySafe === true) await DB.prepare("UPDATE telebirr_payment_orders SET status='FAILED', updated_at=CURRENT_TIMESTAMP WHERE merchant_order_id=? AND status='PENDING'").run(orderId);
       console.error('[Telebirr] Checkout initialization failed:', e.message);
-      return res.status(502).json({ success: false, code: 'TELEBIRR_CHECKOUT_FAILED', error: 'Could not start Telebirr checkout. No pass was activated.' });
+      return res.status(502).json({ success: false, merchantOrderId: orderId, code: e.checkoutRetrySafe === true ? 'TELEBIRR_CHECKOUT_FAILED' : 'PAYMENT_CONFIRMATION_PENDING',
+        error: e.checkoutRetrySafe === true ? 'Could not start Telebirr checkout. No order was submitted.' : 'Payment confirmation is pending. Check this order before starting another payment.' });
     }
   } catch (e) {
+    if (e.status) return res.status(e.status).json({ success: false, error: e.message });
+    if (e.code === '23505' || e.code === 'SQLITE_CONSTRAINT_UNIQUE') return res.status(409).json({ success: false, error: 'The payment idempotency key is already in use.' });
     console.error('[Telebirr] Payment request failed:', e.message);
     return res.status(500).json({ success: false, error: 'Could not start Telebirr checkout.' });
   }

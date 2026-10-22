@@ -8,6 +8,17 @@ const { generateSignedQrToken } = require('./subscriptions');
 const { sendSms } = require('../services/afro-sms');
 const { getOnboardingReadiness, markOnboardingReviewed, invalidateOnboarding } = require('../services/onboarding');
 const { assertDriverEligible } = require('../services/operational-onboarding');
+const { isAccountClosed } = require('../services/account-deletion');
+
+// Call only after locking the selected vehicle: account closure uses this order.
+async function lockCommuteDriver(tx, id) {
+  const driver = await tx.prepare("SELECT * FROM users WHERE id=? AND role='DRIVER' AND COALESCE(companyId,'')=''" + (tx.isPostgres ? ' FOR UPDATE' : '')).get(id);
+  if (!driver || driver.status !== 'ACTIVE' || await isAccountClosed(id, 'DRIVER', tx)) {
+    throw Object.assign(new Error('The driver is no longer active. Refresh the assignment.'), { status: 409 });
+  }
+  await assertDriverEligible(id, tx);
+  return driver;
+}
 
 /**
  * All endpoints here require ADMIN role
@@ -53,7 +64,7 @@ router.get('/stats', async (req, res) => {
     const activeRoutes = (await DB.prepare(`SELECT COUNT(*) as c FROM routes WHERE active = TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'`).get()).c;
     const activeVehicles = (await DB.prepare("SELECT COUNT(*) as c FROM vehicles WHERE status != 'MAINTENANCE' AND COALESCE(companyId,'')=''").get()).c;
     const activeSubscriptions = (await DB.prepare("SELECT COUNT(*) as c FROM subscriptions WHERE subscriptionStatus = 'ACTIVE' AND routeId IN (SELECT id FROM routes WHERE COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE')").get()).c;
-    const totalRevenue = (await DB.prepare("SELECT COALESCE(SUM(amountEtb), 0) as s FROM payment_transactions WHERE status = 'COMPLETED' AND provider <> 'ADMIN_TEST' AND passengerId IN (SELECT id FROM users WHERE COALESCE(companyId,'')='')").get()).s;
+    const totalRevenue = (await DB.prepare("SELECT COALESCE(SUM(amountEtb), 0) as s FROM payment_transactions WHERE status IN ('COMPLETED','VERIFIED') AND provider NOT IN ('ADMIN_TEST','TEST_AUTO','Telebirr-TestSandbox') AND passengerId IN (SELECT id FROM users WHERE COALESCE(companyId,'')='')").get()).s;
     const todayCheckins = (await DB.prepare("SELECT COUNT(*) as c FROM checkin_records WHERE status = 'BOARDED' AND routeId IN (SELECT id FROM routes WHERE COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE')").get()).c;
     const openComplaints = (await DB.prepare("SELECT COUNT(*) as c FROM complaints WHERE status = 'OPEN'").get()).c;
 
@@ -176,7 +187,11 @@ router.patch('/drivers/:id/route', async (req, res) => {
     if (!vehicle) return res.status(409).json({ success: false, error: 'This driver has not registered an owned vehicle yet.' });
 
     await DB.transaction(async (tx) => {
-      await assertDriverEligible(driver.id, tx);
+      const currentVehicle = await tx.prepare("SELECT * FROM vehicles WHERE id=? AND COALESCE(companyId,'')=''" + (tx.isPostgres ? ' FOR UPDATE' : '')).get(vehicle.id);
+      if (!currentVehicle || currentVehicle.driverId !== driver.id) throw Object.assign(new Error('Vehicle ownership changed. Refresh the driver.'), { status: 409 });
+      await lockCommuteDriver(tx, driver.id);
+      const currentRoute = await tx.prepare("SELECT id FROM routes WHERE id=? AND active=TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'" + (tx.isPostgres ? ' FOR SHARE' : '')).get(route.id);
+      if (!currentRoute) throw Object.assign(new Error('The selected route is no longer active.'), { status: 409 });
       await tx.prepare(`
         UPDATE vehicles
         SET assignedRouteId = ?, status = 'IN_SERVICE', updatedAt = CURRENT_TIMESTAMP
@@ -410,8 +425,14 @@ router.patch('/subscriptions/:id/assignment', async (req, res) => {
     }
 
     await DB.transaction(async (tx) => {
-      await assertDriverEligible(vehicle.driverId, tx);
-      await tx.prepare('UPDATE subscriptions SET vehicleId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?').run(vehicle.id, sub.id);
+      const currentVehicle = await tx.prepare("SELECT * FROM vehicles WHERE id=? AND COALESCE(companyId,'')=''" + (tx.isPostgres ? ' FOR UPDATE' : '')).get(vehicle.id);
+      if (!currentVehicle || currentVehicle.driverId !== vehicle.driverId || currentVehicle.assignedRouteId !== sub.routeId) throw Object.assign(new Error('The vehicle assignment changed. Refresh the subscription.'), { status: 409 });
+      await lockCommuteDriver(tx, currentVehicle.driverId);
+      const passenger = await tx.prepare("SELECT id,status FROM users WHERE id=? AND role='PASSENGER' AND COALESCE(companyId,'')=''" + (tx.isPostgres ? ' FOR UPDATE' : '')).get(sub.passengerId);
+      if (!passenger || passenger.status !== 'ACTIVE' || await isAccountClosed(sub.passengerId, 'PASSENGER', tx)) throw Object.assign(new Error('The passenger is no longer active.'), { status: 409 });
+      const currentSub = await tx.prepare('SELECT id,passengerId,routeId FROM subscriptions WHERE id=?' + (tx.isPostgres ? ' FOR UPDATE' : '')).get(sub.id);
+      if (!currentSub || currentSub.passengerId !== sub.passengerId || currentSub.routeId !== currentVehicle.assignedRouteId) throw Object.assign(new Error('The subscription route changed. Refresh the assignment.'), { status: 409 });
+      await tx.prepare('UPDATE subscriptions SET vehicleId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?').run(currentVehicle.id, sub.id);
       await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
         .run('SUBSCRIPTION_VEHICLE_ASSIGNED', req.user.id, 'ADMIN', `Assigned owner vehicle ${vehicle.plateNumber} to subscription ${sub.id}`);
     });

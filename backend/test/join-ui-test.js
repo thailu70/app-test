@@ -15,7 +15,9 @@ test('recruitment portal translates every labelled control and ships local visua
   assert.equal(/<script(?![^>]*src=)[^>]*>/.test(html),false);
   assert.equal(/\son(?:click|submit|change)=|\sstyle=|https:\/\//.test(html),false,'Local assets, external script and CSS respect the portal CSP.');
   assert.ok(html.includes('mailto:info@passo.live'));
-  assert.ok(html.includes('href="/company/"'),'Existing company/invitation access remains available.');
+  assert.ok(html.includes('href="/" aria-label="Passo home"'));
+  assert.ok(html.includes('href="/privacy/"'));assert.ok(html.includes('href="/delete-account/"'));
+  assert.doesNotMatch(html,/href="\/(?:company|travel)\/|data-role=|data-service=|data-company-profile|name="companyId"|name="companyName"/,'The recruitment page only presents daily commute driver registration.');
 });
 
 test('document restrictions match the actual private upload contract', () => {
@@ -50,11 +52,14 @@ test('expired account clears the matching session, while an old response cannot 
   await assert.rejects(current,/Expired/);assert.equal(cleared,1);
 });
 
-test('public forms send the correct driver ownership fields and cannot submit hidden-company vehicle details', () => {
+test('public forms always send daily commute driver ownership fields despite stale company/intercity input', () => {
   const input={fullName:' Applicant ',phone:'0912345678',password:'secret password',companyName:'Company',companyId:'existing-company',serviceType:'INTERCITY',licenseNumber:'LICENCE',assignedVehiclePlate:'HIDDEN',vehicleModel:'HIDDEN',vehicleType:'MINIBUS_14'};
-  assert.deepEqual(portal.accountPayload('DRIVER','register',input),{role:'DRIVER',fullName:'Applicant',phone:'0912345678',password:'secret password',serviceType:'INTERCITY',licenseNumber:'LICENCE',companyId:'existing-company'});
-  assert.deepEqual(portal.accountPayload('COMPANY','register',input),{role:'COMPANY',fullName:'Applicant',phone:'0912345678',password:'secret password',companyName:'Company'});
-  assert.deepEqual(portal.accountPayload('COMPANY','login',input),{role:'COMPANY',phone:'0912345678',password:'secret password'});
+  for(const role of ['DRIVER','COMPANY','PASSENGER']){
+    const actual=portal.accountPayload(role,'register',input);assert.equal(actual.role,'DRIVER');assert.equal(actual.serviceType,'DAILY_COMMUTE');assert.equal(actual.assignedVehiclePlate,'HIDDEN');assert.equal(actual.companyId,undefined);assert.equal(actual.companyName,undefined);
+    assert.deepEqual(portal.accountPayload(role,'login',input),{role:'DRIVER',phone:'0912345678',password:'secret password'});
+  }
+  assert.equal(portal.isDailyDriverAccount({role:'DRIVER',companyId:''}),true);
+  for(const account of [{role:'COMPANY'},{role:'DRIVER',companyId:'company'},{role:'PASSENGER'},null])assert.equal(portal.isDailyDriverAccount(account),false);
   const daily={...input,serviceType:'DAILY_COMMUTE',routeChoice:'EXISTING',appliedRouteId:'untrusted-old-id',proposedDeparture:' Bole ',proposedDestination:' CMC ',proposedMonthlyFeeEtb:'45000.25'};
   const proposed=portal.accountPayload('DRIVER','register',daily);
   assert.equal(proposed.routeChoice,undefined);assert.equal(proposed.appliedRouteId,undefined);assert.equal(proposed.proposedDeparture,'Bole');assert.equal(proposed.proposedDestination,'CMC');assert.equal(proposed.proposedMonthlyFeeEtb,45000.25);assert.equal(proposed.proposedMonthlyFeeBasis,'PER_VEHICLE');
@@ -65,22 +70,30 @@ test('public forms send the correct driver ownership fields and cannot submit hi
   assert.equal(html.includes('name="proposedMonthlyFeeBasis"'),false);
   assert.equal(html.includes('name="routeChoice"'),false);assert.equal(html.includes('name="appliedRouteId"'),false);
   assert.equal(html.includes('<select id="serviceType"'),false);
-  for(const service of ['DAILY_COMMUTE','INTERCITY'])assert.ok(html.includes('data-service="'+service+'"'));
+  assert.ok(html.includes('name="serviceType" type="hidden" value="DAILY_COMMUTE"'));
+  assert.doesNotMatch(html,/data-service=|data-role=|INTERCITY|Transport company/);
 });
 
-test('service buttons preserve ownership flows and disable irrelevant required controls', () => {
+test('daily-driver controls cannot be switched to a different role or service and login disables registration fields', () => {
   const html=fs.readFileSync(path.join(__dirname,'../public/join/index.html'),'utf8').split('<form id="accountForm"')[1].split('</form>')[0];
   const controls=[...html.matchAll(/<(?:input|select)\b[^>]*name="([^"]+)"/g)].map(match=>({name:match[1],required:true,disabled:false}));
   const control=name=>controls.find(control=>control.name===name);
+  controls.push({name:'companyId',required:true,disabled:false},{name:'companyName',required:true,disabled:false});
   portal.applyRegistrationFields(controls,'DRIVER','register','DAILY_COMMUTE');
   for(const name of ['proposedDeparture','proposedDestination','proposedMonthlyFeeEtb','vehicleType'])assert.equal(control(name).required,true,name);
   for(const name of ['companyId','companyName'])assert.equal(control(name).disabled,true,name);
-  portal.applyRegistrationFields(controls,'DRIVER','register','INTERCITY');
-  assert.equal(control('companyId').required,true);for(const name of ['proposedDeparture','proposedDestination','proposedMonthlyFeeEtb','vehicleType'])assert.equal(control(name).disabled,true,name);
-  portal.applyRegistrationFields(controls,'COMPANY','register','DAILY_COMMUTE');
-  assert.equal(control('companyName').required,true);assert.equal(control('proposedDeparture').disabled,true);
+  for(const [role,service] of [['DRIVER','INTERCITY'],['COMPANY','INTERCITY']]){
+    portal.applyRegistrationFields(controls,role,'register',service);
+    for(const name of ['companyId','companyName'])assert.equal(control(name).disabled,true,name);
+    for(const name of ['proposedDeparture','proposedDestination','proposedMonthlyFeeEtb','vehicleType'])assert.equal(control(name).required,true,name);
+  }
   portal.applyRegistrationFields(controls,'DRIVER','login','DAILY_COMMUTE');
   assert.deepEqual(controls.filter(item=>!item.disabled).map(item=>item.name).sort(),['password','phone']);
+});
+test('the homepage sign-in link opens driver login while URL role/service values cannot select another registration flow',()=>{
+  for(const query of ['?view=login','?view=login&role=COMPANY&serviceType=INTERCITY'])assert.equal(portal.initialMode(query),'login');
+  for(const query of ['', '?role=company','?view=register&serviceType=INTERCITY','?view=LOGIN','?view=https://example.invalid'])assert.equal(portal.initialMode(query),'register');
+  assert.equal(portal.accountPayload('COMPANY',portal.initialMode('?view=login&role=company'),{phone:'0912345678',password:'local-fixture'}).role,'DRIVER');
 });
 
 test('administrator acceptance hides and disables verification/uploads before acceptance without changing other roles', () => {
@@ -135,7 +148,7 @@ test('typing is debounced and malformed fixed prices never become an editable fa
   assert.equal(calls,1);assert.equal(controller.getState().status,'ERROR');assert.equal(portal.quoteAccess(controller.getState()).canSubmit,false);controller.dispose();
 });
 
-test('frontend API client completes real pending driver/company onboarding without OTP at signup', async t => {
+test('frontend API client completes real daily driver onboarding with pricing and administrator acceptance before OTP/uploads', async t => {
   const os=require('node:os');
   process.env.NODE_ENV='test';delete process.env.DATABASE_URL;
   process.env.DATA_DIR=fs.mkdtempSync(path.join(os.tmpdir(),'passo-join-contract-'));
@@ -153,24 +166,7 @@ test('frontend API client completes real pending driver/company onboarding witho
   const base='http://127.0.0.1:'+server.address().port;
   let token='';
   const api=portal.createApiClient({getToken:()=>token,fetchFn:(url,options)=>fetch(base+url,options)});
-  const input={fullName:'Join Driver',phone:'0912346701',password:'Local fixture password',serviceType:'INTERCITY',companyId:'join_existing_company',licenseNumber:'JOIN-LICENCE'};
-  const registered=await api('/register',{method:'POST',anonymous:true,body:portal.accountPayload('DRIVER','register',input)});
-  assert.equal(registered.account.companyId,'join_existing_company');assert.equal(registered.account.status,'PENDING');assert.equal(registered.onboarding.phoneVerified,false);assert.equal(sent.length,0);
-  const login=await api('/login',{method:'POST',anonymous:true,body:portal.accountPayload('DRIVER','login',input)});token=login.token;
-  await assert.rejects(api('/submit',{method:'POST',body:{}}),error=>error.status===428);
-  assert.equal((await api('/request-otp',{method:'POST',body:{}})).delivery,'SENT');
-  assert.equal((await api('/verify-otp',{method:'POST',body:{code:sent.at(-1).code}})).onboarding.phoneVerified,true);
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aB9sAAAAASUVORK5CYII=','base64');
-  for(const kind of ['LICENSE','VEHICLE_REGISTRATION','INSURANCE','PHOTO'])await api('/documents/'+kind,{method:'PUT',raw:new Blob([png],{type:'image/png'})});
-  const profile=await api('/profile',{method:'PATCH',body:{emergencyContactName:'Local Contact',emergencyContactPhone:'0912000070',vehicleColor:'Teal'}});
-  assert.equal(profile.onboarding.ready,true);assert.equal(profile.onboarding.reviewStatus,'DRAFT');
-  assert.equal((await api('/documents/PHOTO',{blob:true})).type,'image/png');
-  assert.equal((await api('/submit',{method:'POST',body:{}})).onboarding.reviewStatus,'SUBMITTED');
-  token='';const companyInput={fullName:'Company Representative',companyName:'Join Contract Transport',phone:'0912346702',password:'Local fixture password'};
-  const company=await api('/register',{method:'POST',anonymous:true,body:portal.accountPayload('COMPANY','register',companyInput)});
-  token=company.token;assert.equal(company.account.status,'PENDING');assert.deepEqual(company.onboarding.requiredDocuments,['BUSINESS_LICENSE','REGISTRATION','REPRESENTATIVE_ID']);
-  const companyLogin=await api('/login',{method:'POST',anonymous:true,body:portal.accountPayload('COMPANY','login',companyInput)});
-  assert.equal(companyLogin.account.id,company.account.id);assert.equal(companyLogin.onboarding.phoneVerified,false);
   await DB.prepare("INSERT INTO users(id,role,fullName,phone,passwordHash,status) VALUES('join_review_admin','ADMIN','Local Reviewer','0900000088','unused','ACTIVE')").run();
   const admin=require('../src/middleware/auth').signToken({id:'join_review_admin',role:'ADMIN'});
   const oldFare=(await DB.prepare("SELECT basePriceEtb FROM routes WHERE id='route_bole_merkato'").get()).basePriceEtb;

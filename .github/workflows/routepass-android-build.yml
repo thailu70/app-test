@@ -33,7 +33,7 @@ jobs:
       - name: Check out triggering branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.sha }}
       - name: Set up Java
         uses: actions/setup-java@v4
         with:

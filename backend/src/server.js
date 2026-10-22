@@ -74,11 +74,21 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Welcome & API Status
+function homeHeaders(_req, res, next) {
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+  res.setHeader('Cache-Control', 'no-store');
+  if (next) next();
+}
 app.get('/', async (req, res) => {
   if (String(req.headers.accept || '').toLowerCase().includes('text/html')) {
-    return res.redirect(302, '/join/');
+    homeHeaders(req, res);
+    return res.sendFile(path.join(__dirname, '..', 'public', 'home', 'index.html'));
   }
-  res.json({
+  return apiStatus(req, res);
+});
+function apiStatus(_req, res) {
+  return res.json({
     service: 'Transport Navigator VPS API',
     region: 'Ethiopia (Addis Ababa)',
     status: 'ONLINE',
@@ -94,7 +104,8 @@ app.get('/', async (req, res) => {
       sync: '/api/sync'
     }
   });
-});
+}
+app.get('/api', apiStatus);
 
 // VPS System Health Check
 app.get('/api/health', async (req, res) => {
@@ -120,6 +131,7 @@ app.get('/api/admin/system/resources', authenticate, requireRole('ADMIN'), (_req
 app.use('/api/master-data', require('./routes/master-data'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/onboarding', require('./routes/onboarding'));
+app.use('/api/account', require('./routes/account'));
 app.use('/api/companies', require('./routes/companies'));
 app.use('/api/companies', require('./routes/company-portal'));
 app.use('/api/routes', require('./routes/routes'));
@@ -142,6 +154,18 @@ app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/sync', require('./routes/sync'));
 
 // Browser portals are same-origin. External scripts let their route-specific CSP reject inline JS.
+app.use('/home', homeHeaders, express.static(path.join(__dirname, '..', 'public', 'home'), {
+  index: false, maxAge: 0, etag: false,
+  setHeaders(res, filename) { if (/\.(?:webp|svg|png|ttf)$/.test(filename)) res.setHeader('Cache-Control', 'public, max-age=86400'); }
+}));
+for (const page of ['privacy', 'delete-account']) {
+  app.use('/' + page, (_req, res, next) => {
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  }, express.static(path.join(__dirname, '..', 'public', page), { index: 'index.html', maxAge: 0, etag: false }));
+}
 app.use('/join', (req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
@@ -596,6 +620,8 @@ async function initializeFeatureSchemas() {
   await require('./services/ops-schema').initOpsSchema(DB);
   await require('./services/intercity-schema').initIntercitySchema();
   await require('./services/onboarding').initOnboardingSchema();
+  await require('./services/account-deletion').initAccountDeletionSchema();
+  await require('./services/account-deletion').createAccountDeletionService().retryPendingFiles();
   await DB.exec('CREATE INDEX IF NOT EXISTS idx_reports_trip_time ON trips(startTime); CREATE INDEX IF NOT EXISTS idx_reports_checkin_time ON checkin_records(timestamp); CREATE INDEX IF NOT EXISTS idx_reports_payment_date ON payment_transactions(date);');
   await DB.prepare("CREATE TABLE IF NOT EXISTS app_settings (key VARCHAR(100) PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)").run();
   await DB.prepare("CREATE TABLE IF NOT EXISTS auth_otps (id VARCHAR(100) PRIMARY KEY, phone VARCHAR(40) NOT NULL, purpose VARCHAR(40) NOT NULL, code_hash VARCHAR(128) NOT NULL, verification_token_hash VARCHAR(128), expires_at TIMESTAMP NOT NULL, verified_at TIMESTAMP, attempts INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)").run();

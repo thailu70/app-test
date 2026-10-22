@@ -14,11 +14,13 @@ const { sendSms } = require('../services/afro-sms');
 const { effectiveBoardingRadius, getGlobalGpsRadius } = require('../services/master-data');
 const { isOperationallyEligible } = require('../services/onboarding');
 const { assertDriverEligible, driverEligible, operationalAccount } = require('../services/operational-onboarding');
+const { isTestPaymentPhone, initPaymentTestSchema, createPaymentTestService } = require('../services/payment-test');
+const { isAccountClosed } = require('../services/account-deletion');
 const router = express.Router();
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const uuid = () => crypto.randomUUID();
 const hash = value => crypto.createHash('sha256').update(String(value)).digest('hex');
-const fail = (status, message) => Object.assign(new Error(message), { status });
+const fail = (status, message, code) => Object.assign(new Error(message), { status, ...(code ? { code } : {}) });
 const clean = (value, max = 150) => String(value || '').trim().slice(0, max);
 const validDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value + 'T12:00:00Z').toISOString().slice(0, 10) === value;
 const publicLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, standardHeaders: true, legacyHeaders: false });
@@ -31,6 +33,17 @@ async function departureEligible(d, db = DB) {
 async function requireDepartureEligible(d, db = DB) {
   if (!await departureEligible(d, db)) throw fail(409, 'This departure is awaiting verified company and driver approval.');
 }
+// The vehicle must already be locked. Serialize assignment with driver/company
+// closure, then re-read current approval and permanent deletion receipts.
+async function lockDepartureDriver(tx, driverId, companyId) {
+  const suffix = tx.isPostgres ? ' FOR UPDATE' : '';
+  const driver = await tx.prepare("SELECT id,status,companyId FROM users WHERE id=? AND role='DRIVER'" + suffix).get(driverId);
+  if (!driver || driver.companyId !== companyId || driver.status !== 'ACTIVE' || await isAccountClosed(driverId, 'DRIVER', tx)) throw fail(409, 'The selected driver is no longer available for this company.');
+  const company = await tx.prepare('SELECT id,status FROM transport_companies WHERE id=?' + suffix).get(companyId);
+  if (!company || company.status !== 'ACTIVE' || await isAccountClosed(companyId, 'COMPANY', tx) || !await isOperationallyEligible(companyId, 'COMPANY', tx)) throw fail(409, 'This company is no longer approved for departures.');
+  await assertDriverEligible(driver.id, tx);
+  return driver;
+}
 let sqliteWrites = Promise.resolve();
 function write(fn) {
   if (DB.isPostgres) return DB.transaction(fn);
@@ -38,6 +51,8 @@ function write(fn) {
   sqliteWrites = work.catch(() => {});
   return work;
 }
+const paymentTest = createPaymentTestService({ transact: write, sendSms: (...args) => require('../services/afro-sms').sendSms(...args) });
+const testOtpLimiter = rateLimit({ windowMs: 15 * 60000, max: 20, standardHeaders: true, legacyHeaders: false });
 async function expire(tx, departureId) {
   const now = new Date().toISOString();
   await tx.prepare("DELETE FROM intercity_seats WHERE departure_id = ? AND booking_id IN (SELECT id FROM intercity_bookings WHERE departure_id = ? AND payment_status <> 'PAID' AND expires_at < ?)").run(departureId, departureId, now);
@@ -119,9 +134,9 @@ async function holdSeat(tx, d, number, data = {}) {
   await tx.prepare('INSERT INTO intercity_seats (departure_id,seat_number,booking_id) VALUES (?,?,?)').run(d.id, seat, id);
   return { b: await tx.prepare('SELECT * FROM intercity_bookings WHERE id = ?').get(id), secret };
 }
-async function reconcile(b) {
+async function reconcile(b, providedStatus) {
   if (!b.order_id || b.payment_status === 'PAID' || b.status === 'EXPIRED') return;
-  const result = await telebirr.queryOrderStatus(b.order_id, b.prepay_id);
+  const result = providedStatus || await telebirr.queryOrderStatus(b.order_id, b.prepay_id);
   if (result.merchantOrderId !== b.order_id || result.currency.toUpperCase() !== 'ETB' || Math.round(Number(result.amount) * 100) !== Math.round(Number(b.amount_etb) * 100)) throw fail(502, 'Payment details could not be verified.');
   if (!result.paid && !result.failed) return;
   await write(async tx => {
@@ -137,6 +152,7 @@ async function reconcile(b) {
 }
 
 router.use((req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+router.use(asyncRoute(async (_req, _res, next) => { await initPaymentTestSchema(); next(); }));
 // Anonymous travel is public. An authenticated administrator channel remains
 // commute-only, including when it attempts to call the public discovery API.
 router.use((req, res, next) => {
@@ -180,20 +196,38 @@ router.post('/departures/:id/hold', publicLimiter, asyncRoute(async (req, res) =
 }));
 router.get('/bookings/:id', publicLimiter, asyncRoute(async (req, res) => {
   let b = await guestBooking(req);
-  if (b.order_id && b.payment_status !== 'PAID' && !telebirr.missingConfiguration().length) await reconcile(b);
+  const attempt = b.order_id ? await DB.prepare('SELECT phase,lease_until FROM intercity_checkout_attempts WHERE booking_id=?').get(b.id) : null;
+  if (b.order_id && b.payment_status !== 'PAID' && attempt?.phase !== 'SAFE_RETRY' && !(attempt?.phase === 'PREPARING' && Date.parse(attempt.lease_until) > Date.now()) && !telebirr.missingConfiguration().length) await reconcile(b);
   b = await guestBooking(req);
   if (b.payment_status !== 'PAID' && Date.parse(b.expires_at) < Date.now()) { await write(tx => expire(tx, b.departure_id)); b = await guestBooking(req); }
   const d = await departure(DB, b.departure_id), result = bookingView(b, d);
   if (b.payment_status === 'PAID') result.qrImage = await QRCode.toDataURL(result.qrToken, { width: 320, margin: 2 });
   res.json({ success: true, booking: result });
 }));
+router.post('/bookings/:id/test-payment/request-otp', testOtpLimiter, asyncRoute(async (req, res) => {
+  const b = await guestBooking(req); await requireDepartureEligible(await departure(DB, b.departure_id));
+  res.json({ success: true, ...await paymentTest.requestOtp(b, req.body.passengerPhone) });
+}));
+router.post('/bookings/:id/test-payment/verify-otp', testOtpLimiter, asyncRoute(async (req, res) => {
+  const b = await guestBooking(req); await requireDepartureEligible(await departure(DB, b.departure_id));
+  res.json({ success: true, ...await paymentTest.verifyOtp(b, req.body.passengerPhone, req.body.code) });
+}));
 router.post('/bookings/:id/checkout', publicLimiter, asyncRoute(async (req, res) => {
   let b = await guestBooking(req); const p = person(req.body);
   if (b.payment_status === 'PAID') return res.json({ success: true, paid: true });
   await requireDepartureEligible(await departure(DB, b.departure_id));
   if (b.status === 'EXPIRED' || Date.parse(b.expires_at) < Date.now()) throw fail(409, 'Your reservation expired. Choose a seat again.');
-  if (p.phone.replace(/\D/g, '') === '0912469923') {
-    await write(async tx => { await tx.prepare("UPDATE intercity_bookings SET passenger_name=?,passenger_phone=?,status='CONFIRMED',payment_status='PAID',payment_method='TEST_AUTO',payment_reference='TEST-0912469923' WHERE id=?").run(p.name, p.phone, b.id); });
+  if (isTestPaymentPhone(p.phone)) {
+    await write(async tx => {
+      const d = await departure(tx, b.departure_id, true); await requireDepartureEligible(d, tx);
+      const current = await tx.prepare('SELECT * FROM intercity_bookings WHERE id=?').get(b.id);
+      if (current.payment_status === 'PAID') return;
+      await paymentTest.consume(tx, current, p.phone, req.body.testPaymentVerificationToken);
+      const seat = await tx.prepare('SELECT booking_id FROM intercity_seats WHERE departure_id=? AND seat_number=?').get(current.departure_id, current.seat_number);
+      if (!seat || seat.booking_id !== current.id) throw fail(409, 'This seat reservation is no longer active.');
+      await tx.prepare("UPDATE intercity_bookings SET passenger_name=?,passenger_phone=?,status='CONFIRMED',payment_status='PAID',payment_method='TEST_AUTO',payment_reference='TEST-0912469923' WHERE id=?").run(p.name, p.phone, b.id);
+      await tx.prepare('INSERT INTO audit_logs(action,userId,role,details) VALUES(?,?,?,?)').run('TEST_PAYMENT_GRANTED', b.id, 'GUEST', 'Phone-verified test booking; no money collected');
+    });
     b = await guestBooking(req);
     const d = await departure(DB, b.departure_id);
     await notifyPaidTicket(b, d);
@@ -201,15 +235,51 @@ router.post('/bookings/:id/checkout', publicLimiter, asyncRoute(async (req, res)
   }
   if (telebirr.missingConfiguration().length || telebirr.config().environment !== 'production' && process.env.NODE_ENV === 'production') throw fail(503, 'Online payment is not available yet. Contact the transport company to book and pay at its office.');
   if (b.checkout_url) return res.json({ success: true, checkoutUrl: b.checkout_url });
-  const orderId = telebirr.merchantOrderId();
-  await write(async tx => { await departure(tx, b.departure_id, true); const current = await tx.prepare('SELECT * FROM intercity_bookings WHERE id=?').get(b.id); if (current.order_id) throw fail(409, 'Payment is already being prepared. Refresh your booking.'); await tx.prepare("UPDATE intercity_bookings SET passenger_name=?,passenger_phone=?,order_id=?,status='PAYMENT_PENDING',expires_at=? WHERE id=?").run(p.name, p.phone, orderId, new Date(Date.now() + 125 * 60000).toISOString(), b.id); });
+  const prepared = await write(async tx => {
+    const scheduled = await departure(tx, b.departure_id, true); await requireDepartureEligible(scheduled, tx);
+    const current = await tx.prepare('SELECT * FROM intercity_bookings WHERE id=?').get(b.id);
+    if (current.payment_status === 'PAID' || current.checkout_url) return { booking: current, callProvider: false };
+    const seat = await tx.prepare('SELECT booking_id FROM intercity_seats WHERE departure_id=? AND seat_number=?').get(current.departure_id, current.seat_number);
+    if (current.status === 'EXPIRED' || current.status === 'CANCELLED' || Date.parse(current.expires_at) <= Date.now() || !seat || seat.booking_id !== current.id) throw fail(409, 'Your seat reservation expired. Choose a seat again.');
+    const attempt = await tx.prepare('SELECT * FROM intercity_checkout_attempts WHERE booking_id=?').get(b.id);
+    if (current.order_id && attempt?.phase === 'PREPARING' && Date.parse(attempt.lease_until) > Date.now()) throw fail(409, 'Checkout is being prepared. Try again shortly.', 'PAYMENT_INITIALIZING');
+    if (current.order_id && attempt?.phase !== 'SAFE_RETRY') return { booking: current, callProvider: false };
+    const orderId = current.order_id || telebirr.merchantOrderId(), instant = new Date().toISOString();
+    await tx.prepare("UPDATE intercity_bookings SET passenger_name=?,passenger_phone=?,order_id=?,status='PAYMENT_PENDING',expires_at=? WHERE id=?").run(p.name, p.phone, orderId, current.order_id ? current.expires_at : new Date(Date.now() + 125 * 60000).toISOString(), b.id);
+    await tx.prepare("INSERT INTO intercity_checkout_attempts(booking_id,order_id,phase,lease_until,updated_at) VALUES(?,?,'PREPARING',?,?) ON CONFLICT(booking_id) DO UPDATE SET phase='PREPARING',lease_until=excluded.lease_until,updated_at=excluded.updated_at")
+      .run(b.id, orderId, new Date(Date.now() + 60000).toISOString(), instant);
+    return { booking: { ...current, order_id: orderId }, callProvider: true };
+  });
+  b = prepared.booking;
+  if (b.payment_status === 'PAID') return res.json({ success: true, paid: true, booking: bookingView(b, await departure(DB, b.departure_id)) });
+  if (b.checkout_url) return res.json({ success: true, checkoutUrl: b.checkout_url });
+  if (!prepared.callProvider) {
+    let status;
+    try { status = await telebirr.queryOrderStatus(b.order_id, b.prepay_id); }
+    catch (_) { throw fail(503, 'Payment confirmation is still pending. Check this booking again shortly; a second order will not be created.', 'PAYMENT_CONFIRMATION_PENDING'); }
+    await reconcile(b, status);
+    b = await guestBooking(req);
+    if (b.payment_status === 'PAID') return res.json({ success: true, paid: true, booking: bookingView(b, await departure(DB, b.departure_id)) });
+    if (status.failed) throw fail(409, 'This payment failed. Choose a new seat reservation to try again.', 'PAYMENT_FAILED');
+    const prepayId = b.prepay_id || status.prepayId;
+    if (!prepayId) throw fail(503, 'The existing payment order is still being confirmed. Check again shortly.', 'PAYMENT_CONFIRMATION_PENDING');
+    const checkoutUrl = telebirr.checkoutUrlForPrepay(prepayId);
+    await DB.prepare('UPDATE intercity_bookings SET prepay_id=?,checkout_url=? WHERE id=? AND order_id=?').run(prepayId, checkoutUrl, b.id, b.order_id);
+    await DB.prepare("UPDATE intercity_checkout_attempts SET phase='READY',lease_until=NULL,updated_at=? WHERE booking_id=? AND order_id=?").run(new Date().toISOString(), b.id, b.order_id);
+    return res.json({ success: true, checkoutUrl });
+  }
   try {
     const base = publicBaseUrl();
     const notifyUrl = httpsCallbackUrl(process.env.TELEBIRR_INTERCITY_NOTIFY_URL || base + '/api/intercity/payments/webhook');
-    const payment = await telebirr.createCheckout(orderId, b.amount_etb, 'RoutePass intercity ticket', { notifyUrl, redirectUrl: base + '/travel/?booking=' + encodeURIComponent(b.id) });
-    await DB.prepare('UPDATE intercity_bookings SET prepay_id=?,checkout_url=? WHERE id=? AND order_id=?').run(payment.prepayId, payment.checkoutUrl, b.id, orderId);
+    const payment = await telebirr.createCheckout(b.order_id, b.amount_etb, 'RoutePass intercity ticket', { notifyUrl, redirectUrl: base + '/travel/?booking=' + encodeURIComponent(b.id) });
+    await DB.prepare('UPDATE intercity_bookings SET prepay_id=?,checkout_url=? WHERE id=? AND order_id=?').run(payment.prepayId, payment.checkoutUrl, b.id, b.order_id);
+    await DB.prepare("UPDATE intercity_checkout_attempts SET phase='READY',lease_until=NULL,updated_at=? WHERE booking_id=? AND order_id=?").run(new Date().toISOString(), b.id, b.order_id);
     res.json({ success: true, checkoutUrl: payment.checkoutUrl });
-  } catch (err) { console.error('[Intercity checkout]', err.message); throw fail(502, 'The payment provider could not prepare checkout. Contact the company if you were charged.'); }
+  } catch (err) {
+    await DB.prepare('UPDATE intercity_checkout_attempts SET phase=?,lease_until=NULL,updated_at=? WHERE booking_id=? AND order_id=?').run(err.checkoutRetrySafe === true ? 'SAFE_RETRY' : 'UNCERTAIN', new Date().toISOString(), b.id, b.order_id);
+    console.error('[Intercity checkout]', err.message);
+    throw fail(502, err.checkoutRetrySafe === true ? 'Checkout could not start. You can safely retry this reservation.' : 'The payment response is uncertain. Check this booking again before making another payment.', err.checkoutRetrySafe === true ? 'CHECKOUT_RETRY_SAFE' : 'PAYMENT_CONFIRMATION_PENDING');
+  }
 }));
 router.post('/payments/webhook', asyncRoute(async (req, res) => {
   let note; try { note = telebirr.parseNotification(req.body); } catch (_) { throw fail(400, 'Invalid payment notice.'); }
@@ -229,7 +299,7 @@ async function pdfTicket(req, res, b) {
   doc.pipe(res);
   doc.rect(0, 0, 420, 95).fill('#10231c'); doc.fillColor('#ffffff').fontSize(26).text('PASSO', 30, 28); doc.fontSize(11).text('INTERCITY - CONFIRMED TICKET', 30, 62);
   doc.fillColor('#10231c').fontSize(17).text(d.origin + ' to ' + d.destination, 30, 118, { width: 350 });
-  const lines = [['Transport', company ? company.name : 'Transport company'], ['Departure (Ethiopia)', new Date(d.departure_at).toLocaleString('en-GB', { timeZone: 'Africa/Addis_Ababa' })], ['Passenger', b.passenger_name], ['Phone', b.passenger_phone], ['Seat', String(b.seat_number)], ['Amount paid', Number(b.amount_etb).toFixed(2) + ' ETB'], ['Payment', b.payment_method === 'CASH_COLLECTED' ? 'Cash collected by company' : 'Telebirr verified']];
+  const lines = [['Transport', company ? company.name : 'Transport company'], ['Departure (Ethiopia)', new Date(d.departure_at).toLocaleString('en-GB', { timeZone: 'Africa/Addis_Ababa' })], ['Passenger', b.passenger_name], ['Phone', b.passenger_phone], ['Seat', String(b.seat_number)], ['Ticket fare', Number(b.amount_etb).toFixed(2) + ' ETB'], ['Payment', b.payment_method === 'TEST_AUTO' ? 'Authorized test - no money collected' : b.payment_method === 'CASH_COLLECTED' ? 'Cash collected by company' : 'Telebirr verified']];
   let y = 165; for (const [label, value] of lines) { doc.fontSize(9).fillColor('#58645f').text(label, 30, y); doc.fontSize(12).fillColor('#10231c').text(value, 145, y, { width: 230 }); y += 29; }
   doc.image(qr, 135, y + 5, { width: 145 }); doc.fontSize(8).fillColor('#58645f').text('Present this QR code to your assigned driver for boarding.', 30, y + 157, { align: 'center', width: 350 }); doc.text('Ticket ' + b.id, 30, y + 177, { align: 'center', width: 350 }); doc.end();
 }
@@ -250,23 +320,31 @@ router.get('/company/departures', ...companyGuard, asyncRoute(async (req, res) =
 }));
 router.post('/company/departures', ...companyGuard, asyncRoute(async (req, res) => {
   const x = req.body, routeId = clean(x.routeId), vehicleId = clean(x.vehicleId), departureAt = new Date(x.departureAt).toISOString();
-  const r = await DB.prepare("SELECT * FROM routes WHERE id=? AND companyId=? AND routeType='INTERCITY' AND active=TRUE").get(routeId, req.user.id);
-  const v = await DB.prepare('SELECT * FROM vehicles WHERE id=? AND companyId=?').get(vehicleId, req.user.id);
-  const driverId = v?.driverId || clean(x.driverId);
-  const u = await DB.prepare("SELECT id FROM users WHERE id=? AND companyId=? AND role='DRIVER' AND status='ACTIVE'").get(driverId, req.user.id);
   const seats = Number(x.seats), fare = Number(x.fareEtb), lat = Number(x.latitude), lng = Number(x.longitude), radius = x.radiusMeters === undefined ? 300 : Number(x.radiusMeters);
-  if (!r || !v || !u) throw fail(400, 'Select an active company intercity route, approved driver and company vehicle.');
-  await assertDriverEligible(u.id);
-  if (!Number.isInteger(seats) || seats < 1 || seats > Math.min(Number(v.capacityLimit), 100) || !Number.isFinite(fare) || fare <= 0 || fare > 100000 || !Number.isInteger(radius) || radius < 25 || radius > 5000 || !Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180 || Date.parse(departureAt) < Date.now()) throw fail(400, 'Check departure time, fare, seat capacity, radius (25–5000m) and departure coordinates.');
-  const id = uuid();
-  await DB.prepare('INSERT INTO intercity_departures (id,company_id,route_id,driver_id,vehicle_id,origin,destination,departure_at,latitude,longitude,radius_m,seats,fare_etb,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id, req.user.id, r.id, u.id, v.id, r.origin, r.destination, departureAt, lat, lng, radius, seats, fare, new Date().toISOString());
-  res.status(201).json({ success: true, departure: detail(await departure(DB, id)) });
+  const created = await write(async tx => {
+    const v = await tx.prepare('SELECT * FROM vehicles WHERE id=? AND companyId=?' + (tx.isPostgres ? ' FOR UPDATE' : '')).get(vehicleId, req.user.id);
+    if (!v) throw fail(400, 'Select an active company intercity route, approved driver and company vehicle.');
+    const u = await lockDepartureDriver(tx, v.driverId || clean(x.driverId), req.user.id);
+    const r = await tx.prepare("SELECT * FROM routes WHERE id=? AND companyId=? AND routeType='INTERCITY' AND active=TRUE" + (tx.isPostgres ? ' FOR SHARE' : '')).get(routeId, req.user.id);
+    if (!r) throw fail(400, 'Select an active company intercity route, approved driver and company vehicle.');
+    if (!Number.isInteger(seats) || seats < 1 || seats > Math.min(Number(v.capacityLimit), 100) || !Number.isFinite(fare) || fare <= 0 || fare > 100000 || !Number.isInteger(radius) || radius < 25 || radius > 5000 || !Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180 || Date.parse(departureAt) < Date.now()) throw fail(400, 'Check departure time, fare, seat capacity, radius (25–5000m) and departure coordinates.');
+    const id = uuid();
+    await tx.prepare('INSERT INTO intercity_departures (id,company_id,route_id,driver_id,vehicle_id,origin,destination,departure_at,latitude,longitude,radius_m,seats,fare_etb,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id, req.user.id, r.id, u.id, v.id, r.origin, r.destination, departureAt, lat, lng, radius, seats, fare, new Date().toISOString());
+    return departure(tx, id);
+  });
+  res.status(201).json({ success: true, departure: detail(created) });
 }));
 router.patch('/company/departures/:id', ...companyGuard, asyncRoute(async (req, res) => {
   const x = req.body;
   if (!['radiusMeters', 'latitude', 'longitude', 'departureAt', 'driverId', 'vehicleId'].some(key => Object.prototype.hasOwnProperty.call(x, key))) throw fail(400, 'Choose a departure setting to update.');
+  const scheduled = await departure(DB, req.params.id); own(scheduled, req.user);
+  const selectedVehicleId = x.vehicleId === undefined ? scheduled.vehicle_id : clean(x.vehicleId);
   const d = await write(async tx => {
+    // Vehicle-first order also matches arrival and account closure. Lock the old
+    // and replacement vehicles in a stable order before the departure row.
+    for (const id of [...new Set([scheduled.vehicle_id, selectedVehicleId])].sort()) await tx.prepare('SELECT id FROM vehicles WHERE id=?' + (tx.isPostgres ? ' FOR UPDATE' : '')).get(id);
     const current = await departure(tx, req.params.id, true); own(current, req.user);
+    if (current.vehicle_id !== scheduled.vehicle_id) throw fail(409, 'The departure assignment changed. Refresh before editing it.');
     if (current.status !== 'SCHEDULED') throw fail(409, 'Only scheduled departures can be changed.');
     const radius = x.radiusMeters === undefined ? Number(current.radius_m) : Number(x.radiusMeters);
     const lat = x.latitude === undefined ? Number(current.latitude) : Number(x.latitude), lng = x.longitude === undefined ? Number(current.longitude) : Number(x.longitude);
@@ -274,9 +352,8 @@ router.patch('/company/departures/:id', ...companyGuard, asyncRoute(async (req, 
     const vehicleId = x.vehicleId === undefined ? current.vehicle_id : clean(x.vehicleId);
     const driverId = x.driverId === undefined ? current.driver_id : clean(x.driverId);
     const vehicle = await tx.prepare('SELECT id,capacityLimit FROM vehicles WHERE id=? AND companyId=?').get(vehicleId, req.user.id);
-    const driver = await tx.prepare("SELECT id,status FROM users WHERE id=? AND companyId=? AND role='DRIVER'").get(driverId, req.user.id);
-    if (!vehicle || !driver || driver.status !== 'ACTIVE') throw fail(400, 'Select an active driver and vehicle owned by this company.');
-    await assertDriverEligible(driver.id, tx);
+    if (!vehicle) throw fail(400, 'Select an active driver and vehicle owned by this company.');
+    const driver = await lockDepartureDriver(tx, driverId, req.user.id);
     if (!Number.isInteger(Number(current.seats)) || Number(current.seats) > Number(vehicle.capacityLimit)) throw fail(400, 'The selected vehicle does not have enough seats for this departure.');
     if (!Number.isInteger(radius) || radius < 25 || radius > 5000 || !Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180 || Date.parse(time) < Date.now()) throw fail(400, 'Check the departure time, coordinates and radius (25–5000 metres).');
     await tx.prepare('UPDATE intercity_departures SET driver_id=?,vehicle_id=?,radius_m=?,latitude=?,longitude=?,departure_at=? WHERE id=?').run(driver.id, vehicle.id, radius, lat, lng, time, current.id);
@@ -313,10 +390,11 @@ router.get('/company/requests', ...companyGuard, asyncRoute(async (req, res) => 
 router.get('/company/performance', ...companyGuard, asyncRoute(async (req, res) => {
   const period = ['daily', 'weekly', 'monthly'].includes(req.query.period) ? req.query.period : 'daily';
   const from = new Date(Date.now() - (period === 'monthly' ? 366 : period === 'weekly' ? 84 : 30) * 86400000).toISOString();
-  const rows = await DB.prepare("SELECT b.amount_etb,b.status,b.created_at FROM intercity_bookings b WHERE b.company_id=? AND b.payment_status='PAID' AND b.created_at>=?").all(req.user.id, from);
+  const rows = await DB.prepare("SELECT b.amount_etb,b.status,b.created_at,b.payment_method FROM intercity_bookings b WHERE b.company_id=? AND b.payment_status='PAID' AND b.created_at>=?").all(req.user.id, from);
+  const collected = b => b.payment_method === 'TEST_AUTO' ? 0 : Number(b.amount_etb);
   const groups = new Map();
-  for (const b of rows) { const d = new Date(Date.parse(b.created_at) + 3 * 3600000); if (period === 'weekly') d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); const label = d.toISOString().slice(0, period === 'monthly' ? 7 : 10); const g = groups.get(label) || { label, bookings: 0, boarded: 0, revenueEtb: 0 }; g.bookings++; g.boarded += b.status === 'BOARDED' ? 1 : 0; g.revenueEtb += Number(b.amount_etb); groups.set(label, g); }
-  res.json({ success: true, period, points: [...groups.values()].sort((a,b) => a.label.localeCompare(b.label)), total: { bookings: rows.length, boarded: rows.filter(b => b.status === 'BOARDED').length, revenueEtb: rows.reduce((sum,b) => sum + Number(b.amount_etb), 0) } });
+  for (const b of rows) { const d = new Date(Date.parse(b.created_at) + 3 * 3600000); if (period === 'weekly') d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); const label = d.toISOString().slice(0, period === 'monthly' ? 7 : 10); const g = groups.get(label) || { label, bookings: 0, boarded: 0, revenueEtb: 0 }; g.bookings++; g.boarded += b.status === 'BOARDED' ? 1 : 0; g.revenueEtb += collected(b); groups.set(label, g); }
+  res.json({ success: true, period, points: [...groups.values()].sort((a,b) => a.label.localeCompare(b.label)), total: { bookings: rows.length, boarded: rows.filter(b => b.status === 'BOARDED').length, revenueEtb: rows.reduce((sum,b) => sum + collected(b), 0) } });
 }));
 router.get('/driver/departures', ...driverGuard, asyncRoute(async (req, res) => { const rows = await DB.prepare("SELECT * FROM intercity_departures WHERE driver_id=? AND status <> 'CANCELLED' ORDER BY departure_at DESC LIMIT 100").all(req.user.id); res.json({ success: true, departures: await departureDetailsWithRadius(rows) }); }));
 router.get('/driver/departures/:id/roster', ...driverGuard, asyncRoute(async (req, res) => {
@@ -361,5 +439,5 @@ router.post('/driver/departures/:id/complete', ...driverGuard, asyncRoute(async 
   const d = await write(async tx => { const row = await departure(tx, req.params.id, true); own(row, req.user); if (row.status !== 'BOARDING') throw fail(409, 'Only an active departure can be completed.'); await tx.prepare("UPDATE intercity_departures SET status='COMPLETED' WHERE id=?").run(row.id); return { ...row, status: 'COMPLETED' }; });
   res.json({ success: true, departure: detail(d) });
 }));
-router.use((err, req, res, _next) => { if (res.headersSent) return; const status = err.status || (err instanceof RangeError ? 400 : 500); if (status === 500) console.error('[Intercity]', err); res.status(status).json({ success: false, error: status === 500 ? 'Intercity service temporarily unavailable.' : err.message, ...(err.validation ? { validation: err.validation, code: err.validation.code } : {}) }); });
+router.use((err, req, res, _next) => { if (res.headersSent) return; const status = err.status || (err instanceof RangeError ? 400 : 500); if (status === 500) console.error('[Intercity]', err); res.status(status).json({ success: false, error: status === 500 ? 'Intercity service temporarily unavailable.' : err.message, ...(err.code ? { code: err.code } : {}), ...(err.validation ? { validation: err.validation, code: err.validation.code } : {}) }); });
 module.exports = router;

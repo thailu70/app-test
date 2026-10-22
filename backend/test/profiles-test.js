@@ -96,16 +96,35 @@ async function main() {
 
     const vehicle = await DB.prepare("SELECT id FROM vehicles WHERE plateNumber = '3-AA-34921'").get();
     await DB.prepare('UPDATE vehicles SET driverId = ? WHERE id = ?').run('usr_drv_kassahun', vehicle.id);
-    await DB.prepare(`INSERT INTO subscriptions (id,passengerId,routeId,priceEtb,subscriptionStatus,vehicleId)
-      VALUES ('profile_test_subscription','usr_pas_alemayehu','route_bole_merkato',100,'PENDING',?)`).run(vehicle.id);
+    const futureExpiry = new Date(Date.now() + 86400000).toISOString();
+    await DB.prepare(`INSERT INTO subscriptions (id,passengerId,routeId,priceEtb,paymentStatus,subscriptionStatus,endDate,vehicleId)
+      VALUES ('profile_test_subscription','usr_pas_alemayehu','route_bole_merkato',100,'PAID','ACTIVE',?,?)`).run(futureExpiry, vehicle.id);
     assert.equal((await request('GET', '/usr_pas_alemayehu/photo', tokens.driver)).status, 200);
     assert.equal((await request('GET', '/usr_drv_kassahun/photo', tokens.passenger)).status, 200);
     assert.equal((await request('GET', '/usr_drv_kassahun/documents/LICENSE', tokens.passenger)).status, 404);
-    await DB.prepare("UPDATE subscriptions SET subscriptionStatus='INACTIVE' WHERE id='profile_test_subscription'").run();
-    assert.equal((await request('GET', '/usr_pas_alemayehu/photo', tokens.driver)).status, 200);
-    await DB.prepare("UPDATE subscriptions SET vehicleId=NULL WHERE id='profile_test_subscription'").run();
+    async function expectSharedPhotosDenied() {
+      assert.equal((await request('GET', '/usr_pas_alemayehu/photo', tokens.driver)).status, 404);
+      assert.equal((await request('GET', '/usr_drv_kassahun/photo', tokens.passenger)).status, 404);
+    }
+    for (const subscriptionStatus of ['PENDING', 'CANCELLED', 'INACTIVE']) {
+      await DB.prepare('UPDATE subscriptions SET subscriptionStatus=? WHERE id=?').run(subscriptionStatus, 'profile_test_subscription');
+      await expectSharedPhotosDenied();
+    }
+    await DB.prepare("UPDATE subscriptions SET subscriptionStatus='ACTIVE',paymentStatus='UNPAID' WHERE id='profile_test_subscription'").run();
+    await expectSharedPhotosDenied();
+    await DB.prepare("UPDATE subscriptions SET paymentStatus='PAID',endDate=?,daysRemaining=30 WHERE id='profile_test_subscription'").run(new Date(Date.now() - 86400000).toISOString());
+    await expectSharedPhotosDenied();
+    await DB.prepare("UPDATE subscriptions SET endDate=? WHERE id='profile_test_subscription'").run(futureExpiry);
+    await DB.prepare("UPDATE users SET status='INACTIVE' WHERE id='usr_pas_alemayehu'").run();
     assert.equal((await request('GET', '/usr_pas_alemayehu/photo', tokens.driver)).status, 404);
-    console.log('PASS: assigned photos visible with no identity-document disclosure');
+    await DB.prepare("UPDATE users SET status='ACTIVE' WHERE id='usr_pas_alemayehu'").run();
+    await DB.prepare(`INSERT INTO subscriptions (id,passengerId,routeId,priceEtb,paymentStatus,subscriptionStatus,endDate,vehicleId,updatedAt)
+      VALUES ('profile_new_pending','usr_pas_alemayehu','route_bole_merkato',100,'UNPAID','PENDING',?,?,'2099-01-01T00:00:00Z')`).run(futureExpiry, vehicle.id);
+    await expectSharedPhotosDenied();
+    await DB.prepare("DELETE FROM subscriptions WHERE id='profile_new_pending'").run();
+    await DB.prepare("UPDATE subscriptions SET vehicleId=NULL WHERE id='profile_test_subscription'").run();
+    await expectSharedPhotosDenied();
+    console.log('PASS: shared photos require the current active paid unexpired exact vehicle assignment');
 
     assert.equal((await request('PUT', '/me/documents/PHOTO', tokens.companyDriver, png, 'image/png')).status, 200);
     assert.equal((await request('PUT', '/me/documents/LICENSE', tokens.companyDriver, pdf, 'application/pdf')).status, 200);

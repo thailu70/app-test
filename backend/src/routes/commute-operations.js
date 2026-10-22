@@ -40,7 +40,7 @@ router.get('/reports', async(req,res)=>{
     const queries=[
       [`SELECT ${dailyExpression('t.startTime')} AS day,COUNT(*) AS value FROM trips t JOIN routes r ON r.id=t.routeId WHERE ${commuteRoute('r')} AND t.startTime>=? GROUP BY day`,'trips'],
       [`SELECT ${dailyExpression('c.timestamp')} AS day,COUNT(*) AS value FROM checkin_records c JOIN routes r ON r.id=c.routeId WHERE ${commuteRoute('r')} AND c.status='BOARDED' AND c.timestamp>=? GROUP BY day`,'boardings'],
-      [`SELECT ${dailyExpression('p.date')} AS day,COALESCE(SUM(p.amountEtb),0) AS value FROM payment_transactions p JOIN users u ON u.id=p.passengerId WHERE COALESCE(u.companyId,'')='' AND p.provider<>'ADMIN_TEST' AND p.status IN ('COMPLETED','VERIFIED') AND p.date>=? GROUP BY day`,'revenue'],
+      [`SELECT ${dailyExpression('p.date')} AS day,COALESCE(SUM(p.amountEtb),0) AS value FROM payment_transactions p JOIN users u ON u.id=p.passengerId WHERE COALESCE(u.companyId,'')='' AND p.provider NOT IN ('ADMIN_TEST','TEST_AUTO','Telebirr-TestSandbox') AND p.status IN ('COMPLETED','VERIFIED') AND p.date>=? GROUP BY day`,'revenue'],
       [`SELECT ${dailyExpression('u.createdAt')} AS day,COUNT(*) AS value FROM users u WHERE u.role='PASSENGER' AND COALESCE(u.companyId,'')='' AND u.createdAt>=? GROUP BY day`,'passengers']
     ];
     const results=await Promise.all(queries.map(async([sql,key])=>({key,rows:await DB.prepare(sql).all(from)})));

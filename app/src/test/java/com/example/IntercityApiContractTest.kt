@@ -118,10 +118,11 @@ class IntercityApiContractTest {
         assertEquals("SENT", sent.delivery)
         assertNull(sent.testPaymentVerificationToken)
         val verified = moshi.adapter(IntercityTestOtpResponse::class.java).fromJson("""{"success":true,"testPaymentVerificationToken":"one-use-proof","expiresInSeconds":120}""")!!
-        val checkout = org.json.JSONObject(moshi.adapter(IntercityCheckoutRequest::class.java).toJson(IntercityCheckoutRequest("Test Passenger", "0912469923", verified.testPaymentVerificationToken)))
-        assertEquals("one-use-proof", checkout.getString("testPaymentVerificationToken"))
-        assertFalse(checkout.has("code"))
-        assertFalse(checkout.has("paid"))
+        val checkout = moshi.adapter<Map<String, Any?>>(com.squareup.moshi.Types.newParameterizedType(Map::class.java, String::class.java, Any::class.java))
+            .fromJson(moshi.adapter(IntercityCheckoutRequest::class.java).toJson(IntercityCheckoutRequest("Test Passenger", "0912469923", verified.testPaymentVerificationToken)))!!
+        assertEquals("one-use-proof", checkout["testPaymentVerificationToken"])
+        assertFalse(checkout.containsKey("code"))
+        assertFalse(checkout.containsKey("paid"))
         val methods = IntercityPassengerApi::class.java.declaredMethods
         assertEquals("api/intercity/bookings/{id}/test-payment/request-otp", methods.single { it.name == "requestTestPaymentOtp" }.getAnnotation(retrofit2.http.POST::class.java)!!.value)
         assertEquals("api/intercity/bookings/{id}/test-payment/verify-otp", methods.single { it.name == "verifyTestPaymentOtp" }.getAnnotation(retrofit2.http.POST::class.java)!!.value)

@@ -89,18 +89,26 @@ function envelope(method,biz){
 async function createCheckout(orderId,amount,title,overrides={}){
  const c=config(),total=Number(amount);
  const notifyUrl=overrides.notifyUrl||c.notifyUrl,redirectUrl=overrides.redirectUrl||c.redirectUrl;
- if(!/^https:\/\//i.test(notifyUrl)||!/^https:\/\//i.test(redirectUrl))throw Error('HTTPS payment callback URLs required');
- if(!Number.isFinite(total)||total<=0||!/^[A-Za-z0-9]+$/.test(orderId))throw Error('invalid checkout order or amount');
- const token=await fabricToken();
- const request=envelope('payment.preorder',{notify_url:notifyUrl,appid:c.merchantAppId,merch_code:c.merchantCode,merch_order_id:orderId,
-  trade_type:'Checkout',title:String(title||'RoutePass monthly pass').replace(/[^A-Za-z0-9 _.-]/g,'').slice(0,64)||'RoutePass pass',
-  total_amount:total.toFixed(2),trans_currency:'ETB',timeout_express:'120m',redirect_url:redirectUrl});
+ let token,request;
+ try {
+  if(!/^https:\/\//i.test(notifyUrl)||!/^https:\/\//i.test(redirectUrl))throw Error('HTTPS payment callback URLs required');
+  if(!Number.isFinite(total)||total<=0||!/^[A-Za-z0-9]+$/.test(orderId))throw Error('invalid checkout order or amount');
+  token=await fabricToken();
+  request=envelope('payment.preorder',{notify_url:notifyUrl,appid:c.merchantAppId,merch_code:c.merchantCode,merch_order_id:orderId,
+   trade_type:'Checkout',title:String(title||'RoutePass monthly pass').replace(/[^A-Za-z0-9 _.-]/g,'').slice(0,64)||'RoutePass pass',
+   total_amount:total.toFixed(2),trans_currency:'ETB',timeout_express:'120m',redirect_url:redirectUrl});
+ } catch(error) { error.checkoutRetrySafe=true; throw error; }
  const response=await post(c.apiUrl+'/payment/v1/merchant/preOrder',request,{'X-APP-Key':c.fabricAppId,Authorization:token},'create-order');
  const prepayId=response.biz_content&&response.biz_content.prepay_id;
  if(typeof prepayId!=='string'||!prepayId)throw Error('Telebirr did not return prepay_id');
+ return {prepayId,checkoutUrl:checkoutUrlForPrepay(prepayId)};
+}
+function checkoutUrlForPrepay(prepayId){
+ const c=config();
+ if(typeof prepayId!=='string'||!prepayId||prepayId.length>300)throw Error('Invalid existing payment reference');
  const fields={appid:c.merchantAppId,merch_code:c.merchantCode,nonce_str:nonce(),prepay_id:prepayId,timestamp:String(Math.floor(Date.now()/1000))};
  const params=new URLSearchParams({...fields,sign:sign(fields),sign_type:'SHA256WithRSA',version:'1.0',trade_type:'Checkout'});
- return {prepayId,checkoutUrl:c.webUrl+params.toString()};
+ return c.webUrl+params.toString();
 }
 async function queryOrderStatus(orderId,prepayId){
  const c=config(),token=await fabricToken(),biz={appid:c.merchantAppId,merch_code:c.merchantCode};
@@ -112,7 +120,7 @@ async function queryOrderStatus(orderId,prepayId){
  return {paid:SUCCESS.has(status),failed:FAILURE.has(status),status,
   amount:String(b.total_amount||b.totalAmount||''),currency:String(b.trans_currency||b.transCurrency||''),
   merchantOrderId:String(b.merch_order_id||b.merchOrderId||''),paymentOrderId:String(b.payment_order_id||b.paymentOrderId||''),
-  transactionId:String(b.trans_id||b.transId||''),raw:data};
+  transactionId:String(b.trans_id||b.transId||''),prepayId:String(b.prepay_id||b.prepayId||''),raw:data};
 }
 function parseNotification(input){
  let value=input;
@@ -129,4 +137,4 @@ function verifyNotification(notification){
  const c=config();if(!c.publicKey||!notification.sign||!notification.sign_type)return false;
  try{return crypto.verify('sha256',Buffer.from(canonical(notification),'utf8'),{key:crypto.createPublicKey(keyPem(c.publicKey,'public')),padding:crypto.constants.RSA_PKCS1_PSS_PADDING,saltLength:32},Buffer.from(String(notification.sign).replace(/ /g,'+'),'base64'));}catch(_){return false;}
 }
-module.exports={config,missingConfiguration,merchantOrderId,canonicalString:canonical,createCheckout,queryOrderStatus,parseNotification,verifyNotification,resetTokenCacheForTests(){tokenCache=null;}};
+module.exports={config,missingConfiguration,merchantOrderId,canonicalString:canonical,createCheckout,checkoutUrlForPrepay,queryOrderStatus,parseNotification,verifyNotification,resetTokenCacheForTests(){tokenCache=null;}};
