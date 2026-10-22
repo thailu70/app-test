@@ -96,13 +96,25 @@ class IntercityLayoutTest {
 
         compose.onNodeWithTag("intercity_passenger_name").performScrollTo().performTextInput("Native Test Passenger")
         compose.onNodeWithTag("intercity_passenger_phone").performScrollTo().performTextInput("0912469923")
-        compose.onNodeWithTag("intercity_pay").performScrollTo().performClick()
-        compose.waitUntil(5_000) { model.state.value.testVerificationPending && !model.state.value.busy }
-        assertNull(api.lastCheckout)
-        compose.onNodeWithTag("intercity_verify_test").assertIsNotEnabled()
-        compose.onNodeWithTag("intercity_test_otp").performTextInput("123456")
-        compose.onNodeWithTag("intercity_verify_test").assertIsEnabled().performClick()
-        compose.waitUntil(5_000) { model.state.value.phase == IntercityPhase.TICKET && !model.state.value.busy }
+        compose.onNodeWithTag("intercity_pay").performScrollTo()
+        // Inspect the active timer at a known frame rather than asking automatic idling
+        // to run through every countdown tick before checking the open OTP dialog.
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.onNodeWithTag("intercity_pay").performClick()
+            compose.waitUntil(5_000) { model.state.value.testVerificationPending && !model.state.value.busy }
+            compose.mainClock.advanceTimeBy(32)
+            assertNull(api.lastCheckout)
+            compose.onNodeWithTag("intercity_verify_test").assertIsNotEnabled()
+            compose.onNodeWithTag("intercity_resend_test").assertIsNotEnabled()
+            compose.mainClock.advanceTimeBy(1100)
+            compose.onNodeWithTag("intercity_resend_test").assertIsNotEnabled()
+            compose.onNodeWithTag("intercity_test_otp").performTextInput("123456")
+            compose.mainClock.advanceTimeByFrame()
+            compose.onNodeWithTag("intercity_verify_test").assertIsEnabled().performClick()
+            compose.waitUntil(5_000) { model.state.value.phase == IntercityPhase.TICKET && !model.state.value.busy }
+            compose.mainClock.advanceTimeBy(320)
+        } finally { compose.mainClock.autoAdvance = true }
         assertEquals("Native Test Passenger", api.lastCheckout?.passengerName)
         assertEquals("0912469923", api.lastCheckout?.passengerPhone)
         assertEquals("native-one-use-proof", api.lastCheckout?.testPaymentVerificationToken)

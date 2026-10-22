@@ -126,7 +126,8 @@ internal fun IntercityPassengerScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                         modifier = Modifier.fillMaxWidth().testTag("intercity_test_otp"))
                     state.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    TextButton(onClick = { verificationCode = ""; model.resendTestPaymentOtp() }, enabled = !state.busy && seconds == 0L) {
+                    TextButton(onClick = { verificationCode = ""; model.resendTestPaymentOtp() }, enabled = !state.busy && seconds == 0L,
+                        modifier = Modifier.testTag("intercity_resend_test")) {
                         Text(intercityText(language, "Resend code", "ኮድ እንደገና ላክ", "Koodii irra deebi'i ergi") + if (seconds > 0) " ($seconds)" else "")
                     }
                 }
