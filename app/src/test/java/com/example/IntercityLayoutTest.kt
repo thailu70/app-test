@@ -10,8 +10,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.example.core.localization.AppLanguage
@@ -104,7 +106,8 @@ class IntercityLayoutTest {
         compose.onNodeWithTag("intercity_resend_test").assertIsEnabled().performClick()
         compose.waitUntil(5_000) { !model.state.value.busy }
         assertTrue(model.state.value.message.orEmpty().contains("Please wait"))
-        compose.onNodeWithTag("intercity_test_otp").assertTextEquals("123")
+        compose.onNodeWithTag("intercity_test_otp")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("123")))
         compose.onNodeWithTag("intercity_verify_test").assertIsNotEnabled()
         assertNull(api.lastCheckout)
         compose.onNodeWithTag("intercity_test_otp").performTextInput("456")
