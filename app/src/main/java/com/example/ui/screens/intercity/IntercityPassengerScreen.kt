@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -66,6 +67,12 @@ internal fun IntercityPassengerScreen(
     }
     val model = providedViewModel ?: viewModel<IntercityPassengerViewModel>(key = "intercity-passenger", factory = factory)
     val state by model.state.collectAsState()
+    val contentListState = rememberLazyListState()
+    // Kept in memory at screen scope so scrolling the card cannot discard typed digits.
+    var verificationCode by remember(state.booking?.id, state.testOtpResendAt, state.testVerificationPending) { mutableStateOf("") }
+    LaunchedEffect(state.testVerificationPending) {
+        if (state.testVerificationPending) contentListState.animateScrollToItem(1)
+    }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var datePickerOpen by remember { mutableStateOf(false) }
     var showAll by rememberSaveable { mutableStateOf(false) }
@@ -93,39 +100,6 @@ internal fun IntercityPassengerScreen(
     val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         if (uri != null) model.savePdf { context.contentResolver.openOutputStream(uri) }
     }
-    if (state.testVerificationPending) {
-        // Only a newly sent code resets input. An early or failed resend preserves it.
-        var verificationCode by remember(state.booking?.id, state.testOtpResendAt) { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = model::cancelTestPaymentVerification,
-            title = { Text(intercityText(language, "Verify your phone", "ስልክዎን ያረጋግጡ", "Bilbila kee mirkaneessi")) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(intercityText(language,
-                        "Enter the code sent to ${state.testVerificationPhone.orEmpty()} to confirm this test booking. No money will be collected.",
-                        "ይህን የሙከራ ቦታ ለማረጋገጥ ወደ ${state.testVerificationPhone.orEmpty()} የተላከውን ኮድ ያስገቡ። ገንዘብ አይከፈልም።",
-                        "Ajaja yaalii kana mirkaneessuuf koodii gara ${state.testVerificationPhone.orEmpty()} ergame galchi. Maallaqni hin kaffalamu."))
-                    OutlinedTextField(verificationCode, { verificationCode = it.filter(Char::isDigit).take(6) },
-                        enabled = !state.busy, singleLine = true,
-                        label = { Text(intercityText(language, "Six-digit code", "ባለ 6 አሃዝ ኮድ", "Koodii lakkoofsa ja'aa")) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        modifier = Modifier.fillMaxWidth().testTag("intercity_test_otp"))
-                    state.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    TextButton(onClick = { model.resendTestPaymentOtp() }, enabled = !state.busy,
-                        modifier = Modifier.testTag("intercity_resend_test")) {
-                        Text(intercityText(language, "Resend code", "ኮድ እንደገና ላክ", "Koodii irra deebi'i ergi"))
-                    }
-                }
-            },
-            confirmButton = { TextButton(enabled = !state.busy && verificationCode.length == 6,
-                onClick = { val code = verificationCode; verificationCode = ""; model.verifyTestPayment(code) }, modifier = Modifier.testTag("intercity_verify_test")) {
-                Text(intercityText(language, "Verify & confirm", "አረጋግጥ", "Mirkaneessi"))
-            } },
-            dismissButton = { TextButton(onClick = model::cancelTestPaymentVerification, modifier = Modifier.testTag("intercity_cancel_test")) {
-                Text(intercityText(language, "Cancel", "ሰርዝ", "Dhiisi"))
-            } }
-        )
-    }
     if (datePickerOpen) {
         val iso = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") } }
         val today = iso.parse(intercityToday())!!.time
@@ -147,7 +121,7 @@ internal fun IntercityPassengerScreen(
             }
         }
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = CommuteTeal)
-        LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("intercity_content").smoothPortalMotion(state.phase, animateInitial = false), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("intercity_content").smoothPortalMotion(state.phase, animateInitial = false), state = contentListState, contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if (state.phase == IntercityPhase.BROWSE) {
                 item {
                     Column {
@@ -163,7 +137,7 @@ internal fun IntercityPassengerScreen(
                     }
                 }
             }
-            state.message?.let { message -> item {
+            state.message?.takeUnless { state.testVerificationPending }?.let { message -> item {
                 Surface(color = CommuteMint, shape = RoundedCornerShape(16.dp), modifier = Modifier.padding(horizontal = 14.dp).fillMaxWidth()) {
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(message, Modifier.weight(1f), color = CommuteInk, fontSize = 12.sp)
@@ -239,7 +213,18 @@ internal fun IntercityPassengerScreen(
                         IntercitySeatSelection(departure, state.inventory, state.seat, state.busy, language, model::selectSeat, model::holdSeat, { model.selectDeparture(departure) })
                     } }
                 }
-                IntercityPhase.DETAILS -> item { state.booking?.let { Box(Modifier.padding(horizontal = 14.dp)) { IntercityCheckoutForm(it, state.busy, language, model::checkout, model::checkPayment) } } }
+                IntercityPhase.DETAILS -> {
+                    item(key = "checkout") {
+                        state.booking?.let { booking -> Box(Modifier.padding(horizontal = 14.dp)) {
+                            IntercityCheckoutForm(booking, state.busy || state.testVerificationPending, language, model::checkout, model::checkPayment)
+                        } }
+                    }
+                    if (state.testVerificationPending) item(key = "phone-verification") {
+                        IntercityTestPaymentVerification(state, language, verificationCode, { verificationCode = it },
+                            { code -> verificationCode = ""; model.verifyTestPayment(code) },
+                            model::resendTestPaymentOtp, model::cancelTestPaymentVerification)
+                    }
+                }
                 IntercityPhase.TICKET -> item { state.booking?.let { booking -> Box(Modifier.padding(horizontal = 14.dp)) {
                     IntercityTicketCard(booking, language, {}, onSavePdf = { savePdf.launch("PASSO-${booking.ticketNumber ?: booking.id}.pdf") })
                 } } }
@@ -253,6 +238,46 @@ internal fun IntercityPassengerScreen(
                 IntercityPhase.REQUEST -> item {
                     IntercityRequestForm(state, language, model::setOrigin, model::setDestination, { datePickerOpen = true }, model::sendRequest)
                 }
+            }
+        }
+    }
+}
+
+/** Phone verification stays in the checkout flow, with the same private booking context. */
+@Composable
+private fun IntercityTestPaymentVerification(
+    state: IntercityUiState, language: AppLanguage, verificationCode: String, onCodeChange: (String) -> Unit,
+    onVerify: (String) -> Unit, onResend: () -> Unit, onCancel: () -> Unit
+) {
+    Surface(color = Color.White, shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.padding(horizontal = 14.dp).fillMaxWidth().testTag("intercity_verification")) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Default.VerifiedUser, null, tint = CommuteTeal, modifier = Modifier.size(30.dp))
+            Text(intercityText(language, "Verify your phone", "ስልክዎን ያረጋግጡ", "Bilbila kee mirkaneessi"),
+                color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 23.sp)
+            Text(intercityText(language,
+                "Enter the code sent to ${state.testVerificationPhone.orEmpty()} to confirm this test booking. No money will be collected.",
+                "ይህን የሙከራ ቦታ ለማረጋገጥ ወደ ${state.testVerificationPhone.orEmpty()} የተላከውን ኮድ ያስገቡ። ገንዘብ አይከፈልም።",
+                "Ajaja yaalii kana mirkaneessuuf koodii gara ${state.testVerificationPhone.orEmpty()} ergame galchi. Maallaqni hin kaffalamu."),
+                color = CommuteInk, fontSize = 14.sp)
+            OutlinedTextField(verificationCode, { onCodeChange(it.filter(Char::isDigit).take(6)) },
+                enabled = !state.busy, singleLine = true,
+                label = { Text(intercityText(language, "Six-digit code", "ባለ 6 አሃዝ ኮድ", "Koodii lakkoofsa ja'aa")) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                shape = RoundedCornerShape(13.dp), modifier = Modifier.fillMaxWidth().testTag("intercity_test_otp"))
+            state.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            TextButton(onClick = onResend, enabled = !state.busy, modifier = Modifier.testTag("intercity_resend_test")) {
+                Text(intercityText(language, "Resend code", "ኮድ እንደገና ላክ", "Koodii irra deebi'i ergi"), color = CommuteTeal)
+            }
+            Button(enabled = !state.busy && verificationCode.length == 6,
+                onClick = { onVerify(verificationCode) },
+                colors = ButtonDefaults.buttonColors(containerColor = CommuteTeal), shape = RoundedCornerShape(15.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("intercity_verify_test")) {
+                Text(intercityText(language, "Verify & confirm", "አረጋግጥ", "Mirkaneessi"))
+            }
+            OutlinedButton(onClick = onCancel, shape = RoundedCornerShape(15.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("intercity_cancel_test")) {
+                Text(intercityText(language, "Cancel", "ሰርዝ", "Dhiisi"), color = CommuteTeal)
             }
         }
     }
