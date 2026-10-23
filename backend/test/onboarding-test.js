@@ -166,6 +166,51 @@ test('public driver and company onboarding isolates credentials, verifies real d
     assert.equal((await DB.prepare('SELECT assignedRouteId FROM vehicles WHERE driverId=?').get(applicant.account.id)).assignedRouteId, null, 'Acceptance does not allocate a route');
   });
 
+  await t.test('exact-route aliases remain reviewable for new and already stored daily applications', async () => {
+    await DB.prepare("INSERT INTO routes(id,name,nameAm,routeType,origin,destination,basePriceEtb,active) VALUES('onb_alias_route','Alias daily route','Alias daily route','DAILY_COMMUTE','Alias East','Alias West',1234.56,TRUE)").run();
+    for (const [id, name, translated, order] of [['onb_alias_first','Alias East','መነሻ ምስራቅ',1],['onb_alias_last','Alias West','መድረሻ ምዕራብ',2]]) {
+      await DB.prepare('INSERT INTO route_stops(id,routeId,stopName,stopNameAm,stopOrder,latitude,longitude) VALUES(?,?,?,?,?,?,?)').run(id,'onb_alias_route',name,translated,order,9,38);
+    }
+    const variants = [
+      ['0912346061','ONBOARD-ALIAS-CASE',' Ａｌｉａｓ   EAST ','alias west'],
+      ['0912346062','ONBOARD-ALIAS-AM','መነሻ ምስራቅ','መድረሻ ምዕራብ'],
+      ['0912346063','ONBOARD-ALIAS-STORED','Alias East','Alias West']
+    ];
+    let completedApplicant;
+    for (const [phone, plate, departure, destination] of variants) {
+      const registered = await api('/register', 'POST', null, { ...driverInput(phone, plate), proposedDeparture: departure, proposedDestination: destination });
+      assert.equal(registered.status, 201, JSON.stringify(registered.data));
+      const applicant = registered.data, preference = applicant.onboarding.routePreference;
+      assert.equal(preference.routeId, 'onb_alias_route'); assert.equal(preference.mode, 'EXISTING');
+      assert.equal(preference.proposedMonthlyFeeEtb, 9876.48); assert.equal(preference.passengerCapacity, 8);
+      if (plate === 'ONBOARD-ALIAS-STORED') {
+        // Simulate an application already saved before this fix. It must not
+        // require an applicant-side spelling change or a new application.
+        await DB.prepare('UPDATE onboarding_accounts SET proposed_departure=?,proposed_destination=? WHERE account_id=?').run('alias   east','መድረሻ ምዕራብ',applicant.account.id);
+      }
+      const reviewUrl = '/applications/DRIVER/' + applicant.account.id + '/review';
+      assert.equal((await api(reviewUrl, 'POST', admin, { decision: 'APPROVE' })).status, 428, 'Aliases cannot bypass initial acceptance or document verification');
+      await accept(applicant);
+      assert.equal((await getOnboardingReadiness(applicant.account.id, 'DRIVER')).ready, false);
+      assert.equal((await DB.prepare('SELECT assignedRouteId FROM vehicles WHERE driverId=?').get(applicant.account.id)).assignedRouteId, null);
+      completedApplicant = applicant;
+    }
+    await completeDriver(completedApplicant);
+    const reviewUrl = '/applications/DRIVER/' + completedApplicant.account.id + '/review';
+    await DB.prepare("UPDATE routes SET origin='A different origin' WHERE id='onb_alias_route'").run();
+    assert.equal((await api(reviewUrl, 'POST', admin, { decision: 'APPROVE' })).status, 409, 'A genuine endpoint change still needs fresh review');
+    await DB.prepare("UPDATE routes SET origin='Alias East',basePriceEtb=1235 WHERE id='onb_alias_route'").run();
+    assert.equal((await api(reviewUrl, 'POST', admin, { decision: 'APPROVE' })).status, 409, 'A changed passenger fare cannot be silently approved');
+    await DB.prepare("UPDATE routes SET basePriceEtb=1234.56 WHERE id='onb_alias_route'").run();
+    await DB.prepare("UPDATE vehicles SET vehicleType='MINIBUS_14' WHERE driverId=?").run(completedApplicant.account.id);
+    assert.equal((await api(reviewUrl, 'POST', admin, { decision: 'APPROVE' })).status, 409, 'A changed vehicle type cannot reuse the submitted quote');
+    await DB.prepare("UPDATE vehicles SET vehicleType='MINIVAN_8' WHERE driverId=?").run(completedApplicant.account.id);
+    const approved = await api(reviewUrl, 'POST', admin, { decision: 'APPROVE' });
+    assert.equal(approved.status, 200, JSON.stringify(approved.data));
+    assert.equal(approved.data.account.status, 'ACTIVE'); assert.equal(approved.data.onboarding.reviewStatus, 'APPROVED');
+    assert.equal(await isOperationallyEligible(completedApplicant.account.id, 'DRIVER'), true);
+  });
+
   await t.test('rejected initial applications can resubmit unchanged; changed route or fee requires new acceptance', async () => {
     const registered = await api('/register', 'POST', null, driverInput('0912346031','ONBOARD-REJECT'));
     assert.equal(registered.status, 201); const applicant = registered.data;

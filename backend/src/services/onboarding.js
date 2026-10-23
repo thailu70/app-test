@@ -144,6 +144,15 @@ function acceptance(account, record) {
 function requireAcceptance(account, record) {
   if (!acceptance(account, record).canVerifyAndUpload) fail(428, 'Your daily commute application must be accepted by an administrator before phone verification or document upload.');
 }
+function currentEndpointLabel(value, aliases = [], canonical = '') {
+  // Match the quote resolver's NFKC/case/spacing semantics. Existing applications
+  // retain a valid submitted alias so the stale-quote guard does not mistake a
+  // translation or spelling normalization for a route change. A removed alias
+  // falls back to the current endpoint, preserving genuine change detection.
+  if (typeof value !== 'string' || value.trim().length > 120 || /[\u0000-\u001f]/.test(value)) return canonical;
+  const key = label => label.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase();
+  return aliases.some(alias => key(alias) === key(value)) ? value.trim() : canonical;
+}
 async function validatePreference(input, db = DB) {
   const mode = String(input.routeChoice || '').toUpperCase();
   if (input.proposedMonthlyFeeBasis !== undefined && input.proposedMonthlyFeeBasis !== 'PER_VEHICLE') fail(400, 'The proposed monthly fee must be for the whole vehicle per month.');
@@ -156,7 +165,8 @@ async function validatePreference(input, db = DB) {
     const route = await db.prepare("SELECT id,name,basePriceEtb FROM routes WHERE id=? AND active=TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'" + (db.isPostgres ? ' FOR SHARE' : '')).get(id);
     if (!route) fail(400, 'Choose an active daily commute route.');
     const endpoints = (await commuteEndpoints(db)).find(item => item.id === route.id);
-    departure = endpoints?.departure || ''; destination = endpoints?.destination || '';
+    departure = currentEndpointLabel(input.proposedDeparture, endpoints?.departureAliases, endpoints?.departure);
+    destination = currentEndpointLabel(input.proposedDestination, endpoints?.destinationAliases, endpoints?.destination);
     resolved = { routeMatch: { status: 'EXACT', routeId: route.id, routeName: route.name }, price: vehicleMonthlyPrice({ passengerMonthlyFareEtb: route.basePriceEtb }, type) };
   } else {
     if (mode && mode !== 'PROPOSED') fail(400, 'Choose an existing daily commute route or propose a route.');
