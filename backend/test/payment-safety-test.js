@@ -7,15 +7,18 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'passo-payment-safe
 process.env.JWT_SECRET = 'isolated-payment-safety-secret-not-production';
 process.env.QR_SIGNING_KEY = 'isolated-payment-safety-qr-not-production';
 process.env.PAYMENT_MODE = 'PRODUCTION';
+delete process.env.PAYMENT_TESTS_ENABLED;
+delete process.env.PAYMENT_TEST_PASSENGER_ID;
 const { DB } = require('../src/db');
 const { signToken } = require('../src/middleware/auth');
 const telebirr = require('../src/services/telebirr');
 const sms = require('../src/services/afro-sms');
-const { isTestPaymentPhone } = require('../src/services/payment-test');
+const { isTestPaymentPhone, paymentTestsEnabled, initPaymentTestSchema, createPaymentTestService, grantCommuterTestPass } = require('../src/services/payment-test');
 
 test('payment tests require the sole authorized phone, guest ownership proof and replay-safe checkout', async t => {
   await require('../src/services/intercity-schema').initIntercitySchema();
   await require('../src/services/profile-schema').initProfileSchema();
+  await initPaymentTestSchema();
   await DB.exec('CREATE TABLE IF NOT EXISTS transport_companies(id TEXT PRIMARY KEY,name TEXT,phone TEXT,representative_name TEXT,status TEXT)');
   await DB.prepare("INSERT INTO transport_companies(id,name,status) VALUES('safe_company','Test transport','ACTIVE')").run();
   const accounts = [
@@ -66,6 +69,48 @@ test('payment tests require the sole authorized phone, guest ownership proof and
     assert.equal(verified.status,200,JSON.stringify(verified.body)); return verified.body.testPaymentVerificationToken;
   }
   const payer = { passengerName:'Test rider', passengerPhone:'0912469923' };
+
+  await t.test('free payments fail closed by default without SMS, verification, pass or ticket activation', async () => {
+    assert.equal(paymentTestsEnabled(), false);
+    process.env.PAYMENT_TEST_PASSENGER_ID = 'safe_test';
+    const held = await hold(), sentBefore = sent.length;
+    const commuter = await api('/api/subscriptions/telebirr/pay', { routeId:'route_bole_merkato', idempotencyKey:'disabled-test-payment-key', PAYMENT_TESTS_ENABLED:true, paymentTestsEnabled:true }, 'safe_test');
+    assert.equal(commuter.status,403); assert.match(commuter.body.error,/free test payments.*disabled/i);
+    for (const suffix of ['/test-payment/request-otp','/test-payment/verify-otp','/checkout']) {
+      const result = await api(pathFor(held,suffix), {...payer,code:'123456',testPaymentVerificationToken:'a'.repeat(64),paymentTestsEnabled:true}, null, held.bookingSecret);
+      assert.equal(result.status,403); assert.match(result.body.error,/free test payments.*disabled/i);
+    }
+    assert.equal(sent.length,sentBefore);
+    assert.equal((await DB.prepare('SELECT COUNT(*) AS count FROM payment_test_challenges').get()).count,0);
+    assert.equal((await DB.prepare("SELECT COUNT(*) AS count FROM payment_transactions WHERE provider='TEST_AUTO'").get()).count,0);
+    assert.equal((await DB.prepare('SELECT payment_status FROM intercity_bookings WHERE id=?').get(held.booking.id)).payment_status,'UNPAID');
+    assert.equal(await DB.prepare("SELECT id FROM subscriptions WHERE passengerId='safe_test'").get(),undefined);
+    for (const flag of ['', 'false', '0', '1', 'yes']) { process.env.PAYMENT_TESTS_ENABLED=flag; assert.equal(paymentTestsEnabled(),false,flag); }
+    // Only this isolated fixture opts in; no NODE_ENV-based bypass exists.
+    process.env.PAYMENT_TESTS_ENABLED='true';
+    assert.equal(paymentTestsEnabled(),true);
+  });
+
+  await t.test('future commuter tests need the configured account identity as well as its current authorized phone', async () => {
+    delete process.env.PAYMENT_TEST_PASSENGER_ID;
+    const request = { routeId:'route_bole_merkato', idempotencyKey:'unbound-test-payment-key', allowedPassengerId:'safe_test', PAYMENT_TEST_PASSENGER_ID:'safe_test' };
+    assert.equal((await api('/api/subscriptions/telebirr/pay',request,'safe_test')).status,403);
+    process.env.PAYMENT_TEST_PASSENGER_ID='different-account';
+    assert.equal((await api('/api/subscriptions/telebirr/pay',request,'safe_test')).status,403);
+    process.env.PAYMENT_TEST_PASSENGER_ID='safe_test';
+    await DB.prepare("UPDATE users SET phone='0911000088' WHERE id='safe_test'").run();
+    await DB.prepare("UPDATE users SET phone='0912469923' WHERE id='safe_regular'").run();
+    try {
+      assert.equal((await api('/api/subscriptions/telebirr/pay',request,'safe_regular')).status,403,'Claiming the staff phone does not inherit the operator-bound account identity');
+      assert.equal((await api('/api/subscriptions/telebirr/pay',request,'safe_test')).status,503,'The bound account with a changed phone follows ordinary provider checkout, not a free grant');
+      const route=await DB.prepare("SELECT * FROM routes WHERE id='route_bole_merkato'").get();
+      await assert.rejects(() => grantCommuterTestPass({passengerId:'safe_test',route,key:'direct-wrong-phone',signedQr:()=> 'unused'}, DB, {allowedPassengerId:'safe_test',isEnabled:()=>true}), error=>error.status===403);
+      assert.equal((await DB.prepare("SELECT COUNT(*) AS count FROM payment_transactions WHERE provider='TEST_AUTO'").get()).count,0);
+    } finally {
+      await DB.prepare("UPDATE users SET phone='0911000001' WHERE id='safe_regular'").run();
+      await DB.prepare("UPDATE users SET phone='+251912469923' WHERE id='safe_test'").run();
+    }
+  });
 
   await t.test('only canonical variants of the allowed current account phone can test; replay never extends twice', async () => {
     for (const value of ['0912469923','+251912469923','251912469923','912469923',' +251 (912) 469-923 ']) assert.equal(isTestPaymentPhone(value),true,value);
@@ -119,6 +164,28 @@ test('payment tests require the sole authorized phone, guest ownership proof and
     const failure = await hold(); await allowSmsAgain(); smsWorks=false;
     assert.equal((await api(pathFor(failure,'/test-payment/request-otp'),payer,null,failure.bookingSecret)).status,503);
     assert.equal((await api(pathFor(failure,'/test-payment/verify-otp'),{...payer,code:sent.at(-1).code},null,failure.bookingSecret)).status,400); smsWorks=true;
+  });
+
+  await t.test('disabling free mode blocks an already issued proof without consuming it or altering a paid ticket', async () => {
+    const held=await hold(), booking=await DB.prepare('SELECT * FROM intercity_bookings WHERE id=?').get(held.booking.id);
+    const service=createPaymentTestService({sendSms:(...args)=>sms.sendSms(...args)});
+    await allowSmsAgain(); await service.requestOtp(booking,payer.passengerPhone);
+    const token=(await service.verifyOtp(booking,payer.passengerPhone,sent.at(-1).code)).testPaymentVerificationToken;
+    const challenge=await DB.prepare('SELECT * FROM payment_test_challenges WHERE booking_id=?').get(held.booking.id);
+    process.env.PAYMENT_TESTS_ENABLED='false';
+    try {
+      const sentBefore=sent.length;
+      await assert.rejects(()=>service.requestOtp(booking,payer.passengerPhone),error=>error.status===403);
+      await assert.rejects(()=>service.verifyOtp(booking,payer.passengerPhone,sent.at(-1).code),error=>error.status===403);
+      await assert.rejects(()=>DB.transaction(tx=>service.consume(tx,booking,payer.passengerPhone,token)),error=>error.status===403);
+      assert.equal(sent.length,sentBefore);
+      assert.deepEqual(await DB.prepare('SELECT * FROM payment_test_challenges WHERE booking_id=?').get(held.booking.id),challenge);
+      assert.equal((await DB.prepare('SELECT payment_status FROM intercity_bookings WHERE id=?').get(held.booking.id)).payment_status,'UNPAID');
+      const pass=await DB.prepare("SELECT paymentStatus,qrToken,endDate FROM subscriptions WHERE passengerId='safe_test'").get();
+      assert.equal(pass.paymentStatus,'PAID'); assert.ok(pass.qrToken);
+      assert.equal((await api('/api/subscriptions/telebirr/pay',{routeId:'route_bole_merkato',idempotencyKey:'disabled-later-test-key'},'safe_test')).status,403);
+      assert.deepEqual(await DB.prepare("SELECT paymentStatus,qrToken,endDate FROM subscriptions WHERE passengerId='safe_test'").get(),pass);
+    } finally { process.env.PAYMENT_TESTS_ENABLED='true'; }
   });
 
   await t.test('safe provider initialization failure retries the same order; ambiguous submission reconciles before any new order', async () => {

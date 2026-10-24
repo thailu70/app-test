@@ -13,6 +13,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'routepass-admin-ac
 process.env.JWT_SECRET = 'admin-activation-integration-test-jwt-secret';
 process.env.QR_SIGNING_KEY = 'admin-activation-integration-test-qr-secret';
 process.env.PAYMENT_MODE = 'PRODUCTION';
+process.env.PAYMENT_TESTS_ENABLED = 'false';
 delete process.env.ALLOW_ADMIN_PASS_ACTIVATION;
 delete process.env.ALLOW_MANUAL_TEST_RECHARGE;
 
@@ -32,6 +33,7 @@ test('temporary admin grants are authorized, audited, production opt-in, and cre
     process.env.NODE_ENV = 'test';
     delete process.env.ALLOW_ADMIN_PASS_ACTIVATION;
     delete process.env.ALLOW_MANUAL_TEST_RECHARGE;
+    delete process.env.PAYMENT_TESTS_ENABLED;
     await new Promise((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
   });
   const baseUrl = 'http://127.0.0.1:' + server.address().port;
@@ -198,5 +200,53 @@ test('temporary admin grants are authorized, audited, production opt-in, and cre
     const stats = await request('GET', '/api/admin/stats', adminToken);
     assert.equal(stats.status, 200);
     assert.equal(stats.data.stats.totalRevenueEtb, initialStats.data.stats.totalRevenueEtb);
+  });
+
+  await t.test('manual test recharge requires the global switch, legacy opt-in and an automated-test process', async () => {
+    await createUser('activation_recharge_passenger', 'PASSENGER');
+    await createSub('activation_recharge', 'activation_recharge_passenger');
+    const route = '/api/admin/subscriptions/activation_recharge/recharge';
+    const before = await DB.prepare('SELECT * FROM subscriptions WHERE id = ?').get('activation_recharge');
+    try {
+      process.env.ALLOW_MANUAL_TEST_RECHARGE = 'true';
+      for (const switchValue of [undefined, 'false']) {
+        if (switchValue === undefined) delete process.env.PAYMENT_TESTS_ENABLED;
+        else process.env.PAYMENT_TESTS_ENABLED = switchValue;
+        const features = await request('GET', '/api/admin/features', adminToken);
+        assert.equal(features.data.manualTestRechargeEnabled, false);
+        const denied = await request('POST', route, adminToken, { days: 30 });
+        assert.equal(denied.status, 403);
+        assert.equal(denied.data.code, 'PAYMENT_TESTS_DISABLED');
+      }
+      process.env.PAYMENT_TESTS_ENABLED = 'true';
+      delete process.env.ALLOW_MANUAL_TEST_RECHARGE;
+      let denied = await request('POST', route, adminToken, { days: 30 });
+      assert.equal(denied.status, 403);
+      assert.equal(denied.data.code, 'MANUAL_TEST_RECHARGE_DISABLED');
+      process.env.ALLOW_MANUAL_TEST_RECHARGE = 'true';
+      process.env.NODE_ENV = 'production';
+      denied = await request('POST', route, adminToken, { days: 30 });
+      assert.equal(denied.status, 403);
+      assert.equal(denied.data.code, 'MANUAL_TEST_RECHARGE_DISABLED');
+      assert.equal((await request('GET', '/api/admin/features', adminToken)).data.manualTestRechargeEnabled, false);
+      assert.deepEqual(await DB.prepare('SELECT * FROM subscriptions WHERE id = ?').get('activation_recharge'), before);
+      assert.equal((await DB.prepare('SELECT COUNT(*) AS c FROM payment_transactions').get()).c, paymentCountBefore);
+
+      process.env.NODE_ENV = 'test';
+      assert.equal((await request('GET', '/api/admin/features', adminToken)).data.manualTestRechargeEnabled, true);
+      const allowed = await request('POST', route, adminToken, { days: 30 });
+      assert.equal(allowed.status, 200, JSON.stringify(allowed.data));
+      assert.equal(allowed.data.transaction.provider, 'ADMIN_TEST');
+      assert.equal(allowed.data.transaction.realPayment, false);
+      const after = await DB.prepare('SELECT * FROM subscriptions WHERE id = ?').get('activation_recharge');
+      assert.equal(after.subscriptionStatus, 'ACTIVE');
+      assert.equal(after.paymentStatus, 'PAID');
+      assert.equal(verifySignedQrToken(after.qrToken).valid, true);
+      assert.equal((await DB.prepare("SELECT COUNT(*) AS c FROM payment_transactions WHERE provider = 'ADMIN_TEST'").get()).c, 1);
+    } finally {
+      process.env.NODE_ENV = 'test';
+      process.env.PAYMENT_TESTS_ENABLED = 'false';
+      delete process.env.ALLOW_MANUAL_TEST_RECHARGE;
+    }
   });
 });

@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const { DB } = require('../db');
 const { signToken, authenticate } = require('../middleware/auth');
 const { sendSms } = require('../services/afro-sms');
+const { accountPhonePolicy } = require('../services/account-phone-policy');
 const sha256 = value => crypto.createHash('sha256').update(String(value)).digest('hex');
 const normalizePhone = value => String(value || '').trim();
 
@@ -70,17 +71,11 @@ router.post('/register', authLimiter, async (req, res) => {
       ,otpVerificationToken = ''
     } = req.body;
 
-    if (!fullName || !phone || !password || !role) {
+    if (typeof fullName !== 'string' || !fullName.trim() || typeof phone !== 'string' || !phone.trim() || !password || typeof role !== 'string' || !role.trim()) {
       return res.status(400).json({
         success: false,
         error: 'Missing required fields: fullName, phone, password, role are mandatory.'
       });
-    }
-
-    if (process.env.NODE_ENV !== 'test' && ['PASSENGER', 'DRIVER'].includes(String(role).toUpperCase())) {
-      const otp = await DB.prepare('SELECT id FROM auth_otps WHERE phone=? AND purpose=? AND verification_token_hash=? AND verified_at IS NOT NULL AND expires_at>CURRENT_TIMESTAMP ORDER BY created_at DESC LIMIT 1').get(String(phone).trim(), 'REGISTRATION', sha256(otpVerificationToken));
-      if (!otp) return res.status(428).json({ success: false, error: 'Verify your phone number by SMS before completing registration.' });
-      await DB.prepare('UPDATE auth_otps SET verification_token_hash=NULL WHERE id=?').run(otp.id);
     }
 
     if (typeof password !== 'string' || password.length < 10) {
@@ -93,6 +88,20 @@ router.post('/register', authLimiter, async (req, res) => {
         success: false,
         error: "Invalid role. Must be 'PASSENGER', 'DRIVER', or 'ADMIN'."
       });
+    }
+
+    const normalizedPhone = require('../services/onboarding').normalizePhone(phone);
+    if (!normalizedPhone) {
+      return res.status(400).json({ success: false, error: 'Enter a valid Ethiopian mobile phone number.' });
+    }
+
+    // Account ownership verification is temporarily optional for passengers and
+    // drivers. This policy never marks a number verified and does not apply to
+    // password recovery, payment ownership proofs or provider confirmations.
+    if (['PASSENGER', 'DRIVER'].includes(normalizedRole) && accountPhonePolicy({ role: normalizedRole }).phoneVerificationRequiredForRegistration) {
+      const otp = await DB.prepare('SELECT id FROM auth_otps WHERE phone=? AND purpose=? AND verification_token_hash=? AND verified_at IS NOT NULL AND expires_at>CURRENT_TIMESTAMP ORDER BY created_at DESC LIMIT 1').get(phone.trim(), 'REGISTRATION', sha256(otpVerificationToken));
+      if (!otp) return res.status(428).json({ success: false, error: 'Verify your phone number by SMS before completing registration.' });
+      await DB.prepare('UPDATE auth_otps SET verification_token_hash=NULL WHERE id=?').run(otp.id);
     }
 
     // Dual ownership model: no company selected means Daily Commute (driver-owned vehicle);
@@ -146,7 +155,6 @@ router.post('/register', authLimiter, async (req, res) => {
       const commuteRoute = await DB.prepare("SELECT id FROM routes WHERE id=? AND active=TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'").get(appliedRouteId);
       if (!commuteRoute) return res.status(400).json({success:false,error:'Choose an active daily commute route. Intercity tickets do not require registration.'});
     }
-    const normalizedPhone = require('../services/onboarding').normalizePhone(phone);
     const existing = await DB.prepare('SELECT id FROM users WHERE phone = ?').get(phone.trim());
     const phoneAvailable = !normalizedPhone || await require('../services/onboarding').phoneAvailable(normalizedPhone, null);
     if (existing || !phoneAvailable) {

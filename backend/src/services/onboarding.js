@@ -6,6 +6,7 @@ const path = require('path');
 const { DB } = require('../db');
 const { initProfileSchema } = require('./profile-schema');
 const { commuteQuote, commuteEndpoints, vehicleMonthlyPrice } = require('./commute-quote');
+const { accountPhonePolicy } = require('./account-phone-policy');
 
 const REQUIRED = Object.freeze({ DRIVER: ['LICENSE', 'VEHICLE_REGISTRATION', 'INSURANCE', 'PHOTO'], COMPANY: ['BUSINESS_LICENSE', 'REGISTRATION', 'REPRESENTATIVE_ID'] });
 const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
@@ -195,12 +196,14 @@ async function currentPreference(id, record, db) {
 }
 async function getOnboardingReadiness(id, role, db = DB, { requireSubmission = true } = {}) {
   const record = await enrollment(id, role, db);
-  if (!record) return { tracked: false, ready: true, missing: [], phoneVerified: false, submittedAt: null, reviewStatus: null };
+  if (!record) return { tracked: false, ready: true, missing: [], reviewReady: true, reviewMissing: [], phoneVerificationRequiredForApproval: false, phoneVerificationRequiredForAllocation: false, phoneVerified: false, submittedAt: null, reviewStatus: null };
   const account = await loadAccount(id, role, db);
   const initial = acceptance(account, record);
   const currentPhone = normalizePhone(account?.phone);
   const phoneVerified = Boolean(currentPhone && record.phone_verified_at && record.phone_verified_for === currentPhone && record.normalized_phone === currentPhone);
-  const missing = phoneVerified ? [] : ['PHONE_VERIFICATION'];
+  const policy = accountPhonePolicy(account, role);
+  const missing = !phoneVerified && policy.phoneVerificationRequiredForAllocation ? ['PHONE_VERIFICATION'] : [];
+  if (!currentPhone) missing.unshift('PHONE_NUMBER');
   if (initial.acceptanceRequired && !initial.acceptedAt) missing.unshift('ADMIN_ACCEPTANCE');
   missing.unshift(...initial.initialMissing);
   const saved = await documents(id, role, db);
@@ -212,7 +215,10 @@ async function getOnboardingReadiness(id, role, db = DB, { requireSubmission = t
     if (!profile.vehicle_color) missing.push('VEHICLE_COLOR');
   }
   if (requireSubmission && !record.submitted_at) missing.push('SUBMIT_FOR_REVIEW');
-  return { tracked: true, ready: missing.length === 0, missing, phoneVerified,
+  const reviewMissing = missing.filter(item => item !== 'PHONE_VERIFICATION');
+  if (!phoneVerified && policy.phoneVerificationRequiredForApproval) reviewMissing.push('PHONE_VERIFICATION');
+  return { tracked: true, ready: missing.length === 0, missing, reviewReady: reviewMissing.length === 0, reviewMissing,
+    phoneVerificationRequiredForApproval: policy.phoneVerificationRequiredForApproval, phoneVerificationRequiredForAllocation: policy.phoneVerificationRequiredForAllocation, phoneVerified,
     submittedAt: record.submitted_at || null, reviewStatus: record.review_status, reviewNote: record.review_note || '', ...initial };
 }
 async function isOperationallyEligible(id, role, db = DB) {
@@ -231,7 +237,7 @@ async function markOnboardingReviewed(id, role, decision, reviewer, note = '', d
   if (decision === 'APPROVED' && acceptance(account, record).acceptanceRequired && completePreference(record) && !(record.acceptance_grandfathered === true || record.acceptance_grandfathered === 1)) {
     if (JSON.stringify(await currentPreference(id, record, db)) !== JSON.stringify(routePreference(record))) fail(409, 'The route or vehicle monthly price has changed. The applicant must refresh and resubmit their application.');
   }
-  if (decision === 'APPROVED' && !(await getOnboardingReadiness(id, role, db)).ready) fail(428, 'The applicant must verify their phone, complete all required information and submit for review.');
+  if (decision === 'APPROVED' && !(await getOnboardingReadiness(id, role, db)).reviewReady) fail(428, 'Complete every required approval step and submit the application for review.');
   if (decision === 'REJECTED' && acceptance(account, record).acceptanceRequired) {
     await db.prepare("UPDATE onboarding_accounts SET acceptance_status='REJECTED',accepted_at=NULL,accepted_by=NULL,acceptance_grandfathered=FALSE WHERE account_id=?").run(id);
     await db.prepare('DELETE FROM onboarding_otps WHERE account_id=?').run(id);
@@ -562,7 +568,7 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
         return;
       }
       const ready = await getOnboardingReadiness(id, role, tx, { requireSubmission: false });
-      if (!ready.ready) fail(428, 'Complete phone verification and every required document and profile field before submitting.');
+      if (!ready.reviewReady) fail(428, 'Complete every required approval step, document and profile field before submitting.');
       if (ready.reviewStatus === 'APPROVED') return;
       await tx.prepare("UPDATE onboarding_accounts SET submitted_at=?,review_status='SUBMITTED',review_note='',reviewed_at=NULL,reviewed_by=NULL,updated_at=? WHERE account_id=?").run(time(), time(), id);
     });

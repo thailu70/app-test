@@ -14,6 +14,7 @@
  */
 
 const http = require('http');
+const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -24,6 +25,8 @@ process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = '';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'routepass-api-integration-'));
 process.env.PAYMENT_MODE = 'TEST';
+// Simulator access is opt-in, even in this isolated automated-test database.
+process.env.PAYMENT_TESTS_ENABLED = 'false';
 
 const { server, initializeFeatureSchemas } = require('../src/server');
 const { DB } = require('../src/db');
@@ -159,7 +162,27 @@ async function runTests() {
     }
     console.log('✓ [8/13] Subscription status check correctly prompts:', initialStatus.data.message);
 
-    // 6. Telebirr Payment with Idempotency activates subscription and issues signed QR
+    // An unset/disabled global switch, or a production process, must never grant
+    // a simulated pass, even when the legacy PAYMENT_MODE still says TEST.
+    const beforePayment = await DB.prepare('SELECT * FROM subscriptions WHERE passengerId = ?').get(newPasReg.data.user.id);
+    const paymentsBefore = (await DB.prepare('SELECT COUNT(*) AS c FROM payment_transactions').get()).c;
+    for (const [switchValue, nodeEnv] of [[undefined, 'test'], ['false', 'test'], ['true', 'production']]) {
+      if (switchValue === undefined) delete process.env.PAYMENT_TESTS_ENABLED;
+      else process.env.PAYMENT_TESTS_ENABLED = switchValue;
+      process.env.NODE_ENV = nodeEnv;
+      const denied = await makeRequest('POST', '/api/subscriptions/telebirr/pay', {
+        routeId: 'route_bole_merkato', idempotencyKey: 'DISABLED-SIMULATOR'
+      }, newPasToken);
+      assert.equal(denied.status, 403, JSON.stringify(denied.data));
+      assert.equal(denied.data.code, 'PAYMENT_TESTS_DISABLED');
+      assert.equal((await DB.prepare('SELECT COUNT(*) AS c FROM payment_transactions').get()).c, paymentsBefore);
+      assert.deepEqual(await DB.prepare('SELECT * FROM subscriptions WHERE passengerId = ?').get(newPasReg.data.user.id), beforePayment);
+    }
+    process.env.NODE_ENV = 'test';
+    process.env.PAYMENT_TESTS_ENABLED = 'true';
+    console.log('✓ Payment simulator is closed by default and forbidden in production without creating a pass or payment');
+
+    // 6. Explicitly enabled automated-test Telebirr simulation with idempotency
     const testIdempotencyKey = 'IDEM-TEST-' + Date.now();
     const telebirrPayment1 = await makeRequest('POST', '/api/subscriptions/telebirr/pay', {
       routeId: 'route_bole_merkato',
@@ -169,6 +192,7 @@ async function runTests() {
     if (!telebirrPayment1.data.success || telebirrPayment1.data.subscription.status !== 'ACTIVE') {
       throw new Error('Telebirr payment failed to activate subscription: ' + JSON.stringify(telebirrPayment1.data));
     }
+    assert.equal(telebirrPayment1.data.transaction.provider, 'Telebirr-TestSandbox');
     const signedQrToken = telebirrPayment1.data.subscription.qrToken;
     if (!signedQrToken || !signedQrToken.startsWith('RP1:')) {
       throw new Error('Invalid server-signed QR token generated: ' + signedQrToken);

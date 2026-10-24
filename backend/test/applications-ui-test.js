@@ -78,6 +78,36 @@ test('initial acceptance reviews the route and whole-vehicle fee while final all
   assert.match(f.node('[data-application-detail]').innerHTML, /8 seats × 2,500\.00 ETB per passenger \/ month/);
   f.click('[data-application-decision]', { applicationDecision: 'ACCEPT' }); await flush();
   assert.equal(decision.decision, 'ACCEPT');
-  assert.match(f.node('[data-application-message]').textContent, /Passenger allocation stays locked/);
+  assert.match(f.node('[data-application-message]').textContent, /upload documents for final approval/);
+  f.cleanup();
+});
+
+test('driver approval uses review readiness while truthful phone status remains unverified', async () => {
+  let decision;
+  const account = { id: 'otp-deferred-driver', role: 'DRIVER', fullName: 'Test driver', status: 'PENDING' };
+  const onboarding = { acceptanceRequired: true, acceptedAt: '2026-10-23T00:00:00Z', submittedAt: '2026-10-23T01:00:00Z',
+    ready: false, missing: ['PHONE_VERIFICATION'], reviewReady: true, reviewMissing: [], phoneVerified: false,
+    phoneVerificationRequiredForApproval: false, phoneVerificationRequiredForAllocation: false,
+    documents: [{ kind: 'LICENSE' }], routePreference: {} };
+  const f = fixture(async (path, options) => {
+    if (path.endsWith('/review')) { decision = JSON.parse(options.body); return { account, onboarding }; }
+    return path.endsWith('/applications') ? { applications: [{ ...account, onboarding }] } : { account, onboarding };
+  });
+  await flush();
+  assert.match(f.node('[data-application-list]').innerHTML, /Verification deferred/);
+  f.click('[data-application-open]', { applicationRole: 'DRIVER', applicationOpen: account.id }); await flush();
+  let html = f.node('[data-application-detail]').innerHTML;
+  assert.match(html, /Not yet verified/);
+  assert.match(html, /OTP is not required for driver approval or passenger allocation at present/);
+  assert.doesNotMatch(html, /The phone and required documents are complete/);
+  assert.match(html, /data-application-decision="APPROVE">/);
+  f.click('[data-application-decision]', { applicationDecision: 'APPROVE' }); await flush();
+  assert.equal(decision.decision, 'APPROVE');
+  assert.match(f.node('[data-application-message]').textContent, /Passenger allocation is now available/);
+  onboarding.reviewReady = false; onboarding.reviewMissing = ['INSURANCE'];
+  f.click('[data-application-open]', { applicationRole: 'DRIVER', applicationOpen: account.id }); await flush();
+  html = f.node('[data-application-detail]').innerHTML;
+  assert.match(html, /Missing: Insurance/);
+  assert.match(html, /data-application-decision="APPROVE" disabled/);
   f.cleanup();
 });

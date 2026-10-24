@@ -173,7 +173,7 @@ router.patch('/operations/drivers/:id/approval', authenticate, requireRole('COMP
     await DB.transaction(async tx => {
       if (action === 'APPROVE') {
         const readiness = await getOnboardingReadiness(driver.id, 'DRIVER', tx);
-        if (!readiness.ready || !await isOperationallyEligible(companyId, 'COMPANY', tx)) throw Object.assign(new Error('Complete company approval and driver phone verification, required documents and submission before approval.'), { status: 409, code: 'ONBOARDING_REQUIRED' });
+        if (!readiness.ready || !await isOperationallyEligible(companyId, 'COMPANY', tx)) throw Object.assign(new Error('Complete company approval and the required driver application steps, documents and submission before approval.'), { status: 409, code: 'ONBOARDING_REQUIRED' });
       }
       await tx.prepare("UPDATE users SET status=? WHERE id=? AND companyId=? AND role='DRIVER'").run(status,req.params.id,companyId);
       await markOnboardingReviewed(driver.id, 'DRIVER', action === 'APPROVE' ? 'APPROVED' : 'REJECTED', req.user.id, '', tx);

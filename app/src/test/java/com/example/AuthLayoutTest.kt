@@ -172,10 +172,13 @@ class AuthLayoutTest {
         assertFalse(model.isAuthenticated.value)
     }
 
-    @Test fun passengerSignupFirstStepMatchesMockupAndDoesNotSubmitUnverifiedAccount() {
+    @Test fun passengerSignupFirstStepMatchesMockupAndWaitsForExplicitRegistration() {
         show(AppRole.PASSENGER, signup = true)
         compose.onNodeWithTag("auth_full_name_input").assertIsDisplayed()
         compose.onNodeWithTag("auth_confirm_password_input").assertIsDisplayed()
+        compose.onNodeWithTag("auth_verification_notice").assertExists()
+        compose.onNodeWithTag("auth_step_2").assertDoesNotExist()
+        compose.onNodeWithTag("auth_otp_input").assertDoesNotExist()
         assertPrimaryInsideViewport()
         capture("02-passenger-sign-up")
         assertTrue(registrations.isEmpty())
@@ -183,10 +186,13 @@ class AuthLayoutTest {
         assertFalse(model.isAuthenticated.value)
     }
 
-    @Test fun driverSignupFirstStepMatchesMockupAndDefersDriverDetailsUntilVerification() {
+    @Test fun driverSignupFirstStepMatchesMockupAndKeepsIdentityBeforeDriverDetails() {
         show(AppRole.DRIVER, signup = true)
         compose.onNodeWithTag("auth_full_name_input").assertIsDisplayed()
         compose.onNodeWithTag("auth_confirm_password_input").assertIsDisplayed()
+        compose.onNodeWithTag("auth_verification_notice").assertExists()
+        compose.onNodeWithTag("auth_step_2").assertDoesNotExist()
+        compose.onNodeWithTag("auth_otp_input").assertDoesNotExist()
         compose.onNodeWithTag("auth_driver_license_input").assertDoesNotExist()
         assertPrimaryInsideViewport()
         capture("04-driver-sign-up")
@@ -195,7 +201,7 @@ class AuthLayoutTest {
         assertFalse(model.isAuthenticated.value)
     }
 
-    @Test fun accountValidationPrecedesSmsAndVerifiedPhonePrecedesDriverDetails() {
+    @Test fun accountValidationStillPrecedesDriverDetailsWithoutRequestingPhoneVerification() {
         show(AppRole.DRIVER, signup = true)
         compose.onNodeWithTag("auth_full_name_input").performTextInput("Native Test Driver")
         compose.onNodeWithTag("auth_phone_input").performTextInput("0912345678")
@@ -203,47 +209,50 @@ class AuthLayoutTest {
         compose.onNodeWithTag("auth_confirm_password_input").performTextInput("short")
         compose.onNodeWithTag("auth_submit_button").performClick()
         compose.waitForIdle()
-        assertTrue("A short password must not request an SMS code", requestedCodes.isEmpty())
+        assertTrue(requestedCodes.isEmpty())
+        compose.onNodeWithText("Use a password with at least 10 characters.").assertExists()
+        compose.onNodeWithTag("auth_details").assertDoesNotExist()
 
         compose.onNodeWithTag("auth_password_input").performTextReplacement("valid-test-password")
         compose.onNodeWithTag("auth_confirm_password_input").performTextReplacement("different-password")
         compose.onNodeWithTag("auth_submit_button").performClick()
         compose.waitForIdle()
-        assertTrue("Mismatching passwords must not request an SMS code", requestedCodes.isEmpty())
+        assertTrue(requestedCodes.isEmpty())
+        compose.onNodeWithText("The passwords do not match.").assertExists()
+        compose.onNodeWithTag("auth_details").assertDoesNotExist()
 
         compose.onNodeWithTag("auth_confirm_password_input").performTextReplacement("valid-test-password")
         compose.onNodeWithTag("auth_submit_button").performClick()
-        compose.waitUntil(5_000) { requestedCodes.isNotEmpty() }
-        assertEquals(mapOf("phone" to "0912345678", "purpose" to "REGISTRATION"), requestedCodes.single())
-        compose.onNodeWithTag("auth_otp_input").assertExists().performTextInput("123456")
-        compose.onNodeWithTag("auth_otp_verify").performClick()
-        compose.waitUntil(5_000) { verifiedCodes.isNotEmpty() }
-        assertEquals(mapOf("phone" to "0912345678", "purpose" to "REGISTRATION", "code" to "123456"), verifiedCodes.single())
+        compose.onNodeWithTag("auth_otp_input").assertDoesNotExist()
+        compose.onNodeWithTag("auth_otp_verify").assertDoesNotExist()
+        assertTrue(requestedCodes.isEmpty())
+        assertTrue(verifiedCodes.isEmpty())
         compose.onNodeWithTag("auth_details").assertExists()
         compose.onNodeWithTag("auth_driver_license_input").assertExists()
-        assertTrue("Phone verification alone must not create an account", registrations.isEmpty())
+        assertTrue("Continuing to details must not create an account", registrations.isEmpty())
         assertFalse(model.isAuthenticated.value)
-        capture("05-driver-details-after-verified-phone")
+        capture("05-driver-details-verification-optional")
     }
 
-    private fun completeVerifiedDriverDetails() {
+    private fun completeDriverDetailsWithoutPhoneVerification() {
         show(AppRole.DRIVER, signup = true)
         compose.onNodeWithTag("auth_full_name_input").performTextInput("Native Test Driver")
         compose.onNodeWithTag("auth_phone_input").performTextInput("0912345678")
         compose.onNodeWithTag("auth_password_input").performTextInput("valid-test-password")
         compose.onNodeWithTag("auth_confirm_password_input").performTextInput("valid-test-password")
         compose.onNodeWithTag("auth_submit_button").performClick()
-        compose.waitUntil(5_000) { requestedCodes.isNotEmpty() }
-        compose.onNodeWithTag("auth_otp_input").performTextInput("123456")
-        compose.onNodeWithTag("auth_otp_verify").performClick()
+        compose.onNodeWithTag("auth_details").assertExists()
+        compose.onNodeWithTag("auth_otp_input").assertDoesNotExist()
+        assertTrue(requestedCodes.isEmpty())
+        assertTrue(verifiedCodes.isEmpty())
         compose.onNodeWithTag("auth_driver_license_input").performScrollTo().performTextInput("LIC-TEST-24")
         compose.onNodeWithTag("auth_driver_vehicle_plate_input").performScrollTo().performTextInput("AA-TEST-24")
         compose.onNodeWithTag("auth_driver_vehicle_model_input").performScrollTo().performTextInput("Toyota Hiace")
         compose.onNodeWithTag("auth_route_route-auth-test").performScrollTo().performClick()
     }
 
-    @Test fun verifiedDriverSubmissionPreservesLicenceVehicleAndPendingApproval() {
-        completeVerifiedDriverDetails()
+    @Test fun unverifiedDriverSubmissionPreservesLicenceVehicleAndPendingApproval() {
+        completeDriverDetailsWithoutPhoneVerification()
         assertEquals("Registration details use the injected catalog client", 1, vehicleCatalogRequests)
         compose.onNodeWithTag("auth_driver_vehicle_type").performScrollTo()
         compose.onNodeWithText("Executive Coach · 53 seats").assertExists()
@@ -260,7 +269,9 @@ class AuthLayoutTest {
         assertEquals("DRIVER", request.role)
         assertEquals("Native Test Driver", request.fullName)
         assertEquals("0912345678", request.phone)
-        assertEquals("private-test-phone-verification", request.otpVerificationToken)
+        assertNull("Deferred account verification must not invent a phone proof", request.otpVerificationToken)
+        assertTrue(requestedCodes.isEmpty())
+        assertTrue(verifiedCodes.isEmpty())
         assertEquals("LIC-TEST-24", request.licenseNumber)
         assertEquals("AA-TEST-24", request.assignedVehiclePlate)
         assertEquals("Toyota Hiace", request.vehicleModel)
@@ -272,7 +283,7 @@ class AuthLayoutTest {
 
     @Test fun successfulEmptyVehicleCatalogDoesNotOfferFallbackTypesOrSubmitAnUnavailableVehicle() {
         vehicleCatalog = VehicleTypesResponse(true, emptyList())
-        completeVerifiedDriverDetails()
+        completeDriverDetailsWithoutPhoneVerification()
         assertEquals(1, vehicleCatalogRequests)
         compose.onNodeWithTag("auth_driver_vehicle_type").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithText("No vehicle types are currently available. Contact your administrator.").assertExists()
@@ -281,16 +292,17 @@ class AuthLayoutTest {
         assertTrue(registrations.isEmpty())
     }
 
-    @Test fun verifiedPassengerSubmissionKeepsSelectedDailyRouteAndServerAuthenticationGate() {
+    @Test fun unverifiedPassengerSubmissionKeepsSelectedDailyRouteAndServerAuthenticationGate() {
         show(AppRole.PASSENGER, signup = true)
         compose.onNodeWithTag("auth_full_name_input").performTextInput("Native Test Passenger")
         compose.onNodeWithTag("auth_phone_input").performTextInput("0912345678")
         compose.onNodeWithTag("auth_password_input").performTextInput("valid-test-password")
         compose.onNodeWithTag("auth_confirm_password_input").performTextInput("valid-test-password")
         compose.onNodeWithTag("auth_submit_button").performClick()
-        compose.waitUntil(5_000) { requestedCodes.isNotEmpty() }
-        compose.onNodeWithTag("auth_otp_input").performTextInput("123456")
-        compose.onNodeWithTag("auth_otp_verify").performClick()
+        compose.onNodeWithTag("auth_details").assertExists()
+        compose.onNodeWithTag("auth_otp_input").assertDoesNotExist()
+        assertTrue(requestedCodes.isEmpty())
+        assertTrue(verifiedCodes.isEmpty())
         compose.onNodeWithTag("auth_route_route-auth-test").performScrollTo().performClick()
         compose.onNodeWithTag("auth_tier_Economy").performScrollTo().performClick().assertIsSelected()
         compose.onNodeWithTag("auth_passenger_submit").performScrollTo().performClick()
@@ -299,41 +311,41 @@ class AuthLayoutTest {
         assertEquals("PASSENGER", request.role)
         assertEquals("route-auth-test", request.appliedRouteId)
         assertEquals("Bole → CMC", request.appliedRouteName)
-        assertEquals("private-test-phone-verification", request.otpVerificationToken)
+        assertNull("Deferred account verification must not invent a phone proof", request.otpVerificationToken)
+        assertTrue(requestedCodes.isEmpty())
+        assertTrue(verifiedCodes.isEmpty())
         assertNull(request.licenseNumber)
         assertNull(request.assignedVehiclePlate)
         assertTrue(logins.isEmpty())
         assertFalse("Registration must wait for server acceptance", model.isAuthenticated.value)
     }
 
-    @Test fun changingVerifiedPhoneRequiresNewSmsVerificationBeforeDriverDetails() {
-        show(AppRole.DRIVER, signup = true)
-        compose.onNodeWithTag("auth_full_name_input").performTextInput("Native Test Driver")
+    @Test fun changingAccountPhoneRevalidatesIdentityAndUsesLatestPhoneWithoutSms() {
+        show(AppRole.PASSENGER, signup = true)
+        compose.onNodeWithTag("auth_full_name_input").performTextInput("Native Test Passenger")
         compose.onNodeWithTag("auth_phone_input").performTextInput("0912345678")
         compose.onNodeWithTag("auth_password_input").performTextInput("valid-test-password")
         compose.onNodeWithTag("auth_confirm_password_input").performTextInput("valid-test-password")
         compose.onNodeWithTag("auth_submit_button").performClick()
-        compose.waitUntil(5_000) { requestedCodes.isNotEmpty() }
-        compose.onNodeWithTag("auth_otp_input").performTextInput("123456")
-        compose.onNodeWithTag("auth_otp_verify").performClick()
         compose.onNodeWithTag("auth_details").assertExists()
-        compose.onNodeWithTag("auth_header_back").performClick()
-        compose.onNodeWithTag("auth_phone_edit").performClick()
-        compose.onNodeWithTag("auth_phone_input").performTextReplacement("0912345679")
+        compose.onNodeWithTag("auth_header_back").performScrollTo().performClick()
+        compose.onNodeWithTag("auth_phone_input").performTextReplacement("invalid")
         compose.onNodeWithTag("auth_submit_button").performClick()
-        compose.waitUntil(5_000) { requestedCodes.size == 2 }
-        assertEquals("0912345679", requestedCodes.last()["phone"])
-        compose.onNodeWithTag("auth_otp_verify").assertIsNotEnabled()
+        compose.onNodeWithText("Enter a valid mobile number.").assertExists()
         compose.onNodeWithTag("auth_details").assertDoesNotExist()
-        assertEquals(1, verifiedCodes.size)
         assertTrue(registrations.isEmpty())
 
-        compose.onNodeWithTag("auth_otp_input").performTextInput("654321")
-        compose.onNodeWithTag("auth_otp_verify").performClick()
-        compose.waitUntil(5_000) { verifiedCodes.size == 2 }
-        assertEquals("0912345679", verifiedCodes.last()["phone"])
-        assertEquals("654321", verifiedCodes.last()["code"])
+        compose.onNodeWithTag("auth_phone_input").performTextReplacement("0912345679")
+        compose.onNodeWithTag("auth_submit_button").performClick()
         compose.onNodeWithTag("auth_details").assertExists()
+        compose.onNodeWithTag("auth_route_route-auth-test").performScrollTo().performClick()
+        compose.onNodeWithTag("auth_passenger_submit").performScrollTo().performClick()
+        compose.waitUntil(5_000) { registrations.isNotEmpty() }
+        assertEquals("0912345679", registrations.single().phone)
+        assertNull(registrations.single().otpVerificationToken)
+        assertTrue(requestedCodes.isEmpty())
+        assertTrue(verifiedCodes.isEmpty())
+        assertFalse(model.isAuthenticated.value)
     }
 
     @Test fun repeatedIdenticalLoginFailuresAlwaysReenableNativeSignIn() {
@@ -350,16 +362,17 @@ class AuthLayoutTest {
         assertFalse(model.isAuthenticated.value)
     }
 
-    @Test fun verifiedPassengerCanRequestCustomCommuteWithoutPretendingAnExistingRouteWasAssigned() {
+    @Test fun unverifiedPassengerCanRequestCustomCommuteWithoutPretendingAnExistingRouteWasAssigned() {
         show(AppRole.PASSENGER, signup = true, customRoute = true)
         compose.onNodeWithTag("auth_full_name_input").performTextInput("Native Test Passenger")
         compose.onNodeWithTag("auth_phone_input").performTextInput("0912345678")
         compose.onNodeWithTag("auth_password_input").performTextInput("valid-test-password")
         compose.onNodeWithTag("auth_confirm_password_input").performTextInput("valid-test-password")
         compose.onNodeWithTag("auth_submit_button").performClick()
-        compose.waitUntil(5_000) { requestedCodes.isNotEmpty() }
-        compose.onNodeWithTag("auth_otp_input").performTextInput("123456")
-        compose.onNodeWithTag("auth_otp_verify").performClick()
+        compose.onNodeWithTag("auth_details").assertExists()
+        compose.onNodeWithTag("auth_otp_input").assertDoesNotExist()
+        assertTrue(requestedCodes.isEmpty())
+        assertTrue(verifiedCodes.isEmpty())
         compose.onNodeWithTag("auth_route_route-auth-test").assertDoesNotExist()
         compose.onNodeWithTag("auth_passenger_pickup_input").performScrollTo().performTextInput("Alem Gena")
         compose.onNodeWithTag("auth_passenger_destination_input").performScrollTo().performTextInput("CMC")
@@ -370,7 +383,9 @@ class AuthLayoutTest {
         val request = registrations.single()
         assertNull("A proposed route must not submit a fabricated route identifier", request.appliedRouteId)
         assertEquals("Requested commuter route | Pickup: Alem Gena | Destination: CMC | Journey: Two way | Tier: Economy", request.appliedRouteName)
-        assertEquals("private-test-phone-verification", request.otpVerificationToken)
+        assertNull("Deferred account verification must not invent a phone proof", request.otpVerificationToken)
+        assertTrue(requestedCodes.isEmpty())
+        assertTrue(verifiedCodes.isEmpty())
         assertEquals("PASSENGER", request.role)
         assertFalse(model.isAuthenticated.value)
     }

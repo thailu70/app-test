@@ -9,6 +9,7 @@ const { sendSms } = require('../services/afro-sms');
 const { getOnboardingReadiness, markOnboardingReviewed, invalidateOnboarding } = require('../services/onboarding');
 const { assertDriverEligible } = require('../services/operational-onboarding');
 const { isAccountClosed } = require('../services/account-deletion');
+const { paymentTestsEnabled } = require('../services/payment-policy');
 
 // Call only after locking the selected vehicle: account closure uses this order.
 async function lockCommuteDriver(tx, id) {
@@ -27,7 +28,7 @@ router.use(authenticate, requireRole('ADMIN'), adminScope);
 
 router.get('/features', (_req, res) => {
   res.json({
-    manualTestRechargeEnabled: process.env.NODE_ENV === 'test' && process.env.ALLOW_MANUAL_TEST_RECHARGE === 'true',
+    manualTestRechargeEnabled: paymentTestsEnabled() && process.env.NODE_ENV === 'test' && process.env.ALLOW_MANUAL_TEST_RECHARGE === 'true',
     adminPassActivationEnabled: process.env.ALLOW_ADMIN_PASS_ACTIVATION === 'true'
   });
 });
@@ -114,7 +115,7 @@ router.patch('/drivers/:id/approval', async (req, res) => {
     await DB.transaction(async (tx) => {
       if (status === 'ACTIVE') {
         const readiness = await getOnboardingReadiness(driver.id, 'DRIVER', tx);
-        if (!readiness.ready) throw Object.assign(new Error('Driver must verify their phone, complete required documents and submit their application before approval.'), { status: 409, code: 'ONBOARDING_REQUIRED' });
+        if (!readiness.reviewReady) throw Object.assign(new Error('Complete initial acceptance, required documents and profile information, then submit the driver application before approval.'), { status: 409, code: 'ONBOARDING_REQUIRED' });
       }
       await tx.prepare("UPDATE users SET status = ? WHERE id = ? AND role = 'DRIVER' AND COALESCE(companyId,'')=''").run(status, driver.id);
       await markOnboardingReviewed(driver.id, 'DRIVER', status === 'ACTIVE' ? 'APPROVED' : 'REJECTED', req.user.id, '', tx);
@@ -331,6 +332,9 @@ router.post('/subscriptions/:id/activate', async (req, res) => {
  */
 router.post('/subscriptions/:id/recharge', async (req, res) => {
   try {
+    if (!paymentTestsEnabled()) {
+      return res.status(403).json({ success: false, code: 'PAYMENT_TESTS_DISABLED', error: 'Free test payments are disabled. No test recharge was activated.' });
+    }
     if (process.env.NODE_ENV !== 'test' || process.env.ALLOW_MANUAL_TEST_RECHARGE !== 'true') {
       return res.status(403).json({
         success: false,

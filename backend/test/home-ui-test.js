@@ -11,7 +11,7 @@ test('the selected website ships real local assets, translated copy and working 
   for(const destination of ['#services','#drive','#about','#download','/travel/','/join/','/company/','/admin/','/privacy/','/delete-account/','mailto:info@passo.live'])assert.ok(html.includes('href="'+destination+'"'),destination);
   const downloadVersion=/data-apk-version="([\d.]+)"/.exec(html)?.[1];assert.match(downloadVersion,/^\d+\.\d+\.\d+$/);assert.ok(html.includes('href="/company/downloads/routepass-'+downloadVersion+'.apk"'));assert.match(html,/Android APK · test build/);assert.doesNotMatch(html,/play\.google\.com/);
   assert.match(fs.readFileSync(path.join(__dirname,'../public/home/home.css'),'utf8'),/font-family:Outfit;font-weight:100 900/);
-  assert.match(home.translate('verifyBody','en'),/After acceptance.*verify.*upload.*final approval/);
+  assert.match(home.translate('verifyBody','en'),/After acceptance.*upload.*final approval.*verification.*later/);
   assert.doesNotMatch(home.translate('registerBody','en'),/upload|OTP|verif/i);
   assert.doesNotMatch(html,/<svg|<script(?![^>]*src=)|\son(?:click|submit|change)=|\sstyle=/);
   assert.deepEqual([...html.matchAll(/(?:src|href)="(https?:\/\/[^\"]+)"/g)].map(match=>match[1]),['https://passo.live/'],'Only the canonical URL may be external; runtime assets stay same origin.');

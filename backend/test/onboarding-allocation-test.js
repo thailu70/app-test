@@ -17,7 +17,7 @@ const { signToken } = require('../src/middleware/auth');
 const { createOnboardingService, acceptInitialOnboarding, initOnboardingSchema, getOnboardingReadiness, isOperationallyEligible, normalizePhone, REQUIRED } = require('../src/services/onboarding');
 const { initIntercitySchema } = require('../src/services/intercity-schema');
 
-test('legacy allocation APIs cannot bypass verified web onboarding and approval', async t => {
+test('legacy allocation APIs cannot bypass required web onboarding and approval', async t => {
   await initOnboardingSchema();
   await initIntercitySchema();
   await DB.exec("CREATE TABLE IF NOT EXISTS company_route_assignments(id TEXT PRIMARY KEY,company_id TEXT,route_id TEXT,driver_id TEXT,vehicle_id TEXT,status TEXT DEFAULT 'ACTIVE',created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
@@ -114,7 +114,7 @@ test('legacy allocation APIs cannot bypass verified web onboarding and approval'
     await DB.prepare("UPDATE transport_companies SET status='ACTIVE' WHERE id='allocation_company'").run();
   });
 
-  await t.test('unverified drivers cannot be approved, reactivated, assigned or receive a daily passenger roster', async () => {
+  await t.test('incomplete drivers cannot be approved, reactivated, assigned or receive a daily passenger roster', async () => {
     blocked(await req('/api/admin/drivers/allocation_daily/approval', 'PATCH', { status: 'ACTIVE' }));
     assert.equal((await DB.prepare('SELECT status FROM users WHERE id=?').get('allocation_daily')).status, 'PENDING');
     // Even a pre-existing/misconfigured ACTIVE row cannot bypass readiness.
@@ -127,11 +127,16 @@ test('legacy allocation APIs cannot bypass verified web onboarding and approval'
     blocked(await req('/api/checkins/scan', 'POST', { qrToken: 'fixture-only' }, 'daily'));
   });
 
-  await t.test('phone and documents are insufficient until submission; legacy approval then permits real assignments', async () => {
+  await t.test('approved complete daily drivers can be assigned before deferred phone verification', async () => {
     await completeDriver('allocation_daily', false);
     blocked(await req('/api/admin/drivers/allocation_daily/approval', 'PATCH', { status: 'ACTIVE' }));
     await completeDriver('allocation_daily');
+    await DB.prepare("UPDATE onboarding_accounts SET phone_verified_at=NULL,phone_verified_for=NULL WHERE account_id='allocation_daily'").run();
     assert.equal((await req('/api/admin/drivers/allocation_daily/approval', 'PATCH', { status: 'ACTIVE' })).status, 200);
+    const approved = await getOnboardingReadiness('allocation_daily', 'DRIVER');
+    assert.equal(approved.reviewReady, true); assert.equal(approved.ready, true); assert.equal(approved.phoneVerified, false);
+    assert.equal(approved.phoneVerificationRequiredForApproval, false); assert.equal(approved.reviewStatus, 'APPROVED');
+    assert.equal(approved.phoneVerificationRequiredForAllocation, false);
     assert.equal(await isOperationallyEligible('allocation_daily', 'DRIVER'), true);
     assert.equal((await req('/api/admin/drivers/allocation_daily/route', 'PATCH', { routeId: 'allocation_route' })).status, 200);
     assert.equal((await req('/api/admin/subscriptions/allocation_sub/assignment', 'PATCH', { vehicleId: 'allocation_van' })).status, 200);
@@ -155,7 +160,7 @@ test('legacy allocation APIs cannot bypass verified web onboarding and approval'
     blocked(await req('/api/intercity/driver/departures/allocation_departure/roster', 'GET', undefined, 'companyDriver'));
   });
 
-  await t.test('public and company ticket allocation cannot use an old departure with an unverified operator', async () => {
+  await t.test('public and company ticket allocation cannot use an old departure with an incomplete operator', async () => {
     const list = await req('/api/intercity/departures', 'GET', undefined, null);
     assert.equal(list.status, 200);
     assert.equal(list.body.departures.some(departure => departure.id === 'allocation_departure'), false);
@@ -169,6 +174,20 @@ test('legacy allocation APIs cannot bypass verified web onboarding and approval'
     await DB.prepare('INSERT INTO intercity_seats(departure_id,seat_number,booking_id) VALUES(?,?,?)').run('allocation_departure', 1, 'allocation_held');
     blocked(await req('/api/intercity/bookings/allocation_held/checkout', 'POST', { passengerName: 'Fixture passenger', passengerPhone: '0912000000' }, null, secret));
     assert.equal((await DB.prepare('SELECT payment_status FROM intercity_bookings WHERE id=?').get('allocation_held')).payment_status, 'UNPAID');
+  });
+
+  await t.test('company-approved complete intercity drivers may defer phone OTP without bypassing company approval', async () => {
+    await completeDriver('allocation_company_driver');
+    await DB.prepare("UPDATE onboarding_accounts SET phone_verified_at=NULL,phone_verified_for=NULL WHERE account_id='allocation_company_driver'").run();
+    assert.equal(await isOperationallyEligible('allocation_company_driver', 'DRIVER'), false, 'Required final approval still gates operators');
+    const approved = await req('/api/companies/operations/drivers/allocation_company_driver/approval', 'PATCH', { action: 'APPROVE' }, 'company');
+    assert.equal(approved.status, 200, JSON.stringify(approved.body));
+    const state = await getOnboardingReadiness('allocation_company_driver', 'DRIVER');
+    assert.equal(state.phoneVerified, false); assert.equal(state.phoneVerificationRequiredForAllocation, false);
+    assert.equal(state.reviewStatus, 'APPROVED'); assert.equal(await isOperationallyEligible('allocation_company_driver', 'DRIVER'), true);
+    const assignment = await req('/api/companies/operations/assignments', 'POST', { routeId: 'allocation_intercity', driverId: 'allocation_company_driver', vehicleId: 'allocation_coach' }, 'company');
+    assert.equal(assignment.status, 201, JSON.stringify(assignment.body));
+    blocked(await req('/api/companies/operations/assignments', 'POST', { routeId: 'allocation_bad_intercity', driverId: 'allocation_bad_company_driver', vehicleId: 'allocation_bad_coach' }, 'badCompany'));
   });
 
   await t.test('old profile and contact endpoints invalidate tracked approval and phone verification', async () => {

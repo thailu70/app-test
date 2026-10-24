@@ -24,6 +24,7 @@
   });
   const languageIndex = { en:0, am:1, om:2 };
   words.PROPOSED_MONTHLY_FEE=words.monthlyProposal;
+  words.PHONE_NUMBER=words.phone;
   words.initialRegistrationIncomplete=['Complete your initial registration','የመጀመሪያ ምዝገባዎን ያሟሉ','Galmee jalqabaa keessan guutaa'];
   words.reviewRoutePrice=['Review route and price','መስመርና ዋጋ ይመልከቱ','Daandiifi gatii ilaalaa'];
   words.closeRouteEditor=['Close route details','የመስመር መረጃን ዝጋ','Odeeffannoo daandii cufi'];
@@ -39,6 +40,18 @@
     approvalBody:['Your application is approved. Sign in to the Passo app to view your assignments.','ማመልከቻዎ ጸድቋል። ምደባዎትን ለማየት ወደ ፓሶ መተግበሪያ ይግቡ።','Iyyanni keessan raggaʼeera. Ramaddii keessan ilaaluuf appii Passo keessa seenaa.'],
     privacyPolicy:['Privacy policy','የግላዊነት ፖሊሲ','Imaammata iccitii'],
     deleteAccount:['Delete account','መለያ ሰርዝ','Herrega haqi']
+  });
+  Object.assign(words, {
+    optional:['Optional','አማራጭ','Dirqama miti'],
+    phoneOptionalApproval:['OTP is optional for application approval. Verify your phone before passenger allocation.','ለማመልከቻ ማጽደቅ OTP አማራጭ ነው። ከተሳፋሪ ምደባ በፊት ስልክዎን ያረጋግጡ።','Raggaasisa iyyataaf OTP dirqama miti. Ramaddii imaltootaa dura bilbila keessan mirkaneessaa.'],
+    approvalPhonePending:['Your application is approved. Verify your phone before passenger allocation.','ማመልከቻዎ ጸድቋል። ከተሳፋሪ ምደባ በፊት ስልክዎን ያረጋግጡ።','Iyyanni keessan raggaʼeera. Ramaddii imaltootaa dura bilbila keessan mirkaneessaa.'],
+  });
+  Object.assign(words, {
+    phoneDeferred:['Phone verification is not required right now. You can verify later.','አሁን የስልክ ማረጋገጫ አያስፈልግም። በኋላ ማረጋገጥ ይችላሉ።','Amma mirkaneessi bilbilaa dirqama miti. Booda mirkaneessuu dandeessu.'],
+    approvalPhoneDeferred:['Your application is approved. Phone verification can be completed later.','ማመልከቻዎ ጸድቋል። የስልክ ማረጋገጫን በኋላ ማጠናቀቅ ይችላሉ።','Iyyanni keessan raggaʼeera. Mirkaneessa bilbilaa booda xumuruu dandeessu.'],
+    dailyStepReviewBody:['After acceptance, complete your details and upload documents for final review. Phone verification can be completed later.','ከቅበላ በኋላ መረጃዎን ያሟሉና ሰነዶችን ለመጨረሻ ግምገማ ይስቀሉ። ስልክዎን በኋላ ማረጋገጥ ይችላሉ።','Fudhatama booda odeeffannoo guutaatii sanadoota ilaalcha dhumaaf galchaa. Bilbila keessan booda mirkaneessuu dandeessu.'],
+    allocationNote:['Required documents and administrator approval are needed before passenger allocation. Phone verification is optional for now.','ከተሳፋሪ ምደባ በፊት አስፈላጊ ሰነዶችና የአስተዳዳሪ ፈቃድ ያስፈልጋሉ። ለጊዜው የስልክ ማረጋገጫ አማራጭ ነው።','Ramaddii imaltootaa dura sanadoonni barbaachisaniifi raggaasisni bulchaa ni barbaachisu. Mirkaneessi bilbilaa ammaaf dirqama miti.'],
+    dataUse:['We use your contact and vehicle details to review your daily commute application. Phone verification can be completed later.','ዕለታዊ የጉዞ ማመልከቻዎን ለመገምገም የመገናኛና የተሽከርካሪ መረጃዎን እንጠቀማለን። ስልክዎን በኋላ ማረጋገጥ ይችላሉ።','Iyyata imala guyyaa keessan ilaaluuf odeeffannoo qunnamtiifi konkolaataa fayyadamna. Bilbila keessan booda mirkaneessuu dandeessu.']
   });
   const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
   const uploadProblem = (file, kind) => !file || !Number.isFinite(file.size) || file.size <= 0 || file.size > 5*1024*1024 ? 'fileSize' : !(kind === 'PHOTO' ? ['image/jpeg','image/png'] : ['image/jpeg','image/png','application/pdf']).includes(file.type) ? kind === 'PHOTO' ? 'photoType' : 'fileType' : null;
@@ -72,7 +85,7 @@
   }
   function onboardingAccess(onboarding) {
     const locked=onboarding?.acceptanceRequired===true&&onboarding.canVerifyAndUpload!==true;
-    return {locked,canSubmit:!locked&&onboarding?.ready===true&&!['SUBMITTED','APPROVED'].includes(onboarding.reviewStatus)};
+    return {locked,canSubmit:!locked&&(onboarding?.reviewReady??onboarding?.ready)===true&&!['SUBMITTED','APPROVED'].includes(onboarding.reviewStatus)};
   }
   function applyOnboardingAccess(sections,onboarding) {
     const {locked}=onboardingAccess(onboarding);
@@ -257,12 +270,14 @@
       if(access.locked){$('#reviewBadge').textContent=t(rejected?'acceptanceRejected':'AWAITING_ACCEPTANCE');$('#progressTitle').textContent=t(rejected?'acceptanceRejected':'awaitingAcceptance');$('#progressBody').textContent=t(rejected?'acceptanceRejectedBody':'acceptanceWaitingBody');}
       if(needsPreference){$('#acceptanceBadge').textContent=t('DRAFT');$('#acceptanceMessage').textContent=t('completeRoutePreference');$('#reviewBadge').textContent=t('DRAFT');$('#progressTitle').textContent=t('initialRegistrationIncomplete');$('#progressBody').textContent=t('completeRoutePreference');}
       $('#progressCount').hidden=access.locked;
-      const missing=Array.isArray(o.missing)?o.missing:[], documents=o.documents||[], required=o.requiredDocuments||[];
+      const missing=Array.isArray(o.reviewMissing)?o.reviewMissing:Array.isArray(o.missing)?o.missing:[], documents=o.documents||[], required=o.requiredDocuments||[];
+      const otpOptional=o.phoneVerificationRequiredForApproval===false, otpDeferred=otpOptional&&o.phoneVerificationRequiredForAllocation===false, reviewReady=(o.reviewReady??o.ready)===true;
       const complete={phone:o.phoneVerified===true,profile:!missing.some(key=>['EMERGENCY_CONTACT_NAME','EMERGENCY_CONTACT_PHONE','VEHICLE_COLOR'].includes(key)),documents:required.length>0&&required.every(kind=>documents.some(item=>item.kind===kind)),submitted:Boolean(o.submittedAt)||status==='APPROVED'};
-      $('#progressCount').textContent=Object.values(complete).filter(Boolean).length+' / 4';
+      const requiredSteps=otpOptional?['profile','documents','submitted']:['phone','profile','documents','submitted'];
+      $('#progressCount').textContent=requiredSteps.filter(key=>complete[key]).length+' / '+requiredSteps.length;
       all('[data-check]').forEach(icon=>icon.closest('a').classList.toggle('done',complete[icon.dataset.check]));
-      $('#phoneBadge').textContent=t(complete.phone?'verified':'notVerified');$('#phoneBadge').classList.toggle('warning',!complete.phone);
-      $('#phoneSummary').textContent=complete.phone?(account.phone+' · '+t('verified')):t('phoneInstruction')+' '+account.phone;
+      $('#phoneBadge').textContent=t(complete.phone?'verified':otpOptional?'optional':'notVerified');$('#phoneBadge').classList.toggle('warning',!complete.phone&&!otpOptional);
+      $('#phoneSummary').textContent=complete.phone?(account.phone+' · '+t('verified')):t(otpDeferred?'phoneDeferred':otpOptional?'phoneOptionalApproval':'phoneInstruction')+' '+account.phone;
       $('#otpForm').hidden=complete.phone;
       all('#phoneStep input,#phoneStep button').forEach(control=>control.disabled=access.locked);
       if(Date.now()<otpUntil)$('#requestOtp').disabled=true;
@@ -272,7 +287,7 @@
       const profileKey=JSON.stringify({role,language,documents,required,locked:access.locked});
       if(access.locked)files.clear();
       if($('#documentCards').dataset.renderKey!==profileKey){$('#documentCards').dataset.renderKey=profileKey;renderDocuments(access.locked?[]:required,documents);}
-      $('#reviewSummary').textContent=status==='APPROVED'?t('approvalBody'):status==='SUBMITTED'?t('reviewPending'):o.ready?t('reviewReady'):t('reviewIncomplete');
+      $('#reviewSummary').textContent=status==='APPROVED'?t(otpDeferred&&!complete.phone?'approvalPhoneDeferred':otpOptional&&!complete.phone?'approvalPhonePending':'approvalBody'):status==='SUBMITTED'?t('reviewPending'):reviewReady?t('reviewReady'):t('reviewIncomplete');
       $('#missingItems').innerHTML=missing.map(key=>'<li>'+escape(t(key))+'</li>').join('');
       $('#submitReview').disabled=!access.canSubmit;
       $('#submitReview span').textContent=t(status==='SUBMITTED'?'SUBMITTED':status==='APPROVED'?'APPROVED':'submitReview');

@@ -110,6 +110,22 @@ test('administrator acceptance hides and disables verification/uploads before ac
   for(const value of [0.01,'45000.25',1000000])assert.equal(portal.validMonthlyFee(value),true,String(value));
 });
 
+test('driver review can proceed without OTP only when server review readiness permits it', () => {
+  const accepted={acceptanceRequired:true,canVerifyAndUpload:true,reviewStatus:'DRAFT',phoneVerified:false,
+    phoneVerificationRequiredForApproval:false,phoneVerificationRequiredForAllocation:false,ready:false,reviewReady:true};
+  assert.equal(portal.onboardingAccess(accepted).canSubmit,true);
+  assert.equal(portal.onboardingAccess({...accepted,ready:true,reviewReady:false}).canSubmit,false);
+  assert.equal(portal.onboardingAccess({...accepted,reviewReady:undefined}).canSubmit,false,'Missing review readiness cannot bypass other requirements.');
+  assert.equal(portal.onboardingAccess({...accepted,canVerifyAndUpload:false}).canSubmit,false,'Initial acceptance is still mandatory.');
+  assert.equal(portal.onboardingAccess({...accepted,reviewStatus:'APPROVED'}).canSubmit,false);
+  for(const language of ['en','am','om']){
+    assert.notEqual(portal.translate('phoneDeferred',language),'phoneDeferred');
+    assert.notEqual(portal.translate('approvalPhoneDeferred',language),'approvalPhoneDeferred');
+  }
+  assert.match(portal.translate('phoneDeferred','en'),/not required right now/);
+  assert.match(portal.translate('allocationNote','en'),/documents.*administrator approval.*optional for now/);
+});
+
 const fixedQuote = amount => ({success:true,routeMatch:{status:'EXACT',routeId:'route-test',routeName:'Bole to Merkato'},price:{mode:'FIXED',amountEtb:amount,currency:'ETB',basis:'PER_VEHICLE',source:'ROUTE_PASSENGER_FARE_X_CAPACITY',passengerCapacity:14,passengerMonthlyFareEtb:amount/14}});
 const manualQuote = status => ({success:true,routeMatch:{status,routeId:null,routeName:null},price:{mode:'PROPOSED',amountEtb:null,currency:'ETB',basis:'PER_VEHICLE',source:null,passengerCapacity:14,passengerMonthlyFareEtb:null}});
 

@@ -2,10 +2,14 @@
 const crypto = require('node:crypto');
 const { DB } = require('../db');
 const { normalizePhone } = require('./onboarding');
+const { paymentTestsEnabled } = require('./payment-policy');
 const TEST_PHONE = '+251912469923';
 const PURPOSE = 'TEST_PAYMENT';
 const isTestPaymentPhone = value => normalizePhone(value) === TEST_PHONE;
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
+function assertPaymentTestsEnabled(enabled) {
+  if (enabled !== true) fail(403, 'Free test payments are currently disabled. No payment or ticket was activated.');
+}
 const sha = value => crypto.createHash('sha256').update(String(value)).digest('hex');
 const schema = new WeakMap();
 async function initPaymentTestSchema(db = DB) {
@@ -27,11 +31,12 @@ function amountMinor(booking) {
   if (!Number.isFinite(amount) || amount <= 0) fail(400, 'Invalid booking amount.');
   return Math.round(amount * 100);
 }
-function createPaymentTestService({ db = DB, sendSms = require('./afro-sms').sendSms, now = Date.now, transact = fn => db.transaction(fn) } = {}) {
+function createPaymentTestService({ db = DB, sendSms = require('./afro-sms').sendSms, now = Date.now, transact = fn => db.transaction(fn), isEnabled = paymentTestsEnabled } = {}) {
   const time = () => new Date(now()).toISOString();
   const digest = (booking, challenge, code) => crypto.createHmac('sha256', require('../middleware/auth').JWT_SECRET)
     .update([PURPOSE, booking.id, TEST_PHONE, amountMinor(booking), 'ETB', challenge, code].join(':')).digest('hex');
   function eligible(booking, phone) {
+    assertPaymentTestsEnabled(isEnabled());
     if (!isTestPaymentPhone(phone)) fail(400, 'This test payment is available only for the authorized test phone.');
     if (booking.payment_status === 'PAID') fail(409, 'This booking is already paid.');
     if (booking.status !== 'HOLD' || booking.order_id || Date.parse(booking.expires_at) <= now()) fail(409, 'Use an active unpaid seat reservation before requesting test verification.');
@@ -86,10 +91,12 @@ function createPaymentTestService({ db = DB, sendSms = require('./afro-sms').sen
   return { requestOtp, verifyOtp, consume };
 }
 let commuterWrites = Promise.resolve();
-async function grantCommuterTestPass({ passengerId, route, key, signedQr }, db = DB) {
+async function grantCommuterTestPass({ passengerId, route, key, signedQr }, db = DB, { allowedPassengerId = process.env.PAYMENT_TEST_PASSENGER_ID, isEnabled = paymentTestsEnabled } = {}) {
   const operation = () => db.transaction(async tx => {
+    assertPaymentTestsEnabled(isEnabled());
     const passenger = await tx.prepare("SELECT id,phone FROM users WHERE id=? AND role='PASSENGER' AND status='ACTIVE'" + (tx.isPostgres ? ' FOR UPDATE' : '')).get(passengerId);
-    if (!passenger || !isTestPaymentPhone(passenger.phone)) fail(403, 'The current account is not authorized for test payment.');
+    const authorizedId = typeof allowedPassengerId === 'string' ? allowedPassengerId.trim() : '';
+    if (!passenger || !authorizedId || String(passenger.id) !== authorizedId || !isTestPaymentPhone(passenger.phone)) fail(403, 'The current account is not authorized for test payment.');
     const amount = Number(route.basePriceEtb);
     const prior = await tx.prepare('SELECT * FROM telebirr_payment_orders WHERE idempotency_key=?').get(key);
     if (prior) {
@@ -117,4 +124,4 @@ async function grantCommuterTestPass({ passengerId, route, key, signedQr }, db =
   if (db.isPostgres) return operation();
   const result = commuterWrites.then(operation); commuterWrites = result.catch(() => {}); return result;
 }
-module.exports = { TEST_PHONE, PURPOSE, isTestPaymentPhone, initPaymentTestSchema, createPaymentTestService, grantCommuterTestPass };
+module.exports = { TEST_PHONE, PURPOSE, isTestPaymentPhone, paymentTestsEnabled, initPaymentTestSchema, createPaymentTestService, grantCommuterTestPass };

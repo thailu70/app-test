@@ -33,8 +33,6 @@ internal class AuthDraft(routeId: String?, routeName: String?, tier: String?) {
     var phone by mutableStateOf("")
     var password by mutableStateOf("")
     var confirmation by mutableStateOf("")
-    var code by mutableStateOf("")
-    var verification by mutableStateOf("")
     var selectedRoute by mutableStateOf(routeId.orEmpty())
     var selectedRouteName by mutableStateOf(routeName.orEmpty())
     var tier by mutableStateOf(tier ?: "Economy")
@@ -71,33 +69,30 @@ internal fun NativeAuthFlow(
     val draft = remember(role, routeId, routeName, tier) { AuthDraft(routeId, routeName, tier) }
     var register by remember(role, initialRegister) { mutableStateOf(initialRegister) }
     var step by remember(role) { mutableIntStateOf(0) }
-    var otpBusy by remember { mutableStateOf(false) }
-    val busy = otpBusy || authBusy
+    val busy = authBusy
     var waitingForAuth by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var help by remember { mutableStateOf(false) }
-    var epoch by remember { mutableIntStateOf(0) }
     var companies by remember { mutableStateOf<List<TransportCompanyDto>>(emptyList()) }
     var companyError by remember { mutableStateOf<String?>(null) }
     var vehicleTypes by remember { mutableStateOf<List<VehicleTypeOption>>(emptyList()) }
     var vehicleTypesLoading by remember { mutableStateOf(false) }
     var vehicleTypesError by remember { mutableStateOf<String?>(null) }
     fun t(en: String, am: String, om: String) = authText(language, en, am, om)
-    fun invalidatePhone() { draft.code = ""; draft.verification = ""; epoch++ }
     fun switchMode(value: Boolean) {
-        epoch++; register = value; step = 0; otpBusy = false; message = null; waitingForAuth = false
-        draft.phone = ""; draft.password = ""; draft.confirmation = ""; draft.code = ""; draft.verification = ""
+        register = value; step = 0; message = null; waitingForAuth = false
+        draft.phone = ""; draft.password = ""; draft.confirmation = ""
         if (value) draft.name = ""
         model.clearRegistrationMessage()
     }
     fun back() {
-        epoch++; otpBusy = false; message = null; waitingForAuth = false
+        message = null; waitingForAuth = false
         if (register && step > 0) step-- else onExit()
     }
     BackHandler { back() }
     LaunchedEffect(registrationMessage) {
         if (driver && !registrationMessage.isNullOrBlank()) {
-            register = false; step = 0; draft.password = ""; draft.confirmation = ""; draft.verification = ""
+            register = false; step = 0; draft.password = ""; draft.confirmation = ""
         }
     }
     LaunchedEffect(routes) {
@@ -106,7 +101,7 @@ internal fun NativeAuthFlow(
         }
     }
     LaunchedEffect(draft.service, step) {
-        if (driver && register && step == 2 && draft.service == "Intercity") {
+        if (driver && register && step == 1 && draft.service == "Intercity") {
             companyError = null
             try {
                 val response = ApiClient.getService().getTransportCompanies()
@@ -120,7 +115,7 @@ internal fun NativeAuthFlow(
         }
     }
     LaunchedEffect(driver, register, draft.service, step) {
-        if (!driver || !register || step != 2 || draft.service == "Intercity") return@LaunchedEffect
+        if (!driver || !register || step != 1 || draft.service == "Intercity") return@LaunchedEffect
         vehicleTypesLoading = true
         vehicleTypesError = null
         try {
@@ -132,42 +127,20 @@ internal fun NativeAuthFlow(
         } finally { vehicleTypesLoading = false }
         if (vehicleTypes.none { it.code == draft.vehicleType }) draft.vehicleType = vehicleTypes.firstOrNull()?.code.orEmpty()
     }
-    fun requestCode() {
-        val problem = when {
-            draft.name.trim().isBlank() -> t("Enter your full name.", "ሙሉ ስምዎን ያስገቡ።", "Maqaa guutuu kee galchi.")
-            !Regex("^\\+?[0-9 ()-]{7,24}$").matches(draft.phone.trim()) -> t("Enter a valid mobile number.", "ትክክለኛ ስልክ ያስገቡ።", "Lakkoofsa bilbilaa sirrii galchi.")
-            draft.password.length < 10 -> t("Use a password with at least 10 characters.", "ቢያንስ 10 ፊደላት ያሉት የይለፍ ቃል ይጠቀሙ።", "Jecha iccitii yoo xiqqaate qubee 10 qabu fayyadami.")
-            draft.password != draft.confirmation -> t("The passwords do not match.", "የይለፍ ቃሎቹ አይመሳሰሉም።", "Jechoonni iccitii wal hin fakkaatan.")
-            else -> null
-        }
-        if (problem != null) { message = problem; return }
-        message = null; waitingForAuth = false; otpBusy = true; draft.verification = ""; draft.code = ""
-        val requestEpoch = ++epoch
-        val phone = draft.phone.trim()
-        model.requestRegistrationOtp(phone) { result, error ->
-            if (requestEpoch == epoch && draft.phone.trim() == phone && register) {
-                otpBusy = false; message = error
-                if (error == null) step = 1
-            }
-        }
+    fun identityProblem(): String? = when {
+        draft.name.trim().isBlank() -> t("Enter your full name.", "ሙሉ ስምዎን ያስገቡ።", "Maqaa guutuu kee galchi.")
+        !Regex("^\\+?[0-9 ()-]{7,24}$").matches(draft.phone.trim()) -> t("Enter a valid mobile number.", "ትክክለኛ ስልክ ያስገቡ።", "Lakkoofsa bilbilaa sirrii galchi.")
+        draft.password.length < 10 -> t("Use a password with at least 10 characters.", "ቢያንስ 10 ፊደላት ያሉት የይለፍ ቃል ይጠቀሙ።", "Jecha iccitii yoo xiqqaate qubee 10 qabu fayyadami.")
+        draft.password != draft.confirmation -> t("The passwords do not match.", "የይለፍ ቃሎቹ አይመሳሰሉም።", "Jechoonni iccitii wal hin fakkaatan.")
+        else -> null
     }
-    fun verifyCode() {
-        if (draft.code.length != 6 || draft.code.any { !it.isDigit() }) return
-        otpBusy = true; message = null
-        val requestEpoch = ++epoch
-        val phone = draft.phone.trim()
-        model.verifyRegistrationOtp(phone, draft.code) { token, error ->
-            if (requestEpoch == epoch && draft.phone.trim() == phone && register) {
-                otpBusy = false
-                if (!token.isNullOrBlank() && error == null) {
-                    draft.verification = token; step = 2; message = null
-                } else message = error ?: t("The code could not be verified.", "ኮዱ አልተረጋገጠም።", "Koodiin hin mirkanoofne.")
-            }
-        }
+    fun continueRegistration() {
+        val problem = identityProblem()
+        if (problem != null) { message = problem; return }
+        message = null; waitingForAuth = false; step = 1
     }
     fun submit() {
-        val problem = when {
-            draft.verification.isBlank() -> "Verify your phone number before registering."
+        val problem = identityProblem() ?: when {
             !driver && draft.isCustomCommute && draft.pickup.isBlank() -> "Enter your pickup location."
             !driver && draft.isCustomCommute && draft.destination.isBlank() -> "Enter your destination."
             !driver && !draft.isCustomCommute && routes.none { it.id == draft.selectedRoute && it.active } -> "Choose an active daily route to create your account."
@@ -195,7 +168,7 @@ internal fun NativeAuthFlow(
                 driver -> "Driver service preference: Daily Commuter | Route: ${draft.selectedRouteName} | Tier: ${draft.tier}"
                 draft.isCustomCommute -> "Requested commuter route | Pickup: ${draft.pickup} | Destination: ${draft.destination} | Journey: ${draft.journey} | Tier: ${draft.tier}"
                 else -> draft.selectedRouteName
-            }, otpVerificationToken = draft.verification
+            }
         )
     }
     if (help) AlertDialog(onDismissRequest = { help = false },
@@ -218,7 +191,7 @@ internal fun NativeAuthFlow(
                     if (!register || step == 0) {
                         if (register) AuthField(draft.name, { draft.name = it; message = null }, t("Full name", "ሙሉ ስም", "Maqaa guutuu"),
                             Modifier.fillMaxWidth().testTag("auth_full_name_input"), enabled = !busy, language = language)
-                        AuthField(draft.phone, { draft.phone = it; invalidatePhone(); message = null }, t("Mobile phone number", "የሞባይል ስልክ ቁጥር", "Lakkoofsa bilbilaa"),
+                        AuthField(draft.phone, { draft.phone = it; message = null }, t("Mobile phone number", "የሞባይል ስልክ ቁጥር", "Lakkoofsa bilbilaa"),
                             Modifier.fillMaxWidth().testTag("auth_phone_input"), phone = true, enabled = !busy, language = language)
                         AuthField(draft.password, { draft.password = it; message = null }, t("Password", "የይለፍ ቃል", "Jecha iccitii"),
                             Modifier.fillMaxWidth().testTag("auth_password_input"), password = true, enabled = !busy,
@@ -230,35 +203,22 @@ internal fun NativeAuthFlow(
                         }
                     }
                     if (register && step == 1) {
-                        Text(t("Verify your phone", "ስልክዎን ያረጋግጡ", "Bilbila kee mirkaneessi"), color = CommuteInk, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                        Text(t("Enter the 6-digit code sent to ", "ወደዚህ የተላከውን 6 አሃዝ ኮድ ያስገቡ፦ ", "Koodii lakkoofsa 6 gara kanaatti ergame galchi: ") + draft.phone, color = CommuteInk, fontSize = 14.sp)
-                        AuthField(draft.code, { draft.code = it.filter(Char::isDigit).take(6); draft.verification = ""; message = null }, t("SMS verification code", "የSMS ማረጋገጫ ኮድ", "Koodii mirkaneessaa SMS"),
-                            Modifier.fillMaxWidth().testTag("auth_otp_input"), phone = true, enabled = !busy, language = language, leadingIcon = Icons.Default.Sms, placeholder = t("6-digit code", "6 አሃዝ ኮድ", "Koodii lakkoofsa 6"))
-                        Text(t("Code expires after 10 minutes.", "ኮዱ ከ10 ደቂቃ በኋላ ያልቃል።", "Koodiin daqiiqaa 10 booda darba."), color = CommuteInk, fontSize = 12.sp)
-                        AuthPrimaryButton(t("Verify phone", "ስልክ አረጋግጥ", "Bilbila mirkaneessi"), ::verifyCode,
-                            Modifier.testTag("auth_otp_verify"), enabled = !busy && draft.code.length == 6, busy = busy)
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            TextButton(onClick = ::requestCode, enabled = !busy, modifier = Modifier.testTag("auth_otp_resend")) { Text(t("Resend code", "ኮድ እንደገና ላክ", "Koodii irra deebi'i"), color = CommuteTeal) }
-                            TextButton(onClick = { invalidatePhone(); step = 0; message = null }, enabled = !busy, modifier = Modifier.testTag("auth_phone_edit")) { Text(t("Change number", "ቁጥር ቀይር", "Lakkoofsa jijjiiri"), color = CommuteTeal) }
-                        }
-                    }
-                    if (register && step == 2) {
                         AuthRegistrationDetails(draft, driver, routes.filter { it.active }, companies, companyError, language, !busy,
                             vehicleTypes, vehicleTypesLoading, vehicleTypesError)
                     }
                     (message ?: authError?.takeIf { waitingForAuth })?.let { Text(it, color = androidx.compose.ui.graphics.Color(0xFFAC2F2F), fontSize = 12.sp, modifier = Modifier.testTag("auth_error")) }
                     registrationMessage?.let { Text(it, color = CommuteTeal, fontSize = 13.sp, modifier = Modifier.testTag("auth_registration_message")) }
                     if (!register || step == 0) AuthPrimaryButton(
-                        if (register) t("Send verification code", "የማረጋገጫ ኮድ ላክ", "Koodii mirkaneessaa ergi") else t("Sign in", "ግባ", "Seeni"),
+                        if (register) t("Continue", "ቀጥል", "Itti fufi") else t("Sign in", "ግባ", "Seeni"),
                         onClick = {
-                            if (register) requestCode()
+                            if (register) continueRegistration()
                             else if (draft.phone.isBlank() || draft.password.isBlank()) message = t("Enter your phone number and password.", "ስልክ ቁጥርዎን እና የይለፍ ቃልዎን ያስገቡ።", "Lakkoofsa bilbilaa fi jecha iccitii galchi.")
                             else { waitingForAuth = true; message = null; model.clearRegistrationMessage(); model.login(draft.phone.trim(), draft.password, role) }
                         }, modifier = Modifier.testTag("auth_submit_button"), enabled = !busy, busy = busy)
-                    if (register && step == 2) AuthPrimaryButton(
+                    if (register && step == 1) AuthPrimaryButton(
                         if (driver) t("Submit driver registration", "የሹፌር ምዝገባ ላክ", "Galmee konkolaachisaa ergi") else t("Create account", "መለያ ፍጠር", "Herrega uumi"),
                         ::submit, Modifier.testTag(if (driver) "auth_driver_submit" else "auth_passenger_submit"), enabled = !busy, busy = busy)
-                    if (register && step == 0) Text(t("We’ll text a 6-digit code to verify your number.", "ቁጥርዎን ለማረጋገጥ 6 አሃዝ ኮድ በSMS እንልካለን።", "Lakkoofsa kee mirkaneessuuf koodii 6 SMS dhaan ergina."), fontSize = 11.sp, color = CommuteInk)
+                    if (register) Text(t("Phone verification is optional for now. We’ll notify you when it’s time to verify.", "ለአሁኑ ስልክ ማረጋገጥ አማራጭ ነው። ማረጋገጥ ሲያስፈልግ እናሳውቅዎታለን።", "Ammaaf bilbila mirkaneessuun filannoo dha. Yeroo mirkaneessuu qabdu si beeksifna."), fontSize = 11.sp, color = CommuteInk, modifier = Modifier.testTag("auth_verification_notice"))
                     if (driver && register && step == 0) Text(t("Next: licence and service details. Approval required.", "ቀጣይ፦ ፈቃድ እና የአገልግሎት ዝርዝር። ፈቃድ ያስፈልጋል።", "Itti aansuun: eeyyamaa fi odeeffannoo tajaajilaa. Hayyamni barbaachisa."), color = CommuteInk, fontSize = 10.sp)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                         Text(if (register) t("Already registered?", "ተመዝግበዋል?", "Duraan galmoofteettaa?") else t("New to PASSO?", "ለPASSO አዲስ ነዎት?", "PASSO irratti haaraa?"), color = CommuteInk, fontSize = 12.sp)

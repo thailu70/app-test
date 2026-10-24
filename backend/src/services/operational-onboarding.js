@@ -2,7 +2,7 @@
 const { DB } = require('../db');
 const { isOperationallyEligible } = require('./onboarding');
 
-const incomplete = () => Object.assign(new Error('Complete phone verification, required documents and approval before passenger operations.'),
+const incomplete = () => Object.assign(new Error('Complete the required application steps, documents and approval before passenger operations.'),
   { status: 409, code: 'ONBOARDING_REQUIRED' });
 
 async function driverEligible(driverId, db = DB) {

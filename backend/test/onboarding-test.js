@@ -79,10 +79,13 @@ test('public driver and company onboarding isolates credentials, verifies real d
     const code = messages.at(-1).code;
     assert.equal((await api('/verify-otp', 'POST', account.token, { code })).status, 200);
   }
-  async function completeDriver(account) {
-    await verify(account);
+  async function completeDriverProfile(account) {
     for (const kind of ['LICENSE','VEHICLE_REGISTRATION','INSURANCE','PHOTO']) assert.equal((await api('/documents/' + kind, 'PUT', account.token, png, 'image/png')).status, 200);
     assert.equal((await api('/profile', 'PATCH', account.token, { emergencyContactName: 'Emergency Person', emergencyContactPhone: '0912000070', vehicleColor: 'White' })).status, 200);
+  }
+  async function completeDriver(account) {
+    await verify(account);
+    await completeDriverProfile(account);
     assert.equal((await api('/submit', 'POST', account.token, {})).status, 200);
   }
 
@@ -129,9 +132,15 @@ test('public driver and company onboarding isolates credentials, verifies real d
     assert.equal(queued.data.onboarding.canVerifyAndUpload, false);
   });
 
-  await t.test('existing native registration still requires OTP in production', async () => {
+  await t.test('native driver and passenger registration may defer account OTP in production', async () => {
     process.env.NODE_ENV = 'production';
-    try { assert.equal((await request('/api/auth/register', 'POST', null, driverInput('0912346020','NATIVE-OTP'))).status, 428); }
+    try {
+      const driverResult = await request('/api/auth/register', 'POST', null, { ...driverInput('0912346020','NATIVE-OTP'), appliedRouteId: 'route_bole_merkato' });
+      assert.equal(driverResult.status, 201, JSON.stringify(driverResult.data));
+      assert.equal(driverResult.data.user.status, 'PENDING', 'Deferred OTP never approves a driver automatically');
+      const passengerResult = await request('/api/auth/register', 'POST', null, { role: 'PASSENGER', fullName: 'Native Passenger', phone: '0912346078', password });
+      assert.equal(passengerResult.status, 201, JSON.stringify(passengerResult.data));
+    }
     finally { process.env.NODE_ENV = 'test'; }
   });
 
@@ -209,6 +218,78 @@ test('public driver and company onboarding isolates credentials, verifies real d
     assert.equal(approved.status, 200, JSON.stringify(approved.data));
     assert.equal(approved.data.account.status, 'ACTIVE'); assert.equal(approved.data.onboarding.reviewStatus, 'APPROVED');
     assert.equal(await isOperationallyEligible(completedApplicant.account.id, 'DRIVER'), true);
+  });
+
+  await t.test('daily review and allocation can defer OTP while acceptance, documents, valid phone and approval remain required', async () => {
+    const registered = await api('/register', 'POST', null, driverInput('0912346064','ONBOARD-OPTIONAL-OTP'));
+    assert.equal(registered.status, 201); const applicant = registered.data;
+    const reviewUrl = '/applications/DRIVER/' + applicant.account.id + '/review';
+    assert.equal(applicant.onboarding.phoneVerificationRequiredForApproval, false);
+    assert.equal(applicant.onboarding.reviewReady, false);
+    assert.ok(applicant.onboarding.reviewMissing.includes('ADMIN_ACCEPTANCE'));
+    assert.equal((await api(reviewUrl, 'POST', admin, { decision: 'APPROVE' })).status, 428);
+    await accept(applicant);
+    const incomplete = await api('/submit', 'POST', applicant.token, {});
+    assert.equal(incomplete.status, 428, 'Optional OTP never removes required document/profile checks');
+    await completeDriverProfile(applicant);
+    const invalid = await api('/profile', 'PATCH', applicant.token, { phone: 'not-a-phone' });
+    assert.equal(invalid.status, 400);
+    const submitted = await api('/submit', 'POST', applicant.token, {});
+    assert.equal(submitted.status, 200, JSON.stringify(submitted.data));
+    assert.equal(submitted.data.onboarding.reviewReady, true);
+    assert.deepEqual(submitted.data.onboarding.reviewMissing, []);
+    assert.equal(submitted.data.onboarding.phoneVerificationRequiredForAllocation, false);
+    assert.equal(submitted.data.onboarding.ready, true);
+    assert.deepEqual(submitted.data.onboarding.missing, []);
+    await DB.prepare("UPDATE users SET phone='invalid-phone' WHERE id=?").run(applicant.account.id);
+    const invalidPhone = (await api('/me', 'GET', applicant.token)).data.onboarding;
+    assert.ok(invalidPhone.reviewMissing.includes('PHONE_NUMBER'));
+    assert.equal(invalidPhone.reviewReady, false); assert.equal(invalidPhone.ready, false);
+    assert.equal((await api(reviewUrl, 'POST', admin, { decision: 'APPROVE' })).status, 428, 'A current valid phone remains required even when OTP is deferred');
+    await DB.prepare('UPDATE users SET phone=? WHERE id=?').run(applicant.account.phone, applicant.account.id);
+    const approved = await api(reviewUrl, 'POST', admin, { decision: 'APPROVE' });
+    assert.equal(approved.status, 200, JSON.stringify(approved.data));
+    assert.equal(approved.data.account.status, 'ACTIVE'); assert.equal(approved.data.onboarding.reviewStatus, 'APPROVED');
+    assert.equal(approved.data.onboarding.phoneVerified, false);
+    const stored = await DB.prepare('SELECT phone_verified_at,phone_verified_for FROM onboarding_accounts WHERE account_id=?').get(applicant.account.id);
+    assert.equal(stored.phone_verified_at, null); assert.equal(stored.phone_verified_for, null, 'Approval never invents phone ownership');
+    assert.equal(await isOperationallyEligible(applicant.account.id, 'DRIVER'), true);
+    const operationalToken = signToken({ id: applicant.account.id, role: 'DRIVER' });
+    assert.ok(await resolveActivePrincipal(operationalToken), 'Approved, otherwise complete drivers can operate under the deferred account OTP policy');
+    await verify(applicant);
+    const verified = await api('/me', 'GET', applicant.token);
+    assert.equal(verified.data.account.status, 'ACTIVE'); assert.equal(verified.data.onboarding.reviewStatus, 'APPROVED');
+    assert.equal(verified.data.onboarding.submittedAt, approved.data.onboarding.submittedAt);
+    assert.equal(verified.data.onboarding.phoneVerified, true); assert.equal(verified.data.onboarding.ready, true);
+    assert.equal(await isOperationallyEligible(applicant.account.id, 'DRIVER'), true);
+    assert.ok(await resolveActivePrincipal(operationalToken));
+    assert.equal((await api('/submit', 'POST', applicant.token, {})).data.onboarding.reviewStatus, 'APPROVED', 'Late verification/submission does not require another approval');
+  });
+
+  await t.test('intercity drivers may defer OTP but transport company accounts still require verified ownership', async () => {
+    const registered = await api('/register', 'POST', null, { ...driverInput('0912346065','ONBOARD-INTERCITY-OTP'), serviceType: 'INTERCITY', companyId: 'onb_company_a' });
+    assert.equal(registered.status, 201); const applicant = registered.data;
+    await completeDriverProfile(applicant);
+    const state = (await api('/me', 'GET', applicant.token)).data.onboarding;
+    assert.equal(state.phoneVerificationRequiredForApproval, false);
+    assert.equal(state.phoneVerificationRequiredForAllocation, false);
+    assert.equal(state.reviewReady, true); assert.deepEqual(state.reviewMissing, []);
+    assert.equal(state.phoneVerified, false);
+    assert.equal((await api('/submit', 'POST', applicant.token, {})).status, 200);
+    const approvedDriver = await api('/applications/DRIVER/' + applicant.account.id + '/review', 'POST', companyA, { decision: 'APPROVE' });
+    assert.equal(approvedDriver.status, 200, JSON.stringify(approvedDriver.data));
+    assert.equal(approvedDriver.data.onboarding.phoneVerified, false);
+    assert.equal(await isOperationallyEligible(applicant.account.id, 'DRIVER'), true);
+    const companyRegistration = await api('/register', 'POST', null, { role: 'COMPANY', companyName: 'Company OTP still required', fullName: 'Company Representative', phone: '0912346066', password });
+    assert.equal(companyRegistration.status, 201); const companyApplicant = companyRegistration.data;
+    for (const kind of ['BUSINESS_LICENSE','REGISTRATION','REPRESENTATIVE_ID']) assert.equal((await api('/documents/' + kind, 'PUT', companyApplicant.token, pdf, 'application/pdf')).status, 200);
+    assert.equal((await api('/profile', 'PATCH', companyApplicant.token, { address: 'Addis Ababa', registrationNumber: 'COMPANY-OTP-1' })).status, 200);
+    const companyState = (await api('/me', 'GET', companyApplicant.token)).data.onboarding;
+    assert.equal(companyState.phoneVerificationRequiredForApproval, true);
+    assert.equal(companyState.phoneVerificationRequiredForAllocation, true);
+    assert.equal(companyState.reviewReady, false); assert.deepEqual(companyState.reviewMissing, ['PHONE_VERIFICATION']);
+    assert.equal((await api('/submit', 'POST', companyApplicant.token, {})).status, 428);
+    assert.equal((await api('/applications/COMPANY/' + companyApplicant.account.id + '/review', 'POST', admin, { decision: 'APPROVE' })).status, 428);
   });
 
   await t.test('rejected initial applications can resubmit unchanged; changed route or fee requires new acceptance', async () => {
@@ -329,8 +410,9 @@ test('public driver and company onboarding isolates credentials, verifies real d
     assert.equal((await api(url, 'GET', companyA)).status, 200);
     assert.equal((await api(url + '/documents/LICENSE', 'GET', companyB)).status, 404);
     assert.equal((await api(url + '/documents/LICENSE', 'GET', companyA)).status, 200);
-    const own = await api('/applications?limit=1', 'GET', companyA);
-    assert.deepEqual(own.data.applications.map(item => item.id), [associated.account.id]);
+    const own = await api('/applications?limit=100', 'GET', companyA);
+    assert.ok(own.data.applications.some(item => item.id === associated.account.id));
+    assert.ok(own.data.applications.every(item => item.companyId === 'onb_company_a'));
     assert.equal((await api(url + '/review', 'POST', companyA, { decision: 'APPROVE' })).status, 200);
     const first = await api('/applications?limit=1', 'GET', admin);
     assert.equal(first.data.applications.length, 1); assert.ok(first.data.nextCursor);
@@ -420,7 +502,9 @@ test('public driver and company onboarding isolates credentials, verifies real d
     assert.notEqual(created.data.account.id, old.account.id);
     assert.equal(created.data.account.status, 'PENDING'); assert.equal(created.data.onboarding.phoneVerified, false);
     assert.equal(created.data.onboarding.reviewStatus, 'AWAITING_ACCEPTANCE'); assert.equal(created.data.onboarding.documents.length, 0);
-    assert.ok(created.data.onboarding.missing.includes('PHONE_VERIFICATION'));
+    assert.equal(created.data.onboarding.phoneVerified, false);
+    assert.equal(created.data.onboarding.phoneVerificationRequiredForAllocation, false);
+    assert.ok(!created.data.onboarding.missing.includes('PHONE_VERIFICATION'));
     assert.equal((await api('/submit', 'POST', created.data.token, {})).status, 200);
     assert.equal((await api('/request-otp', 'POST', created.data.token, {})).status, 428);
     assert.equal((await api('/documents/PHOTO', 'PUT', created.data.token, png, 'image/png')).status, 428);

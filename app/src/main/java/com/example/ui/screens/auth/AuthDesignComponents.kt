@@ -187,29 +187,28 @@ internal fun AuthIdentityTitle(isDriver: Boolean, isRegister: Boolean, language:
     }
 }
 
-/** Zero-based account, OTP and final details steps. OTP completion remains owned by the existing flow. */
+/** Account identity and service details; account phone verification is deferred. */
 @Composable
 internal fun AuthStepProgress(step: Int, isDriver: Boolean, language: AppLanguage, modifier: Modifier = Modifier) {
-    val active = step.coerceIn(0, 2)
+    val active = step.coerceIn(0, 1)
     val labels = listOf(authDesignText(language, "Account", "መለያ", "Herrega"),
-        authDesignText(language, "Verify phone", "ስልክ አረጋግጥ", "Bilbila mirkaneessi"),
         if (isDriver) authDesignText(language, "Driver details", "የሹፌር ዝርዝር", "Odeeffannoo konkolaachisaa")
         else authDesignText(language, "Choose route", "መስመር ምረጥ", "Karaa filadhu"))
-    Column(modifier.fillMaxWidth().testTag("auth_step_progress").semantics { progressBarRangeInfo = ProgressBarRangeInfo(active.toFloat(), 0f..2f, 1) },
+    Column(modifier.fillMaxWidth().testTag("auth_step_progress").semantics { progressBarRangeInfo = ProgressBarRangeInfo(active.toFloat(), 0f..1f, 0) },
         verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             labels.forEachIndexed { index, label ->
                 Text(label, color = if (index <= active) AuthTeal else AuthMuted, fontFamily = PassoFont,
                     fontSize = 11.sp, lineHeight = 14.sp, fontWeight = if (index == active) FontWeight.Bold else FontWeight.Medium,
-                    textAlign = when (index) { 0 -> TextAlign.Start; 2 -> TextAlign.End; else -> TextAlign.Center },
+                    textAlign = if (index == 0) TextAlign.Start else TextAlign.End,
                     modifier = Modifier.weight(1f).testTag("auth_step_$index"))
             }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            repeat(3) { index ->
+            repeat(labels.size) { index ->
                 Surface(color = if (index <= active) AuthTeal else AuthCream, shape = CircleShape,
                     border = BorderStroke(1.dp, if (index <= active) AuthTeal else AuthBorder), modifier = Modifier.size(13.dp)) {}
-                if (index < 2) Box(Modifier.weight(1f).height(1.dp).background(if (index < active) AuthTeal else AuthBorder))
+                if (index < labels.lastIndex) Box(Modifier.weight(1f).height(1.dp).background(if (index < active) AuthTeal else AuthBorder))
             }
         }
     }

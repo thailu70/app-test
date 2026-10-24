@@ -190,7 +190,7 @@
     const data = asArray(await api("/api/admin/drivers"), "drivers");
     state.cache.drivers = data;
     const routes = (state.cache.routes || []).filter(r => r.active !== false && r.active !== 0);
-    return pageHeader("Driver approval & routes", "Review new driver registrations, approve verified drivers, then assign their operating route. Drivers retain ownership of their vehicles.",
+    return pageHeader("Driver approval & routes", "Review new driver registrations, approve eligible drivers, then assign their operating route. Drivers retain ownership of their vehicles.",
       '<button class="btn btn-secondary" data-go="routes">Manage routes</button>') +
       section("Registered drivers", data.length + " account(s)",
         table([
@@ -432,7 +432,7 @@
         case "gps": html = pageHeader("Driver GPS", "Track your daily commute fleet. Company intercity vehicles are visible only to their company.") + '<section class="card section-card"><div id="admin-fleet-map"></div></section>'; break;
         case "reports": html = pageHeader("Performance reports", "Daily, weekly and monthly commute performance. Admin grants are excluded from revenue."); break;
         case "drivers": html = await renderDrivers(); break;
-        case "applications": html = pageHeader("Driver & company applications", "Registration is open. Passenger allocation requires phone verification, complete documents and approval.") + window.PassoApplications.markup(); break;
+        case "applications": html = pageHeader("Driver & company applications", "Registration is open. Driver phone verification is optional for now; required documents and approval still apply.") + window.PassoApplications.markup(); break;
         case "companies": html = await renderCompanyAccess(); break;
         case "routes": html = await renderRoutes(); break;
         case "vehicles": html = await renderVehicles(); break;

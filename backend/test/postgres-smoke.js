@@ -160,6 +160,8 @@ async function run() {
     assert.equal(result.status, 503, 'Production-mode real-money payment must fail closed until Telebirr integration is validated');
     assert.equal(result.data.code, 'LIVE_TELEBIRR_NOT_CONFIGURED');
 
+    // This isolated CI fixture deliberately enables the legacy ADMIN_TEST path.
+    process.env.PAYMENT_TESTS_ENABLED = 'true';
     result = await requestJson(baseUrl, `/api/admin/subscriptions/${encodeURIComponent(passengerSubscriptionId)}/recharge`, 'POST', {
       days: 30
     }, adminToken);
@@ -173,6 +175,7 @@ async function run() {
     result = await requestJson(baseUrl, `/api/admin/subscriptions/${encodeURIComponent(passengerSubscriptionId)}/recharge`, 'POST', { days: 30 }, adminToken);
     process.env.NODE_ENV = priorNodeEnv;
     assert.equal(result.status, 403, 'Manual test recharge must stay disabled if production has the test flag set');
+    process.env.PAYMENT_TESTS_ENABLED = 'false';
 
     // Explicit admin grants also work in production without creating payment records.
     await DB.prepare("UPDATE subscriptions SET subscriptionStatus='PENDING', paymentStatus='UNPAID', qrToken=NULL WHERE id=?").run(passengerSubscriptionId);

@@ -9,7 +9,7 @@
   <title>Daily commute driver registration · Passo</title>
   <link rel="icon" href="/join/assets/passo-wordmark.png" type="image/png">
   <link rel="stylesheet" href="/join/join.css?v=20261022-daily">
-  <script src="/join/join.js?v=20261022-daily" defer></script>
+  <script src="/join/join.js?v=20261023-approval-otp-optional" defer></script>
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
@@ -62,7 +62,7 @@
           <button id="accountSubmit" type="submit" class="primary"><span data-i18n="createButton">Create my account</span><svg><use href="#icon-arrow"/></svg></button>
         </form>
         <p class="account-note" id="accountNote" data-i18n="accountNote">Your application is reviewed before any passenger or route assignment.</p>
-        <p class="data-use-note" data-i18n="dataUse">We use your contact and vehicle details to review your daily commute application. Phone verification is required after acceptance and before passenger allocation.</p>
+        <p class="data-use-note" data-i18n="dataUse">We use your contact and vehicle details to review your daily commute application. Phone verification can be completed later.</p>
         <p class="support-line"><a href="mailto:info@passo.live?subject=Passo%20application%20support" data-i18n="support">Need help? Contact info@passo.live</a></p>
       </section>
       <div class="how-it-works"><div><span class="step-number">01</span><strong data-i18n="stepAccount">Create your account</strong><p data-i18n="stepAccountBody">Your phone and password get you started.</p></div><div><span class="step-number">02</span><strong data-i18n="stepDetails">Complete your details</strong><p data-i18n="stepDetailsBody">Verify your phone and upload your documents.</p></div><div><span class="step-number">03</span><strong data-i18n="stepReview">Send for review</strong><p data-i18n="stepReviewBody">We’ll review your application before assignment.</p></div></div>
@@ -82,7 +82,7 @@
         <section id="documentsStep" class="panel document-panel"><div class="panel-heading"><span class="panel-icon"><svg><use href="#icon-file"/></svg></span><div><p class="eyebrow" data-i18n="stepThree">STEP 3</p><h2 data-i18n="documents">Documents</h2></div></div><p class="muted" data-i18n="documentsHelp">Upload a clear JPEG, PNG or PDF, up to 5 MB each. Profile photos must be JPEG or PNG.</p><p class="data-use-note" data-i18n="privateDocuments">Verification documents are private to authorized administrators. After approval, your profile photo may also be shown to passengers assigned to you.</p><div id="documentCards" class="document-grid"></div><p id="documentMessage" class="message" role="status" aria-live="polite"></p></section>
         <section id="reviewStep" class="panel review-panel"><div><p class="eyebrow" data-i18n="stepFour">STEP 4</p><h2 data-i18n="readyReview">Ready for the next step?</h2><p id="reviewSummary"></p><ul id="missingItems"></ul></div><button id="submitReview" class="primary" type="button"><span data-i18n="submitReview">Send for review</span><svg><use href="#icon-arrow"/></svg></button><p id="reviewMessage" class="message" role="status" aria-live="polite"></p></section>
       </div>
-      <p class="dashboard-footer" data-i18n="allocationNote">Phone verification, required documents and approval are needed before passenger allocation.</p>
+      <p class="dashboard-footer" data-i18n="allocationNote">Required documents and administrator approval are needed before passenger allocation. Phone verification is optional for now.</p>
       <p class="support-line"><a href="mailto:info@passo.live?subject=Passo%20application%20support" data-i18n="support">Need help? Contact info@passo.live</a></p>
     </section>
   </main>

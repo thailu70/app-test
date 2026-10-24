@@ -869,10 +869,15 @@ fun AuthScreen(
                         )
 
                         if (isRegisterMode && portal != AppRole.ADMIN) {
+                            Text(authText(lang,
+                                "Phone verification is optional for now. We’ll notify you when it’s time to verify.",
+                                "ለአሁኑ ስልክ ማረጋገጥ አማራጭ ነው። ማረጋገጥ ሲያስፈልግ እናሳውቅዎታለን።",
+                                "Ammaaf bilbila mirkaneessuun filannoo dha. Yeroo mirkaneessuu qabdu si beeksifna."),
+                                style = MaterialTheme.typography.bodySmall)
                             OutlinedTextField(
                                 value = otpCode,
                                 onValueChange = { otpCode = it.take(6); otpVerificationToken = "" },
-                                label = { Text("SMS verification code") },
+                                label = { Text(authText(lang, "SMS verification code (optional)", "የSMS ማረጋገጫ ኮድ (አማራጭ)", "Koodii mirkaneessaa SMS (filannoo)")) },
                                 placeholder = { Text("6 digits") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 singleLine = true,
@@ -987,7 +992,6 @@ fun AuthScreen(
                                          portal == AppRole.DRIVER && isRegisterMode && driverServiceMode == "Daily Commuter" && driverRouteMode == "custom" && driverDepartureTime.isBlank() -> "Enter a preferred departure time."
                                          portal == AppRole.DRIVER && isRegisterMode && driverServiceMode == "Intercity" && driverTransportCompany.isBlank() -> "Select or enter your transport company."
                                         password.length < 10 -> "Use a password with at least 10 characters."
-                                        portal != AppRole.ADMIN && otpVerificationToken.isBlank() -> "Verify your phone number by SMS before registering."
                                         password != confirmPassword -> "The two passwords do not match. Please re-enter them."
                                         else -> null
                                     }

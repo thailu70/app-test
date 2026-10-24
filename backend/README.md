@@ -20,7 +20,9 @@ Drivers self-register with their own phone/password, commercial licence, vehicle
 
 ## Manual test recharge
 
-The web administrator can temporarily activate a passenger subscription for testing. This creates an audited `ADMIN_TEST` record, issues a signed QR pass and does **not** represent a Telebirr payment. The endpoint is disabled unless `ALLOW_MANUAL_TEST_RECHARGE=true` is explicitly set in the API environment. Keep it false for real public operation and disable it immediately when testing is finished. Entries from `ADMIN_TEST` are excluded from real-revenue totals.
+Free `TEST_AUTO` payments are disabled by default with `PAYMENT_TESTS_ENABLED=false`, for both daily commute and intercity. Account phone verification being optional does not enable these free payments. If the operator explicitly enables them later, daily commute additionally requires `PAYMENT_TEST_PASSENGER_ID` to identify one approved passenger account whose current phone is `0912469923`; a request body cannot configure that identity. Intercity still requires its existing reservation-bound SMS ownership proof. Disabling the switch blocks new test-code requests, verification and free grants, including previously issued proofs. It also blocks the legacy payment simulator, `ADMIN_TEST` recharges and Telebirr provider sandbox checkout, query and notification verification. Existing paid tickets remain valid. Ordinary production-provider payments retain their server confirmation checks.
+
+The web administrator can temporarily activate a passenger subscription for testing. This creates an audited `ADMIN_TEST` record, issues a signed QR pass and does **not** represent a Telebirr payment. The endpoint requires `PAYMENT_TESTS_ENABLED=true`, `ALLOW_MANUAL_TEST_RECHARGE=true` and `NODE_ENV=test`. The legacy Telebirr payment simulator also requires both the global switch and `NODE_ENV=test`. Keep these disabled for real public operation. Entries from `ADMIN_TEST` are excluded from real-revenue totals. The separate explicitly enabled, audited `ADMIN_GRANT` business action remains independent of the test-payment switch.
 
 ## Existing VPS updates
 

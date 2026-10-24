@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { passengerAssignment, populatePassengerStopLocations } = require('../services/passenger-assignment');
+const { paymentTestsEnabled } = require('../services/payment-policy');
 
 function resolveQrSigningKey() {
   if (process.env.QR_SIGNING_KEY && process.env.QR_SIGNING_KEY.trim().length > 0) {
@@ -338,6 +339,9 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
       error: 'Live Telebirr payments are disabled until merchant checkout, signature verification, and reconciliation pass sandbox tests. No payment or subscription was created.'
     });
   }
+  if (!paymentTestsEnabled() || process.env.NODE_ENV !== 'test') {
+    return res.status(403).json({ success: false, code: 'PAYMENT_TESTS_DISABLED', error: 'Free test payments are disabled. The payment simulator is available only in an explicitly enabled automated test instance.' });
+  }
   try {
     const passengerId = req.user.id;
 
@@ -468,7 +472,7 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
         id: txnId,
         referenceNumber: txnRef,
         amountEtb: price,
-        provider: 'Telebirr',
+        provider: txnProvider,
         date: new Date().toISOString(),
         status: 'COMPLETED'
       },

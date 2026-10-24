@@ -1,6 +1,7 @@
 'use strict';
 const crypto = require('node:crypto');
 const { publicBaseUrl } = require('./public-url');
+const { paymentTestsEnabled } = require('./payment-policy');
 const TEST_API='https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway';
 const PROD_API='https://superapp.ethiomobilemoney.et:38443/apiaccess/payment/gateway';
 const TEST_WEB='https://developerportal.ethiotelebirr.et:38443/payment/web/paygate?';
@@ -22,6 +23,7 @@ function config(){
 function missingConfiguration(){
  const c=config(),missing=[];
  if(c.environment==='invalid')missing.push('TELEBIRR_ENVIRONMENT must be test or production');
+ if(c.environment==='test'&&!paymentTestsEnabled())missing.push('PAYMENT_TESTS_ENABLED (Telebirr sandbox is disabled)');
  if(!c.fabricAppId)missing.push('TELEBIRR_FABRIC_APP_ID');
  if(!c.appSecret)missing.push('TELEBIRR_APP_SECRET');
  if(!c.merchantAppId)missing.push('TELEBIRR_MERCHANT_APP_ID');
@@ -30,6 +32,10 @@ function missingConfiguration(){
  if(!/^https:\/\//i.test(c.notifyUrl))missing.push('TELEBIRR_NOTIFY_URL (HTTPS required)');
  if(!/^https:\/\//i.test(c.redirectUrl))missing.push('TELEBIRR_REDIRECT_URL (HTTPS required)');
  return missing;
+}
+function requireProviderEnabled(c){
+ if(c.environment==='test'&&!paymentTestsEnabled())throw Object.assign(new Error('Telebirr sandbox payments are disabled. No test order or payment was activated.'),{status:503,code:'PAYMENT_TESTS_DISABLED'});
+ if(c.environment==='invalid')throw Object.assign(new Error('Invalid Telebirr environment.'),{status:503});
 }
 function keyPem(source,kind){
  const raw=String(source||'').trim().replace(/\\n/g,'\n');
@@ -91,6 +97,7 @@ async function createCheckout(orderId,amount,title,overrides={}){
  const notifyUrl=overrides.notifyUrl||c.notifyUrl,redirectUrl=overrides.redirectUrl||c.redirectUrl;
  let token,request;
  try {
+  requireProviderEnabled(c);
   if(!/^https:\/\//i.test(notifyUrl)||!/^https:\/\//i.test(redirectUrl))throw Error('HTTPS payment callback URLs required');
   if(!Number.isFinite(total)||total<=0||!/^[A-Za-z0-9]+$/.test(orderId))throw Error('invalid checkout order or amount');
   token=await fabricToken();
@@ -105,13 +112,15 @@ async function createCheckout(orderId,amount,title,overrides={}){
 }
 function checkoutUrlForPrepay(prepayId){
  const c=config();
+ requireProviderEnabled(c);
  if(typeof prepayId!=='string'||!prepayId||prepayId.length>300)throw Error('Invalid existing payment reference');
  const fields={appid:c.merchantAppId,merch_code:c.merchantCode,nonce_str:nonce(),prepay_id:prepayId,timestamp:String(Math.floor(Date.now()/1000))};
  const params=new URLSearchParams({...fields,sign:sign(fields),sign_type:'SHA256WithRSA',version:'1.0',trade_type:'Checkout'});
  return c.webUrl+params.toString();
 }
 async function queryOrderStatus(orderId,prepayId){
- const c=config(),token=await fabricToken(),biz={appid:c.merchantAppId,merch_code:c.merchantCode};
+ const c=config();requireProviderEnabled(c);
+ const token=await fabricToken(),biz={appid:c.merchantAppId,merch_code:c.merchantCode};
  if(prepayId)biz.prepay_id=prepayId;if(orderId)biz.merch_order_id=orderId;
  const request=envelope('payment.queryorder',biz);
  const data=await post(c.apiUrl+'/payment/v1/merchant/queryOrder',request,{'X-APP-Key':c.fabricAppId,Authorization:token},'query-order');
@@ -134,7 +143,7 @@ function parseNotification(input){
  return value;
 }
 function verifyNotification(notification){
- const c=config();if(!c.publicKey||!notification.sign||!notification.sign_type)return false;
+ const c=config();if(c.environment==='invalid'||c.environment==='test'&&!paymentTestsEnabled()||!c.publicKey||!notification.sign||!notification.sign_type)return false;
  try{return crypto.verify('sha256',Buffer.from(canonical(notification),'utf8'),{key:crypto.createPublicKey(keyPem(c.publicKey,'public')),padding:crypto.constants.RSA_PKCS1_PSS_PADDING,saltLength:32},Buffer.from(String(notification.sign).replace(/ /g,'+'),'base64'));}catch(_){return false;}
 }
 module.exports={config,missingConfiguration,merchantOrderId,canonicalString:canonical,createCheckout,checkoutUrlForPrepay,queryOrderStatus,parseNotification,verifyNotification,resetTokenCacheForTests(){tokenCache=null;}};
