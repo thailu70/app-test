@@ -211,7 +211,13 @@ test('passenger stop names resolve current own-route assignments without rewriti
     assert.equal(result.data.subscription.pickupStopName, 'Garment');
     assert.equal(result.data.subscription.destinationStopName, 'Bole Medhanialem');
   });
-  await t.test('test activation uses target route stops and schedules for new and changed routes', async () => {
+  await t.test('test activation uses target route stops and schedules for new and changed routes', async t => {
+    const previousSwitch = process.env.PAYMENT_TESTS_ENABLED;
+    process.env.PAYMENT_TESTS_ENABLED = 'true';
+    t.after(() => {
+      if (previousSwitch === undefined) delete process.env.PAYMENT_TESTS_ENABLED;
+      else process.env.PAYMENT_TESTS_ENABLED = previousSwitch;
+    });
     for (const id of ['ps_activate', 'ps_change']) {
       const result = await request(id, 'POST', '/telebirr/pay', { routeId: 'ps_two' });
       assert.equal(result.status, 200, JSON.stringify(result.data));
