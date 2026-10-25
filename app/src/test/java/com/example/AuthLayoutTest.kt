@@ -175,6 +175,11 @@ class AuthLayoutTest {
         assertTrue("The account action must fit completely inside the portrait screen", button.top >= viewport.top && button.bottom <= viewport.bottom + 1f)
     }
 
+    private fun applicationNode(tag: String): SemanticsNodeInteraction {
+        compose.onNodeWithTag("driver_application_screen").performScrollToNode(hasTestTag(tag))
+        return compose.onNodeWithTag(tag)
+    }
+
     @Test fun passengerLoginMatchesMockupAndSubmitsPassengerRole() {
         show(AppRole.PASSENGER)
         assertPrimaryInsideViewport()
@@ -330,18 +335,18 @@ class AuthLayoutTest {
 
         applicationResponse = applicationResponse.copy(onboarding = DriverApplicationProgress(
             acceptanceStatus = "ACCEPTED", canVerifyAndUpload = true, reviewStatus = "CORRECTIONS_REQUESTED", reviewNote = "Please upload a clearer licence.", requiredDocuments = listOf("LICENSE")))
-        compose.onNodeWithTag("driver_application_refresh").performScrollTo().performClick()
+        applicationNode("driver_application_refresh").performClick()
         compose.waitUntil(5_000) { model.driverApplications.state.value.application?.onboarding?.reviewStatus == "CORRECTIONS_REQUESTED" }
-        compose.onNodeWithTag("driver_application_feedback").performScrollTo().assertTextEquals("Please upload a clearer licence.")
-        compose.onNodeWithTag("driver_application_upload_LICENSE").performScrollTo().assertIsEnabled()
-        compose.onNodeWithTag("driver_application_final_submit").performScrollTo().assertIsNotEnabled()
+        applicationNode("driver_application_feedback").assertTextEquals("Please upload a clearer licence.")
+        applicationNode("driver_application_upload_LICENSE").assertIsEnabled()
+        applicationNode("driver_application_final_submit").assertIsNotEnabled()
         assertFalse(model.isAuthenticated.value)
 
         applicationResponse = applicationResponse.copy(account = applicationResponse.account!!.copy(status = "ACTIVE"),
             onboarding = applicationResponse.onboarding!!.copy(reviewStatus = "APPROVED", reviewReady = true))
-        compose.onNodeWithTag("driver_application_refresh").performScrollTo().performClick()
+        applicationNode("driver_application_refresh").performClick()
         compose.waitUntil(5_000) { model.driverApplications.state.value.application?.approved == true }
-        compose.onNodeWithTag("driver_application_portal_signin").performScrollTo().assertIsEnabled()
+        applicationNode("driver_application_portal_signin").assertIsEnabled()
         assertFalse("An application refresh cannot create an operational login", model.isAuthenticated.value)
         assertNull(ApiClient.getAuthToken())
         capture("09-driver-application-approved")
