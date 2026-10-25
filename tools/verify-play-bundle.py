@@ -20,7 +20,17 @@ assert application.get(android + 'usesCleartextTraffic') == 'false', 'Cleartext 
 permissions = sorted(node.get(android + 'name') for node in manifest.findall('uses-permission'))
 for forbidden in ['ACCESS_BACKGROUND_LOCATION', 'READ_SMS', 'SEND_SMS', 'MANAGE_EXTERNAL_STORAGE', 'QUERY_ALL_PACKAGES']:
     assert 'android.permission.' + forbidden not in permissions, 'Unexpected sensitive permission: ' + forbidden
-assert any(node.get(android + 'name', '').endswith('.DriverLocationService') and node.get(android + 'foregroundServiceType') == 'location'
+def is_location_service(node):
+    value = node.get(android + 'foregroundServiceType', '')
+    # bundletool can print compiled Android flags as integer values rather than
+    # their source XML names. ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION = 8.
+    try:
+        location_type = int(value, 0) == 8
+    except ValueError:
+        location_type = value == 'location'
+    return node.get(android + 'name', '').endswith('.DriverLocationService') and location_type
+
+assert any(is_location_service(node)
            for node in application.findall('service')), 'Driver location must retain its declared foreground-service type'
 assert 'PAGE_ALIGNMENT_16K' in config_path.read_text(encoding='utf-8'), 'Bundle configuration must preserve 16 KB native-library page alignment'
 

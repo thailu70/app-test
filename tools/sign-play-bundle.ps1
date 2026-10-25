@@ -17,9 +17,10 @@ if ($playOutput -eq $playBundle) { throw 'The signed output must differ from the
 try {
     $env:PASSO_UPLOAD_STORE_PASSWORD = $playSigning.storePassword
     $env:PASSO_UPLOAD_KEY_PASSWORD = $playSigning.keyPassword
-    & $playSigner -J-Duser.language=en -keystore $playSigning.keystorePath -storepass:env PASSO_UPLOAD_STORE_PASSWORD -keypass:env PASSO_UPLOAD_KEY_PASSWORD -sigalg SHA256withRSA -digestalg SHA-256 -signedjar $playOutput $playBundle $playSigning.keyAlias
+    $playSignArgs = @('-J-Duser.language=en', '-keystore', $playSigning.keystorePath, '-storepass:env', 'PASSO_UPLOAD_STORE_PASSWORD', '-keypass:env', 'PASSO_UPLOAD_KEY_PASSWORD', '-sigalg', 'SHA256withRSA', '-digestalg', 'SHA-256', '-signedjar', $playOutput, $playBundle, $playSigning.keyAlias)
+    & $playSigner @playSignArgs
     if ($LASTEXITCODE -ne 0) { throw 'App bundle signing failed.' }
-    $playVerification = & $playSigner -J-Duser.language=en -verify $playOutput 2>&1 | Out-String
+    $playVerification = & $playSigner '-J-Duser.language=en' '-verify' $playOutput 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0 -or $playVerification -notmatch 'jar verified\.') { throw 'The signed bundle did not pass signature verification.' }
     Get-FileHash -Algorithm SHA256 -LiteralPath $playOutput | Select-Object Path, Hash
     Write-Output 'Signed upload bundle verified. This does not upload or publish it to Google Play.'
