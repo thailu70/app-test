@@ -14,7 +14,7 @@ const { sendSms } = require('../services/afro-sms');
 const { effectiveBoardingRadius, getGlobalGpsRadius } = require('../services/master-data');
 const { isOperationallyEligible } = require('../services/onboarding');
 const { assertDriverEligible, driverEligible, operationalAccount } = require('../services/operational-onboarding');
-const { isTestPaymentPhone, initPaymentTestSchema, createPaymentTestService } = require('../services/payment-test');
+const { isTestPaymentPhone, paymentTestsEnabled, initPaymentTestSchema, createPaymentTestService } = require('../services/payment-test');
 const { isAccountClosed } = require('../services/account-deletion');
 const router = express.Router();
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -217,7 +217,7 @@ router.post('/bookings/:id/checkout', publicLimiter, asyncRoute(async (req, res)
   if (b.payment_status === 'PAID') return res.json({ success: true, paid: true });
   await requireDepartureEligible(await departure(DB, b.departure_id));
   if (b.status === 'EXPIRED' || Date.parse(b.expires_at) < Date.now()) throw fail(409, 'Your reservation expired. Choose a seat again.');
-  if (isTestPaymentPhone(p.phone)) {
+  if (paymentTestsEnabled() && isTestPaymentPhone(p.phone)) {
     await write(async tx => {
       const d = await departure(tx, b.departure_id, true); await requireDepartureEligible(d, tx);
       const current = await tx.prepare('SELECT * FROM intercity_bookings WHERE id=?').get(b.id);

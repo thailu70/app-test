@@ -90,6 +90,21 @@ test('daily-driver controls cannot be switched to a different role or service an
   portal.applyRegistrationFields(controls,'DRIVER','login','DAILY_COMMUTE');
   assert.deepEqual(controls.filter(item=>!item.disabled).map(item=>item.name).sort(),['password','phone']);
 });
+
+test('adult registration acknowledgement is explicit, translated, reset between access modes and never posted as an age-verification claim',()=>{
+  const html=fs.readFileSync(path.join(__dirname,'../public/join/index.html'),'utf8');
+  const checkbox=html.match(/<input\b[^>]*id="adultConfirmation"[^>]*>/)?.[0];
+  assert.ok(checkbox);assert.match(checkbox,/type="checkbox"/);assert.match(checkbox,/\brequired\b/);assert.match(checkbox,/aria-describedby="adultNotice"/);assert.doesNotMatch(checkbox,/\bchecked\b/);
+  assert.match(html,/<label[^>]*for="adultConfirmation"[^>]*data-registration/);
+  for(const language of ['en','am','om'])for(const key of ['adultOnlyNotice','adultConfirmation','adultRequired'])assert.notEqual(portal.translate(key,language),key);
+  const confirmation={name:'adultConfirmation',checked:false,disabled:false,required:false};
+  portal.applyRegistrationFields([confirmation],'DRIVER','register','DAILY_COMMUTE');assert.equal(confirmation.required,true);assert.equal(confirmation.checked,false);assert.equal(confirmation.disabled,false);
+  confirmation.checked=true;portal.applyRegistrationFields([confirmation],'DRIVER','register','DAILY_COMMUTE');assert.equal(confirmation.checked,true,'Language/re-render updates preserve an explicit current acknowledgement');
+  portal.applyRegistrationFields([confirmation],'DRIVER','login','DAILY_COMMUTE');assert.equal(confirmation.disabled,true);assert.equal(confirmation.required,false);assert.equal(confirmation.checked,false);
+  portal.applyRegistrationFields([confirmation],'DRIVER','register','DAILY_COMMUTE');assert.equal(confirmation.required,true);assert.equal(confirmation.checked,false,'Returning to signup requires a fresh acknowledgement');
+  const payload=portal.accountPayload('DRIVER','register',{fullName:'Adult Fixture',phone:'0912345678',password:'Fixture password',adultConfirmation:'on',ageVerified:true,dateOfBirth:'2000-01-01'});
+  for(const key of ['adultConfirmation','ageVerified','dateOfBirth'])assert.equal(Object.hasOwn(payload,key),false,'Client acknowledgement does not change the backend contract');
+});
 test('the homepage sign-in link opens driver login while URL role/service values cannot select another registration flow',()=>{
   for(const query of ['?view=login','?view=login&role=COMPANY&serviceType=INTERCITY'])assert.equal(portal.initialMode(query),'login');
   for(const query of ['', '?role=company','?view=register&serviceType=INTERCITY','?view=LOGIN','?view=https://example.invalid'])assert.equal(portal.initialMode(query),'register');

@@ -994,7 +994,7 @@ class MainViewModel(
                     startTelebirrStatusPolling(result.merchantOrderId, passengerId)
                 }
                 is TelebirrPaymentResult.Success -> {
-                    _paymentMessage.value = "Test payment completed. Subscription status refreshed."
+                    _paymentMessage.value = "Payment confirmed. Subscription status refreshed."
                     refreshPassengerSubscription(passengerId)
                     delay(1200)
                     if (session != sessionGeneration || currentPassengerId != passengerId) return@launch

@@ -90,6 +90,11 @@ fun DriverTripScreen(
     providedProfileApi: com.example.data.api.ProfileApi? = null,
     onPrivacy: (() -> Unit)? = null
 ) {
+    val locationContext = LocalContext.current
+    var locationPermissionGranted by remember { mutableStateOf(
+        ContextCompat.checkSelfPermission(locationContext, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(locationContext, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) }
+    var locationPermissionRequest by remember { mutableIntStateOf(0) }
     val currentUser by viewModel.currentUser.collectAsState()
     val language by viewModel.currentLanguage.collectAsState()
     val api = remember(currentUser?.id, operationsApi) { operationsApi ?: com.example.data.api.ApiClient.createFeatureService(com.example.data.api.DriverOperationsApi::class.java) }
@@ -277,11 +282,15 @@ fun DriverTripScreen(
         return
     }
     Box(modifier.fillMaxSize().background(com.example.ui.screens.passenger.CommuteCream)) {
-        DriverLocationReporter({ gpsStatus = it }, onFix = { freshFix = it; clockNow = System.currentTimeMillis() })
+        DriverLocationReporter({ gpsStatus = it }, onFix = { freshFix = it; clockNow = System.currentTimeMillis() },
+            permissionRequest = locationPermissionRequest, onPermissionChanged = { locationPermissionGranted = it })
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp).smoothPortalMotion(section, animateInitial = false),
             contentPadding = PaddingValues(top = 14.dp, bottom = 104.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if (section == "Home") item {
                 DriverGreeting(currentUser?.id.orEmpty(), currentUser?.fullName.orEmpty(), language, clockNow, onProfile = { documentsOpen = true })
+            }
+            if (!locationPermissionGranted) item {
+                DriverGpsPermissionControl(language, onRequestPermissions = { locationPermissionRequest++ })
             }
             sharingTarget?.let { target -> item { DriverTripSharingControls(target, language) } }
             if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth(), color = TransportGreenPrimary) }
@@ -451,9 +460,7 @@ private fun DriverTripSharingControls(target: com.example.core.location.DriverLo
     }
     if (explain) AlertDialog(onDismissRequest = { explain = false },
         title = { Text(t("Share during this trip?", "በዚህ ጉዞ አካባቢዎን ያጋሩ?", "Bakka kee imala kanaaf qooddaa?")) },
-        text = { Text(t("PASSO shares your phone's location with authorized transport staff and assigned passengers during the active trip, including when the screen is locked. An ongoing notification shows sharing and lets you stop it. Sharing ends when the trip ends or you sign out.",
-            "PASSO በጉዞው ወቅት፣ ማያ ገጹ ሲዘጋም፣ የስልክዎን አካባቢ ለተፈቀደላቸው የትራንስፖርት ሠራተኞች እና ለተመደቡ ተሳፋሪዎች ያጋራል። ቋሚ ማሳወቂያው ማጋራትን ያሳያል እና ማቆም ያስችላል። ጉዞው ሲያልቅ ወይም ሲወጡ ማጋራት ይቆማል።",
-            "PASSO yeroo imalaa, yeroo iskiriiniin cufames, bakka bilbila keetii hojjettoota geejjibaa hayyamamaniifi imaltoota ramadamaniif qooda. Beeksisni yeroo hunda mul'atu qooduu agarsiisee akka dhaabdu si dandeessisa. Imalli yeroo xumuramu ykn yeroo baatu qooduun ni dhaabata.")) },
+        text = { DriverLocationDisclosureText(language) },
         confirmButton = { TextButton(onClick = {
             explain = false
             val requested = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
@@ -470,7 +477,9 @@ private fun DriverTripSharingControls(target: com.example.core.location.DriverLo
 @Composable
 private fun DriverLocationReporter(
     onStatusChanged: (String) -> Unit,
-    onFix: (com.example.data.api.DriverGpsFix) -> Unit = {}
+    onFix: (com.example.data.api.DriverGpsFix) -> Unit = {},
+    permissionRequest: Int = 0,
+    onPermissionChanged: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val locationManager = remember(context) {
@@ -488,18 +497,30 @@ private fun DriverLocationReporter(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
         hasPermission = grants.values.any { it }
-        onStatusChanged(if (hasPermission) "Location permission granted. Waiting for GPS fix…" else "Location permission was denied. Allow location to share live vehicle position.")
+        onStatusChanged(if (hasPermission) "Location permission granted. Waiting for GPS fix…" else "Location permission was denied. Enable location to confirm arrival at your pickup point.")
     }
 
-    LaunchedEffect(Unit) {
-        if (!hasPermission) {
+    LaunchedEffect(hasPermission) { onPermissionChanged(hasPermission) }
+    LaunchedEffect(permissionRequest) {
+        if (permissionRequest > 0 && !hasPermission) {
             permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         }
     }
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) hasPermission =
+                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     DisposableEffect(hasPermission, context) {
         if (!hasPermission) {
-            onStatusChanged("Allow location permission to share live vehicle position.")
+            onStatusChanged("Enable location to confirm arrival at your pickup point.")
             onDispose { }
         } else {
             val listener = object : LocationListener {
@@ -530,6 +551,7 @@ private fun DriverLocationReporter(
                         locationManager.requestLocationUpdates(provider, 1000L, 0f, listener, Looper.getMainLooper())
                         locationManager.getLastKnownLocation(provider)?.let(listener::onLocationChanged)
                     } catch (_: SecurityException) {
+                        hasPermission = false
                         onStatusChanged("Location access was denied. Re-enable permission in Android settings.")
                     } catch (_: IllegalArgumentException) {
                         // This provider is not available on the device.

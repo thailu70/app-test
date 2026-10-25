@@ -38,6 +38,8 @@ internal data class IntercityUiState(
     val booking: IntercityBooking? = null, val recent: List<IntercityBooking> = emptyList(),
     val checkoutUrl: String? = null, val searchCompleted: Boolean = false,
     val showingUpcoming: Boolean = true,
+    // Adult self-declaration stays in memory; it is not age verification.
+    val adultConfirmed: Boolean = false,
     val testVerificationPending: Boolean = false,
     val testVerificationPhone: String? = null,
     val testOtpResendAt: Long = 0L
@@ -53,12 +55,6 @@ internal fun trustedIntercityCheckout(url: String): Boolean = runCatching {
 
 internal fun canShowIntercityQr(booking: IntercityBooking?): Boolean = booking != null &&
     booking.paymentStatus == "PAID" && booking.status == "CONFIRMED" && !booking.qrToken.isNullOrBlank()
-
-/** Client UI hint only. Eligibility and proof are enforced independently by the server. */
-internal fun isIntercityTestPhone(value: String): Boolean {
-    val digits = value.filter(Char::isDigit)
-    return digits in setOf("0912469923", "912469923", "251912469923", "00251912469923")
-}
 
 /** Guest booking capabilities remain private; every payment and boarding credential comes from the server. */
 internal class IntercityPassengerViewModel(
@@ -166,10 +162,15 @@ internal class IntercityPassengerViewModel(
         if (number in 1..inventory.seats && number !in inventory.reserved) mutable.update { it.copy(seat = number) }
     }
 
+    fun setAdultConfirmed(confirmed: Boolean) {
+        if (!mutable.value.busy) mutable.update { it.copy(adultConfirmed = confirmed, message = null) }
+    }
+
     fun holdSeat() = action { expectedEpoch ->
         if (expectedEpoch != navigationEpoch) return@action
         val selected = mutable.value.selected ?: error("Choose a departure.")
         val seat = mutable.value.seat ?: error("Choose a seat.")
+        require(mutable.value.adultConfirmed) { "Confirm that you are 18 or older before reserving a seat." }
         val result = body(api.hold(selected.id, IntercitySeatHoldRequest(seat)))
         check(result.success) { result.error ?: "This seat could not be reserved." }
         val booking = result.booking ?: error("The reservation was incomplete. Refresh the seats.")
@@ -225,23 +226,14 @@ internal class IntercityPassengerViewModel(
 
     fun checkout(name: String, phone: String) = action { expectedEpoch ->
         if (expectedEpoch != navigationEpoch) return@action
+        require(mutable.value.adultConfirmed) { "Confirm that you are 18 or older before continuing to payment." }
         require(name.trim().length >= 2 && Regex("^\\+?[0-9 ()-]{7,24}$").matches(phone.trim()) && phone.count(Char::isDigit) in 7..15) { "Enter the passenger name and a valid phone number." }
         val booking = mutable.value.booking ?: error("Choose a seat first.")
         val secret = capabilities[booking.id] ?: error("Private booking access is unavailable.")
-        if (isIntercityTestPhone(phone)) {
-            clearTestDraft()
-            val draft = TestDraft(booking.id, name.trim(), phone.trim(), expectedEpoch)
-            val result = body(api.requestTestPaymentOtp(booking.id, secret, IntercityTestOtpRequest(draft.phone)))
-            check(result.success && result.delivery == "SENT") { result.error ?: "The verification code could not be sent." }
-            if (expectedEpoch == navigationEpoch && mutable.value.booking?.id == booking.id) {
-                testDraft = draft
-                mutable.update { it.copy(testVerificationPending = true, testVerificationPhone = draft.phone,
-                    testOtpResendAt = System.currentTimeMillis() + (result.retryAfterSeconds ?: 60).coerceAtLeast(1) * 1000L) }
-            }
-        } else {
-            clearTestDraft()
-            completeCheckout(booking.id, secret, IntercityCheckoutRequest(name.trim(), phone.trim()), expectedEpoch)
-        }
+        // Every number follows the same server-confirmed provider checkout.
+        // A phone spelling must never opt a customer into a disabled free-test flow.
+        clearTestDraft()
+        completeCheckout(booking.id, secret, IntercityCheckoutRequest(name.trim(), phone.trim()), expectedEpoch)
     }
 
     private suspend fun completeCheckout(id: String, secret: String, request: IntercityCheckoutRequest, expectedEpoch: Long) {

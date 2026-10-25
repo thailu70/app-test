@@ -210,13 +210,15 @@ internal fun IntercityPassengerScreen(
                 }
                 IntercityPhase.SEATS -> item {
                     state.selected?.let { departure -> Box(Modifier.padding(horizontal = 14.dp)) {
-                        IntercitySeatSelection(departure, state.inventory, state.seat, state.busy, language, model::selectSeat, model::holdSeat, { model.selectDeparture(departure) })
+                        IntercitySeatSelection(departure, state.inventory, state.seat, state.busy, language, model::selectSeat, model::holdSeat, { model.selectDeparture(departure) },
+                            state.adultConfirmed, model::setAdultConfirmed)
                     } }
                 }
                 IntercityPhase.DETAILS -> {
                     item(key = "checkout") {
                         state.booking?.let { booking -> Box(Modifier.padding(horizontal = 14.dp)) {
-                            IntercityCheckoutForm(booking, state.busy || state.testVerificationPending, language, model::checkout, model::checkPayment)
+                            IntercityCheckoutForm(booking, state.busy || state.testVerificationPending, language, model::checkout, model::checkPayment,
+                                state.adultConfirmed, model::setAdultConfirmed)
                         } }
                     }
                     if (state.testVerificationPending) item(key = "phone-verification") {

@@ -72,6 +72,50 @@ class DriverLayoutTest {
         File(directory, "$name.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
+    @Test fun `GPS permission is requested only after explicit disclosure acceptance`() {
+        var permissionRequests = 0
+        compose.setContent {
+            MyApplicationTheme { DriverGpsPermissionControl(AppLanguage.ENGLISH) { permissionRequests++ } }
+        }
+        assertEquals(0, permissionRequests)
+        compose.onNodeWithTag("driver_location_disclosure").assertDoesNotExist()
+        compose.onNodeWithTag("driver_enable_location").performClick()
+        assertEquals("Opening the disclosure must not request Android permission", 0, permissionRequests)
+        for (explanation in listOf("location data", "minimized or not in use", "screen locked", "assigned passengers",
+            "transport dispatch staff", "stop it in the app or notification", "trip ends or you sign out")) {
+            compose.onNodeWithTag("driver_location_disclosure").assertTextContains(explanation, substring = true)
+        }
+        capture("06-location-disclosure")
+        compose.onNodeWithTag("driver_location_disclosure_cancel").assertIsDisplayed().performClick()
+        assertEquals(0, permissionRequests)
+        compose.onNodeWithTag("driver_location_disclosure").assertDoesNotExist()
+        compose.onNodeWithTag("driver_enable_location").performClick()
+        compose.onNodeWithTag("driver_location_disclosure_allow").assertIsDisplayed().performClick()
+        assertEquals(1, permissionRequests)
+        compose.onNodeWithTag("driver_location_disclosure").assertDoesNotExist()
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h800dp-xhdpi")
+    fun `translated GPS disclosure keeps accept and decline reachable with large text`() {
+        var language by mutableStateOf(AppLanguage.AMHARIC)
+        var permissionRequests = 0
+        compose.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, 1.3f)) {
+                MyApplicationTheme { DriverGpsPermissionControl(language) { permissionRequests++ } }
+            }
+        }
+        for (selected in listOf(AppLanguage.AMHARIC, AppLanguage.OROMO)) {
+            compose.runOnIdle { language = selected }
+            compose.onNodeWithTag("driver_enable_location").performClick()
+            compose.onNodeWithTag("driver_location_disclosure").assertTextEquals(driverLocationDisclosure(selected))
+            compose.onNodeWithTag("driver_location_disclosure_cancel").assertIsDisplayed()
+            compose.onNodeWithTag("driver_location_disclosure_allow").assertIsDisplayed().performClick()
+        }
+        assertEquals(2, permissionRequests)
+    }
+
     @Test fun `location overlays contain only current driver marker and replace any old route geometry`() {
         val map = MapView(compose.activity).apply { setUseDataConnection(false) }
         try {

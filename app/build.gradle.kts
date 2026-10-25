@@ -14,16 +14,21 @@ val routePassApiBaseUrl = providers.gradleProperty("ROUTEPASS_API_BASE_URL")
   .get()
   .let { if (it.endsWith("/")) it else "$it/" }
 
+// CI can prepare an unsigned bundle for signing on the owner's computer.
+// The release packaging script still requires and verifies a real upload key.
+val unsignedPlayBundle = providers.gradleProperty("PASSO_UNSIGNED_PLAY_BUNDLE")
+  .map { it.toBooleanStrict() }.orElse(false).get()
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.transportnavigator.edxpkq"
+    applicationId = "live.passo.app"
     minSdk = 24
     targetSdk = 36
-    versionCode = 25
-    versionName = "1.1.22"
+    versionCode = 26
+    versionName = "1.1.23"
     buildConfigField("String", "ROUTEPASS_API_BASE_URL", "\"$routePassApiBaseUrl\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -44,7 +49,7 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+      signingConfig = if (unsignedPlayBundle) null else signingConfigs.getByName("release")
     }
     debug { }
   }

@@ -282,6 +282,35 @@ class AuthLayoutTest {
         compose.onNodeWithTag("auth_driver_vehicle_model_input").performScrollTo().performTextInput("Toyota Hiace")
         compose.onNodeWithTag("auth_driver_pickup_input").performScrollTo().performTextInput("Bole")
         compose.onNodeWithTag("auth_driver_destination_input").performScrollTo().performTextInput("CMC")
+        confirmAdultForRegistration("auth_driver_submit")
+    }
+
+    private fun confirmAdultForRegistration(submitTag: String) {
+        compose.onNodeWithTag(submitTag).performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithTag("auth_adult_confirmation").performScrollTo().assertIsOff().performClick().assertIsOn()
+        compose.onNodeWithTag(submitTag).performScrollTo().assertIsEnabled()
+    }
+
+    @Test fun passengerAdultAcknowledgmentIsRequiredAndCanBeWithdrawnWithoutCreatingAnAccount() {
+        show(AppRole.PASSENGER, signup = true)
+        compose.onNodeWithTag("auth_full_name_input").performTextInput("Native Test Passenger")
+        compose.onNodeWithTag("auth_phone_input").performTextInput("0912345678")
+        compose.onNodeWithTag("auth_password_input").performTextInput("valid-test-password")
+        compose.onNodeWithTag("auth_confirm_password_input").performTextInput("valid-test-password")
+        compose.onNodeWithTag("auth_submit_button").performClick()
+        compose.onNodeWithTag("auth_adult_confirmation").performScrollTo().assertIsOff()
+        compose.onNodeWithText("I am 18 or older. Passo accounts are for adults only.").assertExists()
+        confirmAdultForRegistration("auth_passenger_submit")
+        compose.onNodeWithTag("auth_adult_confirmation").performScrollTo().performClick().assertIsOff()
+        compose.onNodeWithTag("auth_passenger_submit").performScrollTo().assertIsNotEnabled()
+        for (language in listOf(AppLanguage.AMHARIC, AppLanguage.OROMO)) {
+            compose.runOnIdle { model.setLanguage(language) }
+            compose.onNodeWithTag("auth_adult_confirmation").performScrollTo().assertIsOff()
+            compose.onNodeWithTag("auth_passenger_submit").performScrollTo().assertIsNotEnabled()
+        }
+        assertTrue(registrations.isEmpty())
+        assertTrue(driverApplications.isEmpty())
+        assertFalse(model.isAuthenticated.value)
     }
 
     @Test fun unverifiedDriverSubmissionPreservesLicenceVehicleAndPendingApproval() {
@@ -376,6 +405,7 @@ class AuthLayoutTest {
         assertTrue(verifiedCodes.isEmpty())
         compose.onNodeWithTag("auth_route_route-auth-test").performScrollTo().performClick()
         compose.onNodeWithTag("auth_tier_Economy").performScrollTo().performClick().assertIsSelected()
+        confirmAdultForRegistration("auth_passenger_submit")
         compose.onNodeWithTag("auth_passenger_submit").performScrollTo().performClick()
         compose.waitUntil(5_000) { registrations.isNotEmpty() }
         val request = registrations.single()
@@ -410,6 +440,7 @@ class AuthLayoutTest {
         compose.onNodeWithTag("auth_submit_button").performClick()
         compose.onNodeWithTag("auth_details").assertExists()
         compose.onNodeWithTag("auth_route_route-auth-test").performScrollTo().performClick()
+        confirmAdultForRegistration("auth_passenger_submit")
         compose.onNodeWithTag("auth_passenger_submit").performScrollTo().performClick()
         compose.waitUntil(5_000) { registrations.isNotEmpty() }
         assertEquals("0912345679", registrations.single().phone)
@@ -473,6 +504,7 @@ class AuthLayoutTest {
         compose.onNodeWithTag("auth_passenger_destination_input").performScrollTo().performTextInput("CMC")
         compose.onNodeWithTag("auth_journey_Two way").performScrollTo().performClick()
         compose.onNodeWithTag("auth_tier_Economy").performScrollTo().performClick()
+        confirmAdultForRegistration("auth_passenger_submit")
         compose.onNodeWithTag("auth_passenger_submit").performScrollTo().performClick()
         compose.waitUntil(5_000) { registrations.isNotEmpty() }
         val request = registrations.single()

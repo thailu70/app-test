@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -44,7 +45,9 @@ internal fun IntercitySeatSelection(
     language: AppLanguage,
     onSeat: (Int) -> Unit,
     onHold: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    adultConfirmed: Boolean = false,
+    onAdultConfirmed: (Boolean) -> Unit = {}
 ) {
     val availableInventory = inventory?.takeIf { it.success }
     val seats = availableInventory?.seats?.coerceAtLeast(0) ?: 0
@@ -94,7 +97,8 @@ internal fun IntercitySeatSelection(
                     Text(intercityText(language, "Refresh", "አድስ", "Haaromsi"))
                 }
             }
-            Button(onClick = onHold, enabled = !busy && selectedAvailable, colors = ButtonDefaults.buttonColors(containerColor = CommuteTeal), shape = RoundedCornerShape(15.dp), modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("intercity_hold")) {
+            IntercityAdultAcknowledgment(adultConfirmed, !busy, language, onAdultConfirmed)
+            Button(onClick = onHold, enabled = !busy && selectedAvailable && adultConfirmed, colors = ButtonDefaults.buttonColors(containerColor = CommuteTeal), shape = RoundedCornerShape(15.dp), modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("intercity_hold")) {
                 Text(intercityText(language, "Continue with seat ${selectedSeat ?: "—"}", "በመቀመጫ ${selectedSeat ?: "—"} ቀጥል", "Teessoo ${selectedSeat ?: "—"} waliin itti fufi"), fontWeight = FontWeight.SemiBold)
             }
         }
@@ -115,7 +119,9 @@ internal fun IntercityCheckoutForm(
     busy: Boolean,
     language: AppLanguage,
     onPay: (String, String) -> Unit,
-    onCheck: () -> Unit
+    onCheck: () -> Unit,
+    adultConfirmed: Boolean = false,
+    onAdultConfirmed: (Boolean) -> Unit = {}
 ) {
     var name by rememberSaveable(booking.id) { mutableStateOf(booking.passengerName.orEmpty()) }
     var phone by rememberSaveable(booking.id) { mutableStateOf(booking.passengerPhone.orEmpty()) }
@@ -140,7 +146,8 @@ internal fun IntercityCheckoutForm(
                     Text(intercityText(language, "Continue to secure Telebirr payment. Your Telebirr PIN is entered only in Telebirr.", "ወደ ደህንነቱ የተጠበቀ የቴሌብር ክፍያ ይቀጥሉ። የቴሌብር ፒንዎን በቴሌብር ብቻ ያስገቡ።", "Gara kaffaltii Telebirr amansiisaatti itti fufi. PIN Telebirr kee Telebirr keessatti qofa galchi."), color = CommuteInk, fontSize = 12.sp, lineHeight = 17.sp)
                 }
             }
-            Button(onClick = { onPay(name.trim(), phone.trim()) }, enabled = !busy && !closed && name.isNotBlank() && phone.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = CommuteTeal), shape = RoundedCornerShape(15.dp), modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("intercity_pay")) {
+            if (!closed) IntercityAdultAcknowledgment(adultConfirmed, !busy, language, onAdultConfirmed)
+            Button(onClick = { onPay(name.trim(), phone.trim()) }, enabled = !busy && !closed && adultConfirmed && name.isNotBlank() && phone.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = CommuteTeal), shape = RoundedCornerShape(15.dp), modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("intercity_pay")) {
                 Icon(Icons.Default.Payments, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
                 Text(intercityText(language, "Pay with Telebirr", "በቴሌብር ክፍያ ይፈጽሙ", "Telebirr dhaan kaffali"), fontWeight = FontWeight.SemiBold)
             }
@@ -149,6 +156,20 @@ internal fun IntercityCheckoutForm(
                 Text(intercityText(language, "Check payment status", "የክፍያ ሁኔታ ያረጋግጡ", "Haala kaffaltii ilaali"), color = CommuteTeal)
             }
         }
+    }
+}
+
+@Composable
+internal fun IntercityAdultAcknowledgment(confirmed: Boolean, enabled: Boolean, language: AppLanguage, onConfirmed: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().toggleable(value = confirmed, enabled = enabled, role = Role.Checkbox,
+        onValueChange = onConfirmed).testTag("intercity_adult_confirmation").padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = confirmed, onCheckedChange = null, enabled = enabled)
+        Spacer(Modifier.width(10.dp))
+        Text(intercityText(language, "I am 18 or older. Passo is for adults only.",
+            "ዕድሜዬ 18 ወይም ከዚያ በላይ ነው። Passo ለአዋቂዎች ብቻ ነው።",
+            "Umriin koo 18 yookaan isaa ol. Passo ga'eessota qofaaf."),
+            color = CommuteInk, fontSize = 13.sp, modifier = Modifier.weight(1f))
     }
 }
 

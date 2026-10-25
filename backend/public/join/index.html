@@ -8,8 +8,8 @@
   <meta name="referrer" content="no-referrer">
   <title>Daily commute driver registration · Passo</title>
   <link rel="icon" href="/join/assets/passo-wordmark.png" type="image/png">
-  <link rel="stylesheet" href="/join/join.css?v=20261022-daily">
-  <script src="/join/join.js?20261024-unified-onboarding" defer></script>
+  <link rel="stylesheet" href="/join/join.css?v=20261024-adult-policy">
+  <script src="/join/join.js?v=20261024-adult-policy" defer></script>
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
@@ -44,6 +44,7 @@
         <div class="card-kicker"><span class="status-dot"></span><span data-i18n="welcome">WELCOME TO PASSO</span></div>
         <h2 id="formTitle" data-i18n="createTitle">Drive daily with Passo.</h2><p id="formIntro" class="muted" data-i18n="dailyCreateIntro">Register your own vehicle and propose a daily commute route. Administrator acceptance comes before phone verification and document upload.</p>
         <p class="daily-registration-tag"><svg><use href="#icon-bus"/></svg><span data-i18n="dailyDriverLabel">Daily commute · your own vehicle</span></p>
+        <p id="adultNotice" class="data-use-note" data-i18n="adultOnlyNotice">Passo is for adults aged 18 and over. An adult may arrange transport for a child; children must not create or use Passo accounts.</p>
         <div class="auth-tabs" role="group" aria-label="Account access"><button type="button" id="registerTab" aria-pressed="true" data-i18n="signUp">Create account</button><button type="button" id="loginTab" aria-pressed="false" data-i18n="signIn">Sign in</button></div>
         <form id="accountForm" class="form-stack">
           <input id="serviceType" name="serviceType" type="hidden" value="DAILY_COMMUTE">
@@ -58,6 +59,7 @@
             <div><label for="proposedMonthlyFeeEtb" data-i18n="monthlyVehiclePrice">Monthly price for the whole vehicle (ETB)</label><input id="proposedMonthlyFeeEtb" name="proposedMonthlyFeeEtb" type="number" min="0.01" max="1000000" step="0.01" inputmode="decimal" aria-describedby="routeLookupStatus registrationPriceHelp"></div>
             <p id="routeLookupStatus" class="field-hint price-status" role="status" aria-live="polite"></p><p id="registrationPriceHelp" class="field-hint"></p><button type="button" class="inline-link" id="retryRoutes" hidden data-i18n="retry">Try again</button>
           </fieldset>
+          <label class="adult-confirmation" for="adultConfirmation" data-registration><input id="adultConfirmation" name="adultConfirmation" type="checkbox" autocomplete="off" aria-describedby="adultNotice" required><span data-i18n="adultConfirmation">I confirm that I am 18 or older.</span></label>
           <p id="accountMessage" class="message" role="status" aria-live="polite"></p>
           <button id="accountSubmit" type="submit" class="primary"><span data-i18n="createButton">Create my account</span><svg><use href="#icon-arrow"/></svg></button>
         </form>

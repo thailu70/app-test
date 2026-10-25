@@ -137,12 +137,14 @@ class IntercityPassengerStateTest {
             model.selectSeat(seat)
             assertNull(model.state.value.seat)
         }
+        model.setAdultConfirmed(true)
         model.holdSeat()
         advanceUntilIdle()
         assertEquals(0, api.holdCalls)
         assertTrue(model.state.value.message.orEmpty().contains("Choose a seat"))
 
         model.selectSeat(2)
+        model.setAdultConfirmed(true)
         model.holdSeat()
         advanceUntilIdle()
         assertEquals(1, api.holdCalls)
@@ -159,6 +161,7 @@ class IntercityPassengerStateTest {
         model.selectDeparture(departure)
         advanceUntilIdle()
         model.selectSeat(2)
+        model.setAdultConfirmed(true)
         model.holdSeat()
         advanceUntilIdle()
 
@@ -179,6 +182,50 @@ class IntercityPassengerStateTest {
         assertEquals("RP-AB12CD34", model.state.value.booking?.ticketNumber)
     }
 
+    @Test fun `adult self declaration is required before reservation and can be withdrawn before checkout`() = runTest(dispatcher) {
+        val api = FakeApi()
+        val model = IntercityPassengerViewModel(api, MemoryStore(), ioDispatcher = dispatcher)
+        advanceUntilIdle()
+        model.selectDeparture(departure)
+        advanceUntilIdle()
+        model.selectSeat(2)
+        model.holdSeat()
+        advanceUntilIdle()
+        assertFalse(model.state.value.adultConfirmed)
+        assertEquals(0, api.holdCalls)
+        assertEquals(IntercityPhase.SEATS, model.state.value.phase)
+        model.setAdultConfirmed(true)
+        model.holdSeat()
+        advanceUntilIdle()
+        assertEquals(1, api.holdCalls)
+        assertEquals(IntercityPhase.DETAILS, model.state.value.phase)
+        model.setAdultConfirmed(false)
+        model.checkout("Adult Passenger", "0912000000")
+        advanceUntilIdle()
+        assertTrue(api.checkoutRequests.isEmpty())
+        assertFalse(canShowIntercityQr(model.state.value.booking))
+        model.setAdultConfirmed(true)
+        model.checkout("Adult Passenger", "0912000000")
+        advanceUntilIdle()
+        assertEquals(1, api.checkoutRequests.size)
+    }
+
+    @Test fun `restored pending booking does not restore adult self declaration or permit checkout`() = runTest(dispatcher) {
+        val api = FakeApi()
+        val store = MemoryStore(listOf(IntercityBookingAccess("booking-1", "private-capability")))
+        val model = IntercityPassengerViewModel(api, store, ioDispatcher = dispatcher)
+        advanceUntilIdle()
+        model.openBooking("booking-1")
+        advanceUntilIdle()
+        assertEquals(IntercityPhase.DETAILS, model.state.value.phase)
+        assertFalse(model.state.value.adultConfirmed)
+        model.checkout("Adult Passenger", "0912000000")
+        advanceUntilIdle()
+        assertTrue(api.checkoutRequests.isEmpty())
+        assertTrue(api.otpRequests.isEmpty())
+        assertFalse(canShowIntercityQr(model.state.value.booking))
+    }
+
     @Test fun `Telebirr redirect leaves reservation unpaid until server reconciliation`() = runTest(dispatcher) {
         val api = FakeApi()
         val model = IntercityPassengerViewModel(api, MemoryStore(), ioDispatcher = dispatcher)
@@ -186,6 +233,7 @@ class IntercityPassengerStateTest {
         model.selectDeparture(departure)
         advanceUntilIdle()
         model.selectSeat(2)
+        model.setAdultConfirmed(true)
         model.holdSeat()
         advanceUntilIdle()
 
@@ -270,6 +318,7 @@ class IntercityPassengerStateTest {
         model.selectDeparture(departure)
         advanceUntilIdle()
         model.selectSeat(2)
+        model.setAdultConfirmed(true)
         model.holdSeat()
         runCurrent()
         assertTrue(model.state.value.busy)
@@ -299,6 +348,7 @@ class IntercityPassengerStateTest {
             model.selectDeparture(departure)
             advanceUntilIdle()
             model.selectSeat(2)
+            model.setAdultConfirmed(true)
             model.holdSeat()
             advanceUntilIdle()
             model.checkout("Test Passenger", "0912000000")
@@ -333,151 +383,128 @@ class IntercityPassengerStateTest {
         model.selectDeparture(departure)
         advanceUntilIdle()
         model.selectSeat(2)
+        model.setAdultConfirmed(true)
         model.holdSeat()
         advanceUntilIdle()
         return model
     }
 
-    @Test fun `only the designated test phone requests SENT OTP before a proof-bound checkout`() = runTest(dispatcher) {
-        for (phone in listOf("0912469923", "+251912469923", "00251912469923")) {
-            val api = FakeApi().apply { currentBooking = paidBooking }
+    @Test fun `every phone including former test number uses ordinary provider checkout without SMS or free proof`() = runTest(dispatcher) {
+        for (phone in listOf("0912469923", "+251912469923", "00251912469923", "0912469924", "0912000000")) {
+            val api = FakeApi().apply {
+                checkoutResult = IntercityCheckoutResponse(true, checkoutUrl = "https://superapp.ethiomobilemoney.et/pay/provider-fixture")
+            }
             val store = MemoryStore()
             val model = readyForCheckout(api, store)
             model.checkout(" Test Passenger ", phone)
             advanceUntilIdle()
-            assertEquals(listOf(IntercityTestOtpRequest(phone)), api.otpRequests)
-            assertTrue(model.state.value.testVerificationPending)
-            assertTrue(api.checkoutRequests.isEmpty())
-            model.verifyTestPayment("123456")
-            advanceUntilIdle()
-            assertEquals(IntercityTestOtpRequest(phone, "123456"), api.otpVerifications.single())
-            assertEquals(IntercityCheckoutRequest("Test Passenger", phone, "one-use-fixture-proof"), api.checkoutRequests.single())
-            assertFalse(model.state.value.testVerificationPending)
-            assertEquals(IntercityPhase.TICKET, model.state.value.phase)
-            assertFalse(model.state.value.toString().contains("one-use-fixture-proof"))
-            assertEquals(listOf(IntercityBookingAccess("booking-1", "private-capability")), store.load())
-        }
-        for (phone in listOf("0912469924", "0912000000", "+251912469924")) {
-            val api = FakeApi()
-            val model = readyForCheckout(api)
-            model.checkout("Normal Passenger", phone)
-            advanceUntilIdle()
             assertTrue(api.otpRequests.isEmpty())
             assertTrue(api.otpVerifications.isEmpty())
-            assertNull(api.checkoutRequests.single().testPaymentVerificationToken)
+            assertEquals(IntercityCheckoutRequest("Test Passenger", phone), api.checkoutRequests.single())
+            assertEquals("private-capability", api.lastCheckoutSecret)
+            assertFalse(model.state.value.testVerificationPending)
+            assertNull(model.state.value.testVerificationPhone)
+            assertEquals(IntercityPhase.DETAILS, model.state.value.phase)
+            assertEquals("https://superapp.ethiomobilemoney.et/pay/provider-fixture", model.state.value.checkoutUrl)
+            assertFalse(canShowIntercityQr(model.state.value.booking))
+            assertEquals(listOf(IntercityBookingAccess("booking-1", "private-capability")), store.load())
         }
     }
 
-    @Test fun `resend during cooldown does not request another SMS or discard verification context`() = runTest(dispatcher) {
-        val api = FakeApi()
-        val model = readyForCheckout(api)
-        model.checkout("Test Passenger", "0912469923")
-        advanceUntilIdle()
-        val resendAt = model.state.value.testOtpResendAt
-        assertEquals(1, api.otpRequests.size)
-        assertTrue(resendAt > System.currentTimeMillis())
-
-        repeat(3) { model.resendTestPaymentOtp(); advanceUntilIdle() }
-
-        assertEquals(1, api.otpRequests.size)
-        assertEquals(resendAt, model.state.value.testOtpResendAt)
-        assertTrue(model.state.value.testVerificationPending)
-        assertTrue(model.state.value.message.orEmpty().contains("Please wait"))
-        assertTrue(api.checkoutRequests.isEmpty())
-        model.verifyTestPayment("123456")
-        advanceUntilIdle()
-        assertEquals(1, api.otpVerifications.size)
-        assertEquals("one-use-fixture-proof", api.checkoutRequests.single().testPaymentVerificationToken)
-    }
-
-    @Test fun `missing SENT delivery rejected codes and missing proof never trigger payment`() = runTest(dispatcher) {
+    @Test fun `disabled test SMS cannot block normal payment for former test phone`() = runTest(dispatcher) {
         for (delivery in listOf(null, "SIMULATED", "FAILED")) {
-            val api = FakeApi().apply { otpRequestResult = Response.success(IntercityTestOtpResponse(true, delivery = delivery)) }
+            val api = FakeApi().apply {
+                otpRequestResult = Response.success(IntercityTestOtpResponse(false, delivery = delivery, error = "Test payments are disabled."))
+                checkoutResult = IntercityCheckoutResponse(true, checkoutUrl = "https://superapp.ethiomobilemoney.et/pay/provider-fixture")
+            }
             val model = readyForCheckout(api)
             model.checkout("Test Passenger", "0912469923")
             advanceUntilIdle()
             assertFalse(model.state.value.testVerificationPending)
-            model.verifyTestPayment("123456")
-            advanceUntilIdle()
+            assertTrue(api.otpRequests.isEmpty())
             assertTrue(api.otpVerifications.isEmpty())
-            assertTrue(api.checkoutRequests.isEmpty())
-        }
-        for (result in listOf(IntercityTestOtpResponse(false, error = "Invalid code."), IntercityTestOtpResponse(true))) {
-            val api = FakeApi().apply { otpVerifyResult = Response.success(result) }
-            val model = readyForCheckout(api)
-            model.checkout("Test Passenger", "0912469923")
-            advanceUntilIdle()
-            model.verifyTestPayment("123")
-            advanceUntilIdle()
-            assertTrue(api.otpVerifications.isEmpty())
-            model.verifyTestPayment("123456")
-            advanceUntilIdle()
-            assertEquals(1, api.otpVerifications.size)
-            assertTrue(api.checkoutRequests.isEmpty())
-            assertTrue(model.state.value.testVerificationPending)
+            assertEquals(1, api.checkoutRequests.size)
+            assertNull(api.checkoutRequests.single().testPaymentVerificationToken)
+            assertNotNull(model.state.value.checkoutUrl)
+            assertFalse(canShowIntercityQr(model.state.value.booking))
         }
     }
 
-    @Test fun `cancelled or changed booking context rejects late OTP verification before checkout`() = runTest(dispatcher) {
-        for (navigateHome in listOf(true, false)) {
+    @Test fun `legacy test verification controls cannot create a payment without a test session`() = runTest(dispatcher) {
+        val api = FakeApi()
+        val model = readyForCheckout(api)
+        model.resendTestPaymentOtp()
+        advanceUntilIdle()
+        model.verifyTestPayment("123456")
+        advanceUntilIdle()
+        model.cancelTestPaymentVerification()
+        assertTrue(api.otpRequests.isEmpty())
+        assertTrue(api.otpVerifications.isEmpty())
+        assertTrue(api.checkoutRequests.isEmpty())
+        assertFalse(model.state.value.testVerificationPending)
+        assertFalse(canShowIntercityQr(model.state.value.booking))
+    }
+
+    @Test fun `leaving ordinary checkout for former test phone rejects late redirect or paid navigation`() = runTest(dispatcher) {
+        for (paid in listOf(true, false)) {
             val gate = CompletableDeferred<Unit>()
-            val api = FakeApi().apply { otpVerifyGate = gate }
+            val api = FakeApi().apply {
+                checkoutGate = gate
+                currentBooking = if (paid) paidBooking else pendingBooking
+                checkoutResult = IntercityCheckoutResponse(true, paid = paid,
+                    checkoutUrl = if (paid) null else "https://superapp.ethiomobilemoney.et/pay/provider-fixture")
+            }
             val model = readyForCheckout(api)
             model.checkout("Test Passenger", "0912469923")
-            advanceUntilIdle()
-            model.verifyTestPayment("123456")
             runCurrent()
             assertTrue(model.state.value.busy)
-            if (navigateHome) model.home() else model.cancelTestPaymentVerification()
+            model.home()
             assertFalse(model.state.value.testVerificationPending)
             gate.complete(Unit)
             advanceUntilIdle()
-            assertEquals(if (navigateHome) IntercityPhase.BROWSE else IntercityPhase.DETAILS, model.state.value.phase)
+            assertEquals(IntercityPhase.BROWSE, model.state.value.phase)
             assertFalse(model.state.value.testVerificationPending)
-            assertTrue(api.checkoutRequests.isEmpty())
+            assertNull(model.state.value.checkoutUrl)
+            assertEquals(1, api.checkoutRequests.size)
+            assertNull(api.checkoutRequests.single().testPaymentVerificationToken)
+            assertTrue(api.otpRequests.isEmpty())
+            assertTrue(api.otpVerifications.isEmpty())
         }
-
-        val cancelled = readyForCheckout(FakeApi())
-        cancelled.checkout("Test Passenger", "0912469923")
-        advanceUntilIdle()
-        cancelled.cancelTestPaymentVerification()
-        assertFalse(cancelled.state.value.testVerificationPending)
-        cancelled.verifyTestPayment("123456")
-        advanceUntilIdle()
-        assertTrue(cancelled.state.value.message.orEmpty().contains("Request a new"))
     }
 
-    @Test fun `one-use proof is not replayed or restored when checkout outcome remains unpaid`() = runTest(dispatcher) {
+    @Test fun `uncertain unpaid ordinary checkout is not replayed or restored as free payment`() = runTest(dispatcher) {
         val api = FakeApi().apply { checkoutFailure = java.io.IOException("Checkout response lost.") }
         val store = MemoryStore()
         val model = readyForCheckout(api, store)
         model.checkout("Test Passenger", "0912469923")
         advanceUntilIdle()
-        model.verifyTestPayment("123456")
-        advanceUntilIdle()
         assertEquals(1, api.checkoutRequests.size)
         assertEquals(1, api.bookingAccesses.size)
         assertFalse(model.state.value.testVerificationPending)
-        model.verifyTestPayment("123456")
-        advanceUntilIdle()
-        assertEquals(1, api.otpVerifications.size)
-        assertEquals(1, api.checkoutRequests.size)
-        val restored = IntercityPassengerViewModel(FakeApi(), store, ioDispatcher = dispatcher)
+        assertFalse(canShowIntercityQr(model.state.value.booking))
+        assertTrue(api.otpRequests.isEmpty())
+        assertTrue(api.otpVerifications.isEmpty())
+        assertNull(api.checkoutRequests.single().testPaymentVerificationToken)
+        val restoredApi = FakeApi()
+        val restored = IntercityPassengerViewModel(restoredApi, store, ioDispatcher = dispatcher)
         advanceUntilIdle()
         assertFalse(restored.state.value.testVerificationPending)
         assertNull(restored.state.value.testVerificationPhone)
-        assertFalse(store.load().toString().contains("one-use-fixture-proof"))
+        assertTrue(restoredApi.checkoutRequests.isEmpty())
+        assertFalse(canShowIntercityQr(restored.state.value.booking))
     }
 
-    @Test fun `uncertain checkout reconciles a paid booking without resubmission for both phone paths`() = runTest(dispatcher) {
+    @Test fun `uncertain checkout reconciles a paid booking without resubmission for every phone`() = runTest(dispatcher) {
         for (phone in listOf("0912469923", "0912000000")) {
             val api = FakeApi().apply { checkoutFailure = java.io.IOException("Checkout response lost."); currentBooking = paidBooking }
             val model = readyForCheckout(api)
             model.checkout("Test Passenger", phone)
             advanceUntilIdle()
-            if (phone == "0912469923") { model.verifyTestPayment("123456"); advanceUntilIdle() }
             assertEquals(1, api.checkoutRequests.size)
             assertEquals(1, api.bookingAccesses.size)
+            assertTrue(api.otpRequests.isEmpty())
+            assertTrue(api.otpVerifications.isEmpty())
+            assertNull(api.checkoutRequests.single().testPaymentVerificationToken)
             assertEquals(IntercityPhase.TICKET, model.state.value.phase)
             assertEquals("PAID", model.state.value.booking!!.paymentStatus)
             assertNull(model.state.value.message)

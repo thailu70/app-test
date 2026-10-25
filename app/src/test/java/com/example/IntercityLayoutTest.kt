@@ -10,10 +10,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.example.core.localization.AppLanguage
@@ -88,7 +86,10 @@ class IntercityLayoutTest {
         compose.onNodeWithTag("intercity_seat_1").assertIsNotEnabled()
         compose.onNodeWithTag("intercity_hold").assertIsNotEnabled()
         compose.onNodeWithTag("intercity_seat_2").performClick().assertIsSelected()
-        compose.onNodeWithTag("intercity_hold").assertIsEnabled()
+        compose.onNodeWithTag("intercity_hold").assertIsNotEnabled()
+        assertNull("Choosing a seat cannot reserve it before adult acknowledgment", api.lastHold)
+        compose.onNodeWithTag("intercity_adult_confirmation").performScrollTo().assertIsOff().performClick().assertIsOn()
+        compose.onNodeWithTag("intercity_hold").performScrollTo().assertIsEnabled()
         capture("02-seats")
         compose.onNodeWithTag("intercity_hold").performScrollTo().performClick()
         compose.waitUntil(5_000) { model.state.value.phase == IntercityPhase.DETAILS && !model.state.value.busy }
@@ -98,28 +99,19 @@ class IntercityLayoutTest {
 
         compose.onNodeWithTag("intercity_passenger_name").performScrollTo().performTextInput("Native Test Passenger")
         compose.onNodeWithTag("intercity_passenger_phone").performScrollTo().performTextInput("0912469923")
+        compose.onNodeWithTag("intercity_adult_confirmation").performScrollTo().assertIsOn().performClick().assertIsOff()
+        compose.onNodeWithTag("intercity_pay").performScrollTo().assertIsNotEnabled()
+        assertNull("A withdrawn adult acknowledgment must prevent payment", api.lastCheckout)
+        compose.onNodeWithTag("intercity_adult_confirmation").performScrollTo().performClick().assertIsOn()
         compose.onNodeWithTag("intercity_pay").performScrollTo().performClick()
-        compose.waitUntil(5_000) { model.state.value.testVerificationPending && !model.state.value.busy }
-        assertNull(api.lastCheckout)
-        compose.onNodeWithTag("intercity_content").performScrollToNode(hasTestTag("intercity_pay"))
-        compose.onNodeWithTag("intercity_pay").assertIsNotEnabled()
-        compose.onNodeWithTag("intercity_content").performScrollToNode(hasTestTag("intercity_verification"))
-        compose.onNodeWithTag("intercity_verify_test").assertIsNotEnabled()
-        compose.onNodeWithTag("intercity_test_otp").performScrollTo().performTextInput("123")
-        compose.onNodeWithTag("intercity_resend_test").performScrollTo().assertIsEnabled().performClick()
-        compose.waitUntil(5_000) { !model.state.value.busy }
-        assertTrue(model.state.value.message.orEmpty().contains("Please wait"))
-        compose.onNodeWithTag("intercity_test_otp")
-            .assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("123")))
-        compose.onNodeWithTag("intercity_verify_test").assertIsNotEnabled()
-        assertNull(api.lastCheckout)
-        capture("02b-phone-verification")
-        compose.onNodeWithTag("intercity_test_otp").performScrollTo().performTextInput("456")
-        compose.onNodeWithTag("intercity_verify_test").performScrollTo().assertIsEnabled().performClick()
         compose.waitUntil(5_000) { model.state.value.phase == IntercityPhase.TICKET && !model.state.value.busy }
+        assertFalse(model.state.value.testVerificationPending)
+        compose.onNodeWithTag("intercity_verification").assertDoesNotExist()
+        assertEquals(0, api.testOtpRequests)
+        assertEquals(0, api.testOtpVerifications)
         assertEquals("Native Test Passenger", api.lastCheckout?.passengerName)
         assertEquals("0912469923", api.lastCheckout?.passengerPhone)
-        assertEquals("native-one-use-proof", api.lastCheckout?.testPaymentVerificationToken)
+        assertNull(api.lastCheckout?.testPaymentVerificationToken)
         assertEquals("booking-native" to "private-native-capability", api.lastBookingAccess)
         compose.onNodeWithTag("intercity_ticket_number").assertTextEquals("RP-NATIVE24")
         compose.onNodeWithTag("intercity_content").performScrollToNode(hasTestTag("intercity_ticket_qr"))
@@ -228,6 +220,8 @@ class IntercityLayoutTest {
         var lastHold: IntercitySeatHoldRequest? = null
         var lastCheckout: IntercityCheckoutRequest? = null
         var lastBookingAccess: Pair<String, String>? = null
+        var testOtpRequests = 0
+        var testOtpVerifications = 0
         override suspend fun departures(origin: String?, destination: String?, date: String?) = Response.success(IntercityDeparturesResponse(true, if (empty) emptyList() else listOf(departure)))
         override suspend fun seats(id: String) = Response.success(IntercitySeatsResponse(true, 8, listOf(1), 725.0))
         override suspend fun hold(id: String, body: IntercitySeatHoldRequest): Response<IntercityBookingResponse> {
@@ -246,12 +240,12 @@ class IntercityLayoutTest {
             return Response.success(IntercityCheckoutResponse(true, paid = true))
         }
         override suspend fun requestTestPaymentOtp(id: String, bookingSecret: String, body: IntercityTestOtpRequest): Response<IntercityTestOtpResponse> {
-            assertEquals("0912469923", body.passengerPhone)
-            return Response.success(IntercityTestOtpResponse(true, delivery = "SENT", retryAfterSeconds = 60))
+            testOtpRequests++
+            error("Production checkout must not request test-payment SMS")
         }
         override suspend fun verifyTestPaymentOtp(id: String, bookingSecret: String, body: IntercityTestOtpRequest): Response<IntercityTestOtpResponse> {
-            assertEquals("123456", body.code)
-            return Response.success(IntercityTestOtpResponse(true, testPaymentVerificationToken = "native-one-use-proof", expiresInSeconds = 120))
+            testOtpVerifications++
+            error("Production checkout must not request free-payment proof")
         }
         override suspend fun ticketPdf(id: String, secret: String): Response<ResponseBody> = Response.success("%PDF-test".toResponseBody("application/pdf".toMediaType()))
         override suspend fun companies() = Response.success(IntercityCompaniesResponse(true, listOf(IntercityCompany("company-native", "Native Test Transport"))))

@@ -75,11 +75,13 @@ test('payment tests require the sole authorized phone, guest ownership proof and
     process.env.PAYMENT_TEST_PASSENGER_ID = 'safe_test';
     const held = await hold(), sentBefore = sent.length;
     const commuter = await api('/api/subscriptions/telebirr/pay', { routeId:'route_bole_merkato', idempotencyKey:'disabled-test-payment-key', PAYMENT_TESTS_ENABLED:true, paymentTestsEnabled:true }, 'safe_test');
-    assert.equal(commuter.status,403); assert.match(commuter.body.error,/free test payments.*disabled/i);
-    for (const suffix of ['/test-payment/request-otp','/test-payment/verify-otp','/checkout']) {
+    assert.equal(commuter.status,503); assert.equal(commuter.body.code,'LIVE_TELEBIRR_NOT_CONFIGURED','Former test accounts take ordinary configured-provider checkout while free mode is off');
+    for (const suffix of ['/test-payment/request-otp','/test-payment/verify-otp']) {
       const result = await api(pathFor(held,suffix), {...payer,code:'123456',testPaymentVerificationToken:'a'.repeat(64),paymentTestsEnabled:true}, null, held.bookingSecret);
       assert.equal(result.status,403); assert.match(result.body.error,/free test payments.*disabled/i);
     }
+    const checkout=await api(pathFor(held,'/checkout'),{...payer,testPaymentVerificationToken:'a'.repeat(64),paymentTestsEnabled:true},null,held.bookingSecret);
+    assert.equal(checkout.status,503);assert.match(checkout.body.error,/online payment is not available/i);
     assert.equal(sent.length,sentBefore);
     assert.equal((await DB.prepare('SELECT COUNT(*) AS count FROM payment_test_challenges').get()).count,0);
     assert.equal((await DB.prepare("SELECT COUNT(*) AS count FROM payment_transactions WHERE provider='TEST_AUTO'").get()).count,0);
@@ -89,6 +91,36 @@ test('payment tests require the sole authorized phone, guest ownership proof and
     // Only this isolated fixture opts in; no NODE_ENV-based bypass exists.
     process.env.PAYMENT_TESTS_ENABLED='true';
     assert.equal(paymentTestsEnabled(),true);
+  });
+
+  await t.test('the former test phone uses ordinary provider checkout for commute and intercity while free mode is off', async () => {
+    const previous={missingConfiguration:telebirr.missingConfiguration,createCheckout:telebirr.createCheckout};
+    const requests=[], sentBefore=sent.length;
+    process.env.PAYMENT_TESTS_ENABLED='false';
+    telebirr.missingConfiguration=()=>[];
+    telebirr.createCheckout=async(orderId,amount)=>{requests.push({orderId,amount});return{prepayId:'ordinary-'+requests.length,checkoutUrl:'https://payments.example/ordinary-'+requests.length};};
+    try{
+      const commuteBody={routeId:'route_bole_merkato',idempotencyKey:'former-test-ordinary-commute',phone:'0912469923',PAYMENT_TESTS_ENABLED:true};
+      const commute=await api('/api/subscriptions/telebirr/pay',commuteBody,'safe_test');
+      assert.equal(commute.status,201,JSON.stringify(commute.body));assert.equal(commute.body.paymentMode,'TELEBIRR_H5');assert.equal(commute.body.status,'PENDING');
+      assert.match(commute.body.checkoutUrl,/^https:\/\/payments\.example\/ordinary-/);
+      const pass=await DB.prepare("SELECT paymentStatus,subscriptionStatus,qrToken FROM subscriptions WHERE passengerId='safe_test'").get();
+      assert.equal(pass.paymentStatus,'UNPAID');assert.equal(pass.subscriptionStatus,'PENDING');assert.equal(pass.qrToken,null);
+      const replay=await api('/api/subscriptions/telebirr/pay',commuteBody,'safe_test');
+      assert.equal(replay.status,200);assert.equal(replay.body.checkoutUrl,commute.body.checkoutUrl);assert.equal(requests.length,1,'A retry resumes the same provider order');
+      for(const passengerPhone of ['0912469923','+251912469923','0911556677']){
+        const held=await hold();
+        const checkout=await api(pathFor(held,'/checkout'),{passengerName:'Ordinary provider rider',passengerPhone,testPaymentVerificationToken:'a'.repeat(64),PAYMENT_TESTS_ENABLED:true},null,held.bookingSecret);
+        assert.equal(checkout.status,200,JSON.stringify(checkout.body));assert.match(checkout.body.checkoutUrl,/^https:\/\/payments\.example\/ordinary-/);
+        assert.equal(checkout.body.paymentMode,undefined);assert.equal(checkout.body.paid,undefined);
+        const booking=await DB.prepare('SELECT payment_status,payment_method,order_id FROM intercity_bookings WHERE id=?').get(held.booking.id);
+        assert.equal(booking.payment_status,'UNPAID');assert.notEqual(booking.payment_method,'TEST_AUTO');assert.ok(booking.order_id);
+        assert.equal(await DB.prepare('SELECT booking_id FROM payment_test_challenges WHERE booking_id=?').get(held.booking.id),undefined);
+      }
+      assert.equal(requests.length,4,'The former test phone and ordinary passengers all enter the provider flow');
+      assert.equal(sent.length,sentBefore,'Ordinary checkout never starts test ownership SMS');
+      assert.equal((await DB.prepare("SELECT COUNT(*) AS count FROM payment_transactions WHERE provider='TEST_AUTO'").get()).count,0);
+    }finally{telebirr.missingConfiguration=previous.missingConfiguration;telebirr.createCheckout=previous.createCheckout;process.env.PAYMENT_TESTS_ENABLED='true';}
   });
 
   await t.test('future commuter tests need the configured account identity as well as its current authorized phone', async () => {
@@ -183,7 +215,7 @@ test('payment tests require the sole authorized phone, guest ownership proof and
       assert.equal((await DB.prepare('SELECT payment_status FROM intercity_bookings WHERE id=?').get(held.booking.id)).payment_status,'UNPAID');
       const pass=await DB.prepare("SELECT paymentStatus,qrToken,endDate FROM subscriptions WHERE passengerId='safe_test'").get();
       assert.equal(pass.paymentStatus,'PAID'); assert.ok(pass.qrToken);
-      assert.equal((await api('/api/subscriptions/telebirr/pay',{routeId:'route_bole_merkato',idempotencyKey:'disabled-later-test-key'},'safe_test')).status,403);
+      assert.equal((await api('/api/subscriptions/telebirr/pay',{routeId:'route_bole_merkato',idempotencyKey:'disabled-later-test-key'},'safe_test')).status,503,'Disabling free mode returns this account to ordinary provider availability checks');
       assert.deepEqual(await DB.prepare("SELECT paymentStatus,qrToken,endDate FROM subscriptions WHERE passengerId='safe_test'").get(),pass);
     } finally { process.env.PAYMENT_TESTS_ENABLED='true'; }
   });

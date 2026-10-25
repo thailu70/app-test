@@ -1,10 +1,17 @@
 package com.example
 
+import android.Manifest
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.activity.result.ActivityResultRegistry
+import androidx.activity.result.ActivityResultRegistryOwner
+import androidx.activity.result.contract.ActivityResultContract
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.core.app.ActivityOptionsCompat
 import androidx.room.Room
 import com.example.data.api.*
 import com.example.data.database.TransportDatabase
@@ -28,6 +35,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import retrofit2.Response
@@ -98,7 +106,7 @@ class DriverAssignmentsLoadingTest {
     private fun <T> unavailable(): Response<T> = Response.error(503,
         "{\"error\":\"Auxiliary service unavailable\"}".toResponseBody("application/json".toMediaType()))
 
-    private fun showDriver() {
+    private fun showDriver(registryOwner: ActivityResultRegistryOwner? = null) {
         val operations = Proxy.newProxyInstance(DriverOperationsApi::class.java.classLoader,
             arrayOf(DriverOperationsApi::class.java)) { proxy, method, args ->
             when (method.name) {
@@ -156,8 +164,36 @@ class DriverAssignmentsLoadingTest {
             }
         } as ProfileApi
         compose.setContent {
-            MyApplicationTheme { DriverTripScreen(model, operationsApi = operations, providedProfileApi = profile) }
+            CompositionLocalProvider(LocalActivityResultRegistryOwner provides (registryOwner ?: compose.activity)) {
+                MyApplicationTheme { DriverTripScreen(model, operationsApi = operations, providedProfileApi = profile) }
+            }
         }
+    }
+
+    @Test fun openingDriverPortalNeverLaunchesPermissionUntilDisclosureIsAccepted() {
+        shadowOf(compose.activity.application).denyPermissions(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        val permissionLaunches = mutableListOf<List<String>>()
+        val registryOwner = object : ActivityResultRegistryOwner {
+            override val activityResultRegistry = object : ActivityResultRegistry() {
+                override fun <I, O> onLaunch(requestCode: Int, contract: ActivityResultContract<I, O>, input: I, options: ActivityOptionsCompat?) {
+                    @Suppress("UNCHECKED_CAST")
+                    permissionLaunches += (input as Array<String>).toList()
+                }
+            }
+        }
+        showDriver(registryOwner)
+        compose.onNodeWithTag("driver_enable_location").performScrollTo().assertIsDisplayed()
+        assertTrue("Portal entry cannot request a runtime permission", permissionLaunches.isEmpty())
+        compose.onNodeWithTag("driver_enable_location").performClick()
+        compose.onNodeWithTag("driver_location_disclosure").assertExists()
+        assertTrue("Disclosure must precede the Android prompt", permissionLaunches.isEmpty())
+        compose.onNodeWithTag("driver_location_disclosure_cancel").performClick()
+        assertTrue(permissionLaunches.isEmpty())
+        compose.onNodeWithTag("driver_enable_location").performClick()
+        compose.onNodeWithTag("driver_location_disclosure_allow").performClick()
+        compose.waitUntil(5_000) { permissionLaunches.isNotEmpty() }
+        assertEquals(listOf(listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)), permissionLaunches)
+        assertFalse("Location consent cannot create a driving session", model.isAuthenticated.value)
     }
 
     @After fun closeDriverInstallation() {

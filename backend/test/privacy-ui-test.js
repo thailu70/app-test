@@ -19,6 +19,14 @@ test('public privacy and deletion pages expose accurate operator/contact/retenti
   const privacy=fs.readFileSync(path.join(__dirname,'../public/privacy/index.html'),'utf8'), deletion=fs.readFileSync(path.join(__dirname,'../public/delete-account/index.html'),'utf8');
   for(const html of [privacy,deletion]){assert.match(html,/Passo Mobility, Ethiopia/);assert.match(html,/thailu70@gmail\.com/);assert.match(html,/info@passo\.live/);assert.doesNotMatch(html,/<script(?![^>]*src=)|\son(?:click|submit|change)=|\sstyle=/);}
   assert.match(privacy,/Historical payment\/refund records/);assert.match(privacy,/Guest intercity tickets are separate/);assert.match(deletion,/pattern="DELETE"/);
+  assert.match(privacy,/Google ML Kit barcode-scanning SDK processes camera images on your device/);
+  assert.match(privacy,/installation identifiers, device and app information/);
+  assert.match(privacy,/diagnostics and usage analytics/);
+  assert.match(privacy,/https:\/\/developers\.google\.com\/ml-kit\/android-data-disclosure/);
+  assert.match(privacy,/profile photos or documents that you separately choose to upload/);
+  assert.match(privacy,/must be 18 or older to create a Passo account or use/);
+  assert.match(privacy,/Children must not create or use their own Passo accounts/);
+  assert.match(privacy,/parent, guardian or authorized adult institution representative may arrange transport for a child/);
   assert.doesNotMatch(code,/localStorage|sessionStorage|indexedDB/);
 });
 test('web deletion requires a separate confirmation, clears password after login and signs out after closure',async()=>{

@@ -32,6 +32,7 @@ internal class AuthDraft(routeId: String?, routeName: String?, tier: String?) {
     var phone by mutableStateOf("")
     var password by mutableStateOf("")
     var confirmation by mutableStateOf("")
+    var adultConfirmed by mutableStateOf(false)
     var selectedRoute by mutableStateOf(routeId.orEmpty())
     var selectedRouteName by mutableStateOf(routeName.orEmpty())
     var tier by mutableStateOf(tier ?: "Economy")
@@ -88,7 +89,7 @@ internal fun NativeAuthFlow(
     fun t(en: String, am: String, om: String) = authText(language, en, am, om)
     fun switchMode(value: Boolean) {
         register = value; step = 0; message = null; waitingForAuth = false
-        draft.phone = ""; draft.password = ""; draft.confirmation = ""
+        draft.phone = ""; draft.password = ""; draft.confirmation = ""; draft.adultConfirmed = false
         if (value) draft.name = ""
         model.clearRegistrationMessage()
     }
@@ -149,6 +150,7 @@ internal fun NativeAuthFlow(
     }
     fun submit() {
         val problem = identityProblem() ?: when {
+            !draft.adultConfirmed -> t("Confirm that you are 18 or older to create an account.", "መለያ ለመፍጠር ዕድሜዎ 18 ወይም ከዚያ በላይ መሆኑን ያረጋግጡ።", "Herrega uumuuf umriin kee 18 yookaan isaa ol ta'uu mirkaneessi.")
             !driver && draft.isCustomCommute && draft.pickup.isBlank() -> "Enter your pickup location."
             !driver && draft.isCustomCommute && draft.destination.isBlank() -> "Enter your destination."
             !driver && !draft.isCustomCommute && routes.none { it.id == draft.selectedRoute && it.active } -> "Choose an active daily route to create your account."
@@ -246,7 +248,7 @@ internal fun NativeAuthFlow(
                         }, modifier = Modifier.testTag("auth_submit_button"), enabled = !busy, busy = busy)
                     if (register && step == 1) AuthPrimaryButton(
                         if (driver) t("Submit driver registration", "የሹፌር ምዝገባ ላክ", "Galmee konkolaachisaa ergi") else t("Create account", "መለያ ፍጠር", "Herrega uumi"),
-                        ::submit, Modifier.testTag(if (driver) "auth_driver_submit" else "auth_passenger_submit"), enabled = !busy, busy = busy)
+                        ::submit, Modifier.testTag(if (driver) "auth_driver_submit" else "auth_passenger_submit"), enabled = !busy && draft.adultConfirmed, busy = busy)
                     if (register) Text(t("Phone verification is optional for now. We’ll notify you when it’s time to verify.", "ለአሁኑ ስልክ ማረጋገጥ አማራጭ ነው። ማረጋገጥ ሲያስፈልግ እናሳውቅዎታለን።", "Ammaaf bilbila mirkaneessuun filannoo dha. Yeroo mirkaneessuu qabdu si beeksifna."), fontSize = 11.sp, color = CommuteInk, modifier = Modifier.testTag("auth_verification_notice"))
                     if (driver && register && step == 0) Text(t("Next: licence and service details. Approval required.", "ቀጣይ፦ ፈቃድ እና የአገልግሎት ዝርዝር። ፈቃድ ያስፈልጋል።", "Itti aansuun: eeyyamaa fi odeeffannoo tajaajilaa. Hayyamni barbaachisa."), color = CommuteInk, fontSize = 10.sp)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {

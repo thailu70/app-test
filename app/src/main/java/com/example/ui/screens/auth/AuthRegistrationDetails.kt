@@ -2,6 +2,7 @@ package com.example.ui.screens.auth
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -12,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -96,6 +98,14 @@ internal fun AuthRegistrationDetails(
             AuthChoiceChips(listOf("Economy" to "Economy", "Deluxe" to "Deluxe", "VIP" to "VIP"), draft.tier, enabled, { draft.tier = it }, "auth_tier")
         }
         if (!driver) Text(t("Registration does not confirm a paid pass. Your route offer and payment remain separate.", "ምዝገባ የተከፈለ ፓስ አያረጋግጥም። የመስመር ቅናሽ እና ክፍያ በተለየ ይቀጥላሉ።", "Galmeen paasiin kaffalameera jechuu miti. Yaadni karaa fi kaffaltiin addaatti itti fufa."), fontSize = 12.sp, color = CommuteInk)
+        Row(Modifier.fillMaxWidth().toggleable(value = draft.adultConfirmed, enabled = enabled, role = Role.Checkbox,
+            onValueChange = { draft.adultConfirmed = it }).testTag("auth_adult_confirmation").padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = draft.adultConfirmed, onCheckedChange = null, enabled = enabled)
+            Spacer(Modifier.width(10.dp))
+            Text(t("I am 18 or older. Passo accounts are for adults only.", "ዕድሜዬ 18 ወይም ከዚያ በላይ ነው። የPasso መለያዎች ለአዋቂዎች ብቻ ናቸው።", "Umriin koo 18 yookaan isaa ol. Herregni Passo ga'eessota qofaaf."),
+                color = CommuteInk, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        }
     }
 }
 

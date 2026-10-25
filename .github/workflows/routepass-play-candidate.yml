@@ -1,0 +1,89 @@
+name: Passo Google Play candidate
+
+on:
+  push:
+    branches: ["enhance/**"]
+    paths:
+      - 'app/**'
+      - 'gradle/**'
+      - 'tools/verify-play-bundle.py'
+      - '.github/workflows/routepass-play-candidate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: passo-play-candidate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  play-bundle:
+    name: Verify production bundle without exporting the upload key
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Test native payment, privacy, registration and location behavior
+        run: >-
+          gradle :app:testDebugUnitTest
+          -PROUTEPASS_API_BASE_URL=https://passo.live/
+          --tests com.example.ApiBaseUrlTest
+          --tests com.example.AuthLayoutTest
+          --tests com.example.DriverApplicationTest
+          --tests com.example.CredentialStorageTest
+          --tests com.example.AccountPrivacyTest
+          --tests com.example.DriverLocationServiceTest
+          --tests com.example.DriverGpsSharingTest
+          --tests com.example.DriverLayoutTest
+          --tests com.example.DriverAssignmentsLoadingTest
+          --tests com.example.IntercityPassengerStateTest
+          --tests com.example.IntercityLayoutTest
+          --tests com.example.IntercityApiContractTest
+          --tests com.example.PlayStorePreviewTest
+      - name: Assemble unsigned production bundle for local upload-key signing
+        run: gradle :app:bundleRelease -PPASSO_UNSIGNED_PLAY_BUNDLE=true -PROUTEPASS_API_BASE_URL=https://passo.live/
+      - name: Download pinned Google bundletool and verify its checksum
+        run: |
+          curl -fL --retry 3 -o "$RUNNER_TEMP/bundletool.jar" https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar
+          echo "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  $RUNNER_TEMP/bundletool.jar" | sha256sum --check
+      - name: Validate bundle, manifest, production host and native library alignment
+        run: |
+          java -jar "$RUNNER_TEMP/bundletool.jar" validate --bundle=app/build/outputs/bundle/release/app-release.aab
+          java -jar "$RUNNER_TEMP/bundletool.jar" dump manifest --bundle=app/build/outputs/bundle/release/app-release.aab > "$RUNNER_TEMP/play-manifest.xml"
+          java -jar "$RUNNER_TEMP/bundletool.jar" dump config --bundle=app/build/outputs/bundle/release/app-release.aab > "$RUNNER_TEMP/play-config.json"
+          python3 tools/verify-play-bundle.py app/build/outputs/bundle/release/app-release.aab "$RUNNER_TEMP/play-manifest.xml" "$RUNNER_TEMP/play-config.json" > app/build/outputs/bundle/release/play-verification.json
+      - name: Upload unsigned bundle and verification for owner-side signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: passo-google-play-unsigned-bundle
+          path: |
+            app/build/outputs/bundle/release/app-release.aab
+            app/build/outputs/bundle/release/play-verification.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload real app previews and test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: passo-google-play-validation
+          path: |
+            app/build/auth-previews/*.png
+            app/build/passenger-previews/*.png
+            app/build/driver-previews/*.png
+            app/build/welcome-previews/*.png
+            app/build/intercity-previews/*.png
+            app/build/play-store-previews/*.png
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 14

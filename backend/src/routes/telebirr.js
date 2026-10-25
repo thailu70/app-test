@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const telebirr = require('../services/telebirr');
-const { isTestPaymentPhone, grantCommuterTestPass } = require('../services/payment-test');
+const { isTestPaymentPhone, paymentTestsEnabled, grantCommuterTestPass } = require('../services/payment-test');
 
 const router = express.Router();
 const PAYMENT_MODE = process.env.PAYMENT_MODE || 'TEST';
@@ -101,7 +101,7 @@ router.post('/pay', authenticate, requireRole('PASSENGER'), async (req, res, nex
 
     // Eligibility comes from the authenticated account's current database phone,
     // never a payer phone supplied in the request body.
-    if (isTestPaymentPhone(passenger.phone)) return res.status(200).json(await grantCommuterTestPass({ passengerId, route, key, signedQr }));
+    if (paymentTestsEnabled() && isTestPaymentPhone(passenger.phone)) return res.status(200).json(await grantCommuterTestPass({ passengerId, route, key, signedQr }));
     const missing = telebirr.missingConfiguration();
     if (!telebirr.config().publicKey) missing.push('TELEBIRR_PUBLIC_KEY');
     if (missing.length) return res.status(503).json({ success: false, code: 'LIVE_TELEBIRR_NOT_CONFIGURED', error: 'H5 checkout needs merchant credentials configured on the VPS.', missingSettings: missing });
