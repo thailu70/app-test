@@ -9,7 +9,7 @@
   <title>Daily commute driver registration · Passo</title>
   <link rel="icon" href="/join/assets/passo-wordmark.png" type="image/png">
   <link rel="stylesheet" href="/join/join.css?v=20261022-daily">
-  <script src="/join/join.js?v=20261023-approval-otp-optional" defer></script>
+  <script src="/join/join.js?20261024-unified-onboarding" defer></script>
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
@@ -61,6 +61,21 @@
           <p id="accountMessage" class="message" role="status" aria-live="polite"></p>
           <button id="accountSubmit" type="submit" class="primary"><span data-i18n="createButton">Create my account</span><svg><use href="#icon-arrow"/></svg></button>
         </form>
+        <button id="forgotPassword" class="inline-link" type="button" hidden data-i18n="forgotPassword">Forgot password?</button>
+        <section id="recoveryPanel" class="form-stack" aria-labelledby="recoveryTitle" hidden>
+          <h3 id="recoveryTitle" data-i18n="recoveryTitle">Reset your password</h3>
+          <p class="muted" data-i18n="recoveryBody">To protect your account, password recovery requires an SMS code even while registration verification is optional.</p>
+          <form id="recoveryForm" class="form-stack">
+            <div><label for="recoveryPhone" data-i18n="phone">Mobile phone number</label><input id="recoveryPhone" type="tel" inputmode="tel" autocomplete="username" maxlength="30" required></div>
+            <button id="requestRecovery" class="secondary" type="button" data-i18n="requestRecovery">Send recovery code</button>
+            <div><label for="recoveryCode" data-i18n="recoveryCode">SMS recovery code</label><input id="recoveryCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></div>
+            <div><label for="recoveryPassword" data-i18n="newPassword">New password</label><input id="recoveryPassword" type="password" autocomplete="new-password" minlength="10" maxlength="200" required></div>
+            <div><label for="recoveryConfirm" data-i18n="confirmPassword">Confirm new password</label><input id="recoveryConfirm" type="password" autocomplete="new-password" minlength="10" maxlength="200" required></div>
+            <button id="resetPassword" class="primary" type="submit" data-i18n="resetPassword">Reset password</button>
+          </form>
+          <p id="recoveryMessage" class="message" role="status" aria-live="polite"></p>
+          <button id="closeRecovery" class="inline-link" type="button" data-i18n="backSignIn">Back to sign in</button>
+        </section>
         <p class="account-note" id="accountNote" data-i18n="accountNote">Your application is reviewed before any passenger or route assignment.</p>
         <p class="data-use-note" data-i18n="dataUse">We use your contact and vehicle details to review your daily commute application. Phone verification can be completed later.</p>
         <p class="support-line"><a href="mailto:info@passo.live?subject=Passo%20application%20support" data-i18n="support">Need help? Contact info@passo.live</a></p>

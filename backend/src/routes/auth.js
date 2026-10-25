@@ -8,6 +8,8 @@ const { DB } = require('../db');
 const { signToken, authenticate } = require('../middleware/auth');
 const { sendSms } = require('../services/afro-sms');
 const { accountPhonePolicy } = require('../services/account-phone-policy');
+const { createOnboardingService, OnboardingError, isOperationallyEligible } = require('../services/onboarding');
+const { loadCredentialSnapshot } = require('../services/account-sessions');
 const sha256 = value => crypto.createHash('sha256').update(String(value)).digest('hex');
 const normalizePhone = value => String(value || '').trim();
 
@@ -69,7 +71,7 @@ router.post('/register', authLimiter, async (req, res) => {
       appliedRouteId = '',
       appliedRouteName = ''
       ,otpVerificationToken = ''
-    } = req.body;
+    } = req.body || {};
 
     if (typeof fullName !== 'string' || !fullName.trim() || typeof phone !== 'string' || !phone.trim() || !password || typeof role !== 'string' || !role.trim()) {
       return res.status(400).json({
@@ -82,7 +84,9 @@ router.post('/register', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Password must contain at least 10 characters.' });
     }
 
-    const normalizedRole = role.toUpperCase();
+    if (Buffer.byteLength(password, 'utf8') > 72) return res.status(400).json({ success: false, error: 'Password must be at most 72 UTF-8 bytes.' });
+
+    const normalizedRole = role.trim().toUpperCase();
     if (!['PASSENGER', 'DRIVER', 'ADMIN'].includes(normalizedRole)) {
       return res.status(400).json({
         success: false,
@@ -104,31 +108,22 @@ router.post('/register', authLimiter, async (req, res) => {
       await DB.prepare('UPDATE auth_otps SET verification_token_hash=NULL WHERE id=?').run(otp.id);
     }
 
-    // Dual ownership model: no company selected means Daily Commute (driver-owned vehicle);
-    // a selected company means Intercity (company-owned vehicle, assigned later by the company).
-    const requestedCompanyName = String(companyName || '').trim();
-    let registeredCompany = null;
-    let driverVehiclePlate = '', driverVehicleModel = '', driverVehicleType = '', driverVehicleCapacity = 0;
+    // Older APKs also enter the shared application workflow. They never receive
+    // an operational token or an untracked driver account from this endpoint.
     if (normalizedRole === 'DRIVER') {
-      if (!licenseNumber || !String(licenseNumber).trim()) {
-        return res.status(400).json({ success: false, error: 'Driver registration requires a valid driving licence number.' });
+      await require('../services/onboarding').initOnboardingSchema();
+      let companyId = String(req.body.companyId || '').trim();
+      if (!companyId && String(companyName || '').trim()) {
+        const company = await DB.prepare("SELECT id FROM transport_companies WHERE LOWER(name)=LOWER(?) AND status='ACTIVE'").get(String(companyName).trim());
+        if (!company) return res.status(400).json({ success: false, error: 'Choose an active transport company.' });
+        companyId = company.id;
       }
-      if (requestedCompanyName) {
-        registeredCompany = await DB.prepare("SELECT id, name FROM transport_companies WHERE LOWER(name)=LOWER(?) AND status='ACTIVE'").get(requestedCompanyName);
-        if (!registeredCompany) return res.status(400).json({ success: false, error: 'Select an active company from the City Travel company list.' });
-        // Intercity company vehicles are added and assigned by the company, never by the driver.
-      } else {
-        driverVehiclePlate = String(assignedVehiclePlate || '').trim().toUpperCase();
-        driverVehicleModel = String(vehicleModel || '').trim();
-        driverVehicleType = String(vehicleType || '').trim().toUpperCase();
-        const registeredType = await require('../services/master-data').getVehicleType(driverVehicleType);
-        if (!driverVehiclePlate || !driverVehicleModel || !registeredType) {
-          return res.status(400).json({ success: false, error: 'Daily Commute driver registration requires your own vehicle plate, model, and valid vehicle type.' });
-        }
-        driverVehicleCapacity = registeredType.capacity;
-        const existingPlate = await DB.prepare('SELECT id FROM vehicles WHERE plateNumber = ?').get(driverVehiclePlate);
-        if (existingPlate) return res.status(409).json({ success: false, error: 'That vehicle plate is already registered.' });
-      }
+      const result = await createOnboardingService().register({ ...req.body, role: 'DRIVER',
+        serviceType: companyId ? 'INTERCITY' : 'DAILY_COMMUTE', companyId,
+        routeChoice: req.body.routeChoice || (appliedRouteId ? 'EXISTING' : '') });
+      return res.status(201).json({ success: true, token: null, user: result.account,
+        onboarding: result.onboarding, subscription: null, applicationPath: '/join/?view=login',
+        message: 'Driver application received. Sign in to your application to follow acceptance, documents and final approval. Phone verification is optional for now.' });
     }
 
     // Allow secret-gated bootstrap only while no administrator exists.
@@ -167,7 +162,7 @@ router.post('/register', authLimiter, async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 12);
 
     const userId = `usr_${normalizedRole.toLowerCase().slice(0, 3)}_${crypto.randomUUID().slice(0, 8)}`;
-    const finalEmail = email?.trim() || `${phone.trim()}@transport.et`;
+    const finalEmail = email?.trim() || `${normalizedPhone}@transport.et`;
 
     const registration = await DB.transaction(async (tx) => {
       if (normalizedRole === 'ADMIN') {
@@ -186,16 +181,16 @@ router.post('/register', authLimiter, async (req, res) => {
         userId,
         normalizedRole,
         fullName.trim(),
-        phone.trim(),
+        normalizedPhone,
         finalEmail,
         passwordHash,
-        normalizedRole === 'DRIVER' ? 'PENDING' : 'ACTIVE',
-        normalizedRole === 'DRIVER' ? String(licenseNumber).trim() : (normalizedRole === 'ADMIN' ? String(licenseNumber).trim() : ''),
-        normalizedRole === 'DRIVER' ? String(companyName || '').trim() : (normalizedRole === 'ADMIN' ? String(companyName || '').trim() : ''),
-        driverVehiclePlate,
+        'ACTIVE',
+        normalizedRole === 'ADMIN' ? String(licenseNumber).trim() : '',
+        normalizedRole === 'ADMIN' ? String(companyName || '').trim() : '',
+        '',
         normalizedRole === 'PASSENGER' ? String(appliedRouteId || '').trim() : '',
         normalizedRole === 'PASSENGER' ? String(appliedRouteName || '').trim() : '',
-        normalizedRole === 'DRIVER' && registeredCompany ? registeredCompany.id : null
+        null
       );
 
       if (normalizedRole === 'ADMIN' && String(companyName || '').trim().length >= 2) {
@@ -203,13 +198,6 @@ router.post('/register', authLimiter, async (req, res) => {
         await tx.prepare("INSERT INTO transport_companies (id, name, status) VALUES (?, ?, 'ACTIVE')").run(companyId, String(companyName).trim());
       }
 
-      if (normalizedRole === 'DRIVER' && !registeredCompany) {
-        const vehicleId = `veh_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-        await tx.prepare(`
-          INSERT INTO vehicles (id, plateNumber, model, vehicleType, capacityLimit, currentOccupancy, assignedRouteId, driverId, driverName, status)
-          VALUES (?, ?, ?, ?, ?, 0, NULL, ?, ?, 'OFF_DUTY')
-        `).run(vehicleId, driverVehiclePlate, driverVehicleModel, driverVehicleType, driverVehicleCapacity, userId, fullName.trim());
-      }
       return { status: 'CREATED' };
     });
     if (registration.status === 'ADMIN_EXISTS') {
@@ -249,33 +237,34 @@ router.post('/register', authLimiter, async (req, res) => {
       id: userId,
       role: normalizedRole,
       fullName: fullName.trim(),
-      phone: phone.trim()
+      phone: normalizedPhone,
+      sessionVersion: 0
     });
 
     res.status(201).json({
       success: true,
-      token: normalizedRole === 'DRIVER' ? null : token,
+      token,
       user: {
         id: userId,
         role: normalizedRole,
         fullName: fullName.trim(),
-        phone: phone.trim(),
+        phone: normalizedPhone,
         email: finalEmail,
         status: normalizedRole === 'DRIVER' ? 'PENDING' : 'ACTIVE',
-        assignedVehiclePlate: driverVehiclePlate,
+        assignedVehiclePlate: '',
         appliedRouteId: normalizedRole === 'PASSENGER' ? String(appliedRouteId || '').trim() : '',
         appliedRouteName: normalizedRole === 'PASSENGER' ? String(appliedRouteName || '').trim() : ''
       },
       subscription: initialSub,
-      message: normalizedRole === 'DRIVER'
-        ? (registeredCompany ? 'Thank you for registering for Intercity Travel. Your company will review your driver profile and assign a company-owned vehicle and route.' : 'Thank you for registering for Daily Commute. Your vehicle and driving licence will be reviewed before route assignment.')
-        : (normalizedRole === 'PASSENGER' && appliedRouteId
-          ? 'Account created. Subscription is PENDING payment; ask an administrator for a manual test recharge during testing.'
-          : 'Registration successful.')
+      message: normalizedRole === 'PASSENGER' && appliedRouteId
+        ? 'Account created. Your subscription remains pending until payment is confirmed.'
+        : 'Registration successful.'
     });
   } catch (err) {
-    console.error('[RoutePass] request failed:', err);
-    res.status(500).json({ success: false, error: 'Internal server error.' });
+    if (err instanceof OnboardingError || (Number.isInteger(err.status) && err.status >= 400 && err.status < 500)) return res.status(err.status).json({ success: false, error: err.message });
+    if (err.code === '23505' || err.code === 'SQLITE_CONSTRAINT_UNIQUE') return res.status(409).json({ success: false, error: 'That phone number or vehicle is already registered.' });
+    console.error('[RoutePass] registration failed:', err.code || err.name || 'Error');
+    res.status(500).json({ success: false, error: 'Registration is temporarily unavailable.' });
   }
 });
 
@@ -285,7 +274,7 @@ router.post('/register', authLimiter, async (req, res) => {
  */
 router.post('/login', authLimiter, async (req, res) => {
   try {
-    const { phone, password, role } = req.body;
+    const { phone, password, role } = req.body || {};
 
     if (typeof phone !== 'string' || typeof password !== 'string' || !phone.trim() || !password) {
       return res.status(400).json({
@@ -294,12 +283,17 @@ router.post('/login', authLimiter, async (req, res) => {
       });
     }
 
+    if (role !== undefined && (typeof role !== 'string' || !['ADMIN', 'DRIVER', 'PASSENGER'].includes(role.trim().toUpperCase()))) return res.status(400).json({ success: false, error: 'Choose a valid account role.' });
     const cleanPhone = phone.trim();
-    const altPhone = cleanPhone.startsWith('+251')
-      ? '0' + cleanPhone.slice(4)
-      : (cleanPhone.startsWith('0') ? '+251' + cleanPhone.slice(1) : cleanPhone);
-
-    const user = await DB.prepare('SELECT * FROM users WHERE phone = ? OR phone = ?').get(cleanPhone, altPhone);
+    const canonicalPhone = require('../services/onboarding').normalizePhone(cleanPhone);
+    let user;
+    if (canonicalPhone) {
+      const national = canonicalPhone.slice(4);
+      const matches = await DB.prepare("SELECT * FROM users WHERE REPLACE(REPLACE(REPLACE(REPLACE(phone,' ',''),'-',''),'(',''),')','') IN (?,?,?,?)")
+        .all(canonicalPhone, canonicalPhone.slice(1), '0' + national, national);
+      // Ambiguous historical spellings require support; never select another account.
+      user = matches.length === 1 ? matches[0] : null;
+    } else user = await DB.prepare('SELECT * FROM users WHERE phone=?').get(cleanPhone);
 
     if (!user) {
       return res.status(401).json({
@@ -308,16 +302,10 @@ router.post('/login', authLimiter, async (req, res) => {
       });
     }
 
-    if (user.status && user.status !== 'ACTIVE') {
-      const error = user.status === 'PENDING'
-        ? 'Thank you for registering. Your account is awaiting administrator approval and route assignment. Please try signing in after the administrator contacts you.'
-        : (user.status === 'REJECTED'
-          ? 'Your driver registration was not approved. Please contact RoutePass administration.'
-          : 'This account is inactive. Contact your transport administrator.');
-      return res.status(403).json({ success: false, error, code: user.status });
-    }
+    user = await loadCredentialSnapshot(user.id, user.role);
+    if (!user) return res.status(401).json({ success: false, error: 'Invalid mobile number or credentials.' });
 
-    if (role && user.role !== role.toUpperCase()) {
+    if (role && user.role !== role.trim().toUpperCase()) {
       return res.status(403).json({
         success: false,
         error: `Access Denied: This account is registered as ${user.role}, not ${role.toUpperCase()}. Please switch to the ${user.role.toLowerCase()} portal.`
@@ -332,11 +320,24 @@ router.post('/login', authLimiter, async (req, res) => {
       });
     }
 
+    if (user.status && user.status !== 'ACTIVE') {
+      const error = user.status === 'PENDING'
+        ? 'Thank you for registering. Your account is awaiting administrator approval and route assignment. Please try signing in after the administrator contacts you.'
+        : (user.status === 'REJECTED'
+          ? 'Your driver registration was not approved. Please contact RoutePass administration.'
+          : 'This account is inactive. Contact your transport administrator.');
+      return res.status(403).json({ success: false, error, code: user.status, applicationPath: user.role === 'DRIVER' && user.status === 'PENDING' ? '/join/?view=login' : undefined });
+    }
+    if (user.role === 'DRIVER' && !(await isOperationallyEligible(user.id, 'DRIVER'))) {
+      return res.status(403).json({ success: false, code: 'ONBOARDING_REQUIRED', error: 'Complete your driver application and final approval before opening the driver portal.', applicationPath: '/join/?view=login' });
+    }
+
     const token = signToken({
       id: user.id,
       role: user.role,
       fullName: user.fullName,
-      phone: user.phone
+      phone: user.phone,
+      sessionVersion: Number(user.credential_session_version)
     });
 
     res.json({

@@ -6,7 +6,7 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 function fixture(api) {
   const elements = new Map(), listeners = new Map();
   const node = selector => {
-    if (!elements.has(selector)) elements.set(selector, { innerHTML: '', textContent: '', hidden: false, disabled: false, value: '' });
+    if (!elements.has(selector)) elements.set(selector, { innerHTML: '', textContent: '', hidden: false, disabled: false, value: '', focus() {} });
     return elements.get(selector);
   };
   const container = {
@@ -70,7 +70,7 @@ test('initial acceptance reviews the route and whole-vehicle fee while final all
   assert.match(html, /45,000\.00 ETB \/ vehicle \/ month/);
   assert.match(html, /&lt;script&gt;departure/);
   assert.doesNotMatch(html, /<script>/);
-  assert.match(html, /data-application-decision="ACCEPT">Accept application/);
+  assert.match(html, /data-application-decision="ACCEPT">Accept initial application/);
   assert.match(html, /data-application-decision="APPROVE" disabled/);
   onboarding.routePreference = { mode: 'EXISTING', routeName: 'Bole to CMC', proposedMonthlyFeeEtb: 20000, proposedMonthlyFeeBasis: 'PER_VEHICLE', feeLocked: true, passengerCapacity: 8, passengerMonthlyFareEtb: 2500 };
   f.click('[data-application-open]', { applicationRole: 'DRIVER', applicationOpen: 'daily' }); await flush();
@@ -110,4 +110,34 @@ test('driver approval uses review readiness while truthful phone status remains 
   assert.match(html, /Missing: Insurance/);
   assert.match(html, /data-application-decision="APPROVE" disabled/);
   f.cleanup();
+});
+
+
+test('document corrections need instructions and are separate from initial rejection or suspension', async () => {
+  const calls=[];
+  const account={id:'corrections',role:'DRIVER',fullName:'Correction Fixture',status:'PENDING'};
+  const onboarding={acceptanceRequired:true,acceptedAt:'accepted',reviewStatus:'SUBMITTED',submittedAt:'submitted',reviewReady:true,documents:[]};
+  const f=fixture(async(path,options)=>{
+    if(path.endsWith('/review')){calls.push(JSON.parse(options.body));return {account,onboarding};}
+    return path.endsWith('/applications')?{applications:[{...account,onboarding}]}:{account,onboarding};
+  });
+  await flush();f.click('[data-application-open]',{applicationRole:'DRIVER',applicationOpen:'corrections'});await flush();
+  assert.match(f.node('[data-application-detail]').innerHTML,/data-application-decision="CORRECTIONS"/);
+  f.click('[data-application-decision]',{applicationDecision:'CORRECTIONS'});await flush();
+  assert.equal(calls.length,0);assert.match(f.node('[data-application-message]').textContent,/Explain which/);
+  f.node('[data-application-note]').value='Please upload a clearer licence image.';
+  f.click('[data-application-decision]',{applicationDecision:'CORRECTIONS'});await flush();
+  assert.deepEqual(calls,[{decision:'CORRECTIONS',note:'Please upload a clearer licence image.'}]);
+  assert.match(f.node('[data-application-message]').textContent,/accepted route is retained/);f.cleanup();
+});
+
+test('a suspended driver offers restoration and reports pending recovery without claiming activation', async () => {
+  const account={id:'restore',role:'DRIVER',fullName:'Restore Fixture',status:'SUSPENDED'};
+  const onboarding={acceptanceRequired:true,acceptedAt:'accepted',reviewStatus:'APPROVED',submittedAt:'submitted',reviewReady:true,documents:[]};
+  const f=fixture(async(path,options)=>path.endsWith('/review')?{account:{...account,status:'PENDING'},onboarding}:path.endsWith('/applications')?{applications:[{...account,onboarding}]}:{account,onboarding});
+  await flush();f.click('[data-application-open]',{applicationRole:'DRIVER',applicationOpen:'restore'});await flush();
+  const html=f.node('[data-application-detail]').innerHTML;
+  assert.match(html,/data-application-decision="REACTIVATE"/);assert.doesNotMatch(html,/data-application-decision="APPROVE"/);
+  f.click('[data-application-decision]',{applicationDecision:'REACTIVATE'});await flush();
+  assert.match(f.node('[data-application-message]').textContent,/pending application/);f.cleanup();
 });

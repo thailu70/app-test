@@ -227,7 +227,9 @@ internal fun AuthField(
     helper: String? = null,
     language: AppLanguage = AppLanguage.ENGLISH,
     leadingIcon: ImageVector? = null,
-    placeholder: String? = null
+    placeholder: String? = null,
+    readOnly: Boolean = false,
+    decimal: Boolean = false
 ) {
     var visible by rememberSaveable(label) { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
@@ -235,17 +237,17 @@ internal fun AuthField(
     val icon = leadingIcon ?: when { password -> Icons.Default.Lock; phone -> Icons.Default.PhoneAndroid; else -> Icons.Default.PersonOutline }
     val iconColor = AuthInk.copy(alpha = if (enabled) 1f else 0.45f)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        BasicTextField(value = value, onValueChange = onValueChange, enabled = enabled, singleLine = true,
+        BasicTextField(value = value, onValueChange = onValueChange, enabled = enabled, readOnly = readOnly, singleLine = true,
             textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = PassoFont, fontSize = 16.sp, lineHeight = 21.sp,
                 color = AuthInk.copy(alpha = if (enabled) 1f else 0.5f), fontWeight = FontWeight.Medium),
             cursorBrush = SolidColor(AuthTeal), visualTransformation = if (password && !visible) PasswordVisualTransformation() else VisualTransformation.None,
-            keyboardOptions = KeyboardOptions(keyboardType = when { phone -> KeyboardType.Phone; password -> KeyboardType.Password; else -> KeyboardType.Text },
+            keyboardOptions = KeyboardOptions(keyboardType = when { decimal -> KeyboardType.Decimal; phone -> KeyboardType.Phone; password -> KeyboardType.Password; else -> KeyboardType.Text },
                 capitalization = if (!phone && !password) KeyboardCapitalization.Words else KeyboardCapitalization.None),
             modifier = modifier.fillMaxWidth().focusRequester(focus).semantics { contentDescription = label },
             decorationBox = { input ->
                 Surface(color = Color.Transparent, shape = RoundedCornerShape(15.dp), border = BorderStroke(1.dp, AuthBorder)) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).pointerInput(enabled) {
-                        detectTapGestures { if (enabled) { focus.requestFocus(); keyboard?.show() } }
+                    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).pointerInput(enabled, readOnly) {
+                        detectTapGestures { if (enabled && !readOnly) { focus.requestFocus(); keyboard?.show() } }
                     }.padding(start = 14.dp, end = if (password) 4.dp else 14.dp, top = 5.dp, bottom = 5.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Icon(icon, null, Modifier.size(23.dp), tint = iconColor)

@@ -75,6 +75,8 @@ class MainViewModel(
     private val driverGpsUploads: DriverGpsUploadGate = DriverGpsUploadGate()
 ) : ViewModel() {
 
+    val driverApplications = repository.driverApplications
+
     // Language
     private val _currentLanguage = MutableStateFlow(AppLanguage.ENGLISH)
     val currentLanguage: StateFlow<AppLanguage> = _currentLanguage.asStateFlow()
@@ -179,6 +181,8 @@ class MainViewModel(
     val registrationMessage: StateFlow<String?> = _registrationMessage.asStateFlow()
 
     fun clearRegistrationMessage() { _registrationMessage.value = null }
+    suspend fun requestAccountRecovery(role: AppRole, phone: String) = repository.requestAccountRecovery(role.name, phone)
+    suspend fun resetAccountPassword(role: AppRole, phone: String, code: String, password: String) = repository.resetAccountPassword(role.name, phone, code, password)
 
     private val _networkStatus = MutableStateFlow(NetworkStatus.ONLINE)
     val networkStatus: StateFlow<NetworkStatus> = _networkStatus.asStateFlow()
@@ -463,6 +467,7 @@ class MainViewModel(
             }
             val user = repository.authenticate(identifier, roleStr, password)
             if (user != null) {
+                driverApplications.close()
                 ++sessionGeneration
                 LiveTrackingWebSocket.disconnect()
                 LiveTrackingWebSocket.connect()
@@ -498,6 +503,10 @@ class MainViewModel(
                     stopPassengerSubscriptionRefresh()
                 }
                 repository.logAction("LOGIN_SUCCESS", user.id, roleStr, "User logged in as $roleStr")
+            } else if (role == AppRole.DRIVER && repository.lastAuthCode in setOf("PENDING", "ONBOARDING_REQUIRED")) {
+                driverApplications.login(identifier, password)
+                _authError.value = if (driverApplications.state.value.application == null)
+                    driverApplications.state.value.error ?: repository.lastAuthError else null
             } else {
                 _authError.value = repository.lastAuthError
                     ?: "Account not found for $identifier as ${role.name}. Please check credentials or Register."
@@ -631,6 +640,7 @@ class MainViewModel(
     }
 
     fun logout() {
+        driverApplications.close()
         ++sessionGeneration
         com.example.core.location.DriverLocationSharing.stop()
         driverLocationUploadJob?.cancel()

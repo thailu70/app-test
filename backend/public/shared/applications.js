@@ -9,10 +9,10 @@
   const labels = { LICENSE: 'Driving licence', VEHICLE_REGISTRATION: 'Vehicle registration', INSURANCE: 'Insurance',
     PHOTO: 'Profile photo', BUSINESS_LICENSE: 'Business licence', REGISTRATION: 'Company registration', REPRESENTATIVE_ID: 'Representative ID',
     ADMIN_ACCEPTANCE: 'Initial admin acceptance', ROUTE_PREFERENCE: 'Route choice or proposal', MONTHLY_FEE: 'Whole-vehicle monthly fee proposal', PROPOSED_MONTHLY_FEE: 'Whole-vehicle monthly fee proposal' };
-  const reviewLabel = state => ({ AWAITING_ACCEPTANCE: 'Awaiting admin acceptance', DRAFT: 'In progress', SUBMITTED: 'Documents submitted', APPROVED: 'Approved', REJECTED: 'Returned' })[state] || state || 'In progress';
+  const reviewLabel = state => ({ AWAITING_ACCEPTANCE: 'Awaiting admin acceptance', DRAFT: 'In progress', SUBMITTED: 'Documents submitted', CORRECTIONS_REQUESTED: 'Corrections requested', APPROVED: 'Approved', REJECTED: 'Returned' })[state] || state || 'In progress';
   function markup() {
     return '<section id="applications-panel" class="card section-card applications-panel">' +
-      '<div class="section-title"><div><h3>Web applications</h3><p>Accept daily commute route and fee proposals first. Review each applicant’s required details and documents before approving passenger allocation.</p></div>' +
+      '<div class="section-title"><div><h3>Driver and company applications</h3><p>Accept daily commute route and fee proposals first. Review each applicant’s required details and documents before approving passenger allocation.</p></div>' +
       '<button class="btn btn-secondary" type="button" data-application-refresh>Refresh applications</button></div>' +
       '<p class="application-share">Recruit daily commute drivers: <a href="/join/" target="_blank" rel="noopener">passo.live/join/ ↗</a></p>' +
       '<p data-application-message role="status" aria-live="polite"></p><div data-application-list></div><div data-application-detail hidden></div></section>';
@@ -40,7 +40,7 @@
         '</td><td><button type="button" class="btn btn-secondary small" data-application-open="' + esc(a.id) +
         '" data-application-role="' + esc(a.role) + '">Review</button></td></tr>').join('');
       find('[data-application-list]').innerHTML = '<div class="table-wrap"><table><thead><tr><th>Applicant</th><th>Type</th><th>Account</th><th>Phone</th><th>Application</th><th>Action</th></tr></thead><tbody>' +
-        (rows || '<tr><td colspan="6">No web applications yet. Share the registration link to get started.</td></tr>') + '</tbody></table></div>' +
+        (rows || '<tr><td colspan="6">No applications yet. Share the registration link to get started.</td></tr>') + '</tbody></table></div>' +
         (nextCursor ? '<button class="btn btn-secondary" type="button" data-application-more>Load more applications</button>' : '');
     }
     async function load(more = false) {
@@ -54,7 +54,7 @@
         applications = more ? applications.concat(rows.filter(row => !applications.some(current => current.id === row.id))) : rows;
         nextCursor = result.nextCursor || null;
         renderList(applications);
-        message('Applications updated. Existing app registrations remain in the driver list.');
+        message('Applications updated. Website and app registrations share this review queue.');
       } catch (error) { if (active() && current === revision) message('Could not load applications: ' + error.message, true); }
       finally { if (active()) find('[data-application-refresh]').disabled = false; }
     }
@@ -68,11 +68,12 @@
       const otpOptional = onboarding.phoneVerificationRequiredForApproval === false;
       const otpDeferred = otpOptional && onboarding.phoneVerificationRequiredForAllocation === false;
       const profile = onboarding.profile || {};
-      const readyForReview = (onboarding.reviewReady ?? onboarding.ready) === true && Boolean(onboarding.submittedAt);
+      const suspended = account.status === 'SUSPENDED';
+      const readyForReview = !suspended && (onboarding.reviewReady ?? onboarding.ready) === true && Boolean(onboarding.submittedAt);
       const proposal = onboarding.routePreference || {};
       const fee = Number(proposal.proposedMonthlyFeeEtb);
       const needsAcceptance = onboarding.acceptanceRequired && !onboarding.acceptedAt;
-      const canAccept = needsAcceptance && ['PENDING','ACTIVE'].includes(account.status) && ['EXISTING','PROPOSED'].includes(proposal.mode) && Number.isFinite(fee) && fee > 0;
+      const canAccept = !suspended && needsAcceptance && ['PENDING','ACTIVE'].includes(account.status) && ['EXISTING','PROPOSED'].includes(proposal.mode) && Number.isFinite(fee) && fee > 0;
       const routeDetails = !onboarding.acceptanceRequired ? '' : '<h4>Daily commute proposal</h4><dl class="application-facts"><div><dt>Route preference</dt><dd>' +
         esc(proposal.mode === 'EXISTING' ? proposal.routeName || 'Selected existing route' : proposal.mode === 'PROPOSED' ? 'Proposed new route' : 'Not provided yet') + '</dd></div>' +
         '<div><dt>Monthly fee for the whole vehicle</dt><dd>' + (Number.isFinite(fee) && fee > 0 ? esc(fee.toLocaleString('en-ET', {minimumFractionDigits:2, maximumFractionDigits:2})) + ' ETB / vehicle / month' : 'Not provided yet') + '</dd></div>' +
@@ -95,9 +96,13 @@
         (needsAcceptance ? '<p class="notice">Review the driver, vehicle, route and whole-vehicle fee proposal. Accepting this application unlocks file uploads and phone verification. Complete documents are required for final approval. The current phone-verification policy is shown above.</p>' : !readyForReview ? '<p class="notice">Cannot approve yet. ' + (missing.length ? 'Missing: ' + missing.map(x => esc(labels[x] || x.replace(/_/g, ' ').toLowerCase())).join(', ') + '.' : 'The applicant must complete and submit their application.') + '</p>' :
           '<p class="notice">' + (otpDeferred ? 'The required application details and documents are complete. OTP is not required for driver approval or passenger allocation at present.' : otpOptional ? 'The required application details and documents are complete. OTP is optional for approval. Phone verification is still required before passenger allocation.' : 'The phone and required documents are complete.') + ' Review the uploaded files before approving.</p>') +
         '<label class="application-note">Review note (optional)<textarea data-application-note maxlength="500" rows="2" placeholder="A short note visible to the applicant"></textarea></label>' +
-        '<div class="form-actions">' + (needsAcceptance ? '<button type="button" class="btn btn-primary" data-application-decision="ACCEPT"' + (!canAccept ? ' disabled' : '') + '>Accept application</button>' : '') +
-        '<button type="button" class="btn btn-primary" data-application-decision="APPROVE"' + (!readyForReview ? ' disabled' : '') +
-        '>Approve completed application</button><button type="button" class="btn btn-secondary" data-application-decision="REJECT">Return / reject application</button></div></div>';
+        '<div class="form-actions">' + (needsAcceptance && !suspended ? '<button type="button" class="btn btn-primary" data-application-decision="ACCEPT"' + (!canAccept ? ' disabled' : '') + '>Accept initial application</button>' : '') +
+        (!suspended ? '<button type="button" class="btn btn-primary" data-application-decision="APPROVE"' + (!readyForReview ? ' disabled' : '') + '>Approve completed application</button>' : '') +
+        (!suspended && !needsAcceptance ? '<button type="button" class="btn btn-secondary" data-application-decision="CORRECTIONS">Request document / detail corrections</button>' : '') +
+        (account.status === 'PENDING' ? '<button type="button" class="btn btn-secondary" data-application-decision="REJECT">Reject initial application</button>' : '') +
+        (account.role === 'DRIVER' && account.status === 'ACTIVE' ? '<button type="button" class="btn btn-secondary" data-application-decision="SUSPEND">Suspend driver access</button>' : '') +
+        (account.role === 'DRIVER' && suspended ? '<button type="button" class="btn btn-primary" data-application-decision="REACTIVATE">Restore driver access</button>' : '') + '</div></div>';
+
     }
     async function open(role, id) {
       const current = ++revision; message('Loading application…');
@@ -109,15 +114,25 @@
     }
     async function review(decision) {
       if (!selected || busy) return;
+      const note = find('[data-application-note]').value.trim();
+      if (decision === 'CORRECTIONS' && !note) { message('Explain which documents or details need correction in the review note.', true); find('[data-application-note]').focus(); return; }
       busy = true;
       const { account } = selected;
       const buttons = container.querySelectorAll('[data-application-decision]'); buttons.forEach(button => { button.disabled = true; });
       try {
-        const result = await call(applicationPath(account.role, account.id) + '/review', { method: 'POST', body: JSON.stringify({ decision, note: find('[data-application-note]').value.trim() }) });
+        const result = await call(applicationPath(account.role, account.id) + '/review', { method: 'POST', body: JSON.stringify({ decision, note }) });
         if (!active()) return;
         selected = null; find('[data-application-detail]').hidden = true;
         busy = false; await load();
-        message(decision === 'ACCEPT' ? 'Application accepted. The driver can upload documents for final approval.' : decision === 'APPROVE' ? result.onboarding?.phoneVerificationRequiredForAllocation !== false && result.onboarding?.phoneVerificationRequiredForApproval === false && !result.onboarding.phoneVerified ? 'Application approved. Phone verification is still required before passenger allocation.' : 'Application approved. Passenger allocation is now available through the existing operations tools.' : 'Application returned. The applicant can see your review note.');
+        const outcomes = {
+          ACCEPT: 'Initial application accepted. The driver can upload documents for final approval.',
+          CORRECTIONS: 'Corrections requested. The accepted route is retained and the applicant can replace documents and resubmit.',
+          REJECT: 'Initial application rejected. The applicant can read your note and resubmit.',
+          SUSPEND: 'Driver access suspended. The approved application and documents are retained.',
+          REACTIVATE: result.account?.status === 'ACTIVE' ? 'Driver access restored.' : 'Driver returned to pending application. They can sign in to complete the remaining review steps.'
+        };
+        message(outcomes[decision] || (result.onboarding?.phoneVerificationRequiredForAllocation !== false && result.onboarding?.phoneVerificationRequiredForApproval === false && !result.onboarding.phoneVerified ? 'Application approved. Phone verification is still required before passenger allocation.' : 'Application approved. Passenger allocation is now available through the existing operations tools.'));
+
         onReviewed();
       } catch (error) {
         message(error.message, true);

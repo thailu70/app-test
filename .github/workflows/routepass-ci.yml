@@ -67,7 +67,7 @@ jobs:
         run: node --check public/admin/admin.js && node --check public/admin/resources.js && node --check public/admin/master-data.js
         working-directory: backend
       - name: Test public registration and allocation gates
-        run: node --test test/account-phone-policy-test.js test/commute-quote-test.js test/onboarding-test.js test/onboarding-allocation-test.js test/applications-ui-test.js test/join-ui-test.js test/public-entry-test.js test/home-ui-test.js
+        run: node --test test/account-phone-policy-test.js test/driver-registration-contract-test.js test/approval-lifecycle-test.js test/account-recovery-test.js test/credential-session-race-test.js test/application-notifications-test.js test/commute-quote-test.js test/onboarding-test.js test/onboarding-allocation-test.js test/applications-ui-test.js test/join-ui-test.js test/public-entry-test.js test/home-ui-test.js
         working-directory: backend
       - name: Check recruitment portal JavaScript syntax
         run: node --check public/home/home.js && node --check public/join/join.js && node --check public/shared/applications.js && node --check public/travel/travel.js && node --check public/delete-account/delete-account.js
@@ -133,6 +133,7 @@ jobs:
         run: |
           node test/postgres-smoke.js
           node test/account-deletion-postgres-test.js
+          node test/account-recovery-postgres-test.js
           ASSIGNMENT_TEST_POSTGRES=true node --test test/assignment-closure-test.js
         working-directory: backend
 
@@ -154,7 +155,7 @@ jobs:
       - name: Assemble debug APK against configured HTTPS host
         run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://passo.live/' }}"
       - name: Verify passenger layout and decode rendered boarding QR
-        run: gradle :app:testDebugUnitTest "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://passo.live/' }}" --tests com.example.ApiBaseUrlTest --tests com.example.BoardingQrTest --tests com.example.PassengerPresentationTest --tests com.example.PassengerSubscriptionRepositoryTest --tests com.example.DriverGpsSharingTest --tests com.example.DriverLocationServiceTest --tests com.example.CredentialStorageTest --tests com.example.AccountPrivacyTest --tests com.example.VehicleTypeCatalogTest --tests com.example.IntercityPassengerStateTest --tests com.example.IntercityApiContractTest
+        run: gradle :app:testDebugUnitTest "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://passo.live/' }}" --tests com.example.ApiBaseUrlTest --tests com.example.DriverApplicationTest --tests com.example.AuthLayoutTest --tests com.example.BoardingQrTest --tests com.example.PassengerPresentationTest --tests com.example.PassengerSubscriptionRepositoryTest --tests com.example.DriverGpsSharingTest --tests com.example.DriverLocationServiceTest --tests com.example.CredentialStorageTest --tests com.example.AccountPrivacyTest --tests com.example.VehicleTypeCatalogTest --tests com.example.IntercityPassengerStateTest --tests com.example.IntercityApiContractTest
       - name: Upload passenger screen previews and test reports
         if: always()
         uses: actions/upload-artifact@v4

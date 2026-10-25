@@ -3,6 +3,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { verifyToken } = require('../middleware/auth');
 const { DB } = require('../db');
+const { sessionIsCurrent } = require('../services/account-sessions');
 const { createAccountDeletionService, AccountDeletionError, isAccountClosed } = require('../services/account-deletion');
 
 function createAccountRouter({ service = createAccountDeletionService(), db = DB, attemptLimit = 5 } = {}) {
@@ -15,6 +16,7 @@ function createAccountRouter({ service = createAccountDeletionService(), db = DB
     const decoded = verifyToken(token), role = String(decoded?.role || '').toUpperCase();
     const onboarding = decoded?.scope === 'ONBOARDING' && decoded?.aud === 'routepass-onboarding' && ['DRIVER','COMPANY'].includes(role);
     if (!decoded || typeof decoded.id !== 'string' || !decoded.id || !['PASSENGER','DRIVER','COMPANY','ADMIN'].includes(role) || (decoded.scope !== undefined && !onboarding) || (!onboarding && decoded.aud === 'routepass-onboarding')) throw new AccountDeletionError(401, 'Sign in to manage your account.');
+    if (!await sessionIsCurrent(decoded, db)) throw new AccountDeletionError(401, 'Your password changed. Sign in again to manage your account.');
     const account = role === 'COMPANY' ? await db.prepare('SELECT id,status FROM transport_companies WHERE id=?').get(decoded.id)
       : await db.prepare('SELECT id,role,status FROM users WHERE id=? AND role=?').get(decoded.id, role);
     if (!account || !['ACTIVE','PENDING'].includes(account.status) || await isAccountClosed(decoded.id, role, db)) throw new AccountDeletionError(401, 'This account is no longer available.');

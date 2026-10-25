@@ -131,6 +131,7 @@ app.get('/api/admin/system/resources', authenticate, requireRole('ADMIN'), (_req
 app.use('/api/master-data', require('./routes/master-data'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/onboarding', require('./routes/onboarding'));
+app.use('/api/account-recovery', require('./routes/account-recovery'));
 app.use('/api/account', require('./routes/account'));
 app.use('/api/companies', require('./routes/companies'));
 app.use('/api/companies', require('./routes/company-portal'));
@@ -620,6 +621,8 @@ async function initializeFeatureSchemas() {
   await require('./services/ops-schema').initOpsSchema(DB);
   await require('./services/intercity-schema').initIntercitySchema();
   await require('./services/onboarding').initOnboardingSchema();
+  await require('./services/account-recovery').initAccountRecoverySchema();
+  await require('./services/application-notifications').initApplicationNotificationSchema();
   await require('./services/account-deletion').initAccountDeletionSchema();
   await require('./services/account-deletion').createAccountDeletionService().retryPendingFiles();
   await DB.exec('CREATE INDEX IF NOT EXISTS idx_reports_trip_time ON trips(startTime); CREATE INDEX IF NOT EXISTS idx_reports_checkin_time ON checkin_records(timestamp); CREATE INDEX IF NOT EXISTS idx_reports_payment_date ON payment_transactions(date);');
@@ -630,6 +633,7 @@ async function initializeFeatureSchemas() {
 
 async function startServer() {
   await runDatabaseMigrations();
+  stopApplicationNotifications = require('./services/application-notifications').startApplicationNotificationWorker();
   resourcePressure.start();
   server.listen(PORT, HOST, () => {
     console.log('RoutePass API listening on the configured internal listener');
@@ -647,9 +651,11 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // Graceful Shutdown
+let stopApplicationNotifications = () => {};
 function gracefulShutdown(signal) {
   console.log(`[Server] Received ${signal}. Shutting down gracefully...`);
   resourcePressure.stop();
+  stopApplicationNotifications();
   server.close(() => {
     console.log('[Server] HTTP and WebSocket listeners closed.');
     process.exit(0);

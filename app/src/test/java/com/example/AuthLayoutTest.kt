@@ -21,6 +21,17 @@ import com.example.data.api.TransportCompanyDto
 import com.example.data.api.UserDto
 import com.example.data.api.VehicleTypeOption
 import com.example.data.api.VehicleTypesResponse
+import com.example.data.api.DriverApplicationInput
+import com.example.data.api.DriverApplicationResponse
+import com.example.data.api.DriverApplicationAccount
+import com.example.data.api.DriverApplicationProgress
+import com.example.data.api.DriverQuoteResponse
+import com.example.data.api.DriverQuoteMatch
+import com.example.data.api.DriverQuotePrice
+import com.example.data.api.CommuteSuggestionsResponse
+import com.example.data.api.AccountRecoveryRequest
+import com.example.data.api.AccountRecoveryReset
+import com.example.data.api.AccountRecoveryResponse
 import com.example.data.database.TransportDatabase
 import com.example.data.entity.RouteEntity
 import com.example.data.repository.TransportRepository
@@ -53,6 +64,14 @@ class AuthLayoutTest {
     private lateinit var model: MainViewModel
     private val logins = mutableListOf<LoginRequest>()
     private val registrations = mutableListOf<RegisterRequest>()
+    private val driverApplications = mutableListOf<DriverApplicationInput>()
+    private val applicationLogins = mutableListOf<LoginRequest>()
+    private var pendingDriverLogin = false
+    private val recoveryRequests = mutableListOf<AccountRecoveryRequest>()
+    private val recoveryResets = mutableListOf<AccountRecoveryReset>()
+    private var applicationResponse = DriverApplicationResponse(true,
+        DriverApplicationAccount("pending-driver", "DRIVER", "Native Test Driver", "+251912345678", "PENDING", vehicleType = "COACH_53"),
+        DriverApplicationProgress(requiredDocuments = listOf("LICENSE", "VEHICLE_REGISTRATION", "INSURANCE", "PHOTO")), token = "scoped-application-fixture")
     private val requestedCodes = mutableListOf<Map<String, String>>()
     private val verifiedCodes = mutableListOf<Map<String, String>>()
     private var vehicleCatalog = VehicleTypesResponse(true, listOf(VehicleTypeOption("COACH_53", "Executive Coach", 53)))
@@ -68,7 +87,8 @@ class AuthLayoutTest {
                 "login" -> {
                     logins += args!![0] as LoginRequest
                     // Verify request wiring without opening an authenticated websocket session.
-                    Response.error<AuthResponse>(401, """{"success":false,"error":"Test credentials were not accepted."}""".toResponseBody("application/json".toMediaType()))
+                    if (pendingDriverLogin) Response.error<AuthResponse>(403, """{"success":false,"code":"PENDING","error":"Application is pending."}""".toResponseBody("application/json".toMediaType()))
+                    else Response.error<AuthResponse>(401, """{"success":false,"error":"Test credentials were not accepted."}""".toResponseBody("application/json".toMediaType()))
                 }
                 "requestOtp" -> {
                     @Suppress("UNCHECKED_CAST") val request = args!![0] as Map<String, String>
@@ -89,6 +109,13 @@ class AuthLayoutTest {
                 }
                 "getTransportCompanies" -> Response.success(TransportCompaniesResponse(true, listOf(TransportCompanyDto("company-test", "Test Transport"))))
                 "getVehicleTypes" -> { vehicleCatalogRequests++; Response.success(vehicleCatalog) }
+                "driverCommuteSuggestions" -> Response.success(CommuteSuggestionsResponse(true))
+                "driverCommuteQuote" -> Response.success(DriverQuoteResponse(true, DriverQuoteMatch("EXACT", "route-auth-test", "Bole → CMC"), DriverQuotePrice("FIXED", 132500.0, 53, 2500.0)))
+                "registerDriverApplication" -> { driverApplications += args!![0] as DriverApplicationInput; Response.success(applicationResponse) }
+                "loginDriverApplication" -> { applicationLogins += args!![0] as LoginRequest; Response.success(applicationResponse) }
+                "driverApplication" -> Response.success(applicationResponse.copy(token = null))
+                "requestAccountRecovery" -> { recoveryRequests += args!![0] as AccountRecoveryRequest; Response.success(AccountRecoveryResponse(true, "If the account matches, a reset code will be sent.")) }
+                "resetAccountPassword" -> { recoveryResets += args!![0] as AccountRecoveryReset; Response.success(AccountRecoveryResponse(true, "Password updated. Sign in with your new password.")) }
                 else -> Response.error<Any>(503, "{}".toResponseBody("application/json".toMediaType()))
             }
         } as RoutePassApiService
@@ -248,7 +275,8 @@ class AuthLayoutTest {
         compose.onNodeWithTag("auth_driver_license_input").performScrollTo().performTextInput("LIC-TEST-24")
         compose.onNodeWithTag("auth_driver_vehicle_plate_input").performScrollTo().performTextInput("AA-TEST-24")
         compose.onNodeWithTag("auth_driver_vehicle_model_input").performScrollTo().performTextInput("Toyota Hiace")
-        compose.onNodeWithTag("auth_route_route-auth-test").performScrollTo().performClick()
+        compose.onNodeWithTag("auth_driver_pickup_input").performScrollTo().performTextInput("Bole")
+        compose.onNodeWithTag("auth_driver_destination_input").performScrollTo().performTextInput("CMC")
     }
 
     @Test fun unverifiedDriverSubmissionPreservesLicenceVehicleAndPendingApproval() {
@@ -256,29 +284,67 @@ class AuthLayoutTest {
         assertEquals("Registration details use the injected catalog client", 1, vehicleCatalogRequests)
         compose.onNodeWithTag("auth_driver_vehicle_type").performScrollTo()
         compose.onNodeWithText("Executive Coach · 53 seats").assertExists()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("auth_driver_fee_fixed").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("auth_driver_submit").performScrollTo().performClick()
         try {
-            compose.waitUntil(10_000) { registrations.isNotEmpty() &&
-                (!model.registrationMessage.value.isNullOrBlank() || !model.authError.value.isNullOrBlank()) }
+            compose.waitUntil(10_000) { driverApplications.isNotEmpty() && model.driverApplications.state.value.application != null }
         } catch (timeout: ComposeTimeoutException) {
             capture("06-driver-submit-timeout")
-            throw AssertionError("Driver submission did not finish: requests=${registrations.size}, busy=${model.authBusy.value}, error=${model.authError.value}", timeout)
+            throw AssertionError("Driver submission did not finish: requests=${driverApplications.size}, state=${model.driverApplications.state.value}", timeout)
         }
-        assertTrue("Pending driver registration should complete: ${model.authError.value}", !model.registrationMessage.value.isNullOrBlank())
-        val request = registrations.single()
+        val request = driverApplications.single()
         assertEquals("DRIVER", request.role)
         assertEquals("Native Test Driver", request.fullName)
         assertEquals("0912345678", request.phone)
-        assertNull("Deferred account verification must not invent a phone proof", request.otpVerificationToken)
         assertTrue(requestedCodes.isEmpty())
         assertTrue(verifiedCodes.isEmpty())
         assertEquals("LIC-TEST-24", request.licenseNumber)
         assertEquals("AA-TEST-24", request.assignedVehiclePlate)
         assertEquals("Toyota Hiace", request.vehicleModel)
         assertEquals("COACH_53", request.vehicleType)
+        assertEquals("PROPOSED", request.routeChoice)
+        assertEquals("Bole", request.proposedDeparture)
+        assertEquals("CMC", request.proposedDestination)
+        assertEquals(132500.0, request.proposedMonthlyFeeEtb!!, 0.01)
+        assertEquals("PER_VEHICLE", request.proposedMonthlyFeeBasis)
+        assertTrue("Driver signup must not use the untracked legacy account endpoint", registrations.isEmpty())
+        compose.onNodeWithTag("driver_application_screen").assertExists()
+        compose.onNodeWithTag("driver_application_upload_LICENSE").assertDoesNotExist()
+        compose.onNodeWithTag("driver_application_portal_signin").assertDoesNotExist()
         assertFalse("Pending drivers must not receive an authenticated session", model.isAuthenticated.value)
         assertTrue(logins.isEmpty())
         assertNull(ApiClient.getAuthToken())
+    }
+
+    @Test fun pendingDriverSignInOpensApplicationWithoutOperationalAuthenticationAndApprovalNeedsExplicitSignIn() {
+        pendingDriverLogin = true
+        show(AppRole.DRIVER)
+        compose.onNodeWithTag("auth_phone_input").performTextInput("0912345678")
+        compose.onNodeWithTag("auth_password_input").performTextInput("valid-test-password")
+        compose.onNodeWithTag("auth_submit_button").performClick()
+        compose.waitUntil(5_000) { applicationLogins.isNotEmpty() && model.driverApplications.state.value.application != null }
+        compose.onNodeWithTag("driver_application_screen").assertExists()
+        compose.onNodeWithTag("driver_application_upload_LICENSE").assertDoesNotExist()
+        assertFalse(model.isAuthenticated.value)
+        assertNull(ApiClient.getAuthToken())
+
+        applicationResponse = applicationResponse.copy(onboarding = DriverApplicationProgress(
+            acceptanceStatus = "ACCEPTED", canVerifyAndUpload = true, reviewStatus = "CORRECTIONS_REQUESTED", reviewNote = "Please upload a clearer licence.", requiredDocuments = listOf("LICENSE")))
+        compose.onNodeWithTag("driver_application_refresh").performScrollTo().performClick()
+        compose.waitUntil(5_000) { model.driverApplications.state.value.application?.onboarding?.reviewStatus == "CORRECTIONS_REQUESTED" }
+        compose.onNodeWithTag("driver_application_feedback").performScrollTo().assertTextEquals("Please upload a clearer licence.")
+        compose.onNodeWithTag("driver_application_upload_LICENSE").performScrollTo().assertIsEnabled()
+        compose.onNodeWithTag("driver_application_final_submit").performScrollTo().assertIsNotEnabled()
+        assertFalse(model.isAuthenticated.value)
+
+        applicationResponse = applicationResponse.copy(account = applicationResponse.account!!.copy(status = "ACTIVE"),
+            onboarding = applicationResponse.onboarding!!.copy(reviewStatus = "APPROVED", reviewReady = true))
+        compose.onNodeWithTag("driver_application_refresh").performScrollTo().performClick()
+        compose.waitUntil(5_000) { model.driverApplications.state.value.application?.approved == true }
+        compose.onNodeWithTag("driver_application_portal_signin").performScrollTo().assertIsEnabled()
+        assertFalse("An application refresh cannot create an operational login", model.isAuthenticated.value)
+        assertNull(ApiClient.getAuthToken())
+        capture("09-driver-application-approved")
     }
 
     @Test fun successfulEmptyVehicleCatalogDoesNotOfferFallbackTypesOrSubmitAnUnavailableVehicle() {
@@ -360,6 +426,30 @@ class AuthLayoutTest {
         }
         assertEquals(3, logins.size)
         assertFalse(model.isAuthenticated.value)
+    }
+
+    @Test fun driverPasswordRecoveryUsesSeparateResetProofAndDoesNotSignInOrVerifySignup() {
+        show(AppRole.DRIVER)
+        compose.onNodeWithTag("auth_phone_input").performTextInput("0912345678")
+        compose.onNodeWithTag("auth_password_help").performScrollTo().performClick()
+        compose.onNodeWithTag("auth_recovery_screen").assertExists()
+        compose.onNodeWithTag("auth_recovery_request").performScrollTo().performClick()
+        compose.waitUntil(5_000) { recoveryRequests.size == 1 }
+        assertEquals(AccountRecoveryRequest("DRIVER", "0912345678"), recoveryRequests.single())
+        compose.onNodeWithTag("auth_recovery_code").performScrollTo().performTextInput("123456")
+        compose.onNodeWithTag("auth_recovery_password").performScrollTo().performTextInput("new-fixture-password")
+        compose.onNodeWithTag("auth_recovery_confirmation").performScrollTo().performTextInput("different-password")
+        compose.onNodeWithTag("auth_recovery_reset").performScrollTo().performClick()
+        assertTrue(recoveryResets.isEmpty())
+        compose.onNodeWithTag("auth_recovery_confirmation").performScrollTo().performTextReplacement("new-fixture-password")
+        compose.onNodeWithTag("auth_recovery_reset").performScrollTo().performClick()
+        compose.waitUntil(5_000) { recoveryResets.size == 1 }
+        compose.onNodeWithTag("auth_recovery_done").performScrollTo().assertIsEnabled()
+        assertEquals(AccountRecoveryReset("DRIVER", "0912345678", "123456", "new-fixture-password"), recoveryResets.single())
+        assertFalse(model.isAuthenticated.value)
+        assertNull(ApiClient.getAuthToken())
+        assertTrue(registrations.isEmpty()); assertTrue(driverApplications.isEmpty()); assertTrue(requestedCodes.isEmpty())
+        capture("10-driver-password-recovery")
     }
 
     @Test fun unverifiedPassengerCanRequestCustomCommuteWithoutPretendingAnExistingRouteWasAssigned() {

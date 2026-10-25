@@ -53,6 +53,24 @@
     allocationNote:['Required documents and administrator approval are needed before passenger allocation. Phone verification is optional for now.','ከተሳፋሪ ምደባ በፊት አስፈላጊ ሰነዶችና የአስተዳዳሪ ፈቃድ ያስፈልጋሉ። ለጊዜው የስልክ ማረጋገጫ አማራጭ ነው።','Ramaddii imaltootaa dura sanadoonni barbaachisaniifi raggaasisni bulchaa ni barbaachisu. Mirkaneessi bilbilaa ammaaf dirqama miti.'],
     dataUse:['We use your contact and vehicle details to review your daily commute application. Phone verification can be completed later.','ዕለታዊ የጉዞ ማመልከቻዎን ለመገምገም የመገናኛና የተሽከርካሪ መረጃዎን እንጠቀማለን። ስልክዎን በኋላ ማረጋገጥ ይችላሉ።','Iyyata imala guyyaa keessan ilaaluuf odeeffannoo qunnamtiifi konkolaataa fayyadamna. Bilbila keessan booda mirkaneessuu dandeessu.']
   });
+  Object.assign(words, {
+    forgotPassword:['Forgot password?','የይለፍ ቃል ረሱ?','Jecha iccitii irraanfatte?'],
+    recoveryTitle:['Reset your password','የይለፍ ቃልዎን ይቀይሩ','Jecha iccitii haaromsi'],
+    recoveryBody:['Password recovery requires an SMS code to protect your account. Registration verification remains optional.','መለያዎን ለመጠበቅ የይለፍ ቃል መቀየር የSMS ኮድ ይፈልጋል። የምዝገባ ማረጋገጫ አማራጭ ነው።','Herrega kee eeguuf jecha iccitii haaromsuun koodii SMS barbaada. Mirkaneessi galmee filannoo dha.'],
+    requestRecovery:['Send recovery code','የማግኛ ኮድ ላክ','Koodii haaromsaa ergi'],
+    recoveryCode:['SMS recovery code','የSMS ማግኛ ኮድ','Koodii haaromsaa SMS'],
+    newPassword:['New password','አዲስ የይለፍ ቃል','Jecha iccitii haaraa'],
+    confirmPassword:['Confirm new password','አዲሱን የይለፍ ቃል ያረጋግጡ','Jecha iccitii haaraa mirkaneessi'],
+    resetPassword:['Reset password','የይለፍ ቃል ቀይር','Jecha iccitii haaromsi'],
+    backSignIn:['Back to sign in','ወደ መግቢያ ተመለስ','Gara seensaatti deebiʼi'],
+    recoverySent:['If an eligible account matches, a recovery code will be sent. Wait a minute before requesting again.','ተዛማጅ መለያ ካለ የማግኛ ኮድ ይላካል። እንደገና ከመጠየቅዎ በፊት አንድ ደቂቃ ይጠብቁ።','Herregni ulaagaa guutu yoo jiraate koodiin ni ergama. Irra deebiʼanii gaafachuu dura daqiiqaa tokko eegaa.'],
+    recoveryDone:['Password reset. Sign in with your new password.','የይለፍ ቃል ተቀይሯል። በአዲሱ የይለፍ ቃል ይግቡ።','Jecha iccitii haaromfameera. Jecha iccitii haaraatiin seeni.'],
+    passwordMismatch:['The passwords do not match.','የይለፍ ቃሎቹ አይመሳሰሉም።','Jechoonni iccitii wal hin fakkaatan.'],
+    enterPhone:['Enter your mobile phone number.','የሞባይል ስልክ ቁጥርዎን ያስገቡ።','Lakkoofsa bilbilaa kee galchi.'],
+    CORRECTIONS_REQUESTED:['Corrections requested','ማስተካከያ ተጠይቋል','Sirreeffamni gaafatameera'],
+    correctionsBody:['Read the review note, correct your details or documents, then submit again. Your accepted route is retained.','የግምገማ ማስታወሻውን ያንብቡ፣ መረጃዎን ወይም ሰነዶችዎን ያስተካክሉና እንደገና ያስገቡ። የተቀበለው መስመር ይቀጥላል።','Yaada ilaalchaa dubbisi, odeeffannoo yookaan sanadoota sirreessiitii irra deebiʼii ergi. Daandiin fudhatame ni tura.'],
+    dailyStepReview:['Complete your application','ማመልከቻዎን ያጠናቅቁ','Iyyata kee xumuri']
+  });
   const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
   const uploadProblem = (file, kind) => !file || !Number.isFinite(file.size) || file.size <= 0 || file.size > 5*1024*1024 ? 'fileSize' : !(kind === 'PHOTO' ? ['image/jpeg','image/png'] : ['image/jpeg','image/png','application/pdf']).includes(file.type) ? kind === 'PHOTO' ? 'photoType' : 'fileType' : null;
   function accountPayload(_role, mode, values, quote) {
@@ -144,13 +162,28 @@
     };
   }
 
+  function createRecoveryClient({fetchFn}) {
+    return async (path, body) => {
+      if (!['/request','/reset'].includes(path)) throw new Error('Invalid recovery API path.');
+      const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),30000);
+      try {
+        const response=await fetchFn('/api/account-recovery'+path,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'omit',redirect:'error',signal:controller.signal,body:JSON.stringify(body)});
+        let result;try{result=await response.json();}catch(_){result={};}
+        if(!response.ok||result.success===false)throw Object.assign(new Error(typeof result.error==='string'?result.error:'Request failed.'),{server:true,status:response.status});
+        return result;
+      }catch(error){if(error.server)throw error;throw Object.assign(new Error('Connection failed.'),{network:true});}
+      finally{clearTimeout(timeout);}
+    };
+  }
+
   function mount(window) {
     const doc=window.document, $=selector=>doc.querySelector(selector), all=selector=>[...doc.querySelectorAll(selector)];
     const TOKEN_KEY='passo.onboarding.token';
     const role='DRIVER';
     let token='', mode=initialMode(window.location.search), language='en', snapshot=null, revision=0, otpUntil=0, otpTimer=null;
     const files=new Map(), catalog={types:[]},quotes={},priceKeys={},suggestionTasks=new Map();
-    let accountBusy=false,preferenceBusy=false,editingPreference=false;
+    let accountBusy=false,preferenceBusy=false,editingPreference=false,recoveryOpen=false,recoveryBusy=false,recoveryUntil=0;
+    const recover=createRecoveryClient({fetchFn:window.fetch.bind(window)});
     try { token=window.sessionStorage.getItem(TOKEN_KEY)||''; language=window.sessionStorage.getItem('passo.join.language')||'en'; } catch (_) {}
     if (!(language in languageIndex)) language='en';
     const t=key=>translate(key,language);
@@ -158,7 +191,7 @@
     function errorMessage(error) { return error.network?t('networkError'):error.server?error.message:t('genericError'); }
     function setToken(value) { token=value; revision++; try { if(value)window.sessionStorage.setItem(TOKEN_KEY,value);else window.sessionStorage.removeItem(TOKEN_KEY); } catch (_) {} }
     function signOut(expired=false) {
-      setToken(''); snapshot=null; files.clear(); otpUntil=0; clearInterval(otpTimer); otpTimer=null;
+      showRecovery(false); setToken(''); snapshot=null; files.clear(); otpUntil=0; clearInterval(otpTimer); otpTimer=null;
       quotes.registration?.reset();quotes.pending?.reset();priceKeys.registration='';priceKeys.pending='';accountBusy=false;preferenceBusy=false;editingPreference=false;
       $('#accountForm').reset(); $('#profileForm').reset(); $('#otpForm').reset();$('#routePreferenceForm').reset();delete $('#routePreferenceForm').dataset.accountId; $('#password').type='password';
       all('#dashboard button').forEach(button=>{button.disabled=false;button.setAttribute('aria-busy','false');});
@@ -202,6 +235,8 @@
     }
     function updateAuth() {
       $('#serviceType').value='DAILY_COMMUTE';
+      $('#forgotPassword').hidden=mode!=='login'||recoveryOpen;
+      $('#accountForm').hidden=recoveryOpen;
       const registration=mode==='register', driver=true, daily=true;
       all('[data-registration]').forEach(el=>{ el.hidden=!registration || (el.hasAttribute('data-company')&&driver) || (el.hasAttribute('data-driver')&&!driver) || (el.hasAttribute('data-daily')&&!daily) || (el.hasAttribute('data-intercity')&&daily); });
       applyRegistrationFields($('#accountForm').elements,role,mode,'DAILY_COMMUTE');
@@ -249,8 +284,8 @@
       $('#entry').hidden=true;$('#dashboard').hidden=false;$('#logout').hidden=false;
       $('#dashboardTitle').textContent=account.fullName||account.companyName||t(role==='DRIVER'?'driver':'company');
       $('#accountIdentity').textContent=[t(role==='DRIVER'?'driver':'company'),account.companyName,account.phone].filter(Boolean).join(' · ');
-      $('#reviewBadge').textContent=t(status);$('#progressTitle').textContent=status==='APPROVED'?t('APPROVED'):status==='SUBMITTED'?t('SUBMITTED'):t('progressTitle');
-      $('#progressBody').textContent=status==='APPROVED'?t('approvalBody'):status==='SUBMITTED'?t('reviewPending'):t('progressBody');
+      $('#reviewBadge').textContent=t(status);$('#progressTitle').textContent=status==='CORRECTIONS_REQUESTED'?t('CORRECTIONS_REQUESTED'):status==='APPROVED'?t('APPROVED'):status==='SUBMITTED'?t('SUBMITTED'):t('progressTitle');
+      $('#progressBody').textContent=status==='CORRECTIONS_REQUESTED'?t('correctionsBody'):status==='APPROVED'?t('approvalBody'):status==='SUBMITTED'?t('reviewPending'):t('progressBody');
       $('#acceptancePanel').hidden=o.acceptanceRequired!==true;
       const rejected=o.acceptanceStatus==='REJECTED';
       $('#acceptanceBadge').textContent=t(access.locked?(rejected?'acceptanceRejected':'AWAITING_ACCEPTANCE'):'acceptanceAccepted');
@@ -287,11 +322,11 @@
       const profileKey=JSON.stringify({role,language,documents,required,locked:access.locked});
       if(access.locked)files.clear();
       if($('#documentCards').dataset.renderKey!==profileKey){$('#documentCards').dataset.renderKey=profileKey;renderDocuments(access.locked?[]:required,documents);}
-      $('#reviewSummary').textContent=status==='APPROVED'?t(otpDeferred&&!complete.phone?'approvalPhoneDeferred':otpOptional&&!complete.phone?'approvalPhonePending':'approvalBody'):status==='SUBMITTED'?t('reviewPending'):reviewReady?t('reviewReady'):t('reviewIncomplete');
+      $('#reviewSummary').textContent=status==='CORRECTIONS_REQUESTED'?t('correctionsBody'):status==='APPROVED'?t(otpDeferred&&!complete.phone?'approvalPhoneDeferred':otpOptional&&!complete.phone?'approvalPhonePending':'approvalBody'):status==='SUBMITTED'?t('reviewPending'):reviewReady?t('reviewReady'):t('reviewIncomplete');
       $('#missingItems').innerHTML=missing.map(key=>'<li>'+escape(t(key))+'</li>').join('');
       $('#submitReview').disabled=!access.canSubmit;
       $('#submitReview span').textContent=t(status==='SUBMITTED'?'SUBMITTED':status==='APPROVED'?'APPROVED':'submitReview');
-      if(status==='REJECTED'&&o.reviewNote)message('#reviewMessage',o.reviewNote,true);else message('#reviewMessage','');
+      if(['REJECTED','CORRECTIONS_REQUESTED'].includes(status)&&o.reviewNote)message('#reviewMessage',o.reviewNote,true);else message('#reviewMessage','');
       applyOnboardingAccess([$('.checklist-nav'),$('#phoneStep'),$('#profileStep'),$('#documentsStep'),$('#reviewStep')],o);
     }
     function renderDocuments(required,documents) {
@@ -312,8 +347,31 @@
       const input=$(priceControls[name][field]);input.addEventListener('input',()=>{updateQuote(name);scheduleSuggestions(name,field);if(field==='departure')scheduleSuggestions(name,'destination');});input.addEventListener('focus',()=>scheduleSuggestions(name,field,true));
     }
     $('#vehicleType').addEventListener('change',()=>updateQuote('registration'));
-    $('#registerTab').addEventListener('click',()=>{mode='register';message('#accountMessage','');updateAuth();});
-    $('#loginTab').addEventListener('click',()=>{mode='login';message('#accountMessage','');updateAuth();});
+    function showRecovery(open) {
+      recoveryOpen=open;$('#recoveryPanel').hidden=!open;$('#accountForm').hidden=open;$('#forgotPassword').hidden=open||mode!=='login';
+      $('#recoveryForm').reset();message('#recoveryMessage','');
+      if(open){$('#recoveryPhone').value=$('#phone').value.trim();$('#recoveryTitle').tabIndex=-1;$('#recoveryTitle').focus();}
+    }
+    function recoveryControls(busyValue){recoveryBusy=busyValue;all('#recoveryForm input,#recoveryForm button').forEach(el=>el.disabled=busyValue);$('#closeRecovery').disabled=busyValue;$('#registerTab').disabled=busyValue;$('#loginTab').disabled=busyValue;}
+    $('#forgotPassword').addEventListener('click',()=>showRecovery(true));
+    $('#closeRecovery').addEventListener('click',()=>{if(!recoveryBusy)showRecovery(false);});
+    $('#requestRecovery').addEventListener('click',async()=>{
+      if(recoveryBusy)return;if(!$('#recoveryPhone').value.trim()){message('#recoveryMessage',t('enterPhone'),true);return;}
+      if(Date.now()<recoveryUntil){message('#recoveryMessage',t('recoverySent'));return;}
+      recoveryControls(true);message('#recoveryMessage','');
+      try{await recover('/request',{role:'DRIVER',phone:$('#recoveryPhone').value.trim()});recoveryUntil=Date.now()+60000;message('#recoveryMessage',t('recoverySent'));}
+      catch(error){message('#recoveryMessage',errorMessage(error),true);}finally{recoveryControls(false);}
+    });
+    $('#recoveryForm').addEventListener('submit',async event=>{
+      event.preventDefault();if(recoveryBusy||!event.currentTarget.reportValidity())return;
+      if($('#recoveryPassword').value!==$('#recoveryConfirm').value){message('#recoveryMessage',t('passwordMismatch'),true);return;}
+      const payload={role:'DRIVER',phone:$('#recoveryPhone').value.trim(),code:$('#recoveryCode').value.trim(),newPassword:$('#recoveryPassword').value};
+      recoveryControls(true);message('#recoveryMessage','');
+      try{await recover('/reset',payload);const phone=payload.phone;showRecovery(false);$('#phone').value=phone;$('#password').value='';message('#accountMessage',t('recoveryDone'));}
+      catch(error){message('#recoveryMessage',errorMessage(error),true);}finally{payload.newPassword='';payload.code='';$('#recoveryPassword').value='';$('#recoveryConfirm').value='';recoveryControls(false);}
+    });
+    $('#registerTab').addEventListener('click',()=>{if(recoveryBusy)return;showRecovery(false);mode='register';message('#accountMessage','');updateAuth();});
+    $('#loginTab').addEventListener('click',()=>{if(recoveryBusy)return;showRecovery(false);mode='login';message('#accountMessage','');updateAuth();});
     $('#showPassword').addEventListener('click',()=>{const show=$('#password').type==='password';$('#password').type=show?'text':'password';$('#showPassword').setAttribute('aria-pressed',String(show));$('#showPassword').textContent=t(show?'hide':'show');});
     $('#retryTypes').addEventListener('click',()=>loadOptions('types'));$('#retryRoutes').addEventListener('click',()=>updateQuote('registration',{force:true,immediate:true}));$('#retryPendingPrice').addEventListener('click',()=>updateQuote('pending',{force:true,immediate:true}));
     $('#accountForm').addEventListener('submit',async event=>{
@@ -364,5 +422,5 @@
     translatePage();loadOptions('types');
     if(token){busy($('#accountSubmit'),true);message('#accountMessage',t('wait'));refresh().catch(error=>{if(token)message('#accountMessage',errorMessage(error),true);}).finally(()=>busy($('#accountSubmit'),false));}
   }
-  return {mount,translate,words,escape,uploadProblem,accountPayload,isDailyDriverAccount,initialMode,routePreferencePayload,registrationFields,applyRegistrationFields,onboardingAccess,applyOnboardingAccess,validMonthlyFee,quoteAccess,createCommuteQuoteController,createApiClient};
+  return {mount,translate,words,escape,uploadProblem,accountPayload,isDailyDriverAccount,initialMode,routePreferencePayload,registrationFields,applyRegistrationFields,onboardingAccess,applyOnboardingAccess,validMonthlyFee,quoteAccess,createCommuteQuoteController,createApiClient,createRecoveryClient};
 });

@@ -82,7 +82,8 @@ test('master data controls registered vehicle types and effective GPS rules for 
     assert.equal((await DB.prepare('SELECT capacityLimit FROM vehicles WHERE id=?').get(first.data.vehicle.id)).capacityLimit, 50);
     const second = await request('/api/companies/operations/vehicles', 'POST', { plateNumber: 'MASTER-CUSTOM-2', model: 'Coach', vehicleType: 'COACH_50' }, 'company');
     assert.equal(second.status, 201); assert.equal(second.data.vehicle.capacityLimit, 52);
-    const driver = await request('/api/auth/register', 'POST', { fullName: 'Custom Type Driver', phone: '0912349876', password: 'MasterDataDriver#2026', role: 'DRIVER', licenseNumber: 'MD-LICENSE', assignedVehiclePlate: 'MASTER-CUSTOM-3', vehicleModel: 'Custom coach', vehicleType: 'COACH_50' }, null);
+    const driver = await request('/api/auth/register', 'POST', { fullName: 'Custom Type Driver', phone: '0912349876', password: 'MasterDataDriver#2026', role: 'DRIVER', licenseNumber: 'MD-LICENSE', assignedVehiclePlate: 'MASTER-CUSTOM-3', vehicleModel: 'Custom coach', vehicleType: 'COACH_50',
+      routeChoice: 'PROPOSED', proposedDeparture: 'Master Data North', proposedDestination: 'Master Data South', proposedMonthlyFeeEtb: 50000, proposedMonthlyFeeBasis: 'PER_VEHICLE' }, null);
     assert.equal(driver.status, 201, JSON.stringify(driver.data));
     assert.equal((await DB.prepare('SELECT capacityLimit FROM vehicles WHERE driverId=?').get(driver.data.user.id)).capacityLimit, 52);
     const changed = await request('/api/vehicles/md_daily_vehicle/type', 'PATCH', { vehicleType: 'COACH_50' });

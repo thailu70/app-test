@@ -4,9 +4,10 @@ const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const { DB } = require('../db');
 const { authenticate, requireRole, signToken } = require('../middleware/auth');
-const { getOnboardingReadiness, isOperationallyEligible, markOnboardingReviewed, invalidateOnboarding, findAccountByPhone } = require('../services/onboarding');
+const { getOnboardingReadiness, isOperationallyEligible, markOnboardingReviewed, requestOnboardingCorrections, setDriverSuspension, invalidateOnboarding, findAccountByPhone, normalizePhone, phoneAvailable } = require('../services/onboarding');
 const { assertDriverEligible, operationalAccount } = require('../services/operational-onboarding');
 const { isAccountClosed } = require('../services/account-deletion');
+const { initAccountSessionSchema, getSessionVersion, loadCredentialSnapshot } = require('../services/account-sessions');
 const router = express.Router();
 const companyAuthLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 8, standardHeaders: true, legacyHeaders: false });
 
@@ -23,6 +24,7 @@ router.post('/register', companyAuthLimiter, async (req, res) => {
     if (!accessCode || !accessCode.code_hash || !(await bcrypt.compare(code, accessCode.code_hash)))
       return res.status(403).json({ success: false, error: 'Invalid or already-used company registration code.' });
     const hash = await bcrypt.hash(password, 12);
+    await initAccountSessionSchema();
     const registration = await DB.transaction(async (tx) => {
       const lockSuffix = tx.isPostgres ? ' FOR UPDATE' : '';
       const company = await tx.prepare("SELECT id, name FROM transport_companies WHERE id=? AND status='INVITED'" + lockSuffix).get(c.id);
@@ -35,11 +37,11 @@ router.post('/register', companyAuthLimiter, async (req, res) => {
       if (consumed.changes !== 1) return { status: 'INVALID_CODE' };
       const updated = await tx.prepare("UPDATE transport_companies SET phone=?, representative_name=?, password_hash=?, status='ACTIVE', updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='INVITED'")
         .run(phone, fullName, hash, c.id);
-      return { status: updated.changes === 1 ? 'REGISTERED' : 'INVALID_CODE', company };
+      return { status: updated.changes === 1 ? 'REGISTERED' : 'INVALID_CODE', company, sessionVersion: await getSessionVersion(c.id, 'COMPANY', tx) };
     });
     if (registration.status === 'PHONE_USED') return res.status(409).json({ success: false, error: 'Phone already registered for a company.' });
     if (registration.status !== 'REGISTERED') return res.status(403).json({ success: false, error: 'Invalid, expired, or already-used company registration code.' });
-    const token = signToken({ id:c.id, role:'COMPANY', companyId:c.id, companyName:c.name, fullName, phone });
+    const token = signToken({ id:c.id, role:'COMPANY', companyId:c.id, companyName:c.name, fullName, phone, sessionVersion: registration.sessionVersion });
     res.status(201).json({ success:true, token, user:{ id:c.id, role:'COMPANY', companyId:c.id, companyName:c.name, fullName, phone } });
   } catch (e) { console.error('[Company] register failed:', e); res.status(500).json({ success:false, error:'Company registration failed.' }); }
 });
@@ -47,10 +49,11 @@ router.post('/register', companyAuthLimiter, async (req, res) => {
 router.post('/login', companyAuthLimiter, async (req,res) => {
   try {
     const phone=String(req.body.phone||'').trim(), password=req.body.password;
-    const c=await findAccountByPhone(phone, 'COMPANY');
+    const candidate=await findAccountByPhone(phone, 'COMPANY');
+    const c=candidate?await loadCredentialSnapshot(candidate.id,'COMPANY'):null;
     if (!c || c.status !== 'ACTIVE' || !c.password_hash || !(await bcrypt.compare(String(password||''),c.password_hash))) return res.status(401).json({success:false,error:'Invalid company credentials.'});
     const fullName=c.representative_name||c.name;
-    res.json({success:true,token:signToken({id:c.id,role:'COMPANY',companyId:c.id,companyName:c.name,fullName,phone}),user:{id:c.id,role:'COMPANY',companyId:c.id,companyName:c.name,fullName,phone}});
+    res.json({success:true,token:signToken({id:c.id,role:'COMPANY',companyId:c.id,companyName:c.name,fullName,phone,sessionVersion:Number(c.credential_session_version)}),user:{id:c.id,role:'COMPANY',companyId:c.id,companyName:c.name,fullName,phone}});
   } catch(e) { console.error('[Company] login failed:',e); res.status(500).json({success:false,error:'Company login failed.'}); }
 });
 router.get('/me', authenticate, requireRole('COMPANY'), async(req,res)=>{
@@ -165,38 +168,56 @@ router.get('/operations/drivers', authenticate, requireRole('COMPANY'), async (r
 });
 router.patch('/operations/drivers/:id/approval', authenticate, requireRole('COMPANY'), async (req,res) => {
   try { const companyId=req.user.companyId||req.user.id, action=String(req.body.action||'').toUpperCase();
-    if(!['APPROVE','REJECT'].includes(action)) return res.status(400).json({success:false,error:'Choose APPROVE or REJECT.'});
-    const driver=await DB.prepare("SELECT id,status FROM users WHERE id=? AND role='DRIVER' AND companyId=?").get(req.params.id,companyId);
-    if(!driver) return res.status(404).json({success:false,error:'Driver not found in your company.'});
-    if(driver.status==='DELETED') return res.status(409).json({success:false,error:'Deleted driver accounts cannot be reactivated.'});
-    const status=action==='APPROVE'?'ACTIVE':'SUSPENDED';
-    await DB.transaction(async tx => {
-      if (action === 'APPROVE') {
+    if(!['APPROVE','REJECT','CORRECTIONS','SUSPEND','REACTIVATE'].includes(action)) return res.status(400).json({success:false,error:'Choose APPROVE, CORRECTIONS, REJECT, SUSPEND or REACTIVATE.'});
+    const result=await DB.transaction(async tx => {
+      const driver=await tx.prepare("SELECT id,status FROM users WHERE id=? AND role='DRIVER' AND companyId=?"+(tx.isPostgres?' FOR UPDATE':'')).get(req.params.id,companyId);
+      if(!driver)throw Object.assign(new Error('Driver not found in your company.'),{status:404});
+      if(driver.status==='DELETED'||await isAccountClosed(driver.id,'DRIVER',tx))throw Object.assign(new Error('Deleted or closed driver accounts cannot be restored.'),{status:409});
+      // Older cached company pages used REJECT/APPROVE for their deactivate toggle.
+      const decision=action==='REJECT'&&['ACTIVE','SUSPENDED'].includes(driver.status)?'SUSPEND':action==='APPROVE'&&driver.status==='SUSPENDED'?'REACTIVATE':action;
+      let changed=true,status=driver.status;
+      if(['SUSPEND','REACTIVATE'].includes(decision)){
+        const update=await setDriverSuspension(driver.id,decision==='SUSPEND',tx);changed=update.changed;status=update.status;
+      }else if(decision==='CORRECTIONS'){
+        await requestOnboardingCorrections(driver.id,'DRIVER',req.user.id,req.body.note,tx);status='PENDING';
+      }else if(decision==='APPROVE'){
         const readiness = await getOnboardingReadiness(driver.id, 'DRIVER', tx);
-        if (!readiness.ready || !await isOperationallyEligible(companyId, 'COMPANY', tx)) throw Object.assign(new Error('Complete company approval and the required driver application steps, documents and submission before approval.'), { status: 409, code: 'ONBOARDING_REQUIRED' });
+        if (!readiness.reviewReady || !await isOperationallyEligible(companyId, 'COMPANY', tx)) throw Object.assign(new Error('Complete company approval and the required driver application steps, documents and submission before approval.'), { status: 409, code: 'ONBOARDING_REQUIRED' });
+        changed=driver.status!=='ACTIVE'||(readiness.tracked&&readiness.reviewStatus!=='APPROVED');status='ACTIVE';
+        if(changed)await markOnboardingReviewed(driver.id,'DRIVER','APPROVED',req.user.id,req.body.note||'',tx);
+      }else{
+        await markOnboardingReviewed(driver.id,'DRIVER','REJECTED',req.user.id,req.body.note||'',tx);status='PENDING';
       }
-      await tx.prepare("UPDATE users SET status=? WHERE id=? AND companyId=? AND role='DRIVER'").run(status,req.params.id,companyId);
-      await markOnboardingReviewed(driver.id, 'DRIVER', action === 'APPROVE' ? 'APPROVED' : 'REJECTED', req.user.id, '', tx);
+      if(changed){
+        await tx.prepare("UPDATE users SET status=? WHERE id=? AND companyId=? AND role='DRIVER'").run(status,req.params.id,companyId);
+        await tx.prepare('INSERT INTO audit_logs(action,userId,role,details) VALUES(?,?,?,?)').run('COMPANY_DRIVER_'+decision,req.user.id,'COMPANY',`${decision} driver ${driver.id}`);
+        await require('../services/application-notifications').queueApplicationDecision(tx,{accountId:driver.id,role:'DRIVER',decision:decision==='REACTIVATE'?'RESTORE':decision,eventKey:crypto.randomUUID()});
+      }
+      return{id:driver.id,status};
     });
-    res.json({success:true,driver:{id:req.params.id,status},message:action==='APPROVE'?'Driver approved. Assign a company vehicle and route next.':'Driver application rejected.'});
+    await require('../services/application-notifications').flushApplicationNotifications().catch(()=>{});
+    res.json({success:true,driver:result,message:result.status==='ACTIVE'?'Driver approved and active. Assign a company vehicle and route next.':result.status==='SUSPENDED'?'Driver suspended. Approval and documents are retained.':'Driver application is pending. The driver can sign in to complete or correct the application.'});
   } catch(e){if(e.status)return res.status(e.status).json({success:false,code:e.code,error:e.message});console.error('[Company] driver approval:',e);res.status(500).json({success:false,error:'Could not update driver approval.'});}
 });
 
 router.patch('/operations/drivers/:id/contact', authenticate, requireRole('COMPANY'), async (req,res) => {
   try {
-    const companyId=req.user.companyId||req.user.id, phone=String(req.body.phone||'').trim();
-    if(!/^\+?[0-9 ()-]{7,24}$/.test(phone)||phone.replace(/\D/g,'').length<7) return res.status(400).json({success:false,error:'Enter a valid driver phone number.'});
-    const driver=await DB.prepare("SELECT id,fullName FROM users WHERE id=? AND role='DRIVER' AND companyId=?").get(req.params.id,companyId);
-    if(!driver)return res.status(404).json({success:false,error:'Driver not found in your company.'});
-    const duplicate=await DB.prepare('SELECT id FROM users WHERE phone=? AND id<>?').get(phone,driver.id);
-    if(duplicate)return res.status(409).json({success:false,error:'That phone number is already in use.'});
-    await DB.transaction(async tx=>{
+    const companyId=req.user.companyId||req.user.id, phone=normalizePhone(req.body.phone);
+    if(!phone)return res.status(400).json({success:false,error:'Enter a valid Ethiopian driver phone number.'});
+    const result=await DB.transaction(async tx=>{
+      if(tx.isPostgres)await tx.prepare("SELECT pg_advisory_xact_lock(hashtext('routepass-onboarding-phone:' || ?))").get(phone);
+      const driver=await tx.prepare("SELECT id,fullName,phone,status FROM users WHERE id=? AND role='DRIVER' AND companyId=?"+(tx.isPostgres?' FOR UPDATE':'')).get(req.params.id,companyId);
+      if(!driver)throw Object.assign(new Error('Driver not found in your company.'),{status:404});
+      if(driver.status==='DELETED'||await isAccountClosed(driver.id,'DRIVER',tx))throw Object.assign(new Error('Deleted or closed driver accounts cannot be edited.'),{status:409});
+      if(normalizePhone(driver.phone)===phone)return{id:driver.id,fullName:driver.fullName,phone:driver.phone,unchanged:true};
+      if(!await phoneAvailable(phone,driver.id,tx))throw Object.assign(new Error('That phone number is already in use.'),{status:409});
       await tx.prepare("UPDATE users SET phone=? WHERE id=? AND role='DRIVER' AND companyId=?").run(phone,driver.id,companyId);
       await invalidateOnboarding(driver.id, 'DRIVER', tx, { phoneChanged: true });
       await tx.prepare('INSERT INTO audit_logs (action,userId,role,details) VALUES (?,?,?,?)').run('COMPANY_DRIVER_PHONE_UPDATED',req.user.id,'COMPANY',`Updated phone for driver ${driver.id}`);
+      return{id:driver.id,fullName:driver.fullName,phone,unchanged:false};
     });
-    res.json({success:true,driver:{id:driver.id,fullName:driver.fullName,phone},message:'Driver phone number updated.'});
-  }catch(e){console.error('[Company] driver phone update:',e);res.status(500).json({success:false,error:'Could not update driver phone number.'});}
+    res.json({success:true,driver:result,message:result.unchanged?'The driver phone number is unchanged.':'Driver phone number updated.'});
+  }catch(e){if(e.status)return res.status(e.status).json({success:false,error:e.message});console.error('[Company] driver phone update:',e);res.status(500).json({success:false,error:'Could not update driver phone number.'});}
 });
 
 router.delete('/operations/drivers/:id', authenticate, requireRole('COMPANY'), async (req,res) => {

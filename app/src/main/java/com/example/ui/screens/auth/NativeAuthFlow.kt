@@ -18,13 +18,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.core.localization.AppLanguage
-import com.example.data.api.ApiClient
-import com.example.data.api.TransportCompanyDto
-import com.example.data.api.VehicleTypeOption
+import com.example.data.api.*
 import com.example.ui.screens.passenger.*
 import com.example.ui.viewmodel.AppRole
 import com.example.ui.viewmodel.MainViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 /** Account secrets intentionally live only in memory, never SavedState or preferences. */
 internal class AuthDraft(routeId: String?, routeName: String?, tier: String?) {
@@ -42,11 +41,17 @@ internal class AuthDraft(routeId: String?, routeName: String?, tier: String?) {
     var vehicleModel by mutableStateOf("")
     var vehicleType by mutableStateOf("MINIBUS_14")
     var company by mutableStateOf("")
-    var routeMode by mutableStateOf("existing")
+    var routeMode by mutableStateOf("custom")
     var pickup by mutableStateOf("")
     var destination by mutableStateOf("")
     var departure by mutableStateOf("06:30")
     var journey by mutableStateOf("Two way")
+    var monthlyFee by mutableStateOf("")
+    var quote by mutableStateOf<DriverQuoteResponse?>(null)
+    var quotedKey by mutableStateOf<String?>(null)
+    var quoteLoading by mutableStateOf(false)
+    var quoteError by mutableStateOf<String?>(null)
+    var quoteRefresh by mutableIntStateOf(0)
 }
 
 internal fun authText(language: AppLanguage, en: String, am: String, om: String): String = when (language) {
@@ -66,10 +71,12 @@ internal fun NativeAuthFlow(
     val authBusy by model.authBusy.collectAsState()
     val registrationMessage by model.registrationMessage.collectAsState()
     val driver = role == AppRole.DRIVER
+    val applicationState by model.driverApplications.state.collectAsState()
+    val scope = rememberCoroutineScope()
     val draft = remember(role, routeId, routeName, tier) { AuthDraft(routeId, routeName, tier) }
     var register by remember(role, initialRegister) { mutableStateOf(initialRegister) }
     var step by remember(role) { mutableIntStateOf(0) }
-    val busy = authBusy
+    val busy = authBusy || (driver && applicationState.busy)
     var waitingForAuth by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var help by remember { mutableStateOf(false) }
@@ -107,7 +114,7 @@ internal fun NativeAuthFlow(
                 val response = ApiClient.getService().getTransportCompanies()
                 if (response.isSuccessful && response.body()?.success == true) {
                     companies = response.body()?.companies.orEmpty()
-                    if (companies.none { it.name == draft.company }) draft.company = ""
+                    if (companies.none { it.id == draft.company }) draft.company = ""
                     if (companies.isEmpty()) companyError = "No registered transport companies are available."
                 } else companyError = "Could not load companies. Return and try again."
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -129,8 +136,9 @@ internal fun NativeAuthFlow(
     }
     fun identityProblem(): String? = when {
         draft.name.trim().isBlank() -> t("Enter your full name.", "ሙሉ ስምዎን ያስገቡ።", "Maqaa guutuu kee galchi.")
-        !Regex("^\\+?[0-9 ()-]{7,24}$").matches(draft.phone.trim()) -> t("Enter a valid mobile number.", "ትክክለኛ ስልክ ያስገቡ።", "Lakkoofsa bilbilaa sirrii galchi.")
+        canonicalAccountPhone(draft.phone) == null -> t("Enter a valid mobile number.", "ትክክለኛ ስልክ ያስገቡ።", "Lakkoofsa bilbilaa sirrii galchi.")
         draft.password.length < 10 -> t("Use a password with at least 10 characters.", "ቢያንስ 10 ፊደላት ያሉት የይለፍ ቃል ይጠቀሙ።", "Jecha iccitii yoo xiqqaate qubee 10 qabu fayyadami.")
+        draft.password.toByteArray(Charsets.UTF_8).size > 72 -> t("Use a password with no more than 72 bytes.", "ከ72 ባይት ያልበለጠ የይለፍ ቃል ይጠቀሙ።", "Jecha iccitii baayitii 72 gadi fayyadami.")
         draft.password != draft.confirmation -> t("The passwords do not match.", "የይለፍ ቃሎቹ አይመሳሰሉም።", "Jechoonni iccitii wal hin fakkaatan.")
         else -> null
     }
@@ -145,17 +153,30 @@ internal fun NativeAuthFlow(
             !driver && draft.isCustomCommute && draft.destination.isBlank() -> "Enter your destination."
             !driver && !draft.isCustomCommute && routes.none { it.id == draft.selectedRoute && it.active } -> "Choose an active daily route to create your account."
             driver && draft.license.isBlank() -> "Enter your commercial driving licence number."
-            driver && draft.service == "Intercity" && companies.none { it.name == draft.company } -> "Choose a registered transport company."
+            driver && draft.service == "Intercity" && companies.none { it.id == draft.company } -> "Choose a registered transport company."
             driver && draft.service != "Intercity" && (draft.plate.isBlank() || draft.vehicleModel.isBlank()) -> "Enter your vehicle plate and model."
             driver && draft.service != "Intercity" && vehicleTypesLoading -> "Wait for vehicle types to finish loading."
             driver && draft.service != "Intercity" && vehicleTypes.none { it.code == draft.vehicleType } -> "Choose an available vehicle type."
-            driver && draft.service != "Intercity" && draft.routeMode == "existing" && routes.none { it.id == draft.selectedRoute && it.active } -> "Choose an active route or propose a route."
-            driver && draft.service != "Intercity" && draft.routeMode == "custom" && (draft.pickup.isBlank() || draft.destination.isBlank() || !Regex("^([01][0-9]|2[0-3]):[0-5][0-9]$").matches(draft.departure)) -> "Enter pickup, destination and a valid 24-hour departure time (HH:mm)."
+            driver && draft.service != "Intercity" && (draft.pickup.trim().length < 2 || draft.destination.trim().length < 2) -> "Enter your departure and destination."
+            driver && draft.service != "Intercity" && (draft.quoteLoading || draft.quotedKey != driverQuoteKey(draft)) -> "Check the monthly vehicle fee before submitting."
+            driver && draft.service != "Intercity" && driverMonthlyFee(draft) == null -> "Enter a valid monthly fee for the whole vehicle, up to ETB 1,000,000."
             else -> null
         }
         if (problem != null) { message = problem; return }
         waitingForAuth = true; message = null
         val intercity = driver && draft.service == "Intercity"
+        if (driver) {
+            scope.launch { model.driverApplications.register(DriverApplicationInput(
+                fullName = draft.name.trim(), phone = draft.phone.trim(), password = draft.password,
+                licenseNumber = draft.license.trim(), serviceType = if (intercity) "INTERCITY" else "DAILY_COMMUTE",
+                companyId = draft.company.takeIf { intercity }, assignedVehiclePlate = draft.plate.trim().takeUnless { intercity },
+                vehicleModel = draft.vehicleModel.trim().takeUnless { intercity }, vehicleType = draft.vehicleType.takeUnless { intercity },
+                routeChoice = "PROPOSED".takeUnless { intercity }, proposedDeparture = draft.pickup.trim().takeUnless { intercity },
+                proposedDestination = draft.destination.trim().takeUnless { intercity }, proposedMonthlyFeeEtb = if (intercity) null else driverMonthlyFee(draft),
+                proposedMonthlyFeeBasis = "PER_VEHICLE".takeUnless { intercity }
+            )) }
+            return
+        }
         val proposed = driver && draft.routeMode == "custom"
         model.register(
             fullName = draft.name.trim(), phone = draft.phone.trim(), email = "", password = draft.password, role = role,
@@ -171,10 +192,17 @@ internal fun NativeAuthFlow(
             }
         )
     }
-    if (help) AlertDialog(onDismissRequest = { help = false },
-        title = { Text(t("Sign-in help", "የመግቢያ እርዳታ", "Gargaarsa seensaa")) },
-        text = { Text(t("Please contact your PASSO administrator for help resetting your password.", "የይለፍ ቃልዎን ለመቀየር የPASSO አስተዳዳሪዎን ያነጋግሩ።", "Jecha iccitii kee jijjiiruuf bulchaa PASSO qunnami.")) },
-        confirmButton = { TextButton(onClick = { help = false }) { Text("OK") } })
+    if (driver && applicationState.application != null) {
+        LaunchedEffect(applicationState.application?.account?.id) { draft.password = ""; draft.confirmation = "" }
+        DriverApplicationScreen(model.driverApplications, language, model::setLanguage,
+            onBack = { model.driverApplications.close(); register = false; step = 0; onExit() },
+            onSignIn = { model.driverApplications.close(); register = false; step = 0; draft.password = ""; message = null }, modifier = modifier)
+        return
+    }
+    if (help) {
+        PasswordRecoveryScreen(model, role, language, draft.phone, onBack = { help = false; draft.password = "" }, modifier = modifier)
+        return
+    }
 
     BoxWithConstraints(modifier.fillMaxSize().background(CommuteCream).windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
         val headerHeight = if (register) (maxHeight * .35f).coerceIn(200.dp, 310.dp) else (maxHeight * .40f).coerceIn(220.dp, 340.dp)
@@ -204,9 +232,10 @@ internal fun NativeAuthFlow(
                     }
                     if (register && step == 1) {
                         AuthRegistrationDetails(draft, driver, routes.filter { it.active }, companies, companyError, language, !busy,
-                            vehicleTypes, vehicleTypesLoading, vehicleTypesError)
+                            vehicleTypes, vehicleTypesLoading, vehicleTypesError, model.driverApplications)
                     }
                     (message ?: authError?.takeIf { waitingForAuth })?.let { Text(it, color = androidx.compose.ui.graphics.Color(0xFFAC2F2F), fontSize = 12.sp, modifier = Modifier.testTag("auth_error")) }
+                    if (driver && waitingForAuth) applicationState.error?.let { Text(it, color = androidx.compose.ui.graphics.Color(0xFFAC2F2F), fontSize = 12.sp, modifier = Modifier.testTag("auth_application_error")) }
                     registrationMessage?.let { Text(it, color = CommuteTeal, fontSize = 13.sp, modifier = Modifier.testTag("auth_registration_message")) }
                     if (!register || step == 0) AuthPrimaryButton(
                         if (register) t("Continue", "ቀጥል", "Itti fufi") else t("Sign in", "ግባ", "Seeni"),
@@ -226,7 +255,7 @@ internal fun NativeAuthFlow(
                             Text(if (register) t("Sign in", "ግባ", "Seeni") else if (driver) t("Create driver account", "የሹፌር መለያ ፍጠር", "Herrega konkolaachisaa uumi") else t("Create an account", "መለያ ፍጠር", "Herrega uumi"), color = CommuteTeal, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
-                    if (!register && driver) Text(t("New driver accounts need approval before sign-in.", "አዲስ የሹፌር መለያዎች ከመግባት በፊት ፈቃድ ይፈልጋሉ።", "Herregni konkolaachisaa haaraan seenuun dura hayyama barbaada."), color = CommuteInk, fontSize = 11.sp)
+                    if (!register && driver) Text(t("Sign in to follow your application. Driving and passenger allocation open after final approval.", "ማመልከቻዎን ለመከታተል ይግቡ። የሥራ መዳረሻ ከመጨረሻ ፈቃድ በኋላ ይከፈታል።", "Iyyata kee hordofuuf seeni. Hojii konkolaachisummaa hayyama dhumaa booda bana."), color = CommuteInk, fontSize = 11.sp)
                     if (!register && !driver) TextButton(onClick = onExit, modifier = Modifier.align(Alignment.CenterHorizontally).testTag("auth_browse_routes")) {
                         Icon(Icons.Default.DirectionsBus, null, tint = CommuteTeal); Spacer(Modifier.width(6.dp))
                         Text(t("Browse daily routes", "የዕለት መስመሮችን ያስሱ", "Karaalee guyyaa ilaali"), color = CommuteTeal, fontWeight = FontWeight.Bold)

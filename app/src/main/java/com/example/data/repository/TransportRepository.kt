@@ -33,6 +33,21 @@ class TransportRepository(
 
     var lastAuthError: String? = null
         private set
+    var lastAuthCode: String? = null
+        private set
+    val driverApplications = DriverApplicationRepository(apiService)
+
+    private fun checkedRecovery(response: retrofit2.Response<AccountRecoveryResponse>): AccountRecoveryResponse {
+        val body = response.body()
+        if (!response.isSuccessful || body?.success != true) {
+            val text = response.errorBody()?.string()
+            val error = runCatching { org.json.JSONObject(text ?: "{}").optString("error").takeIf { it.isNotBlank() } }.getOrNull()
+            throw IllegalStateException(error ?: body?.error ?: "Password recovery is unavailable. Contact info@passo.live for help.")
+        }
+        return body
+    }
+    suspend fun requestAccountRecovery(role: String, phone: String) = checkedRecovery(apiService.requestAccountRecovery(AccountRecoveryRequest(role, phone.trim())))
+    suspend fun resetAccountPassword(role: String, phone: String, code: String, password: String) = checkedRecovery(apiService.resetAccountPassword(AccountRecoveryReset(role, phone.trim(), code.trim(), password)))
 
     /**
      * Authenticate via VPS Backend REST API.
@@ -43,6 +58,7 @@ class TransportRepository(
         val cleanPhone = identifier.trim()
         val normalizedRole = role.trim().uppercase()
         lastAuthError = null
+        lastAuthCode = null
 
         return try {
             val response = apiService.login(LoginRequest(phone = cleanPhone, password = password, role = normalizedRole))
@@ -75,6 +91,7 @@ class TransportRepository(
                 user
             } else {
                 val errorBody = response.errorBody()?.string()
+                lastAuthCode = runCatching { org.json.JSONObject(errorBody ?: "{}").optString("code").takeIf { it.isNotBlank() } }.getOrNull()
                 val parsedMsg = try {
                     if (!errorBody.isNullOrBlank()) {
                         org.json.JSONObject(errorBody).optString("error")

@@ -14,6 +14,31 @@ interface RoutePassApiService {
     @POST("api/auth/register")
     suspend fun register(@Body request: RegisterRequest): Response<AuthResponse>
 
+    @POST("api/onboarding/register")
+    suspend fun registerDriverApplication(@Body request: DriverApplicationInput): Response<DriverApplicationResponse>
+    @POST("api/onboarding/login")
+    suspend fun loginDriverApplication(@Body request: LoginRequest): Response<DriverApplicationResponse>
+    @GET("api/onboarding/me")
+    suspend fun driverApplication(@Header("Authorization") authorization: String): Response<DriverApplicationResponse>
+    @PATCH("api/onboarding/profile")
+    suspend fun updateDriverApplication(@Header("Authorization") authorization: String,
+        @Body fields: Map<String, @JvmSuppressWildcards Any>): Response<DriverApplicationResponse>
+    @PUT("api/onboarding/documents/{kind}")
+    suspend fun uploadDriverApplicationDocument(@Header("Authorization") authorization: String,
+        @Path("kind") kind: String, @Body document: okhttp3.RequestBody): Response<DriverApplicationResponse>
+    @POST("api/onboarding/submit")
+    suspend fun submitDriverApplication(@Header("Authorization") authorization: String): Response<DriverApplicationResponse>
+    @GET("api/onboarding/commute-suggestions")
+    suspend fun driverCommuteSuggestions(@Query("field") field: String, @Query("q") query: String,
+        @Query("departure") departure: String = ""): Response<CommuteSuggestionsResponse>
+    @GET("api/onboarding/commute-quote")
+    suspend fun driverCommuteQuote(@Query("proposedDeparture") departure: String,
+        @Query("proposedDestination") destination: String, @Query("vehicleType") type: String): Response<DriverQuoteResponse>
+    @POST("api/account-recovery/request")
+    suspend fun requestAccountRecovery(@Body request: AccountRecoveryRequest): Response<AccountRecoveryResponse>
+    @POST("api/account-recovery/reset")
+    suspend fun resetAccountPassword(@Body request: AccountRecoveryReset): Response<AccountRecoveryResponse>
+
     @POST("api/auth/request-otp")
     suspend fun requestOtp(@Body request: Map<String, String>): Response<OtpResponse>
 

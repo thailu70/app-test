@@ -6,7 +6,7 @@ const { authenticate, requireRole } = require('../middleware/auth');
 const { adminScope } = require('../services/commute-scope');
 const { generateSignedQrToken } = require('./subscriptions');
 const { sendSms } = require('../services/afro-sms');
-const { getOnboardingReadiness, markOnboardingReviewed, invalidateOnboarding } = require('../services/onboarding');
+const { getOnboardingReadiness, markOnboardingReviewed, setDriverSuspension, invalidateOnboarding, normalizePhone, phoneAvailable } = require('../services/onboarding');
 const { assertDriverEligible } = require('../services/operational-onboarding');
 const { isAccountClosed } = require('../services/account-deletion');
 const { paymentTestsEnabled } = require('../services/payment-policy');
@@ -109,21 +109,31 @@ router.patch('/drivers/:id/approval', async (req, res) => {
     if (!['ACTIVE', 'SUSPENDED'].includes(status)) {
       return res.status(400).json({ success: false, error: 'Set driver status to ACTIVE to approve or SUSPENDED to reject/suspend.' });
     }
-    const driver = await DB.prepare("SELECT * FROM users WHERE id = ? AND role = 'DRIVER' AND COALESCE(companyId,'')=''").get(req.params.id);
-    if (!driver) return res.status(404).json({ success: false, error: 'Driver account not found.' });
-
-    await DB.transaction(async (tx) => {
-      if (status === 'ACTIVE') {
+    const result = await DB.transaction(async (tx) => {
+      const driver = await tx.prepare("SELECT * FROM users WHERE id=? AND role='DRIVER' AND COALESCE(companyId,'')=''" + (tx.isPostgres ? ' FOR UPDATE' : '')).get(req.params.id);
+      if (!driver) throw Object.assign(new Error('Driver account not found.'), { status: 404 });
+      if (driver.status === 'DELETED' || await isAccountClosed(driver.id, 'DRIVER', tx)) throw Object.assign(new Error('Deleted or closed driver accounts cannot be restored.'), { status: 409 });
+      let changed = true, decision = 'APPROVE', actualStatus = status;
+      if (status === 'SUSPENDED' || driver.status === 'SUSPENDED') {
+        const update = await setDriverSuspension(driver.id, status === 'SUSPENDED', tx);
+        changed = update.changed; actualStatus = update.status; decision = status === 'SUSPENDED' ? 'SUSPEND' : 'RESTORE';
+      } else {
         const readiness = await getOnboardingReadiness(driver.id, 'DRIVER', tx);
         if (!readiness.reviewReady) throw Object.assign(new Error('Complete initial acceptance, required documents and profile information, then submit the driver application before approval.'), { status: 409, code: 'ONBOARDING_REQUIRED' });
+        changed = driver.status !== 'ACTIVE' || (readiness.tracked && readiness.reviewStatus !== 'APPROVED');
+        if (changed) {
+          await markOnboardingReviewed(driver.id, 'DRIVER', 'APPROVED', req.user.id, '', tx);
+          await tx.prepare("UPDATE users SET status='ACTIVE' WHERE id=? AND role='DRIVER'").run(driver.id);
+        }
       }
-      await tx.prepare("UPDATE users SET status = ? WHERE id = ? AND role = 'DRIVER' AND COALESCE(companyId,'')=''").run(status, driver.id);
-      await markOnboardingReviewed(driver.id, 'DRIVER', status === 'ACTIVE' ? 'APPROVED' : 'REJECTED', req.user.id, '', tx);
-      await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
-        .run(status === 'ACTIVE' ? 'DRIVER_APPROVED' : 'DRIVER_REJECTED', req.user.id, 'ADMIN', `${status === 'ACTIVE' ? 'Approved' : 'Rejected/suspended'} driver ${driver.id} (${driver.phone})`);
+      if (changed) {
+        await tx.prepare('INSERT INTO audit_logs (action,userId,role,details) VALUES(?,?,?,?)').run('DRIVER_' + decision, req.user.id, 'ADMIN', `${decision} driver ${driver.id}`);
+        await require('../services/application-notifications').queueApplicationDecision(tx, { accountId: driver.id, role: 'DRIVER', decision, eventKey: crypto.randomUUID() });
+      }
+      return { id: driver.id, fullName: driver.fullName, status: actualStatus };
     });
-
-    res.json({ success: true, driver: { id: driver.id, fullName: driver.fullName, status }, message: status === 'ACTIVE' ? 'Driver approved. You can now assign an active route.' : 'Driver registration rejected/suspended.' });
+    await require('../services/application-notifications').flushApplicationNotifications().catch(() => {});
+    res.json({ success: true, driver: result, message: result.status === 'ACTIVE' ? 'Driver approved and active. You can assign an active route.' : result.status === 'SUSPENDED' ? 'Driver suspended. Their approval and documents are retained for reinstatement.' : 'Driver registration restored. Complete the remaining application steps before operational approval.' });
   } catch (err) {
     console.error('[Admin] driver approval failed:', err);
     if (err.status) return res.status(err.status).json({ success: false, code: err.code, error: err.message });
@@ -134,22 +144,24 @@ router.patch('/drivers/:id/approval', async (req, res) => {
 /** Update or retire a daily-commute driver account without changing its history. */
 router.patch('/drivers/:id/contact', async (req, res) => {
   try {
-    const phone = String(req.body.phone || '').trim();
-    if (!/^\+?[0-9 ()-]{7,24}$/.test(phone) || phone.replace(/\D/g, '').length < 7) {
-      return res.status(400).json({ success: false, error: 'Enter a valid driver phone number.' });
-    }
-    const driver = await DB.prepare("SELECT id, fullName FROM users WHERE id=? AND role='DRIVER' AND COALESCE(companyId,'')=''").get(req.params.id);
-    if (!driver) return res.status(404).json({ success: false, error: 'Driver account not found.' });
-    const duplicate = await DB.prepare('SELECT id FROM users WHERE phone=? AND id<>?').get(phone, driver.id);
-    if (duplicate) return res.status(409).json({ success: false, error: 'That phone number is already in use.' });
-    await DB.transaction(async tx => {
-      await tx.prepare('UPDATE users SET phone=? WHERE id=? AND role=\'DRIVER\'').run(phone, driver.id);
+    const phone = normalizePhone(req.body.phone);
+    if (!phone) return res.status(400).json({ success: false, error: 'Enter a valid Ethiopian driver phone number.' });
+    const result = await DB.transaction(async tx => {
+      if (tx.isPostgres) await tx.prepare("SELECT pg_advisory_xact_lock(hashtext('routepass-onboarding-phone:' || ?))").get(phone);
+      const driver = await tx.prepare("SELECT id,fullName,phone,status FROM users WHERE id=? AND role='DRIVER' AND COALESCE(companyId,'')=''" + (tx.isPostgres ? ' FOR UPDATE' : '')).get(req.params.id);
+      if (!driver) throw Object.assign(new Error('Driver account not found.'), { status: 404 });
+      if (driver.status === 'DELETED' || await isAccountClosed(driver.id, 'DRIVER', tx)) throw Object.assign(new Error('Deleted or closed driver accounts cannot be edited.'), { status: 409 });
+      if (normalizePhone(driver.phone) === phone) return { id: driver.id, fullName: driver.fullName, phone: driver.phone, unchanged: true };
+      if (!await phoneAvailable(phone, driver.id, tx)) throw Object.assign(new Error('That phone number is already in use.'), { status: 409 });
+      await tx.prepare("UPDATE users SET phone=? WHERE id=? AND role='DRIVER'").run(phone, driver.id);
       await invalidateOnboarding(driver.id, 'DRIVER', tx, { phoneChanged: true });
       await tx.prepare('INSERT INTO audit_logs (action,userId,role,details) VALUES (?,?,?,?)').run('DRIVER_PHONE_UPDATED', req.user.id, 'ADMIN', `Updated phone for driver ${driver.id}`);
+      return { id: driver.id, fullName: driver.fullName, phone, unchanged: false };
     });
-    res.json({ success: true, driver: { id: driver.id, fullName: driver.fullName, phone }, message: 'Driver phone number updated.' });
+    res.json({ success: true, driver: result, message: result.unchanged ? 'The driver phone number is unchanged.' : 'Driver phone number updated.' });
   } catch (err) {
     console.error('[Admin] driver phone update failed:', err);
+    if (err.status) return res.status(err.status).json({ success: false, error: err.message });
     res.status(500).json({ success: false, error: 'Could not update driver phone number.' });
   }
 });

@@ -30,7 +30,7 @@ object ApiClient {
         val originalRequest = chain.request()
         val requestBuilder = originalRequest.newBuilder()
 
-        authToken?.let { token ->
+        authToken?.takeIf { originalRequest.header("Authorization") == null }?.let { token ->
             if (token.isNotBlank()) {
                 requestBuilder.header("Authorization", "Bearer $token")
             }

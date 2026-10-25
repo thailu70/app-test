@@ -63,3 +63,14 @@ The test should be run against an isolated database only. The smoke test creates
 - `GET /api/ready` — database readiness.
 - `GET /api/routes` — route list.
 - `wss://your-domain/ws` — authenticated live telemetry.
+
+
+## Driver applications and account recovery
+
+Website and Android driver registrations use the same onboarding application. The legacy `/api/auth/register` driver contract delegates to this workflow and never grants an operational token. Daily drivers propose endpoints and a monthly whole-vehicle fee; matching routes calculate passenger fare multiplied by vehicle capacity. The initial route acceptance unlocks documents and profile completion. Final approval requires document completion and explicit submission. Account phone verification remains optional for DRIVER/PASSENGER; COMPANY verification policy is unchanged.
+
+Review actions have separate purposes: `ACCEPT` accepts the initial daily proposal, `CORRECTIONS` requires a review note and retains accepted route/upload access, `APPROVE` completes review, and `REJECT` returns initial acceptance. `SUSPEND`/`REACTIVATE` preserve approval history; older broken suspended applications return to PENDING for repair rather than bypassing review. Saving an unchanged canonical phone does not invalidate approval. Previously untracked pending drivers are enrolled without granting acceptance or approval; established active legacy accounts retain their existing access.
+
+`POST /api/account-recovery/request` accepts role and phone and always returns a generic response. `POST /api/account-recovery/reset` additionally requires the delivered six-digit SMS code and a new password of at least ten characters and at most 72 UTF-8 bytes. These recovery proofs remain mandatory even while signup OTP is optional. Codes are hashed, expire after ten minutes, have five guesses and are single-use. A successful reset revokes old normal, onboarding and account-management sessions without changing approval or phone-verification status. Login proofs bind the password hash and session version from one database snapshot.
+
+Application decision SMS messages are queued transactionally and delivered after commit, with bounded retries and no historical backfill. Failed delivery does not undo approval. Live SMS delivery requires a working configured provider. Automated tests inject transports and do not send real SMS. Free test payments remain disabled unless separately and explicitly enabled in an isolated test environment.

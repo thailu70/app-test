@@ -202,8 +202,8 @@
           { label: "Approval", render: r => {
             const id = esc(value(r, "id"));
             const status = String(r.status || "").toUpperCase();
-            if (status === "PENDING") return '<div class="inline-actions"><button class="btn btn-primary" data-driver-id="' + id + '" data-driver-approval="ACTIVE">Approve</button><button class="btn btn-secondary" data-driver-id="' + id + '" data-driver-approval="SUSPENDED">Reject</button></div>';
-            if (status === "SUSPENDED") return '<div class="inline-actions">' + pill(status) + '<button class="btn btn-secondary" data-driver-id="' + id + '" data-driver-approval="ACTIVE">Approve</button></div>';
+            if (status === "PENDING") return '<div class="inline-actions">' + pill(status) + '<button class="btn btn-primary" data-go="applications">Review application</button></div>';
+            if (status === "SUSPENDED") return pill(status);
             return pill(status);
           }},
           { label: "Assigned route", keys: ["appliedRouteName", "applied_route_name"] },
@@ -219,6 +219,7 @@
           { label: "Account actions", render: r => {
             const id = esc(value(r, "id")), status = String(r.status || "").toUpperCase();
             if (status === "DELETED") return pill(status);
+            if (status === "PENDING") return '<div class="inline-actions"><button class="btn btn-secondary" data-go="applications">Review application</button><button class="btn btn-danger" data-delete-driver="' + id + '">Delete</button></div>';
             return '<div class="inline-actions"><button class="btn btn-secondary" data-toggle-driver="' + id + '" data-driver-status="' + (status === "ACTIVE" ? "SUSPENDED" : "ACTIVE") + '">' + (status === "ACTIVE" ? "Deactivate" : "Reactivate") + '</button><button class="btn btn-danger" data-delete-driver="' + id + '">Delete</button></div>';
           }}
         ], data));
@@ -579,7 +580,7 @@
   async function toggleDriver(button) {
     const status = button.dataset.driverStatus;
     if (status === "SUSPENDED" && !window.confirm("Deactivate this driver? They will be signed out and cannot operate until reactivated.")) return;
-    try { await api("/api/admin/drivers/" + encodeURIComponent(button.dataset.toggleDriver) + "/approval", { method: "PATCH", body: JSON.stringify({ status }) }); toast(status === "ACTIVE" ? "Driver reactivated." : "Driver deactivated."); await renderView(); }
+    try { const result = await api("/api/admin/drivers/" + encodeURIComponent(button.dataset.toggleDriver) + "/approval", { method: "PATCH", body: JSON.stringify({ status }) }); toast(result.message || (result.driver?.status === "ACTIVE" ? "Driver access restored." : result.driver?.status === "PENDING" ? "Driver restored to pending application review." : "Driver suspended. Approval and documents are retained.")); await renderView(); }
     catch (error) { toast(error.message, true); }
   }
   async function deleteDriver(button) {

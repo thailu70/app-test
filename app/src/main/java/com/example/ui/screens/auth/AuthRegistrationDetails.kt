@@ -19,6 +19,7 @@ import com.example.core.localization.AppLanguage
 import com.example.data.api.TransportCompanyDto
 import com.example.data.api.VehicleTypeOption
 import com.example.data.entity.RouteEntity
+import com.example.data.repository.DriverApplicationRepository
 import com.example.ui.screens.passenger.*
 
 @Composable
@@ -26,7 +27,8 @@ internal fun AuthRegistrationDetails(
     draft: AuthDraft, driver: Boolean, routes: List<RouteEntity>, companies: List<TransportCompanyDto>,
     companyError: String?, language: AppLanguage, enabled: Boolean,
     vehicleTypes: List<VehicleTypeOption> = VehicleTypeOption.DEFAULTS,
-    vehicleTypesLoading: Boolean = false, vehicleTypesError: String? = null
+    vehicleTypesLoading: Boolean = false, vehicleTypesError: String? = null,
+    applications: DriverApplicationRepository? = null
 ) {
     fun t(en: String, am: String, om: String) = authText(language, en, am, om)
     Column(Modifier.fillMaxWidth().testTag("auth_details"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -35,14 +37,14 @@ internal fun AuthRegistrationDetails(
             else t("Choose your daily route", "የዕለት መስመርዎን ይምረጡ", "Karaa guyyaa kee filadhu"),
             color = CommuteInk, fontSize = 26.sp, fontWeight = FontWeight.Bold)
         if (driver) {
-            Text(t("Your account will be reviewed before you can sign in.", "ከመግባትዎ በፊት መለያዎ ይገመገማል።", "Seenuun dura herregni kee ni ilaalama."), fontSize = 13.sp, color = CommuteInk)
+            Text(t("Apply now, follow your status, and upload documents after initial acceptance.", "አሁን ያመልክቱ፣ ሁኔታዎን ይከታተሉ፣ ከመጀመሪያ ተቀባይነት በኋላ ሰነዶችን ይላኩ።", "Amma iyyadhu, haala kee hordofi, fudhatama jalqabaa booda sanadoota olkaa'i."), fontSize = 13.sp, color = CommuteInk)
             AuthField(draft.license, { draft.license = it }, t("Commercial driving licence number", "የንግድ መንጃ ፈቃድ ቁጥር", "Lakkoofsa eeyyama konkolaachisummaa"),
                 Modifier.fillMaxWidth().testTag("auth_driver_license_input"), enabled = enabled, language = language, leadingIcon = Icons.Default.Badge)
             Text(t("Service type", "የአገልግሎት ዓይነት", "Gosa tajaajilaa"), color = CommuteInk, fontWeight = FontWeight.SemiBold)
             AuthChoiceChips(listOf("Daily Commuter" to t("Daily commute", "የዕለት ጉዞ", "Imala guyyaa"), "Intercity" to t("Intercity", "የከተማ መካከል", "Magaalotaa")),
                 draft.service, enabled, { draft.service = it }, "auth_service")
             if (draft.service == "Intercity") {
-                AuthChoiceDropdown(draft.company, t("Transport company", "የትራንስፖርት ኩባንያ", "Dhaabbata geejjibaa"), companies.map { it.name to it.name }, { draft.company = it }, enabled, "auth_driver_company")
+                AuthChoiceDropdown(draft.company, t("Transport company", "የትራንስፖርት ኩባንያ", "Dhaabbata geejjibaa"), companies.map { it.id to it.name }, { draft.company = it }, enabled, "auth_driver_company")
                 companyError?.let { Text(it, color = Color(0xFFAC2F2F), fontSize = 12.sp) }
                 Text(t("Your company will assign a vehicle and trip after approval.", "ከተፈቀደ በኋላ ኩባንያዎ ተሽከርካሪ እና ጉዞ ይመድባል።", "Erga hayyamame booda dhaabbanni kee konkolaataa fi imala siif ramada."), color = CommuteInk, fontSize = 13.sp)
             } else {
@@ -56,11 +58,10 @@ internal fun AuthRegistrationDetails(
                 if (vehicleTypesLoading) Text(t("Loading vehicle types…", "የተሽከርካሪ ዓይነቶችን በመጫን ላይ…", "Gosa konkolaataa fe'aa jira…"), color = CommuteInk, fontSize = 12.sp)
                 else if (vehicleTypes.isEmpty()) Text(t("No vehicle types are currently available. Contact your administrator.", "አሁን የተሽከርካሪ ዓይነቶች የሉም። አስተዳዳሪዎን ያነጋግሩ።", "Gosti konkolaataa hin jiru. Bulchaa kee qunnami."), color = Color(0xFFAC2F2F), fontSize = 12.sp)
                 vehicleTypesError?.let { Text(it, color = Color(0xFFAC2F2F), fontSize = 12.sp) }
-                AuthChoiceChips(listOf("existing" to t("Existing route", "ያለ መስመር", "Karaa jiru"), "custom" to t("Propose a route", "መስመር ይጠቁሙ", "Karaa yaada dhiheessi")),
-                    draft.routeMode, enabled, { draft.routeMode = it }, "auth_route_mode")
+                if (applications != null) DriverRouteProposalFields(draft, applications, language, enabled)
             }
         }
-        if ((!driver && !draft.isCustomCommute) || (driver && draft.service != "Intercity" && draft.routeMode == "existing")) {
+        if (!driver && !draft.isCustomCommute) {
             if (routes.isEmpty()) Text(t("No active daily routes are available. Return to daily routes to request a new route.", "ንቁ የዕለት መስመሮች የሉም። አዲስ መስመር ለመጠየቅ ወደ መስመሮች ይመለሱ።", "Karaaleen guyyaa hojii irra jiran hin jiran. Karaa haaraa gaafachuuf deebi'i."),
                 color = CommuteInk, fontSize = 13.sp)
             routes.forEach { route ->
@@ -90,14 +91,10 @@ internal fun AuthRegistrationDetails(
             AuthChoiceChips(listOf("One way" to t("One way", "አንድ መንገድ", "Karaa tokko"), "Two way" to t("Two way", "ደርሶ መልስ", "Deebii waliin")),
                 draft.journey, enabled, { draft.journey = it }, "auth_journey")
         }
-        if (driver && draft.service != "Intercity" && draft.routeMode == "custom") {
-            AuthField(draft.pickup, { draft.pickup = it }, t("Pickup / departure", "መነሻ", "Bakka ka'umsaa"), Modifier.fillMaxWidth().testTag("auth_driver_pickup_input"), enabled = enabled, language = language, leadingIcon = Icons.Default.LocationOn)
-            AuthField(draft.destination, { draft.destination = it }, t("Destination", "መድረሻ", "Bakka ga'umsaa"), Modifier.fillMaxWidth().testTag("auth_driver_destination_input"), enabled = enabled, language = language, leadingIcon = Icons.Default.LocationOn)
-            AuthField(draft.departure, { draft.departure = it }, t("Departure time · HH:mm", "የመነሻ ሰዓት · HH:mm", "Sa'aatii ka'umsaa · HH:mm"), Modifier.fillMaxWidth().testTag("auth_driver_departure_input"), enabled = enabled, language = language, leadingIcon = Icons.Default.Schedule)
-            AuthChoiceChips(listOf("One way" to t("One way", "አንድ መንገድ", "Karaa tokko"), "Two way" to t("Two way", "ደርሶ መልስ", "Deebii waliin")), draft.journey, enabled, { draft.journey = it }, "auth_journey")
+        if (!driver) {
+            Text(t("Preferred tier", "የሚመርጡት ደረጃ", "Sadarkaa filatame"), color = CommuteInk, fontWeight = FontWeight.SemiBold)
+            AuthChoiceChips(listOf("Economy" to "Economy", "Deluxe" to "Deluxe", "VIP" to "VIP"), draft.tier, enabled, { draft.tier = it }, "auth_tier")
         }
-        Text(if (driver) t("Service preference", "የአገልግሎት ምርጫ", "Filannoo tajaajilaa") else t("Preferred tier", "የሚመርጡት ደረጃ", "Sadarkaa filatame"), color = CommuteInk, fontWeight = FontWeight.SemiBold)
-        AuthChoiceChips(listOf("Economy" to "Economy", "Deluxe" to "Deluxe", "VIP" to "VIP"), draft.tier, enabled, { draft.tier = it }, "auth_tier")
         if (!driver) Text(t("Registration does not confirm a paid pass. Your route offer and payment remain separate.", "ምዝገባ የተከፈለ ፓስ አያረጋግጥም። የመስመር ቅናሽ እና ክፍያ በተለየ ይቀጥላሉ።", "Galmeen paasiin kaffalameera jechuu miti. Yaadni karaa fi kaffaltiin addaatti itti fufa."), fontSize = 12.sp, color = CommuteInk)
     }
 }

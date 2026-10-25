@@ -213,3 +213,18 @@ test('frontend API client completes real daily driver onboarding with pricing an
   assert.equal(proposedDaily.onboarding.routePreference.mode,'PROPOSED');assert.equal(proposedDaily.onboarding.routePreference.departure,'Garment');assert.equal(proposedDaily.onboarding.routePreference.destination,'Bole');assert.equal(proposedDaily.onboarding.canVerifyAndUpload,false);
   quoteController.dispose();
 });
+
+
+test('password recovery uses a separate same-origin client without application credentials', async () => {
+  let sent;
+  const api=portal.createRecoveryClient({fetchFn:async(url,options)=>{sent={url,options};return {ok:true,json:async()=>({success:true,message:'If eligible, a code will be sent.'})};}});
+  await api('/request',{role:'DRIVER',phone:'0912345678'});
+  assert.equal(sent.url,'/api/account-recovery/request');
+  assert.equal(sent.options.credentials,'omit');assert.equal(sent.options.redirect,'error');
+  assert.equal(sent.options.headers.Authorization,undefined);
+  await api('/reset',{role:'DRIVER',phone:'0912345678',code:'123456',newPassword:'Recovery fixture password'});
+  assert.equal(sent.url,'/api/account-recovery/reset');
+  assert.equal(JSON.parse(sent.options.body).newPassword,'Recovery fixture password');
+  await assert.rejects(api('https://another.example/reset',{}),/Invalid recovery API path/);
+  await assert.rejects(api('//another.example/reset',{}),/Invalid recovery API path/);
+});

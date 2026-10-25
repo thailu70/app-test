@@ -35,6 +35,7 @@ async function resolveActivePrincipal(token) {
   if (!decoded || typeof decoded.id !== 'string' || !decoded.id) return null;
   // Recruitment credentials can only be used by the dedicated onboarding router.
   if (decoded.scope !== undefined || decoded.aud === 'routepass-onboarding') return null;
+  if (!await require('../services/account-sessions').sessionIsCurrent(decoded)) return null;
   // A retained deletion receipt permanently revokes credentials, even if an
   // operator later changes the tombstone's status by mistake.
   if (await require('../services/account-deletion').isAccountClosed(decoded.id, String(decoded.role || '').toUpperCase())) return null;

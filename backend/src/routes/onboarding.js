@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const { authenticate, requireRole, verifyToken, JWT_SECRET } = require('../middleware/auth');
 const { createOnboardingService, initOnboardingSchema, OnboardingError, MAX_DOCUMENT_BYTES, REQUIRED } = require('../services/onboarding');
+const { sessionIsCurrent } = require('../services/account-sessions');
 const { commuteSuggestions, commuteQuote, CommuteQuoteError } = require('../services/commute-quote');
 
 function createOnboardingRouter({ service = createOnboardingService(), rateLimitMax = 10 } = {}) {
@@ -16,9 +17,9 @@ function createOnboardingRouter({ service = createOnboardingService(), rateLimit
   router.use(asyncRoute(async (_req, _res, next) => { await initOnboardingSchema(); next(); }));
   router.get('/commute-suggestions', asyncRoute(async (req, res) => res.json({ success: true, ...await commuteSuggestions(req.query) })));
   router.get('/commute-quote', asyncRoute(async (req, res) => res.json({ success: true, ...await commuteQuote(req.query) })));
-  const issue = result => ({ success: true, ...result, token: jwt.sign({ id: result.account.id, role: result.account.role, scope: 'ONBOARDING' }, JWT_SECRET, { expiresIn: '2h', audience: 'routepass-onboarding' }) });
-  router.post('/register', registerLimit, asyncRoute(async (req, res) => res.status(201).json(issue(await service.register(req.body || {})))));
-  router.post('/login', loginLimit, asyncRoute(async (req, res) => res.json(issue(await service.login(req.body || {})))));
+  const issue = result => ({ success: true, ...result, token: jwt.sign({ id: result.account.id, role: result.account.role, scope: 'ONBOARDING', sessionVersion: result.authenticatedSessionVersion ?? 0 }, JWT_SECRET, { expiresIn: '2h', audience: 'routepass-onboarding' }) });
+  router.post('/register', registerLimit, asyncRoute(async (req, res) => res.status(201).json(await issue(await service.register(req.body || {})))));
+  router.post('/login', loginLimit, asyncRoute(async (req, res) => res.json(await issue(await service.login(req.body || {})))));
   const reviewGuard = [authenticate, requireRole('ADMIN', 'COMPANY')];
   const target = req => {
     const role = String(req.params.role || '').toUpperCase();
@@ -63,6 +64,7 @@ function createOnboardingRouter({ service = createOnboardingService(), rateLimit
     const token = /^Bearer ([^\s]+)$/.exec(String(req.headers.authorization || ''))?.[1];
     const decoded = verifyToken(token);
     if (!decoded || decoded.scope !== 'ONBOARDING' || decoded.aud !== 'routepass-onboarding' || !REQUIRED[decoded.role] || typeof decoded.id !== 'string') throw new OnboardingError(401, 'Sign in to your onboarding account.');
+    if (!(await sessionIsCurrent(decoded))) throw new OnboardingError(401, 'Sign in again after your password was reset.');
     await service.snapshot(decoded.id, decoded.role);
     req.onboarding = { id: decoded.id, role: decoded.role };
     next();

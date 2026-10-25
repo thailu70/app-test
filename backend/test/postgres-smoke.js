@@ -17,6 +17,41 @@ const requestJson = async (baseUrl, path, method = 'GET', body = null, token = n
   try { data = await response.json(); } catch (_) {}
   return { status: response.status, data };
 };
+const prepareDriverApplication = async (baseUrl, { id, phone, password, acceptanceToken }) => {
+  let result = await requestJson(baseUrl, '/api/onboarding/login', 'POST', { role: 'DRIVER', phone, password });
+  assert.equal(result.status, 200, 'Pending app drivers must be able to sign in to their scoped application');
+  assert.equal(result.data.account.id, id);
+  assert.equal(result.data.onboarding.tracked, true);
+  assert.equal(result.data.onboarding.phoneVerified, false, 'App registration must not fabricate phone verification');
+  const token = result.data.token;
+  assert.ok(token, 'The application session must be scoped separately from operational login');
+  assert.equal((await requestJson(baseUrl, '/api/trips/assignments', 'GET', null, token)).status, 401);
+  if (result.data.onboarding.acceptanceRequired) {
+    assert.ok(acceptanceToken, 'Daily commute applications require an administrator to accept their route proposal');
+    result = await requestJson(baseUrl, '/api/onboarding/applications/DRIVER/' + id + '/review', 'POST', { decision: 'ACCEPT' }, acceptanceToken);
+    assert.equal(result.status, 200, 'Accepting a native daily application must use the shared initial review');
+    assert.equal(result.data.onboarding.canVerifyAndUpload, true);
+    assert.equal(result.data.account.status, 'PENDING');
+  }
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aB9sAAAAASUVORK5CYII=', 'base64');
+  for (const kind of ['LICENSE', 'VEHICLE_REGISTRATION', 'INSURANCE', 'PHOTO']) {
+    const response = await fetch(new URL('/api/onboarding/documents/' + kind, baseUrl), {
+      method: 'PUT', headers: { authorization: 'Bearer ' + token, 'content-type': 'image/png' }, body: png
+    });
+    assert.equal(response.status, 200, 'The real private upload endpoint must persist the required ' + kind + ' fixture');
+    assert.equal((await response.json()).success, true);
+  }
+  result = await requestJson(baseUrl, '/api/onboarding/profile', 'PATCH', {
+    emergencyContactName: 'CI emergency contact', emergencyContactPhone: '+251900000199', vehicleColor: 'Green'
+  }, token);
+  assert.equal(result.status, 200, 'Required driver details must be completed through the application API');
+  result = await requestJson(baseUrl, '/api/onboarding/submit', 'POST', {}, token);
+  assert.equal(result.status, 200, 'A complete native application must be submitted explicitly');
+  assert.equal(result.data.onboarding.reviewStatus, 'SUBMITTED');
+  assert.equal(result.data.account.status, 'PENDING', 'Submitting an application never activates the driver');
+  assert.equal(result.data.onboarding.phoneVerified, false, 'Documents and review do not mark an unverified phone verified');
+  return token;
+};
 
 async function run() {
   assert.ok(process.env.DATABASE_URL, 'DATABASE_URL must target the PostgreSQL CI service');
@@ -236,8 +271,13 @@ async function run() {
     });
     assert.equal(result.status, 201, 'Company driver self-registration should create a pending driver without a personal vehicle');
     const companyDriver = result.data.user;
+    assert.equal(result.data.onboarding.tracked, true, 'Native company drivers must enter the shared document review');
+    assert.equal(result.data.token, null);
     result = await requestJson(baseUrl, `/api/companies/operations/drivers/${encodeURIComponent(companyDriver.id)}/approval`, 'PATCH', { action: 'APPROVE' }, companyToken);
-    assert.equal(result.status, 200, 'Company should approve its own driver');
+    assert.equal(result.status, 409, 'A company cannot approve a new native driver before documents and submission');
+    await prepareDriverApplication(baseUrl, { id: companyDriver.id, phone: '+251900000122', password: 'CI_Company_Driver#2026' });
+    result = await requestJson(baseUrl, `/api/companies/operations/drivers/${encodeURIComponent(companyDriver.id)}/approval`, 'PATCH', { action: 'APPROVE' }, companyToken);
+    assert.equal(result.status, 200, 'Company should approve its own complete submitted driver application');
 
     result = await requestJson(baseUrl, '/api/companies/operations/vehicles', 'POST', {
       plateNumber: '3-CI-0200', model: 'CI Company Coach', vehicleType: 'CI_COACH_50'
@@ -359,7 +399,10 @@ async function run() {
       licenseNumber: 'CI-DL-1',
       assignedVehiclePlate: '3-CI-0001',
       vehicleModel: 'CI Minibus',
-      vehicleType: 'MINIBUS_14'
+      vehicleType: 'MINIBUS_14',
+      routeChoice: 'EXISTING', appliedRouteId: suggestedRoute.id,
+      proposedDeparture: suggestedRoute.departure, proposedDestination: suggestedRoute.destination,
+      proposedMonthlyFeeEtb: 1, proposedMonthlyFeeBasis: 'PER_VEHICLE'
     });
     assert.equal(result.status, 201, 'Driver owner self-registration must create the pending driver and owned vehicle');
     const driver = result.data.user;
@@ -367,7 +410,11 @@ async function run() {
     assert.equal(driver.status, 'PENDING');
     assert.equal(result.data.token, null, 'Pending driver registration must not create a login session');
     assert.equal(driver.assignedVehiclePlate, '3-CI-0001');
-    assert.equal(driver.appliedRouteId, '', 'A newly registered driver must not choose their own route');
+    assert.equal(driver.appliedRouteId || '', '', 'An application preference must not become an operating route assignment');
+    assert.equal((await DB.prepare('SELECT appliedRouteId FROM users WHERE id=?').get(driver.id)).appliedRouteId || '', '');
+    assert.equal(result.data.onboarding.tracked, true);
+    assert.equal(result.data.onboarding.routePreference.proposedMonthlyFeeEtb, expectedVehicleFee, 'Native signup uses the same server-calculated whole-vehicle monthly quote');
+    assert.equal(result.data.onboarding.routePreference.feeLocked, true);
 
     result = await requestJson(baseUrl, '/api/auth/login', 'POST', {
       phone: '+251900000103',
@@ -380,7 +427,10 @@ async function run() {
     result = await requestJson(baseUrl, `/api/admin/drivers/${encodeURIComponent(driver.id)}/approval`, 'PATCH', {
       status: 'ACTIVE'
     }, adminToken);
-    assert.equal(result.status, 200, 'Admin should explicitly approve a driver before route assignment');
+    assert.equal(result.status, 409, 'Native daily drivers cannot bypass route acceptance, required documents and submission');
+    await prepareDriverApplication(baseUrl, { id: driver.id, phone: '+251900000103', password: 'CI_Driver_Password#2026', acceptanceToken: adminToken });
+    result = await requestJson(baseUrl, `/api/admin/drivers/${encodeURIComponent(driver.id)}/approval`, 'PATCH', { status: 'ACTIVE' }, adminToken);
+    assert.equal(result.status, 200, 'Admin should explicitly approve the complete submitted driver before route assignment');
 
     result = await requestJson(baseUrl, `/api/admin/drivers/${encodeURIComponent(driver.id)}/route`, 'PATCH', {
       routeId: 'route_bole_merkato'
