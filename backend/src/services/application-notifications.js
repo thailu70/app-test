@@ -77,8 +77,8 @@ function createApplicationNotificationService({ db = DB, now = Date.now, sendSms
         let delivered = false;
         try { delivered = (await sendSms(leased.phone, leased.message))?.sent === true; } catch (_) {}
         const retryAt = new Date(now() + Math.min(3600000, 60000 * 2 ** Math.min(leased.attempts - 1, 6))).toISOString();
-        await db.prepare('UPDATE application_notification_outbox SET status=?,sent_at=?,next_attempt_at=?,lease_token=NULL,lease_until=NULL,last_error=? WHERE id=? AND lease_token=?')
-          .run(delivered ? 'SENT' : leased.attempts >= 10 ? 'FAILED' : 'PENDING', delivered ? at() : null, retryAt, delivered ? '' : 'SMS_DELIVERY_FAILED', leased.id, leased.leaseToken);
+        await write(tx => tx.prepare('UPDATE application_notification_outbox SET status=?,sent_at=?,next_attempt_at=?,lease_token=NULL,lease_until=NULL,last_error=? WHERE id=? AND lease_token=?')
+          .run(delivered ? 'SENT' : leased.attempts >= 10 ? 'FAILED' : 'PENDING', delivered ? at() : null, retryAt, delivered ? '' : 'SMS_DELIVERY_FAILED', leased.id, leased.leaseToken));
         summary[delivered ? 'sent' : 'failed']++;
       }
     } catch (_) {

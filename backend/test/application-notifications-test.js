@@ -48,4 +48,40 @@ test('application notifications are durable, account-specific and delivered afte
     assert.deepEqual(await testService.flush(),{sent:0,failed:1});
     assert.equal((await DB.prepare("SELECT status FROM application_notification_outbox WHERE event_key='test-transport-event'").get()).status,'PENDING');
   });
+  await t.test('background leases wait for foreground rollback and leave the shared transaction queue usable',async()=>{
+    const checkpoint=()=>new Promise(resolve=>setImmediate(resolve));
+    await DB.prepare("INSERT INTO users(id,role,fullName,phone,passwordHash,status) VALUES('outbox_race_driver','DRIVER','Race Fixture','0912345622','unused','PENDING')").run();
+    let release,entered;const held=new Promise(resolve=>release=resolve),started=new Promise(resolve=>entered=resolve);
+    const transaction=DB.transaction(async tx=>{
+      await tx.prepare("UPDATE users SET status='ACTIVE' WHERE id='outbox_race_driver'").run();
+      await service.queue(tx,{accountId:'outbox_race_driver',role:'DRIVER',decision:'APPROVE',eventKey:'rolled-back-background'});
+      entered();await held;throw Error('Foreground rollback fixture');
+    });
+    const rejected=assert.rejects(transaction,/Foreground rollback fixture/);
+    await started;
+    let nextStarted=false;
+    const next=DB.transaction(async tx=>{nextStarted=true;assert.equal((await tx.prepare("SELECT status FROM users WHERE id='outbox_race_driver'").get()).status,'PENDING');});
+    const before=deliveries.length,background=service.flush();
+    await checkpoint();assert.equal(nextStarted,false);assert.equal(deliveries.length,before);
+    release();await rejected;await next;await background;
+    assert.equal(nextStarted,true);assert.equal(deliveries.length,before);
+    assert.equal(Boolean(await DB.prepare("SELECT id FROM application_notification_outbox WHERE event_key='rolled-back-background'").get()),false);
+    await assert.rejects(()=>DB.transaction(async()=>DB.transaction(()=>{})),/Nested SQLite transactions/);
+    assert.equal(await DB.transaction(()=>42),42,'A rejected transaction must not poison later work');
+  });
+  await t.test('slow SMS does not hold a transaction and its acknowledgement survives a concurrent foreground rollback',async()=>{
+    const checkpoint=()=>new Promise(resolve=>setImmediate(resolve));
+    let sendStarted,finishSend,foregroundStarted,finishForeground;
+    const sending=new Promise(resolve=>sendStarted=resolve),providerWait=new Promise(resolve=>finishSend=resolve),foreground=new Promise(resolve=>foregroundStarted=resolve),foregroundWait=new Promise(resolve=>finishForeground=resolve);
+    const slow=createApplicationNotificationService({now:()=>clock,sendSms:async()=>{sendStarted();await providerWait;return {sent:true};}});
+    await DB.transaction(tx=>slow.queue(tx,{accountId:'outbox_race_driver',role:'DRIVER',decision:'ACCEPT',eventKey:'slow-provider-event'}));
+    const background=slow.flush();await sending;
+    const transaction=DB.transaction(async tx=>{await tx.prepare("UPDATE users SET status='ACTIVE' WHERE id='outbox_race_driver'").run();foregroundStarted();await foregroundWait;throw Error('Rollback during provider fixture');});
+    const rejected=assert.rejects(transaction,/Rollback during provider fixture/);await foreground;
+    finishSend();await checkpoint();
+    assert.equal((await DB.prepare("SELECT status FROM application_notification_outbox WHERE event_key='slow-provider-event'").get()).status,'SENDING','Acknowledgement waits outside an unrelated open transaction');
+    finishForeground();await rejected;assert.deepEqual(await background,{sent:1,failed:0});
+    assert.equal((await DB.prepare("SELECT status FROM application_notification_outbox WHERE event_key='slow-provider-event'").get()).status,'SENT');
+    assert.equal((await DB.prepare("SELECT status FROM users WHERE id='outbox_race_driver'").get()).status,'PENDING');
+  });
 });

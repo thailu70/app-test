@@ -6,6 +6,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const { AsyncLocalStorage } = require('node:async_hooks');
 
 const isPostgres = Boolean(process.env.DATABASE_URL);
 if (process.env.NODE_ENV === 'production' && !isPostgres) {
@@ -13,6 +14,8 @@ if (process.env.NODE_ENV === 'production' && !isPostgres) {
 }
 let pgPool = null;
 let sqliteDb = null;
+let sqliteTransactionTail = Promise.resolve();
+const sqliteTransactionScope = new AsyncLocalStorage();
 
 if (isPostgres) {
   try {
@@ -250,15 +253,26 @@ const DB = {
   // Transaction runner for atomic capacity checks
   async transaction(fn) {
     if (sqliteDb) {
-      sqliteDb.exec('BEGIN IMMEDIATE');
-      try {
-        const result = await fn(DB);
-        sqliteDb.exec('COMMIT');
-        return result;
-      } catch (err) {
-        sqliteDb.exec('ROLLBACK');
-        throw err;
-      }
+      if (sqliteTransactionScope.getStore()?.active) throw new Error('Nested SQLite transactions are not supported. Use the current transaction adapter.');
+      // Every feature and background worker shares this one SQLite connection.
+      // Queue transactions globally; feature-local queues cannot prevent a
+      // notification lease from overlapping the next registration write.
+      const operation = sqliteTransactionTail.then(() => {
+        const scope = { active: true };
+        return sqliteTransactionScope.run(scope, async () => {
+          sqliteDb.exec('BEGIN IMMEDIATE');
+          try {
+            const result = await fn(DB);
+            sqliteDb.exec('COMMIT');
+            return result;
+          } catch (err) {
+            sqliteDb.exec('ROLLBACK');
+            throw err;
+          } finally { scope.active = false; }
+        });
+      });
+      sqliteTransactionTail = operation.catch(() => {});
+      return operation;
     } else {
       const client = await pgPool.connect();
       try {
