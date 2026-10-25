@@ -195,7 +195,7 @@ router.patch('/operations/drivers/:id/approval', authenticate, requireRole('COMP
       }
       return{id:driver.id,status};
     });
-    await require('../services/application-notifications').flushApplicationNotifications().catch(()=>{});
+    void require('../services/application-notifications').flushApplicationNotifications().catch(()=>{});
     res.json({success:true,driver:result,message:result.status==='ACTIVE'?'Driver approved and active. Assign a company vehicle and route next.':result.status==='SUSPENDED'?'Driver suspended. Approval and documents are retained.':'Driver application is pending. The driver can sign in to complete or correct the application.'});
   } catch(e){if(e.status)return res.status(e.status).json({success:false,code:e.code,error:e.message});console.error('[Company] driver approval:',e);res.status(500).json({success:false,error:'Could not update driver approval.'});}
 });

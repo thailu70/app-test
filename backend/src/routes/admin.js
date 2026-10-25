@@ -132,7 +132,7 @@ router.patch('/drivers/:id/approval', async (req, res) => {
       }
       return { id: driver.id, fullName: driver.fullName, status: actualStatus };
     });
-    await require('../services/application-notifications').flushApplicationNotifications().catch(() => {});
+    void require('../services/application-notifications').flushApplicationNotifications().catch(() => {});
     res.json({ success: true, driver: result, message: result.status === 'ACTIVE' ? 'Driver approved and active. You can assign an active route.' : result.status === 'SUSPENDED' ? 'Driver suspended. Their approval and documents are retained for reinstatement.' : 'Driver registration restored. Complete the remaining application steps before operational approval.' });
   } catch (err) {
     console.error('[Admin] driver approval failed:', err);

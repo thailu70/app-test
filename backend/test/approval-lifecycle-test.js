@@ -181,6 +181,41 @@ test('driver application approval, corrections and suspension have separate life
     assert.deepEqual(await stored(companyDriver.id), before);
   });
 
+  await t.test('approval responses do not wait for slow SMS delivery after the decision commits', async () => {
+    const notifications = require('../src/services/application-notifications');
+    const originalFlush = notifications.flushApplicationNotifications;
+    let finishDelivery, flushCalls = 0, deliveryFinished = false;
+    const delivery = new Promise(resolve => { finishDelivery = resolve; });
+    notifications.flushApplicationNotifications = () => { flushCalls++; return delivery; };
+    async function respondsBeforeDelivery(operation) {
+      let timer;
+      try {
+        const response = await Promise.race([operation, new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Approval response waited for the SMS provider.')), 1500);
+        })]);
+        assert.equal(response.status, 200, JSON.stringify(response.data));
+        assert.equal(deliveryFinished, false, 'The HTTP result is available before provider delivery finishes');
+        return response;
+      } finally { clearTimeout(timer); }
+    }
+    try {
+      await respondsBeforeDelivery(review(daily.id, 'SUSPEND'));
+      assert.equal((await DB.prepare('SELECT status FROM users WHERE id=?').get(daily.id)).status, 'SUSPENDED');
+      await respondsBeforeDelivery(review(daily.id, 'REACTIVATE'));
+      await respondsBeforeDelivery(legacy(daily.id, 'SUSPENDED'));
+      await respondsBeforeDelivery(legacy(daily.id, 'ACTIVE'));
+      await respondsBeforeDelivery(companyApproval(companyDriver.id, 'SUSPEND'));
+      await respondsBeforeDelivery(companyApproval(companyDriver.id, 'REACTIVATE'));
+      assert.equal(flushCalls, 6, 'All three review entry points start delivery without delaying the response');
+      assert.equal(await isOperationallyEligible(daily.id, 'DRIVER'), true);
+      assert.equal(await isOperationallyEligible(companyDriver.id, 'DRIVER'), true);
+    } finally {
+      notifications.flushApplicationNotifications = originalFlush;
+      deliveryFinished = true;
+      finishDelivery({ sent: 0, failed: 0 });
+    }
+  });
+
   await t.test('real phone changes still revoke review and old broken suspensions recover to registration only', async () => {
     const changed = await request('/api/admin/drivers/' + daily.id + '/contact', 'PATCH', admin, { phone: '0911770011' });
     assert.equal(changed.status, 200); assert.equal(changed.data.driver.unchanged, false);

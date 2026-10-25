@@ -687,7 +687,7 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
           decision: decision === 'REACTIVATE' ? 'RESTORE' : decision, eventKey: crypto.randomUUID() });
       }
     });
-    if (db === DB) await require('./application-notifications').flushApplicationNotifications().catch(() => {});
+    if (db === DB) void require('./application-notifications').flushApplicationNotifications().catch(() => {});
     return snapshot(id, role, { review: true });
   }
   return { register, login, snapshot, requestOtp, verifyOtp, updateProfile, upload, readDocument, submit, mayReview, applications, review };
