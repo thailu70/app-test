@@ -8,7 +8,9 @@ const path = require('node:path');
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'isolated-mobility-security-regression-key';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'routepass-mobility-security-'));
-if (process.env.MOBILITY_TEST_POSTGRES !== 'true') delete process.env.DATABASE_URL;
+if (process.env.MOBILITY_TEST_POSTGRES === 'true') {
+  if (process.env.CI !== 'true' || !process.env.DATABASE_URL) throw new Error('Disposable CI PostgreSQL configuration is required.');
+} else delete process.env.DATABASE_URL;
 const { DB } = require('../src/db');
 const { initOnboardingSchema, REQUIRED, getOnboardingReadiness } = require('../src/services/onboarding');
 const { initMasterDataSchema } = require('../src/services/master-data');
@@ -16,6 +18,8 @@ const { createMobilityService } = require('../src/services/mobility');
 
 test('mobility reservations retain capacity, expiry, operational approval and private cargo access', async t => {
   await initOnboardingSchema(); await initMasterDataSchema();
+  await require('../src/services/mobility-schema').initMobilitySchema();
+  if (DB.isPostgres) await DB.exec('TRUNCATE mobility_sms_outbox,mobility_seats,mobility_travelers,mobility_bookings,mobility_requests,mobility_trips');
   const time = new Date().toISOString();
   async function approvedDriver(driverId, phone, serviceType, vehicleId) {
     await DB.prepare('INSERT INTO users(id,role,fullName,phone,passwordHash,status) VALUES(?,?,?,?,?,?)')
@@ -89,7 +93,7 @@ test('mobility reservations retain capacity, expiry, operational approval and pr
 
   await t.test('admin can reject a pending proposal after its driver was suspended, without approving it', async () => {
     const tripId = await trip({ approve: false });
-    await DB.prepare("UPDATE users SET status='INACTIVE' WHERE id=?").run('security-group-driver');
+    await DB.prepare("UPDATE users SET status='SUSPENDED' WHERE id=?").run('security-group-driver');
     await assert.rejects(service.reviewTrip('usr_adm_root', tripId, { decision: 'APPROVE', note: 'Must remain blocked' }), error => error.status === 409);
     assert.equal((await service.reviewTrip('usr_adm_root', tripId, { decision: 'REJECT', note: 'Driver unavailable' })).trip.status, 'REJECTED');
     await DB.prepare("UPDATE users SET status='ACTIVE' WHERE id=?").run('security-group-driver');

@@ -6,7 +6,9 @@ const os = require('node:os');
 const path = require('node:path');
 process.env.NODE_ENV = 'test';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'passo-mobility-'));
-if (process.env.MOBILITY_TEST_POSTGRES !== 'true') delete process.env.DATABASE_URL;
+if (process.env.MOBILITY_TEST_POSTGRES === 'true') {
+  if (process.env.CI !== 'true' || !process.env.DATABASE_URL) throw new Error('Disposable CI PostgreSQL configuration is required.');
+} else delete process.env.DATABASE_URL;
 const { DB } = require('../src/db');
 const { initMasterDataSchema } = require('../src/services/master-data');
 const { initOnboardingSchema } = require('../src/services/onboarding');
@@ -14,6 +16,8 @@ const { createMobilityService } = require('../src/services/mobility');
 const { signToken } = require('../src/middleware/auth');
 test('group approval, multi-person paid tickets, cargo privacy and admin assignment', async t => {
   await initMasterDataSchema(); await initOnboardingSchema();
+  await require('../src/services/mobility-schema').initMobilitySchema();
+  if (DB.isPostgres) await DB.exec('TRUNCATE mobility_sms_outbox,mobility_seats,mobility_travelers,mobility_bookings,mobility_requests,mobility_trips');
   await DB.prepare("INSERT INTO users(id,role,fullName,phone,passwordHash,status) VALUES('usr_adm_root','ADMIN','Fixture Admin','+251900999001','unused','ACTIVE') ON CONFLICT(id) DO NOTHING").run();
   const at = new Date().toISOString();
   for (const [key, type, phone] of [['group','GROUP_TRAVEL','+251911000101'],['cargo','CARGO','+251911000102']]) {
