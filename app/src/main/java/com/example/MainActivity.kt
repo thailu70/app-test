@@ -451,7 +451,9 @@ fun MainTransportApp(viewModel: MainViewModel) {
                         PassengerDashboardScreen(viewModel = viewModel, onOpenProfile = { showProfile = true })
                     }
                     AppRole.DRIVER -> {
-                        DriverTripScreen(viewModel = viewModel, onPrivacy = { showPrivacy = true })
+                        com.example.ui.screens.intercity.MobilityDriverPortal(viewModel, onPrivacy = { showPrivacy = true }) {
+                            DriverTripScreen(viewModel = viewModel, onPrivacy = { showPrivacy = true })
+                        }
                     }
                     AppRole.ADMIN -> {
                         Column(

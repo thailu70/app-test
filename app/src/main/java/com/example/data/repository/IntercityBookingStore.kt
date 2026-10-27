@@ -27,8 +27,10 @@ interface IntercityBookingAccessStore {
  * Crypto/storage errors deliberately propagate so the UI can report that ticket recovery is
  * unavailable. They must not silently become an empty history or a plaintext fallback.
  */
-class AndroidEncryptedIntercityBookingStore(context: Context) : IntercityBookingAccessStore {
-    private val preferences = context.applicationContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+class AndroidEncryptedIntercityBookingStore(context: Context, namespace: String = "intercity") : IntercityBookingAccessStore {
+    init { require(namespace in setOf("intercity", "mobility")) }
+    private val preferences = context.applicationContext.getSharedPreferences(if (namespace == "intercity") PREFERENCES_NAME else "mobility_private_access", Context.MODE_PRIVATE)
+    private val authenticatedContext = if (namespace == "intercity") AUTHENTICATED_CONTEXT else "RoutePass.Mobility.PrivateAccess.v1".toByteArray(Charsets.UTF_8)
 
     override fun load(): List<IntercityBookingAccess> = synchronized(storageLock) { readAccess() }
 
@@ -53,7 +55,7 @@ class AndroidEncryptedIntercityBookingStore(context: Context) : IntercityBooking
         val cipher = Cipher.getInstance(TRANSFORMATION)
         // An entry without its original device key is an error, not a newly generated key.
         cipher.init(Cipher.DECRYPT_MODE, existingKey(), GCMParameterSpec(GCM_TAG_BITS, iv))
-        cipher.updateAAD(AUTHENTICATED_CONTEXT)
+        cipher.updateAAD(authenticatedContext)
         val plaintext = cipher.doFinal(Base64.decode(parts[2], Base64.NO_WRAP))
         try {
             val entries = JSONArray(String(plaintext, Charsets.UTF_8))
@@ -81,7 +83,7 @@ class AndroidEncryptedIntercityBookingStore(context: Context) : IntercityBooking
         val cipher = Cipher.getInstance(TRANSFORMATION)
         val ciphertext = try {
             cipher.init(Cipher.ENCRYPT_MODE, keyForEncryption())
-            cipher.updateAAD(AUTHENTICATED_CONTEXT)
+            cipher.updateAAD(authenticatedContext)
             cipher.doFinal(plaintext)
         } finally {
             plaintext.fill(0)

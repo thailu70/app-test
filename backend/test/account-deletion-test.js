@@ -102,6 +102,28 @@ test('authenticated account deletion revokes credentials and removes live person
     assert.equal(await DB.prepare("SELECT * FROM vehicle_live_locations WHERE vehicle_id='delete_vehicle'").get(),undefined);
     assert.equal((await DB.prepare("SELECT * FROM trips WHERE id='delete_trip'").get()).status,'COMPLETED');
   });
+  await t.test('group and cargo commitments require handover and closure cancels unapproved proposals while preserving completed history', async () => {
+    await require('../src/services/mobility-schema').initMobilitySchema();
+    const token=await user('delete_mobility','DRIVER');
+    await DB.prepare("INSERT INTO vehicles(id,plateNumber,model,vehicleType,capacityLimit,driverId,status) VALUES('delete_mobility_vehicle','DELETE-MOBILITY','Van','MINIVAN_8',8,'delete_mobility','IN_SERVICE')").run();
+    const instant=new Date().toISOString(),future=new Date(Date.now()+86400000).toISOString();
+    for(const [id,status] of [['delete_group_approved','APPROVED'],['delete_group_pending','PENDING_REVIEW'],['delete_group_history','COMPLETED']])await DB.prepare('INSERT INTO mobility_trips(id,driver_id,vehicle_id,origin,destination,departure_at,latitude,longitude,seats,fare_etb,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(id,'delete_mobility','delete_mobility_vehicle','Addis Ababa','Hawassa',future,9,38,8,500,status,instant);
+    let result=await api(token,'POST',{password,confirmation:'DELETE'});assert.equal(result.status,409);assert.ok(result.body.blockers.some(b=>b.code==='GROUP_TRAVEL_COMMITMENT'));
+    assert.equal((await DB.prepare("SELECT status FROM mobility_trips WHERE id='delete_group_pending'").get()).status,'PENDING_REVIEW','Rejected deletion never cancels a proposal');
+    await DB.prepare("UPDATE mobility_trips SET status='BOARDING',departure_at='2020-01-01T00:00:00Z' WHERE id='delete_group_approved'").run();
+    result=await api(token);assert.equal(result.body.deletion.eligible,false,'Boarding remains a commitment even after its scheduled date');
+    await DB.prepare("UPDATE mobility_trips SET status='COMPLETED' WHERE id='delete_group_approved'").run();
+    await DB.prepare("INSERT INTO mobility_requests(id,kind,secret_hash,origin,destination,travel_date,vehicle_type,customer_name,customer_phone,status,driver_id,vehicle_id,created_at) VALUES('delete_cargo_request','CARGO','fixture-only','Origin','Destination','2099-01-01','MINIVAN_8','Customer','0912000000','ASSIGNED','delete_mobility','delete_mobility_vehicle',?)").run(instant);
+    result=await api(token,'POST',{password,confirmation:'DELETE'});assert.equal(result.status,409);assert.ok(result.body.blockers.some(b=>b.code==='ASSIGNED_TRANSPORT_REQUEST'));
+    await DB.prepare("UPDATE mobility_requests SET status='COMPLETED' WHERE id='delete_cargo_request'").run();
+    result=await api(token,'POST',{password,confirmation:'DELETE'});assert.equal(result.status,200,JSON.stringify(result.body));
+    assert.equal((await DB.prepare("SELECT status FROM mobility_trips WHERE id='delete_group_pending'").get()).status,'CANCELLED');
+    assert.equal((await DB.prepare("SELECT status FROM mobility_trips WHERE id='delete_group_history'").get()).status,'COMPLETED');
+    assert.equal((await DB.prepare("SELECT status FROM mobility_requests WHERE id='delete_cargo_request'").get()).status,'COMPLETED');
+    assert.equal((await DB.prepare("SELECT driverId FROM vehicles WHERE id='delete_mobility_vehicle'").get()).driverId,null);
+  });
+
   await t.test('pending onboarding accounts can close without OTP or operational approval', async () => {
     await user('delete_pending','DRIVER','PENDING');
     const instant = new Date().toISOString();

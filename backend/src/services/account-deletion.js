@@ -66,6 +66,8 @@ async function blockersFor(db, id, role, at = Date.now()) {
   if (role === 'DRIVER') {
     if (await db.prepare("SELECT id FROM trips WHERE driverId=? AND status='IN_PROGRESS' LIMIT 1").get(id)) blockers.push({ code: 'ACTIVE_TRIP', message: 'Complete the active trip before closing your account.' });
     if (await hasTable(db, 'intercity_departures') && await db.prepare("SELECT id FROM intercity_departures WHERE driver_id=? AND (status='BOARDING' OR (status='SCHEDULED' AND departure_at>=?)) LIMIT 1").get(id, departureCutoff)) blockers.push({ code: 'COMMITTED_DEPARTURE', message: 'Ask your company or administrator to reassign or cancel your scheduled journeys first.' });
+    if (await hasTable(db, 'mobility_trips') && await db.prepare("SELECT id FROM mobility_trips WHERE driver_id=? AND status IN ('APPROVED','BOARDING') LIMIT 1").get(id)) blockers.push({ code: 'GROUP_TRAVEL_COMMITMENT', message: 'Ask the administrator to resolve your approved group trips before closing your account.' });
+    if (await hasTable(db, 'mobility_requests') && await db.prepare("SELECT id FROM mobility_requests WHERE driver_id=? AND status='ASSIGNED' LIMIT 1").get(id)) blockers.push({ code: 'ASSIGNED_TRANSPORT_REQUEST', message: 'Ask the administrator to reassign or close your group travel and cargo requests before closing your account.' });
     const assignedPasses = await db.prepare(`SELECT s.* FROM subscriptions s JOIN vehicles v ON v.id=s.vehicleId JOIN users p ON p.id=s.passengerId
       WHERE v.driverId=? AND s.subscriptionStatus='ACTIVE' AND s.paymentStatus='PAID' AND p.status='ACTIVE'
       AND NOT EXISTS (SELECT 1 FROM subscriptions newer WHERE newer.passengerId=s.passengerId AND
@@ -160,6 +162,7 @@ function createAccountDeletionService({ db = DB, uploadRoot = process.env.UPLOAD
         await tx.prepare("UPDATE complaints SET passengerName='Deleted account' WHERE passengerId=?").run(id);
       }
       if (role === 'DRIVER') {
+        if (await hasTable(tx, 'mobility_trips')) await tx.prepare("UPDATE mobility_trips SET status='CANCELLED',review_note='Driver account closed before trip approval.',reviewed_at=? WHERE driver_id=? AND status='PENDING_REVIEW'").run(requestedAt, id);
         await tx.prepare('DELETE FROM vehicle_live_locations WHERE vehicle_id IN (SELECT id FROM vehicles WHERE driverId=?)').run(id);
         await tx.prepare("UPDATE vehicles SET driverId=NULL,driverName='',assignedRouteId=NULL,currentLat=NULL,currentLng=NULL,currentOccupancy=0,status='OFF_DUTY',updatedAt=CURRENT_TIMESTAMP WHERE driverId=?").run(id);
       }

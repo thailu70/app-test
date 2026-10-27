@@ -43,7 +43,8 @@ internal fun AuthRegistrationDetails(
             AuthField(draft.license, { draft.license = it }, t("Commercial driving licence number", "የንግድ መንጃ ፈቃድ ቁጥር", "Lakkoofsa eeyyama konkolaachisummaa"),
                 Modifier.fillMaxWidth().testTag("auth_driver_license_input"), enabled = enabled, language = language, leadingIcon = Icons.Default.Badge)
             Text(t("Service type", "የአገልግሎት ዓይነት", "Gosa tajaajilaa"), color = CommuteInk, fontWeight = FontWeight.SemiBold)
-            AuthChoiceChips(listOf("Daily Commuter" to t("Daily commute", "የዕለት ጉዞ", "Imala guyyaa"), "Intercity" to t("Intercity", "የከተማ መካከል", "Magaalotaa")),
+            AuthChoiceChips(listOf("Daily Commuter" to t("Daily commute", "የዕለት ጉዞ", "Imala guyyaa"), "Intercity" to t("Intercity", "የከተማ መካከል", "Magaalotaa"),
+                "Group Travel" to t("Group travel", "የቡድን ጉዞ", "Imala garee"), "Cargo" to t("Cargo", "ጭነት", "Fe'umsa")),
                 draft.service, enabled, { draft.service = it }, "auth_service")
             if (draft.service == "Intercity") {
                 AuthChoiceDropdown(draft.company, t("Transport company", "የትራንስፖርት ኩባንያ", "Dhaabbata geejjibaa"), companies.map { it.id to it.name }, { draft.company = it }, enabled, "auth_driver_company")
@@ -55,12 +56,18 @@ internal fun AuthRegistrationDetails(
                 AuthField(draft.vehicleModel, { draft.vehicleModel = it }, t("Vehicle make / model", "የተሽከርካሪ ሞዴል", "Gosa / moodeela konkolaataa"),
                     Modifier.fillMaxWidth().testTag("auth_driver_vehicle_model_input"), enabled = enabled, language = language, leadingIcon = Icons.Default.DirectionsBus)
                 AuthChoiceDropdown(draft.vehicleType, t("Vehicle type", "የተሽከርካሪ ዓይነት", "Gosa konkolaataa"),
-                    vehicleTypes.map { it.code to "${it.name} · ${it.capacity} seats" },
+                    vehicleTypes.map { it.code to if (draft.service == "Cargo") it.name else "${it.name} · ${it.capacity} seats" },
                     { draft.vehicleType = it }, enabled && !vehicleTypesLoading && vehicleTypes.isNotEmpty(), "auth_driver_vehicle_type")
                 if (vehicleTypesLoading) Text(t("Loading vehicle types…", "የተሽከርካሪ ዓይነቶችን በመጫን ላይ…", "Gosa konkolaataa fe'aa jira…"), color = CommuteInk, fontSize = 12.sp)
                 else if (vehicleTypes.isEmpty()) Text(t("No vehicle types are currently available. Contact your administrator.", "አሁን የተሽከርካሪ ዓይነቶች የሉም። አስተዳዳሪዎን ያነጋግሩ።", "Gosti konkolaataa hin jiru. Bulchaa kee qunnami."), color = Color(0xFFAC2F2F), fontSize = 12.sp)
                 vehicleTypesError?.let { Text(it, color = Color(0xFFAC2F2F), fontSize = 12.sp) }
-                if (applications != null) DriverRouteProposalFields(draft, applications, language, enabled)
+                if (draft.service == "Daily Commuter" && applications != null) DriverRouteProposalFields(draft, applications, language, enabled)
+                else {
+                    AuthField(draft.pickup, { draft.pickup = it }, t("Preferred departure", "የሚመርጡት መነሻ", "Ka'umsa filatame"), Modifier.fillMaxWidth().testTag("auth_driver_preferred_origin"), enabled = enabled, language = language)
+                    AuthField(draft.destination, { draft.destination = it }, t("Preferred destination", "የሚመርጡት መድረሻ", "Ga'umsa filatame"), Modifier.fillMaxWidth().testTag("auth_driver_preferred_destination"), enabled = enabled, language = language)
+                    Text(if (draft.service == "Cargo") t("After approval, assigned cargo requests appear in your driver portal.", "ከተፈቀደ በኋላ የተመደቡ ጭነቶች በፖርታልዎ ይታያሉ።", "Hayyama booda gaaffileen fe'umsaa poortaalii kee irratti mul'atu.")
+                        else t("After approval, propose trips with a per-seat price for admin review.", "ከተፈቀደ በኋላ ጉዞ እና የመቀመጫ ዋጋ ለግምገማ ያቅርቡ።", "Hayyama booda imalaa fi gatii teessoo gamaaggamaaf dhiyeessi."), color = CommuteInk, fontSize = 12.sp)
+                }
             }
         }
         if (!driver && !draft.isCustomCommute) {
@@ -111,13 +118,17 @@ internal fun AuthRegistrationDetails(
 
 @Composable
 private fun AuthChoiceChips(options: List<Pair<String, String>>, selected: String, enabled: Boolean, onSelect: (String) -> Unit, tag: String) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-        options.forEach { (value, label) ->
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+      options.chunked(if (options.size > 3) 2 else options.size.coerceAtLeast(1)).forEach { row ->
+       Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        row.forEach { (value, label) ->
             FilterChip(selected = selected == value, onClick = { onSelect(value) }, enabled = enabled,
                 label = { Text(label, fontSize = 12.sp) },
                 colors = FilterChipDefaults.filterChipColors(selectedContainerColor = CommuteMint, selectedLabelColor = CommuteTeal),
                 modifier = Modifier.weight(1f).testTag("${tag}_$value"))
         }
+       }
+      }
     }
 }
 

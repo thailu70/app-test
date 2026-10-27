@@ -381,6 +381,45 @@ test('public driver and company onboarding isolates credentials, verifies real d
     assert.equal((await request('/private', 'GET', signToken({ id: driver.account.id, role: 'DRIVER' }))).status, 200);
   });
 
+  await t.test('group and cargo drivers retain separate services with preferred routes and the full two-stage approval gate', async () => {
+    for (const [serviceType, phone, plate] of [['GROUP_TRAVEL','0912346090','GROUP-REG-90'],['CARGO','0912346091','CARGO-REG-91']]) {
+      const input = { ...driverInput(phone, plate), serviceType, proposedDeparture: 'Addis Ababa', proposedDestination: 'Hawassa', capacity: 99 };
+      delete input.proposedMonthlyFeeEtb; delete input.proposedMonthlyFeeBasis;
+      const registered = await api('/register', 'POST', null, input);
+      assert.equal(registered.status, 201, JSON.stringify(registered.data));
+      const applicant = registered.data;
+      assert.equal(applicant.account.serviceType, serviceType);assert.equal(applicant.onboarding.serviceType, serviceType);
+      assert.equal(applicant.onboarding.routePreference.proposedMonthlyFeeEtb, null);
+      assert.equal(applicant.onboarding.routePreference.proposedMonthlyFeeBasis, '');
+      assert.equal(applicant.onboarding.routePreference.passengerCapacity, 8, 'Capacity is catalog-owned, never copied from registration input');
+      assert.equal(applicant.onboarding.initialApplicationComplete, true);assert.deepEqual(applicant.onboarding.initialMissing, []);
+      assert.equal(applicant.onboarding.canVerifyAndUpload, false);
+      assert.equal((await api('/documents/LICENSE','PUT',applicant.token,png,'image/png')).status,428);
+      assert.equal((await api('/applications/DRIVER/'+applicant.account.id+'/review','POST',admin,{decision:'APPROVE'})).status,428);
+      assert.equal((await api('/login','POST',null,{role:'DRIVER',phone,password})).data.account.serviceType, serviceType);
+      await accept(applicant);
+      await completeDriverProfile(applicant);
+      const submitted = await api('/submit','POST',applicant.token,{});
+      assert.equal(submitted.status,200,JSON.stringify(submitted.data));assert.equal(submitted.data.onboarding.reviewStatus,'SUBMITTED');
+      const approved = await api('/applications/DRIVER/'+applicant.account.id+'/review','POST',admin,{decision:'APPROVE'});
+      assert.equal(approved.status,200,JSON.stringify(approved.data));assert.equal(approved.data.account.status,'ACTIVE');assert.equal(approved.data.account.serviceType,serviceType);
+      assert.equal(approved.data.onboarding.phoneVerified,false,'Optional OTP never fabricates verification');
+      assert.equal(await isOperationallyEligible(applicant.account.id,'DRIVER'),true);
+      assert.equal((await DB.prepare('SELECT status FROM vehicles WHERE driverId=?').get(applicant.account.id)).status,'IN_SERVICE','Document approval makes the registered service vehicle operational');
+      const changed = await api('/profile','PATCH',applicant.token,{proposedDeparture:'Bahir Dar',proposedDestination:'Gondar'});
+      assert.equal(changed.status,200,JSON.stringify(changed.data));assert.equal(changed.data.account.serviceType,serviceType);
+      assert.equal(changed.data.onboarding.acceptanceStatus,'PENDING');assert.equal(changed.data.account.status,'PENDING');
+      assert.equal(changed.data.onboarding.routePreference.proposedMonthlyFeeEtb,null);
+      assert.equal(await isOperationallyEligible(applicant.account.id,'DRIVER'),false,'A preferred route change revokes prior approval');
+      assert.equal((await api('/profile','PATCH',applicant.token,{serviceType:'DAILY_COMMUTE'})).status,400,'An applicant cannot switch their approved service by patching a profile');
+      assert.equal((await api('/profile','PATCH',applicant.token,{proposedMonthlyFeeEtb:20000})).status,400,'No daily commute price is attached to a different service');
+    }
+    const invalid={...driverInput('0912346092','GROUP-REG-92'),serviceType:'GROUP_TRAVEL'};
+    assert.equal((await api('/register','POST',null,invalid)).status,400,'Monthly fees are not silently interpreted as group seat prices');
+    delete invalid.proposedMonthlyFeeEtb;delete invalid.proposedMonthlyFeeBasis;invalid.proposedDestination=' BOLE ';
+    assert.equal((await api('/register','POST',null,invalid)).status,400,'Identical normalized preferred endpoints are rejected');
+  });
+
   await t.test('new companies register publicly and require phone, private documents and administrator review', async () => {
     const registered = await api('/register', 'POST', null, { role: 'COMPANY', fullName: 'Company Representative', companyName: 'Public Applicant Transport', phone: '0912346010', password });
     assert.equal(registered.status, 201, JSON.stringify(registered.data)); company = registered.data;

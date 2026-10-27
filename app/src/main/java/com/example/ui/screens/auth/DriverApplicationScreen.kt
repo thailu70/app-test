@@ -153,10 +153,15 @@ internal fun DriverApplicationScreen(applications: DriverApplicationRepository, 
                 }
                 if (editingRoute) Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(t("Changing your route or fee requires initial acceptance again.", "መስመር ወይም ዋጋ መቀየር የመጀመሪያ ተቀባይነትን እንደገና ይፈልጋል።", "Karaa ykn kaffaltii jijjiiruun fudhatama jalqabaa irra deebi'ee barbaada."), color = CommuteInk, fontSize = 12.sp)
-                    DriverRouteProposalFields(routeDraft, applications, language, !state.busy)
+                    if (account.serviceType == "DAILY_COMMUTE") DriverRouteProposalFields(routeDraft, applications, language, !state.busy)
+                    else {
+                        AuthField(routeDraft.pickup, { routeDraft.pickup = it }, t("Preferred departure", "የሚመርጡት መነሻ", "Ka'umsa filatame"), enabled = !state.busy, language = language)
+                        AuthField(routeDraft.destination, { routeDraft.destination = it }, t("Preferred destination", "የሚመርጡት መድረሻ", "Ga'umsa filatame"), enabled = !state.busy, language = language)
+                    }
                     AuthPrimaryButton(t("Save route proposal", "የመስመር ጥቆማ አስቀምጥ", "Yaada karaa olkaa'i"), onClick = {
-                        driverMonthlyFee(routeDraft)?.let { fee -> scope.launch { applications.saveRoute(routeDraft.pickup, routeDraft.destination, account.vehicleType, fee) } }
-                    }, enabled = !state.busy && !routeDraft.quoteLoading && driverMonthlyFee(routeDraft) != null)
+                        if (account.serviceType == "DAILY_COMMUTE") driverMonthlyFee(routeDraft)?.let { fee -> scope.launch { applications.saveRoute(routeDraft.pickup, routeDraft.destination, account.vehicleType, fee) } }
+                        else scope.launch { applications.savePreferredRoute(routeDraft.pickup, routeDraft.destination, account.vehicleType) }
+                    }, enabled = !state.busy && if (account.serviceType == "DAILY_COMMUTE") !routeDraft.quoteLoading && driverMonthlyFee(routeDraft) != null else routeDraft.pickup.trim().length >= 2 && routeDraft.destination.trim().length >= 2)
                 }
             }
             if (progress.canInitiallySubmit && !progress.canVerifyAndUpload && progress.reviewStatus != "AWAITING_ACCEPTANCE") item {

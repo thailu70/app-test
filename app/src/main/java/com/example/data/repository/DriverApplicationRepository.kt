@@ -61,6 +61,13 @@ class DriverApplicationRepository(private val api: RoutePassApiService) {
         api.updateDriverApplication(authorization(), mapOf("routeChoice" to "PROPOSED", "proposedDeparture" to departure.trim(),
             "proposedDestination" to destination.trim(), "vehicleType" to vehicleType, "proposedMonthlyFeeEtb" to fee, "proposedMonthlyFeeBasis" to "PER_VEHICLE"))
     }
+    suspend fun savePreferredRoute(departure: String, destination: String, vehicleType: String) = action("Your preferred route was saved.") {
+        val application = mutable.value.application ?: error("Sign in to your application again.")
+        check(application.account?.serviceType in setOf("GROUP_TRAVEL", "CARGO") && application.onboarding?.reviewStatus !in setOf("SUBMITTED", "APPROVED")) { "Your application is not open for route changes." }
+        require(departure.trim().length >= 2 && destination.trim().length >= 2) { "Enter your preferred departure and destination." }
+        api.updateDriverApplication(authorization(), mapOf("routeChoice" to "PROPOSED", "proposedDeparture" to departure.trim(),
+            "proposedDestination" to destination.trim(), "vehicleType" to vehicleType))
+    }
     suspend fun upload(kind: String, bytes: ByteArray, mime: String) = action("Your document was uploaded.") {
         check(mutable.value.application?.editable == true) { "Document uploads open after your application is accepted." }
         require(bytes.isNotEmpty() && bytes.size <= 5 * 1024 * 1024) { "Each document must be between 1 byte and 5 MB." }

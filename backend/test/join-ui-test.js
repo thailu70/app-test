@@ -17,7 +17,8 @@ test('recruitment portal translates every labelled control and ships local visua
   assert.ok(html.includes('mailto:info@passo.live'));
   assert.ok(html.includes('href="/" aria-label="Passo home"'));
   assert.ok(html.includes('href="/privacy/"'));assert.ok(html.includes('href="/delete-account/"'));
-  assert.doesNotMatch(html,/href="\/(?:company|travel)\/|data-role=|data-service=|data-company-profile|name="companyId"|name="companyName"/,'The recruitment page only presents daily commute driver registration.');
+  assert.doesNotMatch(html,/href="\/(?:company|travel)\/|data-role=|data-company-profile|name="companyId"|name="companyName"/,'Public recruitment remains independent driver registration.');
+  for(const service of ['DAILY_COMMUTE','GROUP_TRAVEL','CARGO'])assert.match(html,new RegExp('data-service="'+service+'"'));
 });
 
 test('document restrictions match the actual private upload contract', () => {
@@ -71,7 +72,22 @@ test('public forms always send daily commute driver ownership fields despite sta
   assert.equal(html.includes('name="routeChoice"'),false);assert.equal(html.includes('name="appliedRouteId"'),false);
   assert.equal(html.includes('<select id="serviceType"'),false);
   assert.ok(html.includes('name="serviceType" type="hidden" value="DAILY_COMMUTE"'));
-  assert.doesNotMatch(html,/data-service=|data-role=|INTERCITY|Transport company/);
+  assert.doesNotMatch(html,/data-role=|INTERCITY|Transport company/);
+});
+
+test('group and cargo applications carry their service and preferred route without a monthly fee or client capacity claim',()=>{
+  for(const serviceType of ['GROUP_TRAVEL','CARGO']){
+    const values={serviceType,fullName:'Group Driver',phone:'0912345678',password:'Fixture password',licenseNumber:'LIC',assignedVehiclePlate:'AA-1',vehicleModel:'Vehicle',vehicleType:'MINIBUS_14',proposedDeparture:' Addis Ababa ',proposedDestination:' Hawassa ',proposedMonthlyFeeEtb:'9999',capacity:999};
+    const payload=portal.accountPayload('COMPANY','register',values,fixedQuote(35000));
+    assert.equal(payload.role,'DRIVER');assert.equal(payload.serviceType,serviceType);assert.equal(payload.proposedDeparture,'Addis Ababa');assert.equal(payload.proposedDestination,'Hawassa');
+    for(const key of ['proposedMonthlyFeeEtb','proposedMonthlyFeeBasis','capacity','companyId'])assert.equal(Object.hasOwn(payload,key),false,key);
+    assert.equal(portal.isDailyDriverAccount({role:'DRIVER',serviceType,companyId:''}),true);
+    const controls=['vehicleType','proposedDeparture','proposedDestination','proposedMonthlyFeeEtb','adultConfirmation'].map(name=>({name,disabled:false,required:true}));
+    portal.applyRegistrationFields(controls,'DRIVER','register',serviceType);
+    assert.equal(controls.find(c=>c.name==='proposedMonthlyFeeEtb').disabled,true);
+    assert.equal(controls.find(c=>c.name==='proposedDeparture').required,true);
+    assert.equal(controls.find(c=>c.name==='adultConfirmation').required,true);
+  }
 });
 
 test('daily-driver controls cannot be switched to a different role or service and login disables registration fields', () => {

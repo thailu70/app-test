@@ -174,12 +174,6 @@ internal fun IntercitySearchPanel(
                     Text(intercityText(language, "Search routes", "መስመሮችን ፈልግ", "Karaa barbaadi"), Modifier.weight(1f), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Icon(Icons.AutoMirrored.Filled.ArrowForward, null, Modifier.size(23.dp))
                 }
-            } else {
-                Column(Modifier.fillMaxWidth().padding(vertical = 15.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(if (serviceTab == 1) Icons.Default.Inventory2 else Icons.Default.Groups, null, tint = CommuteTeal, modifier = Modifier.size(32.dp))
-                    Text(intercityText(language, "Not available yet", "ገና አልተጀመረም", "Ammaaf hin jiru"), color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text(intercityText(language, "Choose Intercity passenger to find a route.", "መስመር ለማግኘት የከተማ መካከል መንገደኛን ይምረጡ።", "Karaa argachuuf imalaa magaalota filadhu."), color = IntercityMuted, fontSize = 12.sp, lineHeight = 17.sp)
-                }
             }
         }
     }

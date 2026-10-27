@@ -46,6 +46,8 @@ object ApiClient {
         redactHeader("Cookie")
         redactHeader("X-Telebirr-Signature")
         redactHeader("X-Idempotency-Key")
+        redactHeader("X-Booking-Secret")
+        redactHeader("X-Request-Secret")
         level = HttpLoggingInterceptor.Level.NONE
     }
 

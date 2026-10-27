@@ -76,17 +76,20 @@ class CredentialStorageTest {
             val parser = context.resources.getXml(resource)
             var databaseExclusions = 0
             var ticketExclusions = 0
+            var mobilityExclusions = 0
             parser.use {
                 while (it.eventType != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
                     if (it.eventType == org.xmlpull.v1.XmlPullParser.START_TAG && it.name == "exclude") {
                         if (it.getAttributeValue(null, "domain") == "database" && it.getAttributeValue(null, "path") == ".") databaseExclusions++
                         if (it.getAttributeValue(null, "path") == "intercity_booking_access.xml") ticketExclusions++
+                        if (it.getAttributeValue(null, "path") == "mobility_private_access.xml") mobilityExclusions++
                     }
                     it.next()
                 }
             }
             assertEquals(if (resource == R.xml.data_extraction_rules) 2 else 1, databaseExclusions)
             assertEquals(if (resource == R.xml.data_extraction_rules) 2 else 1, ticketExclusions)
+            assertEquals(if (resource == R.xml.data_extraction_rules) 2 else 1, mobilityExclusions)
         }
     }
 }

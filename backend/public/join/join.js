@@ -75,30 +75,48 @@
     dailyStepReview:['Complete your application','ማመልከቻዎን ያጠናቅቁ','Iyyata kee xumuri']
   });
   const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
+  Object.assign(words, {
+    joinLabel:['PASSO DRIVER REGISTRATION','የፓሶ ሹፌር ምዝገባ','GALMEE KONKOLAACHISAA PASSO'],
+    createTitle:['Drive with Passo.','በፓሶ ይስሩ።','Passo waliin hojjedhaa.'],
+    independentDriverLabel:['Your vehicle. More possibilities.','የእርስዎ ተሽከርካሪ። ተጨማሪ ዕድሎች።','Konkolaataa keessan. Carraa dabalataa.'],
+    dailyOnly:['This page supports independent daily commute, group travel and cargo drivers. Contact support for company accounts.','ይህ ገጽ የዕለታዊ፣ የቡድን እና የጭነት ሹፌሮችን ይደግፋል። ለኩባንያ መለያ ድጋፍን ያግኙ።','Fuulli kun konkolaachistoota dhuunfaa imala guyyaa, garee fi feʼumsaa deeggara. Herrega dhaabbataaf deeggarsa qunnamaa.'],
+    independentStepAccountBody:['Register your vehicle and preferred departure and destination.','ተሽከርካሪዎን እና የሚመርጡትን መነሻና መድረሻ ያስመዝግቡ።','Konkolaataa fi kaʼumsaa fi gaʼumsa filattan galmeessaa.'],
+    VEHICLE_TYPE:['Registered vehicle type','የተመዘገበ የተሽከርካሪ ዓይነት','Gosa konkolaataa galmaaʼe'],
+    dailyService:['Daily commute','ዕለታዊ ጉዞ','Imala guyyaa'], groupService:['Group travel','የቡድን ጉዞ','Imala garee'], cargoService:['Cargo transport','የጭነት ትራንስፖርት','Geejjiba feʼumsaa'],
+    preferredRoute:['Your preferred route','የሚመርጡት መስመር','Daandii filattan'],
+    reviewPreferredRoute:['Review preferred route','የሚመርጡትን መስመር ይከልሱ','Daandii filattan ilaalaa'],
+    independentIntro:['Register your vehicle and preferred route. The administrator accepts your registration before document upload; complete documents are reviewed before you can work.','ተሽከርካሪዎን እና የሚመርጡትን መስመር ያስመዝግቡ። ሰነድ ከመስቀልዎ በፊት አስተዳዳሪው ምዝገባዎን ይቀበላል፤ ሥራ ከመጀመርዎ በፊት የተሟሉ ሰነዶች ይገመገማሉ።','Konkolaataa fi daandii filattan galmeessaa. Sanada galchuu dura bulchaan galmee keessan fudhata; hojii jalqabuu dura sanadoonni guutuun ni ilaalamu.'],
+    groupRegistrationHelp:['No monthly fee is needed. After final driver approval, propose trips and a price per seat; each trip needs administrator approval before passengers can book.','ወርሃዊ ክፍያ አያስፈልግም። ሹፌርነትዎ ከጸደቀ በኋላ ጉዞዎችን እና የአንድ መቀመጫ ዋጋ ያቅርቡ፤ እያንዳንዱ ጉዞ ከቦታ ማስያዝ በፊት በአስተዳዳሪ መጽደቅ አለበት።','Kaffaltiin jiʼaa hin barbaachisu. Erga raggaatanii booda imalaa fi gatii teessoo tokkoo dhiheessaa; imalli hundi imaltoonni qabsiisuu dura bulchaan raggaʼuu qaba.'],
+    cargoRegistrationHelp:['Register your cargo vehicle and preferred transport route. The administrator reviews your documents before assigning cargo requests. No monthly fee is needed.','የጭነት ተሽከርካሪዎን እና የሚመርጡትን መስመር ያስመዝግቡ። የጭነት ጥያቄዎች ከመመደባቸው በፊት አስተዳዳሪው ሰነዶችዎን ይገመግማል። ወርሃዊ ክፍያ አያስፈልግም።','Konkolaataa feʼumsaa fi daandii filattan galmeessaa. Gaaffii feʼumsaa ramaduu dura bulchaan sanadoota keessan ilaala. Kaffaltiin jiʼaa hin barbaachisu.'],
+    dataUse:['We use your contact, vehicle and preferred route details to review your driver application. Phone verification can be completed later.','የሹፌር ማመልከቻዎን ለመገምገም የመገናኛ፣ የተሽከርካሪ እና የመስመር መረጃዎን እንጠቀማለን። የስልክ ማረጋገጫ በኋላ ሊጠናቀቅ ይችላል።','Iyyata konkolaachisummaa keessan ilaaluuf odeeffannoo qunnamtii, konkolaataa fi daandii fayyadamna. Bilbila booda mirkaneessuu dandeessu.'],
+    independentApprovalBody:['Your driver application is approved. Sign in to the Passo app for your service and assignments.','የሹፌር ማመልከቻዎ ጸድቋል። አገልግሎትዎን እና ምደባዎን ለማየት ወደ ፓሶ መተግበሪያ ይግቡ።','Iyyanni konkolaachisummaa keessan raggaʼeera. Tajaajila fi ramaddii keessaniif appii Passo seenaa.']
+  });
+  const DRIVER_SERVICES=['DAILY_COMMUTE','GROUP_TRAVEL','CARGO'];
+  const driverService=value=>DRIVER_SERVICES.includes(value)?value:'DAILY_COMMUTE';
   const uploadProblem = (file, kind) => !file || !Number.isFinite(file.size) || file.size <= 0 || file.size > 5*1024*1024 ? 'fileSize' : !(kind === 'PHOTO' ? ['image/jpeg','image/png'] : ['image/jpeg','image/png','application/pdf']).includes(file.type) ? kind === 'PHOTO' ? 'photoType' : 'fileType' : null;
   function accountPayload(_role, mode, values, quote) {
     const clean=key=>String(values[key]||'').trim();
-    // This public page is exclusively daily commute recruitment. URL values,
-    // old form state and hidden controls never select a different account type.
+    // Public recruitment always creates a driver, never a company or admin.
     const payload={role:'DRIVER',phone:clean('phone'),password:values.password};
     if(mode!=='register')return payload;
     payload.fullName=clean('fullName');
-    payload.serviceType='DAILY_COMMUTE';payload.licenseNumber=clean('licenseNumber');
+    payload.serviceType=driverService(clean('serviceType'));payload.licenseNumber=clean('licenseNumber');
     for(const key of ['assignedVehiclePlate','vehicleModel','vehicleType'])payload[key]=clean(key);
-    Object.assign(payload,routePreferencePayload(values,quote));
+    Object.assign(payload,routePreferencePayload(values,quote,payload.serviceType));
     return payload;
   }
-  const isDailyDriverAccount=account=>account?.role==='DRIVER'&&!account.companyId;
+  const isDailyDriverAccount=account=>account?.role==='DRIVER'&&!account.companyId&&(!account.serviceType||DRIVER_SERVICES.includes(account.serviceType));
   const initialMode=search=>new URLSearchParams(search).get('view')==='login'?'login':'register';
-  function routePreferencePayload(values,quote) {
+  function routePreferencePayload(values,quote,service='DAILY_COMMUTE') {
     const payload={proposedDeparture:String(values.proposedDeparture||'').trim(),proposedDestination:String(values.proposedDestination||'').trim(),vehicleType:String(values.vehicleType||'').trim()};
-    if(quote?.price?.mode!=='FIXED'){payload.proposedMonthlyFeeEtb=Number(values.proposedMonthlyFeeEtb);payload.proposedMonthlyFeeBasis='PER_VEHICLE';}
+    if(service==='DAILY_COMMUTE'&&quote?.price?.mode!=='FIXED'){payload.proposedMonthlyFeeEtb=Number(values.proposedMonthlyFeeEtb);payload.proposedMonthlyFeeBasis='PER_VEHICLE';}
     return payload;
   }
   function registrationFields(role,mode,service,choice) {
+    service=driverService(service);
     const fields=['phone','password'];if(mode!=='register')return fields;
     fields.push('fullName','serviceType','licenseNumber','adultConfirmation');
-    return fields.concat('assignedVehiclePlate','vehicleModel','vehicleType','proposedMonthlyFeeEtb','proposedDeparture','proposedDestination');
+    return fields.concat('assignedVehiclePlate','vehicleModel','vehicleType',...(service==='DAILY_COMMUTE'?['proposedMonthlyFeeEtb']:[]),'proposedDeparture','proposedDestination');
   }
   function applyRegistrationFields(controls,role,mode,service,choice) {
     const enabled=registrationFields(role,mode,service,choice);
@@ -208,10 +226,12 @@
     const api=createApiClient({fetchFn:window.fetch.bind(window),getToken:()=>token,onUnauthorized:()=>signOut(true)});
     function busy(element,value) { element.disabled=value; element.setAttribute('aria-busy',String(value)); }
     const priceControls={registration:{departure:'#proposedDeparture',destination:'#proposedDestination',vehicle:'#vehicleType',fee:'#proposedMonthlyFeeEtb',status:'#routeLookupStatus',help:'#registrationPriceHelp',retry:'#retryRoutes'},pending:{departure:'#pendingDeparture',destination:'#pendingDestination',vehicle:'#pendingVehicleType',fee:'#pendingFee',status:'#pendingLookupStatus',help:'#pendingPriceHelp',retry:'#retryPendingPrice'}};
+    const currentService=name=>driverService(name==='pending'?snapshot?.account?.serviceType:$('#serviceType').value);
     function quoteValues(name){const c=priceControls[name];return {departure:$(c.departure).value,destination:$(c.destination).value,vehicleType:$(c.vehicle).value};}
-    function updateSubmitAvailability(){const needsPrice=mode==='register';$('#accountSubmit').disabled=accountBusy||(needsPrice&&!quoteAccess(quotes.registration?.getState()).canSubmit);$('#saveRoutePreference').disabled=preferenceBusy||$('#routePreferenceForm').hidden||!quoteAccess(quotes.pending?.getState()).canSubmit;}
+    function updateSubmitAvailability(){const needsPrice=mode==='register'&&currentService('registration')==='DAILY_COMMUTE';$('#accountSubmit').disabled=accountBusy||(needsPrice&&!quoteAccess(quotes.registration?.getState()).canSubmit);$('#saveRoutePreference').disabled=preferenceBusy||$('#routePreferenceForm').hidden||(currentService('pending')==='DAILY_COMMUTE'&&!quoteAccess(quotes.pending?.getState()).canSubmit);}
     function renderPrice(name,state){
       const c=priceControls[name],field=$(c.fee),price=state.quote?.price,fixed=state.status==='READY'&&price?.mode==='FIXED';
+      if(currentService(name)!=='DAILY_COMMUTE'){field.value='';$(c.retry).hidden=true;message(c.status,'');$(c.help).textContent='';updateSubmitAvailability();return;}
       if(priceKeys[name]!==state.key){field.value='';priceKeys[name]=state.key;}
       field.readOnly=quoteAccess(state).readOnly;field.dataset.priceMode=fixed?'FIXED':'PROPOSED';
       $(c.retry).hidden=state.status!=='ERROR';$(c.status).classList.toggle('error',state.status==='ERROR');
@@ -220,7 +240,7 @@
       else{message(c.status,t(state.status==='LOADING'?'priceChecking':state.status==='ERROR'?'priceLookupError':'priceEnterEndpoints'),state.status==='ERROR');$(c.help).textContent='';}
       updateSubmitAvailability();
     }
-    function updateQuote(name,options){return quotes[name].update(quoteValues(name),options);}
+    function updateQuote(name,options){if(currentService(name)!=='DAILY_COMMUTE'){quotes[name].reset();return Promise.resolve();}return quotes[name].update(quoteValues(name),options);}
     function scheduleSuggestions(name,field,immediate=false){
       const c=priceControls[name],input=field==='departure'?c.departure:c.destination,key=name+field,previous=suggestionTasks.get(key);if(previous){clearTimeout(previous.timer);previous.controller?.abort();}
       const task={timer:null,controller:null};suggestionTasks.set(key,task);
@@ -238,25 +258,29 @@
       updateAuth(); renderOptions(); if(snapshot)renderDashboard(false);for(const name of Object.keys(quotes))renderPrice(name,quotes[name].getState());
     }
     function updateAuth() {
-      $('#serviceType').value='DAILY_COMMUTE';
+      $('#serviceType').value=driverService($('#serviceType').value);
       $('#forgotPassword').hidden=mode!=='login'||recoveryOpen;
       $('#accountForm').hidden=recoveryOpen;
-      const registration=mode==='register', driver=true, daily=true;
+      const registration=mode==='register', driver=true, daily=currentService('registration')==='DAILY_COMMUTE';
       all('[data-registration]').forEach(el=>{ el.hidden=!registration || (el.hasAttribute('data-company')&&driver) || (el.hasAttribute('data-driver')&&!driver) || (el.hasAttribute('data-daily')&&!daily) || (el.hasAttribute('data-intercity')&&daily); });
-      applyRegistrationFields($('#accountForm').elements,role,mode,'DAILY_COMMUTE');
+      applyRegistrationFields($('#accountForm').elements,role,mode,currentService('registration'));
+      all('[data-service]').forEach(button=>{button.setAttribute('aria-pressed',String(button.dataset.service===$('#serviceType').value));button.disabled=accountBusy;});
+      all('#registrationRoute [data-monthly]').forEach(el=>el.hidden=!daily);
+      $('#registrationRouteLabel').textContent=t(daily?'routePreference':'preferredRoute');
+      $('#serviceRegistrationHelp').hidden=daily;$('#serviceRegistrationHelp').textContent=t(currentService('registration')==='CARGO'?'cargoRegistrationHelp':'groupRegistrationHelp');
       updateAdultValidation();
       $('#registerTab').setAttribute('aria-pressed',String(registration));$('#loginTab').setAttribute('aria-pressed',String(!registration));
-      $('#formTitle').textContent=t(registration?'createTitle':'loginTitle'); $('#formIntro').textContent=t(registration?(driver&&daily?'dailyCreateIntro':'createIntro'):'loginIntro');
+      $('#formTitle').textContent=t(registration?'createTitle':'loginTitle'); $('#formIntro').textContent=t(registration?(daily?'dailyCreateIntro':'independentIntro'):'loginIntro');
       $('#fullNameLabel').textContent=t(driver?'fullName':'representative'); $('#accountSubmit span').textContent=t(registration?(driver&&daily?'sendRegistration':'createButton'):'loginButton');
       $('#password').minLength=registration?10:1; $('#password').autocomplete=registration?'new-password':'current-password';
       $('#showPassword').textContent=t($('#password').type==='password'?'show':'hide');
-      for(const key of ['stepAccount','stepAccountBody','stepDetails','stepDetailsBody','stepReview','stepReviewBody'])$('[data-i18n="'+key+'"]').textContent=t(driver&&daily?'daily'+key[0].toUpperCase()+key.slice(1):key);
+      for(const key of ['stepAccount','stepAccountBody','stepDetails','stepDetailsBody','stepReview','stepReviewBody'])$('[data-i18n="'+key+'"]').textContent=t(!daily&&key==='stepAccountBody'?'independentStepAccountBody':'daily'+key[0].toUpperCase()+key.slice(1));
       if(quotes.registration){if(registration&&driver&&daily)updateQuote('registration');else quotes.registration.reset();}updateSubmitAvailability();
     }
     function renderOptions() {
       for (const [selector,rows,placeholder] of [['#vehicleType',catalog.types,'chooseType']]) {
         const select=$(selector), value=select.value;
-        select.innerHTML='<option value="">'+escape(t(placeholder))+'</option>'+rows.map(row=>'<option value="'+escape(row.code||row.id)+'">'+escape(language==='am'&&row.nameAm?row.nameAm:row.name)+(row.capacity?' · '+escape(row.capacity)+' '+escape(t('seats')):'')+'</option>').join('');
+        select.innerHTML='<option value="">'+escape(t(placeholder))+'</option>'+rows.map(row=>'<option value="'+escape(row.code||row.id)+'">'+escape(language==='am'&&row.nameAm?row.nameAm:row.name)+(row.capacity&&currentService('registration')!=='CARGO'?' · '+escape(row.capacity)+' '+escape(t('seats')):'')+'</option>').join('');
         if(rows.some(row=>(row.code||row.id)===value))select.value=value;
       }
     }
@@ -273,7 +297,9 @@
     }
     function updatePendingPreference() {
       const form=$('#routePreferenceForm');
-      for(const control of form.elements)if(control.name){control.disabled=form.hidden;control.required=!form.hidden;}
+      const daily=currentService('pending')==='DAILY_COMMUTE';
+      for(const control of form.elements)if(control.name){control.disabled=form.hidden||(control.name==='proposedMonthlyFeeEtb'&&!daily);control.required=!control.disabled;}
+      $('#pendingFee').parentElement.hidden=!daily;$('#pendingLookupStatus').hidden=!daily;$('#pendingPriceHelp').hidden=!daily;
       if(quotes.pending){if(form.hidden)quotes.pending.reset();else updateQuote('pending');}updateSubmitAvailability();
     }
     async function refresh(fill=true) {
@@ -284,11 +310,11 @@
     }
     function renderDashboard(fill=true) {
       if(!snapshot)return;
-      const {account,onboarding:o}=snapshot, profile=o.profile||{}, status=o.reviewStatus||'DRAFT';
+      const {account,onboarding:o}=snapshot, profile=o.profile||{}, status=o.reviewStatus||'DRAFT',daily=driverService(account.serviceType)==='DAILY_COMMUTE';
       const access=onboardingAccess(o),preference=o.routePreference||{};
       $('#entry').hidden=true;$('#dashboard').hidden=false;$('#logout').hidden=false;
       $('#dashboardTitle').textContent=account.fullName||account.companyName||t(role==='DRIVER'?'driver':'company');
-      $('#accountIdentity').textContent=[t(role==='DRIVER'?'driver':'company'),account.companyName,account.phone].filter(Boolean).join(' · ');
+      $('#accountIdentity').textContent=[t(account.serviceType==='CARGO'?'cargoService':account.serviceType==='GROUP_TRAVEL'?'groupService':'dailyService'),account.companyName,account.phone].filter(Boolean).join(' · ');
       $('#reviewBadge').textContent=t(status);$('#progressTitle').textContent=status==='CORRECTIONS_REQUESTED'?t('CORRECTIONS_REQUESTED'):status==='APPROVED'?t('APPROVED'):status==='SUBMITTED'?t('SUBMITTED'):t('progressTitle');
       $('#progressBody').textContent=status==='CORRECTIONS_REQUESTED'?t('correctionsBody'):status==='APPROVED'?t('approvalBody'):status==='SUBMITTED'?t('reviewPending'):t('progressBody');
       $('#acceptancePanel').hidden=o.acceptanceRequired!==true;
@@ -297,13 +323,14 @@
       $('#acceptanceBadge').classList.toggle('warning',access.locked);$('#acceptanceBadge').classList.toggle('error',rejected);
       $('#acceptanceMessage').textContent=t(access.locked?(rejected?'acceptanceRejectedBody':'acceptanceWaitingBody'):'acceptanceAcceptedBody')+(access.locked&&o.reviewNote?' '+o.reviewNote:'');
       const selectedRoute=preference.mode==='EXISTING'?(preference.routeName||t('existingRoute')):preference.mode==='PROPOSED'?[preference.departure,preference.destination].filter(Boolean).join(' → '):'';
-      $('#routePreferenceSummary').innerHTML=(selectedRoute?'<div><dt>'+escape(t('routePreference'))+'</dt><dd>'+escape(selectedRoute)+'</dd></div>':'')+(validMonthlyFee(preference.proposedMonthlyFeeEtb)?'<div><dt>'+escape(t(preference.feeLocked?'monthlyVehiclePrice':'monthlyProposal'))+'</dt><dd>ETB '+escape(Number(preference.proposedMonthlyFeeEtb).toLocaleString('en-GB',{maximumFractionDigits:2}))+'</dd></div>':'');
+      $('#acceptanceTitle').textContent=t(daily?'routePreference':'preferredRoute');
+      $('#routePreferenceSummary').innerHTML=(selectedRoute?'<div><dt>'+escape(t(daily?'routePreference':'preferredRoute'))+'</dt><dd>'+escape(selectedRoute)+'</dd></div>':'')+(daily&&validMonthlyFee(preference.proposedMonthlyFeeEtb)?'<div><dt>'+escape(t(preference.feeLocked?'monthlyVehiclePrice':'monthlyProposal'))+'</dt><dd>ETB '+escape(Number(preference.proposedMonthlyFeeEtb).toLocaleString('en-GB',{maximumFractionDigits:2}))+'</dd></div>':'');
       $('#savedPriceHelp').textContent=preference.feeLocked?t('priceFormula').replace(/\{(\w+)\}/g,(_match,key)=>({capacity:preference.passengerCapacity,fare:Number(preference.passengerMonthlyFareEtb).toLocaleString('en-GB',{maximumFractionDigits:2}),total:Number(preference.proposedMonthlyFeeEtb).toLocaleString('en-GB',{maximumFractionDigits:2})}[key])):'';
-      const needsPreference=access.locked&&((o.initialMissing||[]).length>0||!preference.mode||!validMonthlyFee(preference.proposedMonthlyFeeEtb)||(o.missing||[]).includes('ROUTE_PREFERENCE'));
+      const needsPreference=access.locked&&((o.initialMissing||[]).length>0||!preference.mode||(daily&&!validMonthlyFee(preference.proposedMonthlyFeeEtb))||(o.missing||[]).includes('ROUTE_PREFERENCE'));
       if($('#routePreferenceForm').dataset.accountId!==account.id){$('#pendingDeparture').value=preference.departure||'';$('#pendingDestination').value=preference.destination||'';$('#pendingFee').value=preference.proposedMonthlyFeeEtb||'';$('#routePreferenceForm').dataset.accountId=account.id;}
       $('#pendingVehicleType').value=account.vehicleType||'';
       $('#pendingVehicleSummary').textContent=t('vehicleType')+': '+(catalog.types.find(type=>type.code===account.vehicleType)?.name||account.vehicleType||'—');
-      $('#editRoutePreference').hidden=o.acceptanceRequired!==true;$('#editRoutePreference').textContent=t(editingPreference?'closeRouteEditor':'reviewRoutePrice');$('#editRoutePreference').setAttribute('aria-expanded',String(editingPreference||needsPreference));
+      $('#editRoutePreference').hidden=o.acceptanceRequired!==true;$('#editRoutePreference').textContent=t(editingPreference?'closeRouteEditor':daily?'reviewRoutePrice':'reviewPreferredRoute');$('#editRoutePreference').setAttribute('aria-expanded',String(editingPreference||needsPreference));
       $('#routePreferenceForm').hidden=!(needsPreference||editingPreference);updatePendingPreference();
       $('#resubmitRegistration').hidden=!(access.locked&&rejected&&o.canInitiallySubmit===true);
       $('#resubmitRegistration').disabled=$('#resubmitRegistration').hidden;
@@ -378,12 +405,13 @@
       catch(error){message('#recoveryMessage',errorMessage(error),true);}finally{payload.newPassword='';payload.code='';$('#recoveryPassword').value='';$('#recoveryConfirm').value='';recoveryControls(false);}
     });
     $('#registerTab').addEventListener('click',()=>{if(recoveryBusy)return;showRecovery(false);mode='register';message('#accountMessage','');updateAuth();});
+    all('[data-service]').forEach(button=>button.addEventListener('click',()=>{if(accountBusy||recoveryBusy)return;$('#serviceType').value=driverService(button.dataset.service);quotes.registration.reset();priceKeys.registration='';renderOptions();updateAuth();message('#accountMessage','');}));
     $('#loginTab').addEventListener('click',()=>{if(recoveryBusy)return;showRecovery(false);mode='login';message('#accountMessage','');updateAuth();});
     $('#showPassword').addEventListener('click',()=>{const show=$('#password').type==='password';$('#password').type=show?'text':'password';$('#showPassword').setAttribute('aria-pressed',String(show));$('#showPassword').textContent=t(show?'hide':'show');});
     $('#retryTypes').addEventListener('click',()=>loadOptions('types'));$('#retryRoutes').addEventListener('click',()=>updateQuote('registration',{force:true,immediate:true}));$('#retryPendingPrice').addEventListener('click',()=>updateQuote('pending',{force:true,immediate:true}));
     $('#accountForm').addEventListener('submit',async event=>{
       event.preventDefault();const form=event.currentTarget;if(!form.reportValidity())return;
-      const daily=mode==='register',quote=quotes.registration.getState();
+      const daily=mode==='register'&&currentService('registration')==='DAILY_COMMUTE',quote=quotes.registration.getState();
       if(daily&&quote.status!=='READY'){message('#accountMessage',t('priceLookupError'),true);return;}
       const payload=accountPayload(role,mode,Object.fromEntries([...form.elements].filter(input=>input.name).map(input=>[input.name,input.value])),quote.quote);
       if(daily&&quote.quote.price.mode==='PROPOSED'&&!validMonthlyFee(payload.proposedMonthlyFeeEtb)){message('#accountMessage',t('feeInvalid'),true);return;}
@@ -399,7 +427,7 @@
     $('#refreshDashboard').addEventListener('click',()=>run($('#refreshDashboard'),'#dashboardMessage',()=>api('/me')));
     $('#editRoutePreference').addEventListener('click',()=>{editingPreference=!editingPreference;renderDashboard(false);if(editingPreference)$('#pendingDeparture').focus();});
     $('#profileForm').addEventListener('submit',event=>{event.preventDefault();if(onboardingAccess(snapshot?.onboarding).locked||!event.currentTarget.reportValidity())return;const keys=role==='DRIVER'?['emergencyContactName','emergencyContactPhone','vehicleColor']:['address','registrationNumber'];const body=Object.fromEntries(keys.map(key=>[key,$('#'+key).value.trim()]));run($('#saveProfile'),'#profileMessage',()=>api('/profile',{method:'PATCH',body}),'saved');});
-    $('#routePreferenceForm').addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget,quote=quotes.pending.getState();if(form.hidden||!form.reportValidity())return;if(quote.status!=='READY'){message('#preferenceMessage',t('priceLookupError'),true);return;}const body=routePreferencePayload(Object.fromEntries([...form.elements].filter(input=>input.name).map(input=>[input.name,input.value])),quote.quote);if(quote.quote.price.mode==='PROPOSED'&&!validMonthlyFee(body.proposedMonthlyFeeEtb)){message('#preferenceMessage',t('feeInvalid'),true);return;}preferenceBusy=true;try{await run($('#saveRoutePreference'),'#preferenceMessage',async()=>{const result=await api('/profile',{method:'PATCH',body});editingPreference=false;return result;});}finally{preferenceBusy=false;updateSubmitAvailability();}});
+    $('#routePreferenceForm').addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget,quote=quotes.pending.getState(),service=currentService('pending'),daily=service==='DAILY_COMMUTE';if(form.hidden||!form.reportValidity())return;if(daily&&quote.status!=='READY'){message('#preferenceMessage',t('priceLookupError'),true);return;}const body=routePreferencePayload(Object.fromEntries([...form.elements].filter(input=>input.name&&!input.disabled).map(input=>[input.name,input.value])),quote.quote,service);if(daily&&quote.quote.price.mode==='PROPOSED'&&!validMonthlyFee(body.proposedMonthlyFeeEtb)){message('#preferenceMessage',t('feeInvalid'),true);return;}preferenceBusy=true;try{await run($('#saveRoutePreference'),'#preferenceMessage',async()=>{const result=await api('/profile',{method:'PATCH',body});editingPreference=false;return result;});}finally{preferenceBusy=false;updateSubmitAvailability();}});
     $('#resubmitRegistration').addEventListener('click',()=>{const o=snapshot?.onboarding;if(!o?.canInitiallySubmit||o.acceptanceStatus!=='REJECTED')return;run($('#resubmitRegistration'),'#preferenceMessage',()=>api('/submit',{method:'POST',body:{}}),'AWAITING_ACCEPTANCE');});
     $('#requestOtp').addEventListener('click',async()=>{
       if(onboardingAccess(snapshot?.onboarding).locked)return;

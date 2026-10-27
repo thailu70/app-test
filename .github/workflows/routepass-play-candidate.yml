@@ -50,6 +50,8 @@ jobs:
           --tests com.example.IntercityLayoutTest
           --tests com.example.IntercityApiContractTest
           --tests com.example.PlayStorePreviewTest
+          --tests com.example.MobilityFlowTest
+          --tests com.example.MobilityLayoutTest
       - name: Assemble unsigned production bundle for local upload-key signing
         run: gradle :app:bundleRelease -PPASSO_UNSIGNED_PLAY_BUNDLE=true -PROUTEPASS_API_BASE_URL=https://passo.live/
       - name: Download pinned Google bundletool and verify its checksum
@@ -83,6 +85,7 @@ jobs:
             app/build/welcome-previews/*.png
             app/build/intercity-previews/*.png
             app/build/play-store-previews/*.png
+            app/build/mobility-previews/*.png
             app/build/reports/tests/testDebugUnitTest/
             app/build/test-results/testDebugUnitTest/
             ${{ runner.temp }}/play-manifest.xml

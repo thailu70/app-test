@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { verifySignedQrToken } = require('./subscriptions');
-const { operationalAccount } = require('../services/operational-onboarding');
+const { commuteOperationalAccount: operationalAccount } = require('../services/operational-onboarding');
 
 // Standard vehicle capacity limits
 const VEHICLE_TYPE_CAPACITIES = {

@@ -67,6 +67,11 @@ internal fun IntercityPassengerScreen(
     }
     val model = providedViewModel ?: viewModel<IntercityPassengerViewModel>(key = "intercity-passenger", factory = factory)
     val state by model.state.collectAsState()
+    if (state.phase == IntercityPhase.BROWSE && state.serviceTab != 0) {
+        MobilityPassengerScreen(if (state.serviceTab == 1) "CARGO" else "GROUP", language,
+            onBack = { model.setTab(0) }, modifier = modifier)
+        return
+    }
     val contentListState = rememberLazyListState()
     // Kept in memory at screen scope so scrolling the card cannot discard typed digits.
     var verificationCode by remember(state.booking?.id, state.testOtpResendAt, state.testVerificationPending) { mutableStateOf("") }

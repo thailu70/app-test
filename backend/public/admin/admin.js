@@ -8,12 +8,14 @@
   let resourcePanelCleanup = null;
   let masterDataCleanup = null;
   let applicationsCleanup = null;
+  let mobilityCleanup = null;
   let renderRevision = 0;
   const labels = {
     overview: ["Overview", "A live snapshot of RoutePass service operations."],
     reports: ["Performance reports", "Daily commute performance in Addis Ababa time."],
     drivers: ["Drivers & routes", "Review driver-owned vehicles and assign approved operating routes."],
     applications: ["Applications", "Review new driver and company applications from the public registration portal."],
+    mobility: ["Group travel & cargo", "Review proposed group trips and assign drivers to private travel and cargo requests."],
     gps: ["Driver GPS", "Live and last reported GPS locations for daily commute drivers."],
     companies: ["Company access", "Invite transport companies and issue one-time registration codes."],
     routes: ["Manage routes", "Create, edit, activate and deactivate RoutePass transit routes."],
@@ -93,6 +95,8 @@
     masterDataCleanup = null;
     applicationsCleanup?.();
     applicationsCleanup = null;
+    mobilityCleanup?.();
+    mobilityCleanup = null;
     renderRevision++;
     sessionStorage.removeItem(TOKEN_KEY);
     state.token = "";
@@ -423,6 +427,8 @@
     masterDataCleanup = null;
     applicationsCleanup?.();
     applicationsCleanup = null;
+    mobilityCleanup?.();
+    mobilityCleanup = null;
     const title = labels[state.view] || labels.overview;
     $("#page-title").textContent = title[0];
     $$(".nav-item").forEach(button => button.classList.toggle("active", button.dataset.view === state.view));
@@ -434,6 +440,7 @@
         case "reports": html = pageHeader("Performance reports", "Daily, weekly and monthly commute performance. Admin grants are excluded from revenue."); break;
         case "drivers": html = await renderDrivers(); break;
         case "applications": html = pageHeader("Driver & company applications", "Registration is open. Driver phone verification is optional for now; required documents and approval still apply.") + window.PassoApplications.markup(); break;
+        case "mobility": html = pageHeader("Group travel & cargo", "Approve driver-proposed group trips, or assign an approved driver and vehicle to customer requests.") + window.PassoMobilityAdmin.markup(); break;
         case "companies": html = await renderCompanyAccess(); break;
         case "routes": html = await renderRoutes(); break;
         case "vehicles": html = await renderVehicles(); break;
@@ -448,6 +455,12 @@
       }
       if (revision !== renderRevision) return;
       $("#page-content").innerHTML = html;
+      if (view === "mobility" && window.PassoMobilityAdmin) {
+        mobilityCleanup = window.PassoMobilityAdmin.mount({
+          container: $("#mobility-admin-panel"), api, token: state.token,
+          isActive: () => state.view === "mobility" && Boolean(state.token) && revision === renderRevision
+        });
+      }
       if (view === "applications" && window.PassoApplications) {
         applicationsCleanup = window.PassoApplications.mount({
           container: $("#applications-panel"), api, token: state.token,

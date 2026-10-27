@@ -2,7 +2,7 @@
 
 const { DB } = require('../db');
 const { remainingSubscriptionDays } = require('./subscription-days');
-const { driverEligible } = require('./operational-onboarding');
+const { dailyDriverEligible } = require('./operational-onboarding');
 
 const LEGACY_DEMO_STOPS = new Set(['stop_atlas', 'stop_merkato']);
 
@@ -65,7 +65,7 @@ async function passengerAssignment(passengerId) {
     WHERE v.id=? AND COALESCE(v.companyId,'')=''
     ORDER BY t.startTime DESC LIMIT 1
   `).get(subscription.routeId, subscription.vehicleId) : null;
-  if (vehicle && !await driverEligible(vehicle.driverId)) vehicle = null;
+  if (vehicle && !await dailyDriverEligible(vehicle.driverId)) vehicle = null;
   return { subscription, vehicle: vehicle || null, active };
 }
 

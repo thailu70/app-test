@@ -1,6 +1,6 @@
 # Google Play Data safety draft
 
-Prepared from the Android and server source on 24 October 2026. This is a review worksheet, not a submitted Play Console declaration. The owner must confirm the outstanding items below against the exact signed release and the live provider configuration. No production account records were inspected.
+Prepared from the Android and server source on 27 October 2026. This is a review worksheet, not a submitted Play Console declaration. The owner must confirm the outstanding items below against the exact signed release and the live provider configuration. No production account records were inspected.
 
 ## Proposed top-level responses
 
@@ -88,10 +88,14 @@ Owner confirmations still needed: actual retention schedule for each retained re
 - Deletion: `backend/src/services/account-deletion.js`, `backend/public/delete-account/`, and `app/src/main/java/com/example/ui/screens/profile/AccountPrivacyScreen.kt`.
 - Privacy: `backend/public/privacy/index.html`.
 
-Official references, reviewed 24 October 2026:
+Official references, reviewed 27 October 2026:
 
 - [Google Play Data safety definitions and form](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en).
 - [Google ML Kit Android data disclosure](https://developers.google.com/ml-kit/android-data-disclosure).
 - [Google Play account-deletion requirements](https://support.google.com/googleplay/android-developer/answer/13327111?hl=en).
 - [Foreground-service declaration requirements](https://support.google.com/googleplay/android-developer/answer/13392821?hl=en).
 - [Location access and foreground-service policy](https://support.google.com/googleplay/android-developer/answer/9799150?hl=en).
+
+## Group travel and cargo update
+
+Group booking collects the buyer and each traveler’s name and phone, chosen seats and individual ticket references. The buyer and travelers receive private boarding-pass SMS links after verified payment. Cargo/private-route requests collect contact details, requested route/date, vehicle type, group size or cargo description and photo, plus optional pickup/delivery map coordinates. Submitted request details and photos are shared only with authorized administrators and the assigned driver (plus the capability-holding customer). Include these additional names/phones/photos/location contexts when reviewing the worksheet above. Unsubmitted cargo drafts expire after seven days; submitted operational records follow the disclosed retention rules. Quotes and assignments do not automatically collect payment.

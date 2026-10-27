@@ -7,7 +7,7 @@ const { adminScope } = require('../services/commute-scope');
 const { generateSignedQrToken } = require('./subscriptions');
 const { sendSms } = require('../services/afro-sms');
 const { getOnboardingReadiness, markOnboardingReviewed, setDriverSuspension, invalidateOnboarding, normalizePhone, phoneAvailable } = require('../services/onboarding');
-const { assertDriverEligible } = require('../services/operational-onboarding');
+const { assertDailyDriverEligible } = require('../services/operational-onboarding');
 const { isAccountClosed } = require('../services/account-deletion');
 const { paymentTestsEnabled } = require('../services/payment-policy');
 
@@ -17,7 +17,7 @@ async function lockCommuteDriver(tx, id) {
   if (!driver || driver.status !== 'ACTIVE' || await isAccountClosed(id, 'DRIVER', tx)) {
     throw Object.assign(new Error('The driver is no longer active. Refresh the assignment.'), { status: 409 });
   }
-  await assertDriverEligible(id, tx);
+  await assertDailyDriverEligible(id, tx);
   return driver;
 }
 

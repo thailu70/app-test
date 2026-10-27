@@ -15,6 +15,29 @@ async function assertDriverEligible(driverId, db = DB) {
   if (!await driverEligible(driverId, db)) throw incomplete();
 }
 
+async function dailyDriverEligible(driverId, db = DB) {
+  if (!await driverEligible(driverId, db)) return false;
+  let enrollment;
+  try { enrollment = await db.prepare("SELECT * FROM onboarding_accounts WHERE account_id=? AND role='DRIVER'").get(driverId); }
+  catch (error) {
+    if (error.code !== '42P01' && !/no such table: onboarding_accounts/.test(error.message || '')) throw error;
+  }
+  // Older daily/company accounts keep their existing scope. Explicit mobility
+  // registrations cannot acquire a commute assignment through legacy endpoints.
+  return !['GROUP_TRAVEL','CARGO'].includes(enrollment?.service_type);
+}
+
+async function assertDailyDriverEligible(driverId, db = DB) {
+  if (!await dailyDriverEligible(driverId, db)) throw Object.assign(new Error('Choose an approved daily commute driver for this assignment.'), { status: 409, code: 'DAILY_COMMUTE_DRIVER_REQUIRED' });
+}
+
+async function commuteOperationalAccount(req, res, next) {
+  try {
+    if (req.user?.role === 'DRIVER' && !await dailyDriverEligible(req.user.id)) return res.status(409).json({ success: false, code: 'DAILY_COMMUTE_DRIVER_REQUIRED', error: 'This driver account is not approved for daily commute operations.' });
+    return operationalAccount(req, res, next);
+  } catch (error) { next(error); }
+}
+
 async function operationalAccount(req, res, next) {
   try {
     const eligible = req.user?.role === 'DRIVER' ? await driverEligible(req.user.id)
@@ -24,4 +47,4 @@ async function operationalAccount(req, res, next) {
   } catch (error) { next(error); }
 }
 
-module.exports = { driverEligible, assertDriverEligible, operationalAccount, incomplete };
+module.exports = { driverEligible, assertDriverEligible, dailyDriverEligible, assertDailyDriverEligible, commuteOperationalAccount, operationalAccount, incomplete };

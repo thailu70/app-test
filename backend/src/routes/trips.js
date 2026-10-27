@@ -5,7 +5,7 @@ const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { checkCommuteDeparture } = require('../services/departure-rules');
 const { sendSms } = require('../services/afro-sms');
-const { operationalAccount } = require('../services/operational-onboarding');
+const { commuteOperationalAccount: operationalAccount } = require('../services/operational-onboarding');
 
 async function assignedCommuteVehicle(driverId, vehicleId) {
   const query = `SELECT v.*, r.name AS routeName, r.morningDeparture, r.eveningDeparture

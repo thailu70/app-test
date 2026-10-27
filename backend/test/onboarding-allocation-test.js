@@ -145,6 +145,25 @@ test('legacy allocation APIs cannot bypass required web onboarding and approval'
       'Existing untracked approved drivers retain their current workflow');
   });
 
+  await t.test('approved group and cargo drivers remain operationally eligible but cannot acquire or use daily commute assignments',async()=>{
+    const {driverEligible,dailyDriverEligible}=require('../src/services/operational-onboarding');
+    for(const serviceType of ['GROUP_TRAVEL','CARGO']){
+      await DB.prepare('UPDATE onboarding_accounts SET service_type=? WHERE account_id=?').run(serviceType,'allocation_daily');
+      assert.equal(await driverEligible('allocation_daily'),true,'Mobility and authentication keep generic approved-driver access');
+      assert.equal(await dailyDriverEligible('allocation_daily'),false);
+      blocked(await req('/api/admin/drivers/allocation_daily/route','PATCH',{routeId:'allocation_route'}));
+      blocked(await req('/api/admin/subscriptions/allocation_sub/assignment','PATCH',{vehicleId:'allocation_van'}));
+      blocked(await req('/api/trips/assignments','GET',undefined,'daily'));
+      blocked(await req('/api/trips/roster?vehicleId=allocation_van','GET',undefined,'daily'));
+      blocked(await req('/api/trips/start','POST',{routeId:'allocation_route',vehicleId:'allocation_van'},'daily'));
+      blocked(await req('/api/checkins/scan','POST',{qrToken:'fixture-only'},'daily'));
+      const passenger=await require('../src/services/passenger-assignment').passengerAssignment('usr_pas_alemayehu');
+      assert.equal(passenger.vehicle,null,'A stale daily passenger assignment cannot reveal a mobility driver');
+    }
+    await DB.prepare("UPDATE onboarding_accounts SET service_type='DAILY_COMMUTE' WHERE account_id='allocation_daily'").run();
+    assert.equal(await dailyDriverEligible('allocation_daily'),true);
+  });
+
   await t.test('company assignment, driver approval and departure changes enforce company and target-driver readiness', async () => {
     blocked(await req('/api/companies/operations/drivers/allocation_company_driver/approval', 'PATCH', { action: 'APPROVE' }, 'company'));
     const assignment = { routeId: 'allocation_intercity', driverId: 'allocation_company_driver', vehicleId: 'allocation_coach' };

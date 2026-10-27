@@ -55,7 +55,7 @@ app.use(cors({
     return callback(new Error('Origin not allowed.'));
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Booking-Secret', 'X-Request-Secret']
 }));
 
 if (process.env.NODE_ENV !== 'test') {
@@ -145,6 +145,7 @@ app.use('/api/admin', require('./routes/company-admin'));
 app.use('/api/admin', require('./routes/commute-operations'));
 app.use('/api/profiles', require('./routes/profiles'));
 app.use('/api/intercity', require('./routes/intercity'));
+app.use('/api/mobility', require('./routes/mobility'));
 app.use('/api/commute', require('./routes/commute-passenger'));
 app.use('/api/fleet', require('./routes/fleet-tracking'));
 app.use('/shared', express.static(path.join(__dirname, '..', 'public', 'shared'), { maxAge: 0, etag: false }));
@@ -621,6 +622,7 @@ async function initializeFeatureSchemas() {
   await require('./services/ops-schema').initOpsSchema(DB);
   await require('./services/intercity-schema').initIntercitySchema();
   await require('./services/onboarding').initOnboardingSchema();
+  await require('./services/mobility-schema').initMobilitySchema();
   await require('./services/account-recovery').initAccountRecoverySchema();
   await require('./services/application-notifications').initApplicationNotificationSchema();
   await require('./services/account-deletion').initAccountDeletionSchema();
@@ -634,6 +636,7 @@ async function initializeFeatureSchemas() {
 async function startServer() {
   await runDatabaseMigrations();
   stopApplicationNotifications = require('./services/application-notifications').startApplicationNotificationWorker();
+  stopMobilityNotifications = require('./services/mobility').startMobilityWorker();
   resourcePressure.start();
   server.listen(PORT, HOST, () => {
     console.log('RoutePass API listening on the configured internal listener');
@@ -652,10 +655,12 @@ if (process.env.NODE_ENV !== 'test') {
 
 // Graceful Shutdown
 let stopApplicationNotifications = () => {};
+let stopMobilityNotifications = () => {};
 function gracefulShutdown(signal) {
   console.log(`[Server] Received ${signal}. Shutting down gracefully...`);
   resourcePressure.stop();
   stopApplicationNotifications();
+  stopMobilityNotifications();
   server.close(() => {
     console.log('[Server] HTTP and WebSocket listeners closed.');
     process.exit(0);

@@ -112,6 +112,20 @@ test('driver approval uses review readiness while truthful phone status remains 
   f.cleanup();
 });
 
+test('group and cargo initial reviews identify the service and do not require a daily commute monthly fee',async()=>{
+  for(const serviceType of ['GROUP_TRAVEL','CARGO']){
+    const account={id:serviceType,role:'DRIVER',fullName:'Fixture Driver',status:'PENDING',serviceType};
+    const onboarding={serviceType,acceptanceRequired:true,acceptanceStatus:'PENDING',reviewStatus:'AWAITING_ACCEPTANCE',documents:[],routePreference:{mode:'PROPOSED',departure:'Addis Ababa',destination:'Hawassa',vehicleType:'MINIBUS_14',passengerCapacity:14,proposedMonthlyFeeEtb:null}};
+    const f=fixture(async path=>path.endsWith('/applications')?{applications:[{...account,onboarding}]}:{account,onboarding});
+    await flush();f.click('[data-application-open]',{applicationRole:'DRIVER',applicationOpen:serviceType});await flush();
+    const html=f.node('[data-application-detail]').innerHTML;
+    assert.match(html,new RegExp(serviceType==='CARGO'?'Cargo transport proposal':'Group travel proposal'));
+    assert.match(html,/data-application-decision="ACCEPT">/);assert.doesNotMatch(html,/Monthly fee for the whole vehicle|Not provided yet/);
+    if(serviceType==='GROUP_TRAVEL')assert.match(html,/separate admin approval/);else assert.doesNotMatch(html,/Registered seats/);
+    f.cleanup();
+  }
+});
+
 
 test('document corrections need instructions and are separate from initial rejection or suspension', async () => {
   const calls=[];

@@ -160,8 +160,8 @@ internal fun NativeAuthFlow(
             driver && draft.service != "Intercity" && vehicleTypesLoading -> "Wait for vehicle types to finish loading."
             driver && draft.service != "Intercity" && vehicleTypes.none { it.code == draft.vehicleType } -> "Choose an available vehicle type."
             driver && draft.service != "Intercity" && (draft.pickup.trim().length < 2 || draft.destination.trim().length < 2) -> "Enter your departure and destination."
-            driver && draft.service != "Intercity" && (draft.quoteLoading || draft.quotedKey != driverQuoteKey(draft)) -> "Check the monthly vehicle fee before submitting."
-            driver && draft.service != "Intercity" && driverMonthlyFee(draft) == null -> "Enter a valid monthly fee for the whole vehicle, up to ETB 1,000,000."
+            driver && draft.service == "Daily Commuter" && (draft.quoteLoading || draft.quotedKey != driverQuoteKey(draft)) -> "Check the monthly vehicle fee before submitting."
+            driver && draft.service == "Daily Commuter" && driverMonthlyFee(draft) == null -> "Enter a valid monthly fee for the whole vehicle, up to ETB 1,000,000."
             else -> null
         }
         if (problem != null) { message = problem; return }
@@ -170,12 +170,14 @@ internal fun NativeAuthFlow(
         if (driver) {
             scope.launch { model.driverApplications.register(DriverApplicationInput(
                 fullName = draft.name.trim(), phone = draft.phone.trim(), password = draft.password,
-                licenseNumber = draft.license.trim(), serviceType = if (intercity) "INTERCITY" else "DAILY_COMMUTE",
+                licenseNumber = draft.license.trim(), serviceType = when (draft.service) {
+                    "Intercity" -> "INTERCITY"; "Group Travel" -> "GROUP_TRAVEL"; "Cargo" -> "CARGO"; else -> "DAILY_COMMUTE"
+                },
                 companyId = draft.company.takeIf { intercity }, assignedVehiclePlate = draft.plate.trim().takeUnless { intercity },
                 vehicleModel = draft.vehicleModel.trim().takeUnless { intercity }, vehicleType = draft.vehicleType.takeUnless { intercity },
                 routeChoice = "PROPOSED".takeUnless { intercity }, proposedDeparture = draft.pickup.trim().takeUnless { intercity },
-                proposedDestination = draft.destination.trim().takeUnless { intercity }, proposedMonthlyFeeEtb = if (intercity) null else driverMonthlyFee(draft),
-                proposedMonthlyFeeBasis = "PER_VEHICLE".takeUnless { intercity }
+                proposedDestination = draft.destination.trim().takeUnless { intercity }, proposedMonthlyFeeEtb = if (draft.service == "Daily Commuter") driverMonthlyFee(draft) else null,
+                proposedMonthlyFeeBasis = "PER_VEHICLE".takeIf { draft.service == "Daily Commuter" }
             )) }
             return
         }

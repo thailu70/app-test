@@ -18,7 +18,7 @@ data class DriverApplicationAccount(
     val id: String, val role: String, val fullName: String, val phone: String,
     val status: String, val licenseNumber: String = "", val companyName: String = "",
     val companyId: String = "", val assignedVehiclePlate: String = "",
-    val vehicleModel: String = "", val vehicleType: String = ""
+    val vehicleModel: String = "", val vehicleType: String = "", val serviceType: String = "DAILY_COMMUTE"
 )
 
 @JsonClass(generateAdapter = true)

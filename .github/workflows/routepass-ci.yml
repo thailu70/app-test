@@ -61,10 +61,10 @@ jobs:
         run: node test/telebirr-service-test.js
         working-directory: backend
       - name: Test route discovery and portal recovery
-        run: node --test test/resource-pressure-test.js test/api-traffic-test.js test/resource-websocket-test.js test/admin-resources-test.js test/admin-resources-ui-test.js test/admin-master-data-ui-test.js test/master-data-test.js test/route-search-test.js test/route-stop-identity-test.js test/company-portal-test.js test/company-ui-test.js test/admin-activation-test.js test/profiles-test.js test/departure-test.js test/intercity-test.js test/scope-report-test.js test/fleet-tracking-test.js test/passenger-assignment-test.js test/subscription-days-test.js test/account-deletion-test.js test/privacy-ui-test.js test/payment-safety-test.js test/assignment-closure-test.js test/travel-payment-ui-test.js
+        run: node --test test/resource-pressure-test.js test/api-traffic-test.js test/resource-websocket-test.js test/admin-resources-test.js test/admin-resources-ui-test.js test/admin-master-data-ui-test.js test/master-data-test.js test/route-search-test.js test/route-stop-identity-test.js test/company-portal-test.js test/company-ui-test.js test/admin-activation-test.js test/profiles-test.js test/departure-test.js test/intercity-test.js test/scope-report-test.js test/fleet-tracking-test.js test/passenger-assignment-test.js test/subscription-days-test.js test/account-deletion-test.js test/privacy-ui-test.js test/payment-safety-test.js test/assignment-closure-test.js test/travel-payment-ui-test.js test/mobility-test.js test/mobility-security-test.js test/admin-mobility-ui-test.js
         working-directory: backend
       - name: Check admin portal JavaScript syntax
-        run: node --check public/admin/admin.js && node --check public/admin/resources.js && node --check public/admin/master-data.js
+        run: node --check public/admin/admin.js && node --check public/admin/resources.js && node --check public/admin/master-data.js && node --check public/admin/mobility.js
         working-directory: backend
       - name: Test public registration and allocation gates
         run: node --test test/account-phone-policy-test.js test/driver-registration-contract-test.js test/approval-lifecycle-test.js test/account-recovery-test.js test/credential-session-race-test.js test/application-notifications-test.js test/commute-quote-test.js test/onboarding-test.js test/onboarding-allocation-test.js test/applications-ui-test.js test/join-ui-test.js test/public-entry-test.js test/home-ui-test.js
@@ -135,6 +135,7 @@ jobs:
           node test/account-deletion-postgres-test.js
           node test/account-recovery-postgres-test.js
           ASSIGNMENT_TEST_POSTGRES=true node --test test/assignment-closure-test.js
+          MOBILITY_TEST_POSTGRES=true node --test --test-concurrency=1 test/mobility-test.js test/mobility-security-test.js
         working-directory: backend
 
   android-build:
@@ -155,7 +156,7 @@ jobs:
       - name: Assemble debug APK against configured HTTPS host
         run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://passo.live/' }}"
       - name: Verify passenger layout and decode rendered boarding QR
-        run: gradle :app:testDebugUnitTest "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://passo.live/' }}" --tests com.example.ApiBaseUrlTest --tests com.example.DriverApplicationTest --tests com.example.AuthLayoutTest --tests com.example.BoardingQrTest --tests com.example.PassengerPresentationTest --tests com.example.PassengerSubscriptionRepositoryTest --tests com.example.DriverGpsSharingTest --tests com.example.DriverLocationServiceTest --tests com.example.CredentialStorageTest --tests com.example.AccountPrivacyTest --tests com.example.VehicleTypeCatalogTest --tests com.example.IntercityPassengerStateTest --tests com.example.IntercityApiContractTest
+        run: gradle :app:testDebugUnitTest "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://passo.live/' }}" --tests com.example.ApiBaseUrlTest --tests com.example.DriverApplicationTest --tests com.example.AuthLayoutTest --tests com.example.BoardingQrTest --tests com.example.PassengerPresentationTest --tests com.example.PassengerSubscriptionRepositoryTest --tests com.example.DriverGpsSharingTest --tests com.example.DriverLocationServiceTest --tests com.example.CredentialStorageTest --tests com.example.AccountPrivacyTest --tests com.example.VehicleTypeCatalogTest --tests com.example.IntercityPassengerStateTest --tests com.example.IntercityApiContractTest --tests com.example.MobilityFlowTest
       - name: Upload passenger screen previews and test reports
         if: always()
         uses: actions/upload-artifact@v4
