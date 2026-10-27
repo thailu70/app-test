@@ -6,7 +6,7 @@ Admin Applications retains initial acceptance → applicant documents/profile �
 
 ## Group tickets
 
-Approved drivers propose trips with their current vehicle, endpoints, departure time, boarding location, seat capacity and ETB price per seat. Admin → Group & cargo approves or rejects each proposal. Only approved future trips with eligible operators appear publicly.
+Approved drivers propose trips with their current vehicle, endpoints, departure time, boarding location, seat capacity and ETB price per seat. Admin → Group & cargo approves or rejects each proposal. Only approved future trips with eligible operators appear publicly. Admins can cancel unopened trips without paid or pending provider payments; unpaid seat holds are released.
 
 Passengers choose up to 20 seats and enter buyer details plus each traveler's name and phone. Reservations are atomic and initially last ten minutes; starting provider checkout extends the reservation up to 125 minutes. An expired reservation cannot reclaim reallocated seats after a late payment; support must review late settlements.
 

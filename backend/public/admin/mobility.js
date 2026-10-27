@@ -174,6 +174,9 @@
         const actions = node('div', undefined, 'form-actions');
         actions.append(button('Approve trip', 'APPROVE', 'btn btn-primary'), button('Reject trip', 'REJECT', 'btn btn-danger'));
         form.append(node('p', 'Approval publishes this trip for passengers to book. The proposed fare is per passenger seat.', 'mobility-help'), actions); detail.append(form);
+      } else if (mode === 'trips' && row.status === 'APPROVED') {
+        const form = node('form', undefined, 'mobility-form'); noteField(form);
+        form.append(node('p', 'Existing bookings and the approved fare are retained. A trip can be cancelled only if it has no paid or pending provider payments.', 'mobility-help'), button('Cancel unpaid trip', 'CANCEL', 'btn btn-danger')); detail.append(form);
       } else if (mode !== 'trips' && assignable(row)) {
         const form = node('form', undefined, 'mobility-form'); form.dataset.form = 'assign';
         const driver = field(form, 'Driver', 'select', 'mobility-driver', { required: true });
@@ -228,7 +231,7 @@
       revision++; for (const controller of requests) controller.abort();
       mode = next; rows = []; selectedId = null; options = { drivers: [], vehicles: [] }; loading = false;
       find('search').value = ''; find('status').replaceChildren(node('option', 'All statuses')); find('status').firstChild.value = '';
-      const statuses = next === 'trips' ? ['PENDING_REVIEW', 'APPROVED', 'REJECTED', 'BOARDING', 'COMPLETED'] : ['REQUESTED', 'ASSIGNED', 'REJECTED', 'COMPLETED'];
+      const statuses = next === 'trips' ? ['PENDING_REVIEW', 'APPROVED', 'REJECTED', 'BOARDING', 'COMPLETED', 'CANCELLED'] : ['REQUESTED', 'ASSIGNED', 'REJECTED', 'COMPLETED'];
       for (const status of statuses) { const item = node('option', titleCase(status)); item.value = status; find('status').append(item); }
       for (const name of ['trips', 'group', 'cargo']) {
         find('tab-' + name).setAttribute('aria-selected', String(name === mode));
@@ -244,7 +247,7 @@
       const note = container.querySelector('#mobility-note')?.value.trim() || '';
       let path, body;
       if (mode === 'trips') {
-        if (row.status !== 'PENDING_REVIEW' || !['APPROVE', 'REJECT'].includes(action)) return;
+        if (action === 'CANCEL' ? row.status !== 'APPROVED' : row.status !== 'PENDING_REVIEW' || !['APPROVE', 'REJECT'].includes(action)) return;
         path = '/trips/' + encodeURIComponent(row.id) + '/review'; body = { decision: action, note };
       } else {
         if (!assignable(row)) return;

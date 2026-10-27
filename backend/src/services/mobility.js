@@ -98,7 +98,7 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
     return { trip: await tripView(row, db, true) };
   }
   async function reviewTrip(actor, key, input) {
-    if (!['APPROVE','REJECT'].includes(input.decision)) fail(400, 'Choose approve or reject.');
+    if (!['APPROVE','REJECT','CANCEL'].includes(input.decision)) fail(400, 'Choose approve, reject or cancel.');
     const note = text(input.note, 'review note', 1000, true);
     const row = await write(async tx => {
       const before = await getTrip(key, tx);
@@ -107,6 +107,16 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
         if (Number(before.seats) > Number(vehicle.capacityLimit)) fail(409, 'The vehicle no longer has enough approved passenger capacity.');
       }
       const current = await getTrip(key, tx, true);
+      if (input.decision === 'CANCEL') {
+        if (!['PENDING_REVIEW','APPROVED'].includes(current.status)) fail(409, 'Only an unopened trip can be cancelled.');
+        const committed = await tx.prepare("SELECT id FROM mobility_bookings WHERE trip_id=? AND (payment_status='PAID' OR (order_id IS NOT NULL AND payment_status<>'FAILED')) LIMIT 1").get(key);
+        if (committed) fail(409, 'Resolve paid or pending provider payments with support before cancelling this trip.');
+        await tx.prepare("UPDATE mobility_bookings SET status='CANCELLED',checkout_url=NULL WHERE trip_id=? AND payment_status<>'PAID'").run(key);
+        await tx.prepare('DELETE FROM mobility_seats WHERE trip_id=?').run(key);
+        await tx.prepare("UPDATE mobility_trips SET status='CANCELLED',review_note=?,reviewed_by=?,reviewed_at=? WHERE id=?").run(note,actor,instant(),key);
+        await audit(tx,actor,'GROUP_TRIP_CANCEL',key);
+        return getTrip(key,tx);
+      }
       if (current.status !== 'PENDING_REVIEW') fail(409, 'This trip was already reviewed. Refresh the queue.');
       if (input.decision === 'APPROVE' && Date.parse(current.departure_at) <= now()) fail(409, 'The departure is already past. Ask the driver to propose a future trip.');
       await tx.prepare('UPDATE mobility_trips SET status=?,review_note=?,reviewed_by=?,reviewed_at=? WHERE id=?').run(input.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED', note, actor, instant(), key);

@@ -88,6 +88,15 @@ test('group approval, multi-person paid tickets, cargo privacy and admin assignm
     await service.completeTrip('group',trip.id);assert.equal((await service.trips()).trips.length,0);
   });
   const requestBase={origin:'Addis Ababa',destination:'Adama',travelDate:new Date(clock+86400000).toISOString().slice(0,10),vehicleType:'MINIVAN_8',customerName:'Request Customer',customerPhone:'0911000301',adultConfirmed:true};
+  await t.test('admin closes an unpaid approved trip without granting tickets or stranding the driver',async()=>{
+    const proposed=(await service.createTrip('group',input)).trip;
+    await service.reviewTrip('usr_adm_root',proposed.id,{decision:'APPROVE'});
+    const reserved=await service.createBooking(proposed.id,{...buyer,travelers:[{name:'Unpaid Traveler',phone:'0911000206',seatNumber:1}]});
+    assert.equal((await service.reviewTrip('usr_adm_root',proposed.id,{decision:'CANCEL',note:'Driver unavailable before payment.'})).trip.status,'CANCELLED');
+    assert.equal((await service.booking(reserved.booking.id,reserved.bookingSecret)).booking.status,'CANCELLED');
+    await assert.rejects(service.checkout(reserved.booking.id,reserved.bookingSecret),e=>e.status===409);
+    await assert.rejects(service.reviewTrip('usr_adm_root',trip.id,{decision:'CANCEL'}),e=>e.status===409);
+  });
   await t.test('private group and photo-backed cargo requests have capability privacy and service-specific admin assignment', async()=>{
     const group=await service.createRequest({...requestBase,kind:'GROUP',people:5});assert.equal(group.request.status,'REQUESTED');
     const cargo=await service.createRequest({...requestBase,kind:'CARGO',cargoDetails:'Boxed household furniture',originLatitude:9,originLongitude:38,destinationLatitude:8.5,destinationLongitude:39});assert.equal(cargo.request.status,'DRAFT');
