@@ -60,8 +60,16 @@ class IntercityLayoutTest {
 
     private fun mount(api: FakeApi): IntercityPassengerViewModel {
         val model = IntercityPassengerViewModel(api, MemoryStore(), ioDispatcher = Dispatchers.Unconfined)
+        val mobilityApi = java.lang.reflect.Proxy.newProxyInstance(MobilityApi::class.java.classLoader, arrayOf(MobilityApi::class.java)) { _, method, _ ->
+            when (method.name) {
+                "trips" -> Response.success(MobilityTripsResponse(true))
+                "catalog" -> Response.success(MobilityCatalogResponse(true, listOf(MobilityVehicleType("MINIVAN_8", "Minivan", 8))))
+                else -> error("Unexpected mobility request ${method.name}")
+            }
+        } as MobilityApi
+        val mobility = MobilityViewModel(mobilityApi, MemoryStore(), ioDispatcher = Dispatchers.Unconfined)
         compose.setContent {
-            MyApplicationTheme { IntercityPassengerScreen(AppLanguage.ENGLISH, {}, {}, providedViewModel = model) }
+            MyApplicationTheme { IntercityPassengerScreen(AppLanguage.ENGLISH, {}, {}, providedViewModel = model, providedMobilityViewModel = mobility) }
         }
         compose.waitUntil(10_000) { model.state.value.searchCompleted && !model.state.value.busy }
         return model
@@ -155,9 +163,9 @@ class IntercityLayoutTest {
         capture("04-no-routes")
         compose.onNodeWithTag("intercity_content").performScrollToNode(hasTestTag("intercity_service_tab_1"))
         compose.onNodeWithTag("intercity_service_tab_1").performClick()
-        compose.onNodeWithText("Not available yet").assertExists()
+        compose.onNodeWithTag("mobility_new_request").assertIsEnabled()
         compose.onNodeWithTag("intercity_search").assertDoesNotExist()
-        compose.onNodeWithTag("intercity_service_tab_0").performClick()
+        compose.onNodeWithTag("mobility_back").performClick()
         compose.onNodeWithTag("intercity_search").assertExists()
         assertEquals(0, model.state.value.serviceTab)
     }
