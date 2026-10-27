@@ -52,8 +52,8 @@ jobs:
           --tests com.example.PlayStorePreviewTest
           --tests com.example.MobilityFlowTest
           --tests com.example.MobilityLayoutTest
-      - name: Assemble unsigned production bundle for local upload-key signing
-        run: gradle :app:bundleRelease -PPASSO_UNSIGNED_PLAY_BUNDLE=true -PROUTEPASS_API_BASE_URL=https://passo.live/
+      - name: Assemble unsigned production bundle and APK for local signing
+        run: gradle :app:bundleRelease :app:assembleRelease -PPASSO_UNSIGNED_PLAY_BUNDLE=true -PROUTEPASS_API_BASE_URL=https://passo.live/
       - name: Download pinned Google bundletool and verify its checksum
         run: |
           curl -fL --retry 3 -o "$RUNNER_TEMP/bundletool.jar" https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar
@@ -71,6 +71,8 @@ jobs:
           path: |
             app/build/outputs/bundle/release/app-release.aab
             app/build/outputs/bundle/release/play-verification.json
+            app/build/outputs/apk/release/app-release-unsigned.apk
+            app/build/outputs/apk/release/output-metadata.json
           if-no-files-found: error
           retention-days: 14
       - name: Upload real app previews and test reports
