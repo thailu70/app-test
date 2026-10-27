@@ -120,5 +120,15 @@ test('mobility reservations retain capacity, expiry, operational approval and pr
     assert.deepEqual((await service.photo(key, null, { role: 'DRIVER', id: 'security-cargo-driver' })).bytes, photo);
     await assert.rejects(service.photo(key, null, { role: 'DRIVER', id: 'security-group-driver' }), error => error.status === 404);
     await assert.rejects(service.uploadPhoto(key, capability, photo, 'image/png'), error => error.status === 409);
+    await service.flushSms();
+    await DB.prepare("UPDATE users SET phone='+251911234503' WHERE id='security-cargo-driver'").run();
+    clock += 61000; await service.flushSms();
+    const stale = await DB.prepare("SELECT status FROM mobility_sms_outbox WHERE request_id=? AND phone='+251911234502'").get(key);
+    assert.equal(stale.status,'CANCELLED','A retry must not send customer details to the driver’s old phone number.');
+  });
+  await t.test('retained account closure revokes mobility eligibility even if a legacy status is changed back to active',async()=>{
+    await require('../src/services/account-deletion').initAccountDeletionSchema();
+    await DB.prepare("INSERT INTO account_deletion_requests(id,account_id,role,status,requested_at) VALUES(?,'security-group-driver','DRIVER','COMPLETED_WITH_RETENTION',?)").run(crypto.randomUUID(),new Date(clock).toISOString());
+    await assert.rejects(trip({approve:false}),error=>error.status===409);
   });
 });

@@ -7,6 +7,7 @@ const { DB } = require('../db');
 const { JWT_SECRET } = require('../middleware/auth');
 const { normalizePhone } = require('./onboarding');
 const { driverEligible } = require('./operational-onboarding');
+const { isAccountClosed } = require('./account-deletion');
 const { getVehicleType, listVehicleTypes, effectiveBoardingRadius } = require('./master-data');
 const { publicBaseUrl } = require('./public-url');
 const { initMobilitySchema } = require('./mobility-schema');
@@ -53,7 +54,7 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
     const vehicle = await tx.prepare('SELECT * FROM vehicles WHERE id=?' + (locked ? lock(tx) : '')).get(vehicleId);
     const driver = await tx.prepare("SELECT * FROM users WHERE id=? AND role='DRIVER'" + (locked ? lock(tx) : '')).get(driverId);
     const type = await serviceType(driverId, tx);
-    if (!vehicle || !driver || vehicle.driverId !== driver.id || driver.status !== 'ACTIVE' || !['IN_SERVICE','AVAILABLE'].includes(vehicle.status) || !await driverEligible(driverId, tx) || type !== (kind === 'GROUP' ? 'GROUP_TRAVEL' : 'CARGO')) fail(409, 'Select an approved driver and their active vehicle for this service.');
+    if (!vehicle || !driver || vehicle.driverId !== driver.id || driver.status !== 'ACTIVE' || !['IN_SERVICE','AVAILABLE'].includes(vehicle.status) || await isAccountClosed(driverId, 'DRIVER', tx) || !await driverEligible(driverId, tx) || type !== (kind === 'GROUP' ? 'GROUP_TRAVEL' : 'CARGO')) fail(409, 'Select an approved driver and their active vehicle for this service.');
     if (!await getVehicleType(vehicle.vehicleType, tx)) fail(409, 'The assigned vehicle type is unavailable.');
     return { vehicle, driver };
   }
@@ -504,7 +505,8 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
           } else if (current.request_id) {
             const request = await tx.prepare('SELECT * FROM mobility_requests WHERE id=?').get(current.request_id);
             const fingerprint = request && [request.driver_id,request.vehicle_id,request.quote_etb == null ? '' : Number(request.quote_etb)].join(':');
-            deliverable = request?.status === 'ASSIGNED' && fingerprint === current.assignment_key;
+            const driver = request?.driver_id ? await tx.prepare('SELECT phone FROM users WHERE id=?').get(request.driver_id) : null;
+            deliverable = request?.status === 'ASSIGNED' && fingerprint === current.assignment_key && [request.customer_phone,normalizePhone(driver?.phone)].includes(current.phone);
           }
           if (!deliverable) { await tx.prepare("UPDATE mobility_sms_outbox SET status='CANCELLED' WHERE id=?").run(current.id); return { cancelled: true }; }
           const lease = crypto.randomUUID();
