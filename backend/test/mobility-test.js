@@ -66,7 +66,7 @@ test('group approval, multi-person paid tickets, cargo privacy and admin assignm
     providerOrders.get('group-order-1').amount=1000;
     const paid=(await service.booking(held.booking.id,held.bookingSecret)).booking;assert.equal(paid.paymentStatus,'PAID');
     assert.ok(paid.travelers.every(p=>p.ticketNumber&&p.boardingPassUrl&&p.qrToken));
-    for(let i=0;i<30&&sent.length<4;i++)await new Promise(resolve=>setImmediate(resolve));
+    await service.flushSms();
     assert.equal(sent.length,4);assert.equal(sent.filter(x=>x.phone==='+251911000201').length,2);
     for(const message of sent)assert.match(message.message,/PG-[A-F0-9]{16}.*Boarding pass: https:\/\/passo.live\/api\/mobility\/tickets\//);
     await service.booking(held.booking.id,held.bookingSecret);await service.flushSms();assert.equal(sent.length,4);
@@ -124,6 +124,13 @@ test('group approval, multi-person paid tickets, cargo privacy and admin assignm
     assert.equal((await fetch(base+'/admin/requests',{headers:{Authorization:auth('ADMIN')}})).status,200);
     assert.equal((await fetch(base+'/bookings/'+held.booking.id)).status,404);
     const publicTrips=await(await fetch(base+'/trips')).json();assert.equal(publicTrips.success,true);
+    const guest=await fetch(base+'/requests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...requestBase,kind:'GROUP',people:3})});
+    assert.equal(guest.status,201,'Group transport requests do not require an account, login or OTP.');
+    const cargoResponse=await fetch(base+'/requests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...requestBase,kind:'CARGO',cargoDetails:'Guest cargo without registration'})});
+    assert.equal(cargoResponse.status,201);const cargo=await cargoResponse.json();
+    const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6QmcAAAAASUVORK5CYII=','base64');
+    assert.equal((await fetch(base+'/requests/'+cargo.request.id+'/photo',{method:'PUT',headers:{'Content-Type':'image/png','X-Request-Secret':cargo.requestSecret},body:png})).status,200);
+    assert.equal((await fetch(base+'/requests/'+cargo.request.id+'/submit',{method:'POST',headers:{'X-Request-Secret':cargo.requestSecret}})).status,200,'Cargo photo submission uses private request access without user registration.');
   });
   await t.test('abandoned cargo photo drafts expire privately without changing submitted requests',async()=>{
     const draft=await service.createRequest({...requestBase,kind:'CARGO',cargoDetails:'Unsubmitted draft package'});
@@ -133,6 +140,6 @@ test('group approval, multi-person paid tickets, cargo privacy and admin assignm
     const expired=(await service.request(draft.request.id,draft.requestSecret)).request;assert.equal(expired.status,'EXPIRED');assert.equal(expired.customerPhone,'');assert.equal(expired.photoUrl,null);
     await assert.rejects(service.photo(draft.request.id,draft.requestSecret),e=>e.status===404);
     assert.equal((await service.requests('CARGO')).requests.some(x=>x.id===draft.request.id),false);
-    assert.equal((await service.requests('CARGO')).requests[0].status,'COMPLETED');
+    assert.equal((await service.requests('CARGO')).requests.some(x=>x.status==='COMPLETED'),true);
   });
 });

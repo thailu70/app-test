@@ -474,9 +474,13 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
   async function audit(tx, actor, action, resource) {
     await tx.prepare('INSERT INTO audit_logs(action,userId,role,details) VALUES(?,?,?,?)').run(action, actor, 'ADMIN', resource);
   }
-  let flushing = false;
-  async function flushSms({ limit = 20 } = {}) {
-    if (flushing) return { sent: 0, failed: 0 }; flushing = true;
+  let flushing = null;
+  function flushSms(options = {}) {
+    if (flushing) return flushing;
+    flushing = runSmsBatch(options).finally(() => { flushing = null; });
+    return flushing;
+  }
+  async function runSmsBatch({ limit = 20 } = {}) {
     const result = { sent: 0, failed: 0 };
     try {
       for (let index = 0; index < Math.min(100, limit); index++) {
@@ -504,7 +508,6 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
         result[sent ? 'sent' : 'failed']++;
       }
     } catch (_) { result.failed++; }
-    finally { flushing = false; }
     return result;
   }
   async function cleanDrafts() {
