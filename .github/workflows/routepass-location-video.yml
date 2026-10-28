@@ -1,0 +1,124 @@
+name: Passo real Android location demonstration
+
+on:
+  push:
+    branches: [enhance/routepass-ui-backend-2026-10-17]
+    paths:
+      - '.github/workflows/routepass-location-video.yml'
+      - 'app/src/androidTest/java/com/example/DriverLocationVideoTest.kt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: passo-location-video-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  record-location:
+    name: Record actual Android disclosure, foreground notice and Stop
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Build isolated debug installation and instrumentation only
+        run: gradle :app:assembleDebug :app:assembleDebugAndroidTest -PROUTEPASS_API_BASE_URL=http://127.0.0.1:9/
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Prepare recording script
+        run: |
+          mkdir -p app/build/play-location-video
+          cat > "$RUNNER_TEMP/passo-record-location.sh" <<'BASH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          evidence="$GITHUB_WORKSPACE/app/build/play-location-video"
+          video=/sdcard/passo-location-demonstration.mp4
+          gps_pid=''
+          recorder_pid=''
+          log_pid=''
+          finish() {
+            adb shell pkill -INT screenrecord >/dev/null 2>&1 || true
+            if [ -n "$recorder_pid" ]; then wait "$recorder_pid" || true; fi
+            if [ -n "$gps_pid" ]; then kill "$gps_pid" 2>/dev/null || true; fi
+            if [ -n "$log_pid" ]; then kill "$log_pid" 2>/dev/null || true; fi
+            adb pull "$video" "$evidence/Passo-driver-location.mp4" || true
+            adb pull /sdcard/Android/data/live.passo.app/files/play-location-video/. "$evidence/" || true
+            adb shell dumpsys activity services live.passo.app > "$evidence/services-after.txt" || true
+            adb shell dumpsys notification --noredact > "$evidence/notifications-after.txt" || true
+          }
+          trap finish EXIT
+          adb shell wm size 1080x1920
+          adb shell wm density 420
+          adb shell input keyevent KEYCODE_WAKEUP
+          adb shell wm dismiss-keyguard
+          adb install app/build/outputs/apk/debug/app-debug.apk
+          adb install app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          # Device networking is disabled: all operational APIs are in-process fixtures.
+          # The production hostname is absent from this installation's API configuration.
+          adb shell svc wifi disable
+          adb shell svc data disable
+          adb shell cmd location set-location-enabled true
+          adb shell dumpsys connectivity > "$evidence/connectivity-before.txt"
+          adb logcat -c
+          adb logcat -v threadtime > "$evidence/logcat.txt" &
+          log_pid=$!
+          (for tick in $(seq 1 180); do adb emu geo fix 38.788 8.995 >/dev/null; sleep 1; done) &
+          gps_pid=$!
+          adb shell screenrecord --time-limit 150 --bit-rate 6000000 "$video" > "$evidence/recorder.txt" 2>&1 &
+          recorder_pid=$!
+          sleep 2
+          timeout 180s adb shell am instrument -w -r -e class com.example.DriverLocationVideoTest live.passo.app.test/androidx.test.runner.AndroidJUnitRunner | tee "$evidence/instrumentation.txt"
+          grep -Eq '^OK \(1 test\)' "$evidence/instrumentation.txt"
+          sleep 2
+          finish
+          trap - EXIT
+          python3 - "$evidence" <<'PY'
+          import hashlib, json, pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          checks = json.loads((root / 'assertions.json').read_text())
+          assert checks['passed'] is True, checks
+          assert checks['freshGpsUploadsBeforeStop'] > 0, checks
+          video = root / 'Passo-driver-location.mp4'
+          content = video.read_bytes()
+          assert len(content) > 200_000 and content[4:8] == b'ftyp', 'Missing actual MP4 recording'
+          (root / 'video-verification.json').write_text(json.dumps({
+              'bytes': len(content), 'sha256': hashlib.sha256(content).hexdigest(),
+              'sourceCommit': __import__('os').environ['GITHUB_SHA'],
+              'syntheticNetworkData': True, 'productionReleaseUnchanged': True,
+              'disclosurePermissionsServiceNotificationStopVerified': True
+          }, indent=2))
+          PY
+          BASH
+      - name: Record a real Android 15 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 2048M
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: bash "$RUNNER_TEMP/passo-record-location.sh"
+      - name: Save MP4, screenshots and assertion evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: passo-real-location-video
+          path: app/build/play-location-video/
+          if-no-files-found: warn
+          retention-days: 14
