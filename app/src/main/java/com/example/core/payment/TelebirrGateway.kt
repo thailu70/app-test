@@ -1,10 +1,10 @@
 package com.example.core.payment
 
-import com.example.data.api.ApiClient
 import com.example.data.api.TelebirrPayRequest
 import com.example.data.entity.PaymentTransactionEntity
 import com.example.data.entity.SubscriptionEntity
 import com.example.data.repository.TransportRepository
+import kotlinx.coroutines.CancellationException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -46,14 +46,13 @@ object TelebirrGateway {
         }
 
         return try {
-            val apiService = ApiClient.getService()
             val request = TelebirrPayRequest(
                 routeId = routeId,
                 phone = cleanPhone,
                 idempotencyKey = idempotencyKey
             )
 
-            val response = apiService.payTelebirr(request, idempotencyKey = idempotencyKey)
+            val response = repository.requestSubscriptionCheckout(request, idempotencyKey)
 
             if (response.isSuccessful && response.body()?.success == true) {
                 val body = response.body()!!
@@ -125,7 +124,8 @@ object TelebirrGateway {
                 val errorMsg = response.body()?.error ?: response.message()
                 TelebirrPaymentResult.Failed("PAYMENT_REJECTED", errorMsg)
             }
-        } catch (e: Exception) {
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (e: Exception) {
             // A network failure is not evidence of payment. Never mint a local
             // active subscription or QR pass when the server cannot verify payment.
             TelebirrPaymentResult.Failed(

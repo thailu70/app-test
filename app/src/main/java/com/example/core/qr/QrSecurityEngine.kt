@@ -1,10 +1,10 @@
 package com.example.core.qr
 
-import com.example.data.api.ApiClient
 import com.example.data.api.ScanCheckinRequest
 import com.example.data.entity.SubscriptionEntity
 import com.example.data.entity.UserEntity
 import com.example.data.repository.TransportRepository
+import kotlinx.coroutines.CancellationException
 
 sealed class QrValidationResult {
     data class Valid(
@@ -59,8 +59,7 @@ object QrSecurityEngine {
 
         return try {
             // Call VPS Backend API
-            val apiService = ApiClient.getService()
-            val response = apiService.scanCheckin(
+            val response = repository.scanRemoteBoarding(
                 ScanCheckinRequest(
                     qrToken = trimmedToken,
                     tripId = currentTripId,
@@ -145,7 +144,8 @@ object QrSecurityEngine {
                   }
                 }
             }
-        } catch (e: Exception) {
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (e: Exception) {
             // Never accept a QR using cached/demo state. Boarding requires server-side signature,
             // subscription, route, duplicate and capacity validation; fail closed when offline.
             QrValidationResult.Invalid(

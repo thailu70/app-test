@@ -34,6 +34,18 @@ class TransportRepository(
     suspend fun insertUser(user: UserEntity) = dao.insertUser(user)
     suspend fun clearPrivateCache() = dao.clearPrivateCache()
 
+    /** Legacy QR/payment helpers must use this repository's original environment. */
+    suspend fun scanRemoteBoarding(input: ScanCheckinRequest): retrofit2.Response<ScanCheckinResponse> {
+        currentCoroutineContext().ensureActive()
+        check(ApiClient.isCurrent(environmentScope)) { "The environment changed. Open this screen again." }
+        return apiService.scanCheckin(input)
+    }
+    suspend fun requestSubscriptionCheckout(input: TelebirrPayRequest, idempotencyKey: String): retrofit2.Response<TelebirrPayResponse> {
+        currentCoroutineContext().ensureActive()
+        check(ApiClient.isCurrent(environmentScope)) { "The environment changed. Open this screen again." }
+        return apiService.payTelebirr(input, idempotencyKey)
+    }
+
     var lastAuthError: String? = null
         private set
     var lastAuthCode: String? = null
