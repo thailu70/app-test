@@ -1,5 +1,6 @@
 (() => {
   'use strict';
+  const review = window.PassoCompanyEnvironment?.review === true;
   let leafletLoading = null;
   function leaflet() {
     if (window.L) return Promise.resolve(window.L);
@@ -27,7 +28,7 @@
   function mount({ container, apiUrl = '/api/fleet/tracking', token }) {
     if (!container) return () => {};
     container.innerHTML = '<section class="fleet-tracking">' +
-      '<div class="fleet-toolbar"><div><h3>Driver GPS</h3><p>Real phone locations from your fleet. Refreshes every 15 seconds.</p></div><div class="fleet-actions"><button type="button" data-fleet-fit>Fit fleet</button><button type="button" data-fleet-refresh>Refresh GPS</button></div></div>' +
+      '<div class="fleet-toolbar"><div><h3>Driver GPS</h3><p>' + (review ? 'Synthetic fleet only. No production tracking.' : 'Real phone locations from your fleet. Refreshes every 15 seconds.') + '</p></div><div class="fleet-actions"><button type="button" data-fleet-fit>Fit fleet</button><button type="button" data-fleet-refresh>Refresh GPS</button></div></div>' +
       '<div class="fleet-stats" data-fleet-stats></div><p class="fleet-message" data-fleet-message role="status">Loading fleet GPS…</p>' +
       '<div class="fleet-layout"><div><div class="fleet-map" data-fleet-map aria-label="Map of real driver GPS locations"></div><p class="fleet-map-note" data-fleet-map-note>Road map: OpenStreetMap. No marker is shown without a real GPS report.</p></div>' +
       '<aside class="fleet-explainer"><h4>Reading the map</h4><p>' + badge('LIVE') + '<br>Active route and a GPS report within 2 minutes.</p><p>' + badge('STALE') + '<br>Active route; last report is over 2 minutes old.</p><p>' + badge('OFFLINE') + '<br>No active confirmed route. The marker is the last known position.</p><p>' + badge('NO_GPS') + '<br>No valid GPS report yet. No marker is placed.</p></aside></div>' +
@@ -59,6 +60,12 @@
     }
     async function drawMap() {
       if (!mounted || mapStarting) return;
+      if (review) {
+        $('[data-fleet-map]').classList.add('review-map-grid');
+        $('[data-fleet-map]').textContent = 'Synthetic fleet location workspace';
+        $('[data-fleet-map-note]').textContent = 'Demo: no external map, real driver or live location is contacted. Synthetic coordinates remain in the fleet table.';
+        return;
+      }
       try {
         if (!map) {
           mapStarting = true;

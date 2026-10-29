@@ -180,10 +180,10 @@ jobs:
           NODE_ENV: test
           REVIEW_TEST_POSTGRES: "true"
           DATABASE_URL: postgres://passo_review:ci_review_database_password_only_2026@127.0.0.1:5432/passo_review
-        run: node --test test/review-environment-test.js test/ticket-presentation-test.js
+        run: node --test test/review-environment-test.js test/review-company-portal-test.js test/ticket-presentation-test.js
         working-directory: backend
       - name: Verify disposable SQLite review lifecycle
-        run: node --test test/review-environment-test.js test/ticket-presentation-test.js
+        run: node --test test/review-environment-test.js test/review-company-portal-test.js test/ticket-presentation-test.js
         working-directory: backend
 
   android-build:
@@ -204,7 +204,7 @@ jobs:
       - name: Assemble debug APK against configured HTTPS host
         run: gradle :app:assembleDebug "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://passo.live/' }}"
       - name: Verify passenger layout and decode rendered boarding QR
-        run: gradle :app:testDebugUnitTest "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://passo.live/' }}" --tests com.example.ApiBaseUrlTest --tests com.example.EnvironmentIsolationTest --tests com.example.EnvironmentTransitionTest --tests com.example.EnvironmentControlsTest --tests com.example.DriverApplicationTest --tests com.example.AuthLayoutTest --tests com.example.BoardingQrTest --tests com.example.PassengerPresentationTest --tests com.example.PassengerSubscriptionRepositoryTest --tests com.example.DriverGpsSharingTest --tests com.example.DriverLocationServiceTest --tests com.example.CredentialStorageTest --tests com.example.AccountPrivacyTest --tests com.example.VehicleTypeCatalogTest --tests com.example.IntercityPassengerStateTest --tests com.example.IntercityApiContractTest --tests com.example.MobilityFlowTest
+        run: gradle :app:testDebugUnitTest "-PROUTEPASS_API_BASE_URL=${{ github.event.inputs.api_base_url || 'https://passo.live/' }}" --tests com.example.ApiBaseUrlTest --tests com.example.EnvironmentIsolationTest --tests com.example.EnvironmentTransitionTest --tests com.example.EnvironmentControlsTest --tests com.example.EnvironmentCompanyPortalTest --tests com.example.DriverApplicationTest --tests com.example.AuthLayoutTest --tests com.example.BoardingQrTest --tests com.example.PassengerPresentationTest --tests com.example.PassengerSubscriptionRepositoryTest --tests com.example.DriverGpsSharingTest --tests com.example.DriverLocationServiceTest --tests com.example.CredentialStorageTest --tests com.example.AccountPrivacyTest --tests com.example.VehicleTypeCatalogTest --tests com.example.IntercityPassengerStateTest --tests com.example.IntercityApiContractTest --tests com.example.MobilityFlowTest
       - name: Upload passenger screen previews and test reports
         if: always()
         uses: actions/upload-artifact@v4

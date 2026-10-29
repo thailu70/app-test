@@ -39,7 +39,7 @@ class EnvironmentControlsTest {
         assertTrue(ApiClient.isCurrent(originalScope))
     }
 
-    @Test fun `demo indicator stays visible and demo company portal cannot open shared browser storage`() {
+    @Test fun `demo indicator stays visible and company portal disables browser storage`() {
         ApiClient.setBaseUrl(AppEnvironment.DEMO_BASE_URL)
         var settings = 0
         compose.setContent { MyApplicationTheme { Column {
@@ -48,7 +48,21 @@ class EnvironmentControlsTest {
         } } }
         compose.onNodeWithTag("demo_environment_banner").assertIsDisplayed()
         compose.onNodeWithText("Demo — synthetic data; no real payments or SMS").assertIsDisplayed()
-        compose.onNodeWithText("Company administration is unavailable in demo.", substring = true).assertIsDisplayed()
+        compose.runOnIdle {
+            fun findWeb(view: android.view.View): android.webkit.WebView? {
+                if (view is android.webkit.WebView) return view
+                if (view is android.view.ViewGroup) for (index in 0 until view.childCount) {
+                    findWeb(view.getChildAt(index))?.let { return it }
+                }
+                return null
+            }
+            val web = findWeb(compose.activity.window.decorView)!!
+            assertEquals("https://passo.live/review/company/", web.url)
+            assertFalse(web.settings.domStorageEnabled)
+            assertFalse(web.settings.allowFileAccess)
+            assertFalse(web.settings.allowContentAccess)
+            assertFalse(android.webkit.CookieManager.getInstance().acceptCookie())
+        }
         compose.onNodeWithText("Exit demo").performClick()
         assertEquals(1, settings)
         assertEquals(AppEnvironment.DEMO, ApiClient.environment())

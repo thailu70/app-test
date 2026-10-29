@@ -1,11 +1,11 @@
-(()=>{const $=s=>document.querySelector(s),key='passo_company_token';let token=sessionStorage.getItem(key)||'',company={},mapCleanup=null,applicationsCleanup=null,currentView='overview';
+(()=>{const $=s=>document.querySelector(s),key='passo_company_token',environment=typeof window==='undefined'?undefined:window.PassoCompanyEnvironment;let token=(environment?environment.getToken():sessionStorage.getItem(key))||'',company={},mapCleanup=null,applicationsCleanup=null,currentView='overview';
 const esc=v=>String(v??'—').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 async function api(p,o={}){
   const controller=new AbortController();let timedOut=false;
   const timeout=setTimeout(()=>{timedOut=true;controller.abort();},12000);
   try{
     const h={'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})};
-    const r=await fetch('/api'+p,{...o,headers:h,signal:controller.signal,cache:'no-store'});
+    const r=await fetch((environment?.apiBase||'/api')+p,{...o,headers:h,signal:controller.signal,cache:'no-store'});
     const b=await r.json().catch(e=>{if(e.name==='AbortError')throw e;return {};});
     if(timedOut)throw Error('The request timed out. Please retry.');
     if(r.status===401&&token&&!p.endsWith('/login')){logout('Your session expired. Please sign in again.');throw Error('Your session expired. Please sign in again.');}
@@ -15,7 +15,7 @@ async function api(p,o={}){
   finally{clearTimeout(timeout);}
 }
 function msg(id,text,error=false){const el=$(id);el.textContent=text;el.className=error?'message error':'message'}
-async function auth(path,form){try{const b=await api(path,{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(form)))});token=b.token;company=b.user||{};sessionStorage.setItem(key,token);$('#login').classList.add('hidden');$('#dash').classList.remove('hidden');showView(currentView);await load()}catch(e){msg('#loginMsg',e.message,true)}}
+async function auth(path,form){try{const b=await api(path,{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(form)))});token=b.token;company=b.user||{};if(environment)environment.setToken(token);else sessionStorage.setItem(key,token);$('#login').classList.add('hidden');$('#dash').classList.remove('hidden');showView(currentView);await load()}catch(e){msg('#loginMsg',e.message,true)}}
 $('#signin').onsubmit=e=>{e.preventDefault();auth('/companies/login',e.target)};$('#register').onsubmit=e=>{e.preventDefault();auth('/companies/register',e.target)};
 let drivers=[],vehicles=[],routes=[],assignments=[],bookings=[],roster=[];
 const resources={
@@ -101,12 +101,12 @@ function showView(name){
     panel.innerHTML=window.PassoApplications.markup();
     applicationsCleanup=window.PassoApplications.mount({container:panel.querySelector('#applications-panel'),api:(path,options)=>api(path.replace(/^\/api/,''),options),token,isActive:()=>currentView==='drivers'&&Boolean(token),onReviewed:()=>load()});
   }
-  if(currentView==='gps'&&token&&typeof window!=='undefined'&&window.RoutepassFleetMap)mapCleanup=window.RoutepassFleetMap.mount({container:$('#companyFleetMap'),apiUrl:'/api/fleet/tracking',token});
+  if(currentView==='gps'&&token&&typeof window!=='undefined'&&window.RoutepassFleetMap)mapCleanup=window.RoutepassFleetMap.mount({container:$('#companyFleetMap'),apiUrl:(environment?.apiBase||'/api')+'/fleet/tracking',token});
 }
 document.querySelectorAll('[data-view],[data-open-view]').forEach(el=>el.onclick=()=>{const name=el.dataset.view||el.dataset.openView;showView(name);if(typeof history!=='undefined')history.replaceState(null,'','#'+name);});
 for(const id of ['overviewStatus','driversStatus','fleetStatus','routesStatus','assignmentsStatus','bookingsStatus'])$('#'+id).onclick=e=>{const retry=e.target.closest?.('[data-retry]');if(retry)load(retry.dataset.retry.split(','));};
 function logout(reason){
-  token='';sessionStorage.removeItem(key);if(mapCleanup){mapCleanup();mapCleanup=null;}
+  token='';if(environment)environment.clearToken();else sessionStorage.removeItem(key);if(mapCleanup){mapCleanup();mapCleanup=null;}
   if(applicationsCleanup){applicationsCleanup();applicationsCleanup=null;}
   Object.values(resources).forEach(r=>{delete r.data;delete r.error;});
   drivers=[];vehicles=[];routes=[];assignments=[];bookings=[];roster=[];company={};

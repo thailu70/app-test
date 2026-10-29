@@ -14,7 +14,8 @@ const ACCOUNTS = Object.freeze([
   ['company-driver','DRIVER','Demo Company Driver','+251900000105','INTERCITY'],
   ['pending','DRIVER','Demo Pending Applicant','+251900000106','DAILY_COMMUTE'],
   ['accepted','DRIVER','Demo Accepted Applicant','+251900000107','DAILY_COMMUTE'],
-  ['disposable','PASSENGER','Demo Disposable Adult','+251900000108','']
+  ['disposable','PASSENGER','Demo Disposable Adult','+251900000108',''],
+  ['company-applicant','DRIVER','Demo Company Applicant','+251900000110','INTERCITY']
 ]);
 function createReviewFixtures(db, config, { now = Date.now } = {}) {
   if (config !== getReviewRuntime()) throw Error('Review fixtures require the validated isolated runtime.');
@@ -53,15 +54,15 @@ function createReviewFixtures(db, config, { now = Date.now } = {}) {
       row=collision;
     }
     await claim('user',id,'users');
-    const company=key==='company-driver'?'review_company':'';
+    const company=['company-driver','company-applicant'].includes(key)?'review_company':'';
     await db.prepare('INSERT INTO users(id,role,fullName,phone,passwordHash,status,licenseNumber,companyId,companyName,assignedVehiclePlate) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING')
-      .run(id,role,name,phone,passwordHash,['pending','accepted'].includes(key)?'PENDING':'ACTIVE',role==='DRIVER'?'SYNTHETIC-DEMO-LICENSE':'',company,company?'Demo Transport Company':'',role==='DRIVER'?'DEMO-'+key.toUpperCase():'');
+      .run(id,role,name,phone,passwordHash,['pending','accepted','company-applicant'].includes(key)?'PENDING':'ACTIVE',role==='DRIVER'?'SYNTHETIC-DEMO-LICENSE':'',company,company?'Demo Transport Company':'',role==='DRIVER'?'DEMO-'+key.toUpperCase():'');
     if (role==='DRIVER') {
-      const pending=key==='pending', accepted=key==='accepted', approved=!pending&&!accepted;
+      const pending=key==='pending', accepted=key==='accepted', applicant=key==='company-applicant', approved=!pending&&!accepted&&!applicant, documented=approved||applicant;
       await db.prepare(`INSERT INTO onboarding_accounts(account_id,role,normalized_phone,service_type,created_at,updated_at,acceptance_status,accepted_at,accepted_by,acceptance_grandfathered,initial_submitted_at,submitted_at,review_status,reviewed_at,reviewed_by,review_note,route_choice,proposed_departure,proposed_destination,proposed_monthly_fee_etb,proposed_monthly_fee_basis,quote_vehicle_type,quote_passenger_capacity)
         VALUES(?,'DRIVER',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(account_id) DO NOTHING`)
-        .run(id,phone,type,instant(),instant(),pending?'PENDING':'ACCEPTED',pending?null:instant(),pending?null:'review_internal_reviewer',db.isPostgres?approved:approved?1:0,instant(),approved?instant():null,pending?'AWAITING_ACCEPTANCE':accepted?'DRAFT':'APPROVED',approved?instant():null,approved?'review_internal_reviewer':null,'Synthetic demonstration account; no identity or commercial verification implied.','PROPOSED','Demo origin','Demo destination',type==='DAILY_COMMUTE'?20000:null,type==='DAILY_COMMUTE'?'PER_VEHICLE':'','MINIVAN_8',8);
-      if (approved) {
+        .run(id,phone,type,instant(),instant(),applicant?'NOT_REQUIRED':pending?'PENDING':'ACCEPTED',pending?null:instant(),pending?null:'review_internal_reviewer',db.isPostgres?approved:approved?1:0,instant(),documented?instant():null,pending?'AWAITING_ACCEPTANCE':accepted?'DRAFT':applicant?'SUBMITTED':'APPROVED',approved?instant():null,approved?'review_internal_reviewer':null,'Synthetic demonstration account; no identity or commercial verification implied.','PROPOSED','Demo origin','Demo destination',type==='DAILY_COMMUTE'?20000:null,type==='DAILY_COMMUTE'?'PER_VEHICLE':'','MINIVAN_8',8);
+      if (documented) {
         await db.prepare('INSERT INTO user_profiles(user_id,emergency_contact_name,emergency_contact_phone,vehicle_color,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(user_id) DO NOTHING').run(id,'Demo Emergency Contact','+251900000199','Demo teal and white',instant());
         const folder=path.join(config.uploadDirectory,'profiles'); await fs.mkdir(folder,{recursive:true,mode:0o700});
         for (const kind of ['LICENSE','VEHICLE_REGISTRATION','INSURANCE','PHOTO']) {
@@ -104,18 +105,45 @@ function createReviewFixtures(db, config, { now = Date.now } = {}) {
     if (row && !terminal.includes(row.status)) return {id,row};
     id='rv_'+kind+'_'+crypto.randomBytes(8).toString('hex');await claim(kind,id,table);await setSlot(key,id);return {id,row:null};
   }
+  async function companyOwner() {
+    const id='review_company',phone='+251900000109';
+    await claim('company',id,'transport_companies');
+    const existing=await db.prepare('SELECT id,phone FROM transport_companies WHERE id=?').get(id);
+    const collision=await db.prepare('SELECT id FROM transport_companies WHERE phone=? AND id<>?').get(phone,id);
+    const enrollment=await db.prepare('SELECT account_id FROM onboarding_accounts WHERE normalized_phone=? AND account_id<>?').get(phone,id);
+    if(collision||enrollment||existing && !['+251900000190',phone].includes(existing.phone)) throw Error('Review company owner phone ownership changed.');
+    const initialized=await db.prepare('SELECT account_id FROM onboarding_accounts WHERE account_id=?').get(id);
+    await db.prepare('INSERT INTO transport_companies(id,name,phone,representative_name,password_hash,status) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING').run(id,'Demo Transport Company',phone,'Demo Adult Company Owner',passwordHash,'ACTIVE');
+    // Upgrade the earlier owned non-login placeholder exactly once. Never
+    // modify a production company or relax its real phone verification policy.
+    if(!initialized) await db.prepare('UPDATE transport_companies SET phone=?,representative_name=?,password_hash=? WHERE id=?').run(phone,'Demo Adult Company Owner',passwordHash,id);
+    await db.prepare(`INSERT INTO onboarding_accounts(account_id,role,normalized_phone,phone_verified_at,phone_verified_for,service_type,submitted_at,review_status,reviewed_at,reviewed_by,review_note,company_address,company_registration_number,acceptance_status,created_at,updated_at)
+      VALUES(?,'COMPANY',?,?,?,'COMPANY',?,'APPROVED',?,'review_internal_reviewer','Synthetic company, preverified for isolated demonstration only.','Demo address - no real premises','SYNTHETIC-NOT-A-REAL-REGISTRATION','NOT_REQUIRED',?,?) ON CONFLICT(account_id) DO NOTHING`)
+      .run(id,phone,instant(),phone,instant(),instant(),instant(),instant());
+    const folder=path.join(config.uploadDirectory,'onboarding-companies');await fs.mkdir(folder,{recursive:true,mode:0o700});
+    for(const kind of require('../services/onboarding').REQUIRED.COMPANY) {
+      if(await db.prepare('SELECT kind FROM onboarding_company_documents WHERE company_id=? AND kind=?').get(id,kind))continue;
+      const bytes=await document(kind),storage=crypto.randomUUID()+'.pdf';await fs.writeFile(path.join(folder,storage),bytes,{flag:'wx',mode:0o600});
+      await db.prepare('INSERT INTO onboarding_company_documents(company_id,kind,storage_name,content_type,byte_size,uploaded_at) VALUES(?,?,?,\'application/pdf\',?,?)').run(id,kind,storage,bytes.length,instant());
+    }
+    return id;
+  }
   async function refresh() {
     if (refreshing) return refreshing;
     refreshing=(async()=>{
       await init();
       const marker=await db.prepare('SELECT marker FROM review_environment_marker WHERE id=1').get();
       if(marker?.marker!==config.marker) throw Error('Review database ownership marker changed.');
-      const company='review_company';await claim('company',company,'transport_companies');
-      await db.prepare('INSERT INTO transport_companies(id,name,phone,representative_name,password_hash,status) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING').run(company,'Demo Transport Company','+251900000190','Demo Adult Representative',await bcrypt.hash(crypto.randomBytes(32).toString('base64url'),10),'ACTIVE');
+      const company=await companyOwner();
       const accounts={};for(const spec of ACCOUNTS) accounts[spec[0]]=await account(spec);
       await route('review_daily_route','Demo daily commute');await route('review_company_route','Demo intercity route',company);
       const dailyVehicle=await vehicle('daily',accounts.daily,'review_daily_route');
       const groupVehicle=await vehicle('group',accounts.group,null),cargoVehicle=await vehicle('cargo',accounts.cargo,null),companyVehicle=await vehicle('company',accounts['company-driver'],'review_company_route',company);
+      const assignment='review_company_assignment';await claim('company-assignment',assignment,'company_route_assignments');
+      await db.prepare("INSERT INTO company_route_assignments(id,company_id,route_id,driver_id,vehicle_id,status) VALUES(?,?,?,?,?,'ACTIVE') ON CONFLICT(id) DO NOTHING").run(assignment,company,'review_company_route',accounts['company-driver'],companyVehicle);
+      await vehicle('company-applicant',accounts['company-applicant'],null,company);
+      const request='review_company_route_request';await claim('company-request',request,'intercity_route_requests');
+      await db.prepare('INSERT INTO intercity_route_requests(id,origin,destination,travel_date,passenger_name,passenger_phone,company_id,created_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING').run(request,'Demo request origin','Demo request destination',new Date(now()+86400000).toISOString().slice(0,10),'Demo Adult Requester','+251900000101',company,instant());
       for(const key of ['pending','accepted']) {
         const id=await vehicle(key,accounts[key],null);
         await db.prepare("UPDATE vehicles SET status='OFF_DUTY' WHERE id=?").run(id);

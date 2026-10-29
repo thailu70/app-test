@@ -98,6 +98,7 @@ class MainActivity : ComponentActivity() {
                             // The old composition is removed before changing its endpoint. Its
                             // guest stores remain intact, and all Activity-owned VMs are cancelled.
                             EnvironmentPreferences.save(this@MainActivity, target)
+                            com.example.ui.screens.home.CompanyPortalSessions.closeAll()
                             DriverLocationSharing.stop("Environment changed. Location sharing stopped.")
                             LiveTrackingWebSocket.disconnect()
                             ApiClient.cancelRequests()

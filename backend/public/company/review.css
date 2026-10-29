@@ -1,0 +1,4 @@
+.review-banner{position:sticky;top:0;z-index:10000;background:#fff0b8;color:#352800;padding:12px 20px;border-bottom:2px solid #c28b00;font-size:14px;line-height:1.5;text-align:center}
+.review-banner strong{display:block;letter-spacing:.08em}
+#register[hidden]{display:none!important}.company-auth-grid:has(#register[hidden]){grid-template-columns:1fr}
+.review-map-grid{display:grid;place-items:center;min-height:260px;padding:24px;text-align:center;color:#125650;background-color:#eff9f5;background-image:linear-gradient(#b5d8cd 1px,transparent 1px),linear-gradient(90deg,#b5d8cd 1px,transparent 1px);background-size:32px 32px}

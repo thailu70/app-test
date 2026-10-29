@@ -59,6 +59,13 @@ object ApiClient {
         }
     }
 
+    /** Company pages use their own memory-only bearer, after the same anonymous handshake. */
+    internal fun verifyPortalEnvironment(scope: ApiSessionScope) {
+        if (!isCurrent(scope)) throw IOException("The environment changed. Open this screen again.")
+        verifyReviewService(scope)
+        if (!isCurrent(scope)) throw IOException("The environment changed. Open this screen again.")
+    }
+
     // Security Policy: Never log sensitive authentication tokens, passwords, PINs, or PII in production
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         redactHeader("Authorization")

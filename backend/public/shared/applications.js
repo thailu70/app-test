@@ -146,6 +146,12 @@
       const { account } = selected;
       const controller = new AbortController(); requests.add(controller); button.disabled = true;
       try {
+        const environment = typeof window === 'undefined' ? undefined : window.PassoCompanyEnvironment;
+        if (environment?.review) {
+          if (!environment.openDocument(applicationPath(account.role, account.id) + '/documents/' + encodeURIComponent(kind), 'PASSO-synthetic-' + kind.toLowerCase())) throw new Error('Open this synthetic document from the in-app demo company workspace.');
+          message('Opening the synthetic document. No production identity file is accessed.');
+          return;
+        }
         const response = await fetch(applicationPath(account.role, account.id) + '/documents/' + encodeURIComponent(kind), {
           headers: { Authorization: 'Bearer ' + token }, cache: 'no-store', signal: controller.signal
         });

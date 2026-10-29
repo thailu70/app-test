@@ -71,6 +71,54 @@ test('isolated synthetic review runtime never adopts production data or enables 
     await assert.rejects(fixtures.refresh(),/collision/);
     await DB.prepare("UPDATE review_fixture_owners SET marker=? WHERE entity_type='route' AND entity_id='review_daily_route'").run(config.marker);
   });
+  await t.test('company owner is preverified only in the isolated fixture and can operate its synthetic fleet, routes, applications, departures, booking desk and reports',async()=>{
+    const signed=await request('/api/companies/login',{method:'POST',body:{phone:'0900000109',password:config.password}});
+    assert.equal(signed.status,200,JSON.stringify(signed.data));const owner=signed.data.token;
+    assert.equal(signed.data.user.id,'review_company');
+    const readiness=await require('../src/services/onboarding').getOnboardingReadiness('review_company','COMPANY');
+    assert.equal(readiness.phoneVerified,true);assert.equal(readiness.phoneVerificationRequiredForAllocation,true);assert.equal(readiness.ready,true);
+    for(const endpoint of ['/api/companies/me','/api/companies/operations/summary','/api/companies/operations/fleet','/api/companies/operations/drivers','/api/companies/operations/routes','/api/companies/operations/bookings','/api/fleet/tracking','/api/intercity/company/departures','/api/intercity/company/roster','/api/intercity/company/requests','/api/intercity/company/performance']) {
+      const response=await request(endpoint,{token:owner});assert.equal(response.status,200,endpoint+' '+JSON.stringify(response.data));
+    }
+    const applications=await request('/api/onboarding/applications',{token:owner});assert.equal(applications.status,200);assert.ok(applications.data.applications.some(item=>item.id===accounts['company-applicant']));
+    assert.equal(applications.data.applications.some(item=>item.id===accounts.pending),false);
+    assert.equal((await request('/api/onboarding/applications/DRIVER/'+accounts.pending,{token:owner})).status,404);
+    assert.equal((await request('/api/onboarding/applications',{token:daily})).status,404);
+    const doc=await request('/api/onboarding/applications/DRIVER/'+accounts['company-applicant']+'/documents/LICENSE',{token:owner});assert.equal(doc.status,200);assert.match(doc.headers.get('content-type'),/application\/pdf/);
+    const approved=await request('/api/onboarding/applications/DRIVER/'+accounts['company-applicant']+'/review',{method:'POST',token:owner,body:{decision:'APPROVE',note:'Synthetic company application approval test.'}});assert.equal(approved.status,200,JSON.stringify(approved.data));
+    const route=await request('/api/companies/operations/routes',{method:'POST',token:owner,body:{name:'Demo company test route',nameAm:'Demo route',origin:'Demo A',destination:'Demo B',routeType:'INTERCITY',departureTime:'08:00',basePriceEtb:100,distanceKm:20}});assert.equal(route.status,201,JSON.stringify(route.data));
+    const vehicle=await request('/api/companies/operations/vehicles',{method:'POST',token:owner,body:{plateNumber:'DEMO-COMPANY-TEST',model:'Synthetic test bus',vehicleType:'MINIVAN_8'}});assert.equal(vehicle.status,201,JSON.stringify(vehicle.data));
+    const assignment=await request('/api/companies/operations/assignments',{method:'POST',token:owner,body:{routeId:route.data.route.id,driverId:accounts['company-applicant'],vehicleId:vehicle.data.vehicle.id}});assert.equal(assignment.status,201,JSON.stringify(assignment.data));
+    const departure=await request('/api/intercity/company/departures',{method:'POST',token:owner,body:{routeId:route.data.route.id,driverId:accounts['company-applicant'],vehicleId:vehicle.data.vehicle.id,departureAt:new Date(Date.now()+3600000).toISOString(),latitude:9,longitude:38,seats:8,fareEtb:100,radiusMeters:300}});assert.equal(departure.status,201,JSON.stringify(departure.data));
+    const booking=await request('/api/intercity/company/departures/'+departure.data.departure.id+'/bookings',{method:'POST',token:owner,body:{seatNumber:1,passengerName:'Demo Adult Walk-in',passengerPhone:'0900000198',paymentNote:'SYNTHETIC-NO-REAL-COLLECTION',paymentCollected:true}});assert.equal(booking.status,201,JSON.stringify(booking.data));
+    assert.equal((await request('/api/intercity/company/bookings/'+booking.data.booking.id+'/ticket.pdf',{token:passenger})).status,403);
+    const ticket=await request('/api/intercity/company/bookings/'+booking.data.booking.id+'/download',{token:owner});assert.equal(ticket.status,200);assert.ok(ticket.data.ticketDownloadUrl.startsWith('/review/api/'));
+    const signedUrl=new URL(ticket.data.ticketDownloadUrl,'https://passo.live');const pdf=await request(signedUrl.pathname.replace(/^\/review/,'')+signedUrl.search);assert.equal(pdf.status,200);assert.match(pdf.bytes.toString('latin1'),/Synthetic demo - no real payment; not valid for real travel/);
+    const report=await request('/api/intercity/company/performance?period=monthly',{token:owner});assert.equal(report.status,200);assert.ok(report.data.total.bookings>=2);
+    await DB.prepare("INSERT INTO transport_companies(id,name,phone,status) VALUES('unowned_synthetic_company','Other synthetic tenant','+251900001991','ACTIVE')").run();
+    const other=require('../src/middleware/auth').signToken({id:'unowned_synthetic_company',role:'COMPANY'});
+    assert.equal((await request('/api/intercity/company/roster',{token:other})).data.roster.length,0);
+    assert.equal((await request('/api/intercity/company/bookings/'+booking.data.booking.id+'/download',{token:other})).status,404);
+    assert.equal((await request('/api/onboarding/applications',{token:other})).status,404,'Only the owned review owner may reach company application review.');
+    for(const endpoint of ['/API/Onboarding/Applications/','/api/onboarding/applications/','/api/Onboarding/applications/DRIVER/'+accounts['company-applicant']+'/documents/LICENSE/'])assert.equal((await request(endpoint,{token:other})).status,404,'Equivalent route spellings cannot bypass company ownership: '+endpoint);
+    assert.equal((await request('/api/intercity/company/departures/'+departure.data.departure.id,{method:'PATCH',token:other,body:{radiusMeters:100}})).status,404);
+    assert.equal((await request('/api/companies/register',{method:'POST',body:{}})).status,503);
+  });
+  await t.test('case and trailing-slash equivalents cannot bypass any review account, admin, payment, SMS or fixture embargo',async()=>{
+    for(const endpoint of ['/api/companies/register/','/API/Companies/Register','/api/onboarding/register/','/api/onboarding/Register','/API/ONBOARDING/REGISTER/'])assert.equal((await request(endpoint,{method:'POST',body:{role:'COMPANY'}})).status,503,endpoint);
+    for(const endpoint of ['/API/Admin/Users/','/api/Mobility/Admin/trips/','/API/Review/Reset/','/api/review/Seed/','/API/Auth/Register/'])assert.equal((await request(endpoint,{method:'POST',token:daily,body:{role:'ADMIN'}})).status,404,endpoint);
+    for(const endpoint of ['/API/Subscriptions/Telebirr/create-order/','/api/Mobility/bookings/unknown/Checkout/','/API/Auth/Request-OTP/','/api/auth/VERIFY-OTP/','/API/Onboarding/Request-OTP/','/api/onboarding/Verify-OTP/','/API/Account-Recovery/request/','/api/intercity/payments/Webhook/','/api/intercity/bookings/unknown/Test-Payment/request-otp/'])assert.equal((await request(endpoint,{method:'POST',token:passenger,body:{}})).status,503,endpoint);
+    assert.equal((await request('/API/Review/Resources/')).status,401);
+    assert.equal((await request('/API/Review/Info/')).data.environment,'REVIEW');
+    assert.equal((await request('/API/Review/Resources/',{token:passenger})).status,200);
+  });
+  await t.test('company review HTML and assets are explicitly scoped; admin, joins, arbitrary static files and real registration stay unavailable',async()=>{
+    for(const endpoint of ['/company/','/company/index.html','/company/intercity.html','/company/company.js','/company/review-session.js','/company/admin.css','/company/applications.js','/company/fleet-map.js']) {
+      const result=await request(endpoint);assert.equal(result.status,200,endpoint);assert.equal(result.headers.get('x-passo-environment'),'REVIEW');assert.match(result.headers.get('content-security-policy'),/connect-src https:\/\/passo\.live\/review\/api\//);
+      if(endpoint.endsWith('.html')||endpoint==='/company/')assert.match(result.bytes.toString(),/SYNTHETIC DEMO COMPANY/);
+    }
+    for(const endpoint of ['/company/.env','/company/unknown.js','/company/../../admin/','/admin/admin.css','/shared/applications.js','/join/','/travel/'])assert.equal((await request(endpoint)).status,404,endpoint);
+  });
   await t.test('external sample PDF and HTML boarding passes visibly identify synthetic travel and no real payment',async()=>{
     const paid=await request('/api/mobility/bookings/'+samples.groupBooking.id,{headers:{'X-Booking-Secret':samples.groupBooking.bookingSecret}});
     const url=new URL(paid.data.booking.travelers[0].boardingPassUrl);
@@ -93,7 +141,7 @@ test('isolated synthetic review runtime never adopts production data or enables 
     }
   });
   await t.test('no admin pages, seed/reset endpoints, payment activation or SMS delivery exist publicly',async()=>{
-    for(const endpoint of ['/admin/','/company/','/join/','/api/admin/users','/api/mobility/admin/trips','/api/review/reset','/api/review/seed']) assert.equal((await request(endpoint,{token:daily})).status,404);
+    for(const endpoint of ['/admin/','/join/','/api/admin/users','/api/mobility/admin/trips','/api/review/reset','/api/review/seed']) assert.equal((await request(endpoint,{token:daily})).status,404);
     for(const endpoint of ['/api/subscriptions/telebirr/create-order','/api/mobility/bookings/'+samples.groupBooking.id+'/checkout','/api/auth/request-otp'])assert.equal((await request(endpoint,{method:'POST',body:{},token:passenger})).status,503);
     let fetches=0;const original=global.fetch;global.fetch=async()=>{fetches++;throw Error('Unexpected network');};
     try{assert.equal((await require('../src/services/afro-sms').sendSms('+251900000101','Synthetic')).sent,false);assert.equal(fetches,0);}finally{global.fetch=original;}

@@ -20,26 +20,38 @@ function validFix(location,now=Date.now()) {
 function createReviewMiddleware(config, { db = require('../db').DB, fixtures, now = Date.now } = {}) {
   if(config!==getReviewRuntime()) throw Error('No validated review runtime.');
   const {resolveActivePrincipal}=require('../middleware/auth');
+  const companyPortal=require('./company-portal').createCompanyPortal(config);
   // Fixtures are assigned after schema migrations, before the listener opens.
   const currentFixtures=()=>fixtures || require('./state').fixtures;
   return function reviewBoundary(req,res,next) {
     res.set('X-Passo-Environment','REVIEW');res.set('Cache-Control','private, no-store');res.set('Referrer-Policy','no-referrer');
     const original=res.json.bind(res);res.json=value=>original(prefixReviewUrls(value));
     void (async()=>{
-      if(!req.path.startsWith('/api/')) return res.status(404).json({success:false,error:'The synthetic environment exposes app APIs only.'});
-      if(/^\/api\/(?:admin(?:\/|$)|mobility\/admin(?:\/|$)|onboarding\/applications(?:\/|$))/.test(req.path) || /\/(?:seed|reset)(?:\/|$)/.test(req.path)) return res.status(404).json({success:false,error:'Not available.'});
-      if(req.method==='GET' && req.path==='/api/review/info') return res.json({success:true,environment:'REVIEW',synthetic:true,paymentsEnabled:false,smsEnabled:false});
-      if(/\/(?:checkout|test-payment|payments\/webhook|telebirr)(?:\/|$)/.test(req.path) || ['/api/auth/request-otp','/api/auth/verify-otp'].includes(req.path) || req.path.startsWith('/api/account-recovery/')) return res.status(503).json({success:false,code:'REVIEW_EXTERNAL_SERVICES_DISABLED',error:'Synthetic demo: real payments, SMS and phone verification are disabled. Use the supplied paid sample tickets and reusable demo credentials.'});
-      if(req.path==='/api/auth/register' && String(req.body?.role||'').toUpperCase()==='ADMIN') return res.status(404).json({success:false,error:'Not available.'});
+      // Express routes are case-insensitive and allow a trailing slash. Policy
+      // matching must use those same equivalences; preserve req.path itself
+      // so case-sensitive record IDs and downstream routing stay unchanged.
+      const policyPath=req.path.toLowerCase().replace(/\/+$/,'')||'/';
+      if(!policyPath.startsWith('/api/')) return companyPortal(req,res);
+      if(/^\/api\/(?:admin(?:\/|$)|mobility\/admin(?:\/|$))/.test(policyPath) || /\/(?:seed|reset)(?:\/|$)/.test(policyPath)) return res.status(404).json({success:false,error:'Not available.'});
+      if(/^\/api\/onboarding\/applications(?:\/|$)/.test(policyPath)) {
+        const principal=await resolveActivePrincipal(String(req.get('Authorization')||'').replace(/^Bearer /,''));
+        if(principal?.role!=='COMPANY' || !await currentFixtures()?.owned('company',principal.id)) return res.status(404).json({success:false,error:'Not available.'});
+        // The existing company-scoped reviewer guards still validate every
+        // application/document/action, so independent applicants stay private.
+      }
+      if(policyPath==='/api/companies/register' || (policyPath==='/api/onboarding/register' && String(req.body?.role||'').toUpperCase()==='COMPANY')) return res.status(503).json({success:false,error:'Use the supplied synthetic company owner credentials. Company signup and real verification are unavailable in demo.'});
+      if(req.method==='GET' && policyPath==='/api/review/info') return res.json({success:true,environment:'REVIEW',synthetic:true,paymentsEnabled:false,smsEnabled:false});
+      if(/\/(?:checkout|test-payment|payments\/webhook|telebirr|request-otp|verify-otp)(?:\/|$)/.test(policyPath) || /^\/api\/account-recovery(?:\/|$)/.test(policyPath)) return res.status(503).json({success:false,code:'REVIEW_EXTERNAL_SERVICES_DISABLED',error:'Synthetic demo: real payments, SMS and phone verification are disabled. Use the supplied paid sample tickets and reusable demo credentials.'});
+      if(policyPath==='/api/auth/register' && String(req.body?.role||'').toUpperCase()==='ADMIN') return res.status(404).json({success:false,error:'Not available.'});
       const samples=currentFixtures();
-      if(req.method==='GET' && req.path==='/api/review/resources') {
+      if(req.method==='GET' && policyPath==='/api/review/resources') {
         const principal=await resolveActivePrincipal(String(req.get('Authorization')||'').replace(/^Bearer /,''));
         const result=samples && await samples.resources(principal);
         return result?res.json(result):res.status(401).json({success:false,error:'Sign in with the supplied synthetic account to open demo samples.'});
       }
-      const daily=req.method==='POST' && ['/api/trips/departure-check','/api/trips/start'].includes(req.path);
-      const group=req.method==='POST' && /^\/api\/mobility\/driver\/trips\/[^/]+\/(boarding|board)$/.test(req.path);
-      const intercity=req.method==='POST' && /^\/api\/intercity\/driver\/departures\/[^/]+\/arrival$/.test(req.path);
+      const daily=req.method==='POST' && ['/api/trips/departure-check','/api/trips/start'].includes(policyPath);
+      const group=req.method==='POST' && /^\/api\/mobility\/driver\/trips\/[^/]+\/(boarding|board)$/.test(policyPath);
+      const intercity=req.method==='POST' && /^\/api\/intercity\/driver\/departures\/[^/]+\/arrival$/.test(policyPath);
       if(samples && (daily||group||intercity)) {
         const fix=daily||intercity ? req.body?.location || req.body : req.body;
         if(validFix(fix,now())) {
