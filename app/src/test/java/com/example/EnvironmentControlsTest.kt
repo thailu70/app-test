@@ -9,6 +9,7 @@ import com.example.data.api.ApiClient
 import com.example.ui.components.DemoEnvironmentBanner
 import com.example.ui.components.EnvironmentChooser
 import com.example.ui.screens.home.HostedPortalScreen
+import com.example.ui.screens.home.CompanyPortalSessions
 import com.example.ui.theme.MyApplicationTheme
 import org.junit.After
 import org.junit.Assert.*
@@ -18,9 +19,12 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
+import org.robolectric.annotation.Resetter
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], qualifiers = "w393dp-h852dp-xhdpi")
+@Config(sdk = [35], qualifiers = "w393dp-h852dp-xhdpi", shadows = [ShadowCompanyServiceWorkerController::class])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class EnvironmentControlsTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
@@ -41,6 +45,7 @@ class EnvironmentControlsTest {
 
     @Test fun `demo indicator stays visible and company portal disables browser storage`() {
         ApiClient.setBaseUrl(AppEnvironment.DEMO_BASE_URL)
+        val originalCookies = android.webkit.CookieManager.getInstance().acceptCookie()
         var settings = 0
         compose.setContent { MyApplicationTheme { Column {
             DemoEnvironmentBanner { settings++ }
@@ -62,9 +67,53 @@ class EnvironmentControlsTest {
             assertFalse(web.settings.allowFileAccess)
             assertFalse(web.settings.allowContentAccess)
             assertFalse(android.webkit.CookieManager.getInstance().acceptCookie())
+            assertTrue(ShadowCompanyServiceWorkerController.controller.settings.blocked)
+            assertFalse(ShadowCompanyServiceWorkerController.controller.settings.files)
+            assertFalse(ShadowCompanyServiceWorkerController.controller.settings.content)
+            assertNotNull(ShadowCompanyServiceWorkerController.controller.client)
         }
         compose.onNodeWithText("Exit demo").performClick()
         assertEquals(1, settings)
         assertEquals(AppEnvironment.DEMO, ApiClient.environment())
+        compose.runOnIdle {
+            CompanyPortalSessions.closeAll()
+            assertEquals(originalCookies, android.webkit.CookieManager.getInstance().acceptCookie())
+            assertFalse(ShadowCompanyServiceWorkerController.controller.settings.blocked)
+            assertTrue(ShadowCompanyServiceWorkerController.controller.settings.files)
+            assertTrue(ShadowCompanyServiceWorkerController.controller.settings.content)
+            assertNull(ShadowCompanyServiceWorkerController.controller.client)
+        }
     }
+}
+
+/** Robolectric has a WebView shadow but no ServiceWorkerController provider. */
+@Implements(android.webkit.ServiceWorkerController::class)
+class ShadowCompanyServiceWorkerController {
+    companion object {
+        var controller = CompanyWorkerController()
+        @JvmStatic @Implementation fun getInstance(): android.webkit.ServiceWorkerController = controller
+        @JvmStatic @Resetter fun reset() { controller = CompanyWorkerController() }
+    }
+}
+
+class CompanyWorkerController : android.webkit.ServiceWorkerController() {
+    val settings = CompanyWorkerSettings()
+    var client: android.webkit.ServiceWorkerClient? = null
+    override fun getServiceWorkerWebSettings(): android.webkit.ServiceWorkerWebSettings = settings
+    override fun setServiceWorkerClient(value: android.webkit.ServiceWorkerClient?) { client = value }
+}
+
+class CompanyWorkerSettings : android.webkit.ServiceWorkerWebSettings() {
+    var cache = android.webkit.WebSettings.LOAD_DEFAULT
+    var content = true
+    var files = true
+    var blocked = false
+    override fun getCacheMode() = cache
+    override fun setCacheMode(value: Int) { cache = value }
+    override fun getAllowContentAccess() = content
+    override fun setAllowContentAccess(value: Boolean) { content = value }
+    override fun getAllowFileAccess() = files
+    override fun setAllowFileAccess(value: Boolean) { files = value }
+    override fun getBlockNetworkLoads() = blocked
+    override fun setBlockNetworkLoads(value: Boolean) { blocked = value }
 }
