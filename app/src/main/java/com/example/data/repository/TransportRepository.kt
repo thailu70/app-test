@@ -7,6 +7,8 @@ import com.example.data.dao.TransportDao
 import com.example.data.entity.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import retrofit2.HttpException
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -23,6 +25,7 @@ class TransportRepository(
     private val dao: TransportDao,
     private val apiService: RoutePassApiService = ApiClient.getService()
 ) {
+    private val environmentScope = ApiClient.sessionScope()
 
     // Users & Auth
     val allPassengers: Flow<List<UserEntity>> = dao.getAllPassengers()
@@ -65,7 +68,8 @@ class TransportRepository(
             if (response.isSuccessful && response.body()?.success == true) {
                 val body = response.body()!!
                 val token = body.token
-                ApiClient.setAuthToken(token)
+                currentCoroutineContext().ensureActive()
+                ApiClient.setAuthToken(token, environmentScope)
 
                 val userDto = body.user!!
                 val initials = userDto.fullName.split(" ")
@@ -100,7 +104,8 @@ class TransportRepository(
                 lastAuthError = parsedMsg ?: response.message().ifBlank { "Invalid credentials for $role." }
                 null
             }
-        } catch (e: Exception) {
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (e: Exception) {
             lastAuthError = "Unable to reach VPS backend at ${ApiClient.getBaseUrl()}. Error: ${e.message}"
             null
         }
@@ -155,7 +160,8 @@ class TransportRepository(
 
         if (response.isSuccessful && response.body()?.success == true) {
             val body = response.body()!!
-            ApiClient.setAuthToken(body.token)
+            currentCoroutineContext().ensureActive()
+            ApiClient.setAuthToken(body.token, environmentScope)
 
             val userDto = body.user!!
             val initials = userDto.fullName.split(" ")

@@ -153,6 +153,7 @@ internal class MobilityViewModel(private val api: MobilityApi, private val store
         if (expected == epoch) mutable.update { it.copy(request = result.request, phase = MobilityPhase.REQUEST_STATUS) }
     }
     private suspend fun loadHistory() {
+        withContext(ioDispatcher) { store.load() }.forEach { capabilities[it.id] = it.secret }
         val bookings = mutableListOf<MobilityBooking>(); val requests = mutableListOf<MobilityRequest>()
         for ((key, secret) in capabilities.toMap()) {
             try {

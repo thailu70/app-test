@@ -9,6 +9,7 @@ function normalizePhone(value) {
   return raw;
 }
 async function sendSms(phone, message) {
+  if (require('../review/isolation').getReviewRuntime()) return { sent: false, skipped: true, reason: 'Synthetic review environment never sends SMS.' };
   const token = (await setting('AFRO_SMS_API_TOKEN')) || process.env.AFRO_SMS_API_TOKEN || '';
   const url = (await setting('AFRO_SMS_URL')) || process.env.AFRO_SMS_URL || 'https://api.afromessage.com/api/send';
   const sender = (await setting('AFRO_SMS_SENDER')) || process.env.AFRO_SMS_SENDER || 'RoutePass';

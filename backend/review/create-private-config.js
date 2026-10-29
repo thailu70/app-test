@@ -1,0 +1,10 @@
+'use strict';
+const fs=require('node:fs');
+const path=require('node:path');
+const crypto=require('node:crypto');
+const target=process.argv[2] && path.resolve(process.argv[2]);
+const repository=path.resolve(__dirname,'../..');
+if(!target || target===repository || target.startsWith(repository+path.sep)) throw Error('Specify a new private file outside the repository.');
+const keys=['REVIEW_DB_PASSWORD','REVIEW_JWT_SECRET','REVIEW_QR_SIGNING_KEY','REVIEW_ADMIN_SECRET','REVIEW_INSTANCE_ID','REVIEW_FIXTURE_SECRET','REVIEW_DEMO_PASSWORD'];
+fs.writeFileSync(target,keys.map(key=>key+'='+crypto.randomBytes(32).toString('hex')).join('\n')+'\n',{flag:'wx',mode:0o600});
+console.log('Created the private review configuration. Values were not printed. Restrict its Windows ACL to the owner when applicable.');

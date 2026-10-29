@@ -1,14 +1,19 @@
 package com.example.data.api
 
 import com.example.BuildConfig
+import com.example.core.environment.ApiSessionScope
+import com.example.core.environment.AppEnvironment
+import com.example.core.environment.isIsolatedReviewDescriptor
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
-import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import java.util.concurrent.TimeUnit
+import java.io.IOException
+import java.net.URI
 
 object ApiClient {
 
@@ -25,19 +30,33 @@ object ApiClient {
 
     @Volatile
     private var authToken: String? = null
+    @Volatile private var environmentGeneration = 0L
+    @Volatile private var verifiedReviewGeneration: Long? = null
+    private val reviewVerificationLock = Any()
 
-    private val authInterceptor = Interceptor { chain ->
-        val originalRequest = chain.request()
-        val requestBuilder = originalRequest.newBuilder()
+    fun sessionScope(): ApiSessionScope = synchronized(this) { ApiSessionScope(baseUrl, environmentGeneration) }
+    fun isCurrent(scope: ApiSessionScope): Boolean = scope == sessionScope()
+    fun environment(): AppEnvironment = AppEnvironment.forBaseUrl(getBaseUrl())
+    private fun authTokenFor(scope: ApiSessionScope): String? = synchronized(this) {
+        if (!isCurrent(scope)) throw IOException("The environment changed. Open this screen again.")
+        authToken
+    }
 
-        authToken?.takeIf { originalRequest.header("Authorization") == null }?.let { token ->
-            if (token.isNotBlank()) {
-                requestBuilder.header("Authorization", "Bearer $token")
+    /** No bearer or private guest capability is sent until the demo identifies itself. */
+    private fun verifyReviewService(scope: ApiSessionScope) {
+        if (AppEnvironment.forBaseUrl(scope.baseUrl) != AppEnvironment.DEMO || verifiedReviewGeneration == scope.generation) return
+        synchronized(reviewVerificationLock) {
+            if (verifiedReviewGeneration == scope.generation) return
+            if (!isCurrent(scope)) throw IOException("The environment changed. Open this screen again.")
+            val request = Request.Builder().url(scope.baseUrl + "api/review/info").header("Accept", "application/json").build()
+            val descriptor = okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw IOException("The demo service is unavailable. Please try again.")
+                runCatching { moshi.adapter(Map::class.java).fromJson(response.body?.string().orEmpty()) }.getOrNull()
             }
+            if (!isCurrent(scope) || !isIsolatedReviewDescriptor(descriptor))
+                throw IOException("The isolated demo service could not be verified. No demo sign-in or private data was sent.")
+            verifiedReviewGeneration = scope.generation
         }
-
-        requestBuilder.header("Accept", "application/json")
-        chain.proceed(requestBuilder.build())
     }
 
     // Security Policy: Never log sensitive authentication tokens, passwords, PINs, or PII in production
@@ -53,8 +72,9 @@ object ApiClient {
 
     private val okHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .addInterceptor(authInterceptor)
             .addInterceptor(loggingInterceptor)
+            .followRedirects(false)
+            .followSslRedirects(false)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .writeTimeout(20, TimeUnit.SECONDS)
@@ -86,41 +106,81 @@ object ApiClient {
     /** A running trip cannot accidentally upload with a later account's bearer token. */
     fun <T> createSessionService(serviceClass: Class<T>, token: String): T {
         require(token.isNotBlank())
-        val client = okHttpClient.newBuilder().addInterceptor { chain ->
-            chain.proceed(chain.request().newBuilder().header("Authorization", "Bearer $token").build())
-        }.build()
-        return Retrofit.Builder().baseUrl(getBaseUrl().trimEnd('/') + "/").client(client)
+        val scope = sessionScope()
+        return Retrofit.Builder().baseUrl(scope.baseUrl).client(scopedClient(scope, token))
             .addConverterFactory(MoshiConverterFactory.create(moshi)).build().create(serviceClass)
     }
 
+    private fun scopedClient(scope: ApiSessionScope, explicitToken: String? = null): OkHttpClient =
+        okHttpClient.newBuilder().addInterceptor { chain ->
+            if (!isCurrent(scope) || !scope.containsUrl(chain.request().url.toString()))
+                throw IOException("The environment changed. Open this screen again.")
+            verifyReviewService(scope)
+            val request = chain.request().newBuilder().header("Accept", "application/json")
+            if (explicitToken != null) request.header("Authorization", "Bearer $explicitToken")
+            else if (chain.request().header("Authorization") == null) {
+                authTokenFor(scope)?.takeIf(String::isNotBlank)?.let { request.header("Authorization", "Bearer $it") }
+            }
+            val response = chain.proceed(request.build())
+            if (!isCurrent(scope)) {
+                response.close()
+                throw IOException("The environment changed. Open this screen again.")
+            }
+            response
+        }.build()
+
     private fun createRetrofit(): Retrofit {
-        val sanitizedBaseUrl = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
+        val scope = sessionScope()
         return Retrofit.Builder()
-            .baseUrl(sanitizedBaseUrl)
-            .client(okHttpClient)
+            .baseUrl(scope.baseUrl)
+            .client(scopedClient(scope))
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build().also {
                 retrofitInstance = it
             }
     }
 
-    fun setAuthToken(token: String?) {
+    @Synchronized
+    fun setAuthToken(token: String?, scope: ApiSessionScope = sessionScope()) {
+        check(isCurrent(scope)) { "The environment changed. Please sign in again." }
         authToken = token
     }
 
     fun getAuthToken(): String? = authToken
 
+    @Synchronized
     fun setBaseUrl(newUrl: String) {
-        if (newUrl.isNotBlank() && newUrl != baseUrl) {
-            baseUrl = newUrl
-            synchronized(this) {
-                serviceInstance = null
-                retrofitInstance = null
-            }
+        require(newUrl.isNotBlank())
+        val canonical = newUrl.trimEnd('/') + "/"
+        val parsed = URI(canonical)
+        require(parsed.scheme in setOf("https", "http") && parsed.host != null && parsed.userInfo == null && parsed.query == null && parsed.fragment == null)
+        if (canonical != baseUrl) {
+            ++environmentGeneration
+            verifiedReviewGeneration = null
+            authToken = null
+            baseUrl = canonical
+            okHttpClient.dispatcher.cancelAll()
+            okHttpClient.connectionPool.evictAll()
+            serviceInstance = null
+            retrofitInstance = null
         }
     }
 
     fun getBaseUrl(): String = baseUrl
 
-    fun portalUrl(path: String = ""): String = getBaseUrl().trimEnd('/') + "/" + path.trimStart('/')
+    fun cancelRequests() { okHttpClient.dispatcher.cancelAll() }
+
+    fun webSocketUrl(): String = getBaseUrl().replaceFirst("https://", "wss://").replaceFirst("http://", "ws://") + "ws"
+
+    fun portalUrl(path: String = ""): String {
+        val scope = sessionScope()
+        val base = URI(scope.baseUrl)
+        val result = when {
+            URI(path).isAbsolute -> path
+            base.path != "/" && path.startsWith(base.path) -> URI(base.scheme, base.authority, null, null, null).toString() + path
+            else -> scope.baseUrl + path.trimStart('/')
+        }
+        require(scope.containsUrl(result)) { "This link belongs to another environment." }
+        return result
+    }
 }

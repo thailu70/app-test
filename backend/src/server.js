@@ -3,7 +3,13 @@
  * Ethiopian Scheduled Transit Management System
  */
 
-require('dotenv').config();
+const reviewRuntime = require('./review/isolation').getReviewRuntime();
+// The isolated entry has already validated its explicit environment. Loading
+// a cwd .env afterwards could silently import production provider credentials.
+if (!reviewRuntime) require('dotenv').config();
+if (process.env.REVIEW_ENVIRONMENT === 'true' && !reviewRuntime) {
+  throw new Error('Review configuration is permitted only by src/review/server.js after isolation checks.');
+}
 const http = require('http');
 const path = require('path');
 const express = require('express');
@@ -72,6 +78,9 @@ const resourcePressure = createResourcePressureMonitor();
 app.use('/api/', createApiTrafficMiddleware({ resourceMonitor: resourcePressure, resolvePrincipal: resolveActivePrincipal }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
+// Only the separately validated review entry point can install fixture adapters.
+// Production requests never enable these through headers, accounts or settings.
+if (reviewRuntime) app.use(require('./review/middleware').createReviewMiddleware(reviewRuntime));
 
 // Welcome & API Status
 function homeHeaders(_req, res, next) {
@@ -633,10 +642,13 @@ async function initializeFeatureSchemas() {
   await DB.prepare("CREATE INDEX IF NOT EXISTS idx_auth_otps_phone ON auth_otps(phone, purpose, created_at)").run();
 }
 
-async function startServer() {
+async function startServer({ beforeListen, startWorkers = true } = {}) {
   await runDatabaseMigrations();
-  stopApplicationNotifications = require('./services/application-notifications').startApplicationNotificationWorker();
-  stopMobilityNotifications = require('./services/mobility').startMobilityWorker();
+  if (beforeListen) await beforeListen();
+  if (startWorkers) {
+    stopApplicationNotifications = require('./services/application-notifications').startApplicationNotificationWorker();
+    stopMobilityNotifications = require('./services/mobility').startMobilityWorker();
+  }
   resourcePressure.start();
   server.listen(PORT, HOST, () => {
     console.log('RoutePass API listening on the configured internal listener');
@@ -646,7 +658,7 @@ async function startServer() {
   });
 }
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && require.main === module) {
   startServer().catch((err) => {
     console.error('[Startup] Database migration failed:', err);
     process.exit(1);
@@ -670,4 +682,4 @@ function gracefulShutdown(signal) {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-module.exports = { app, server, resourcePressure, runDatabaseMigrations, initializeFeatureSchemas };
+module.exports = { app, server, resourcePressure, runDatabaseMigrations, initializeFeatureSchemas, startServer };

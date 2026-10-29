@@ -82,7 +82,7 @@ internal fun IntercityPassengerScreen(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var datePickerOpen by remember { mutableStateOf(false) }
     var showAll by rememberSaveable { mutableStateOf(false) }
-    val favoritesPreferences = remember(context.applicationContext) { context.applicationContext.getSharedPreferences("intercity_favorites", android.content.Context.MODE_PRIVATE) }
+    val favoritesPreferences = remember(context.applicationContext) { context.applicationContext.getSharedPreferences(ApiClient.environment().storageName("intercity_favorites"), android.content.Context.MODE_PRIVATE) }
     var saved by remember { mutableStateOf(favoritesPreferences.getStringSet("departures", emptySet())?.toSet().orEmpty()) }
     fun back() {
         if (state.testVerificationPending) model.cancelTestPaymentVerification()

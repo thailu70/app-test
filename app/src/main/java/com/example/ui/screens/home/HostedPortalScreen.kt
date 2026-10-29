@@ -15,14 +15,29 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.data.api.ApiClient
+import com.example.core.environment.AppEnvironment
+import androidx.compose.ui.unit.dp
 
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HostedPortalScreen(path: String, title: String, onExit: () -> Unit) {
+    // A URL prefix cannot isolate browser localStorage for the same origin.
+    // Review accounts use the native driver/passenger screens only.
+    if (ApiClient.environment() == AppEnvironment.DEMO) {
+        BackHandler(onBack = onExit)
+        Surface(Modifier.fillMaxSize(), color = Color(0xFFFFFBF4)) {
+            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("Company portal", style = MaterialTheme.typography.headlineSmall)
+                Text("Company administration is unavailable in demo. Use the supplied company-driver demo account in Driver sign-in to review assigned intercity journeys.")
+                TextButton(onClick = onExit) { Text("Back") }
+            }
+        }
+        return
+    }
     val context = LocalContext.current
     val base = ApiClient.getBaseUrl().trimEnd('/')
-    val ownHost = Uri.parse(base).host
+    val scope = ApiClient.sessionScope()
     var webView by remember { mutableStateOf<WebView?>(null) }
     var pageError by remember { mutableStateOf<String?>(null) }
     fun back() { if (webView?.canGoBack() == true) webView?.goBack() else onExit() }
@@ -48,7 +63,7 @@ fun HostedPortalScreen(path: String, title: String, onExit: () -> Unit) {
                     webViewClient = object : WebViewClient() {
                         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                             val uri = request?.url ?: return true
-                            if (uri.scheme == "https" && uri.host == ownHost) return false
+                            if (scope.containsUrl(uri.toString())) return false
                             val paymentHost = uri.host in listOf("developerportal.ethiotelebirr.et", "superapp.ethiomobilemoney.et")
                             if (uri.scheme == "https" && paymentHost) return false
                             if (uri.scheme == "tel") { context.startActivity(Intent(Intent.ACTION_DIAL, uri)); return true }
@@ -60,7 +75,7 @@ fun HostedPortalScreen(path: String, title: String, onExit: () -> Unit) {
                     }
                     setDownloadListener { url, _, _, _, _ ->
                         val uri = Uri.parse(url)
-                        if (uri.scheme == "https" && uri.host == ownHost) context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                        if (scope.containsUrl(uri.toString())) context.startActivity(Intent(Intent.ACTION_VIEW, uri))
                     }
                     loadUrl(base + path)
                     webView = this

@@ -10,15 +10,15 @@ Passo Mobility
 
 ## Short description
 
-Find daily commutes, book intercity seats and manage your driver application.
+Find daily routes, explore intercity trips and request group or cargo transport.
 
-77 characters.
+80 characters.
 
 ## Full description
 
 Go Further, Together.
 
-Passo Mobility brings daily commute planning, intercity travel and driver applications into one app. Discover services offered by participating transport operators and keep your travel details close at hand.
+Passo Mobility brings daily commute planning, intercity travel, group journeys, cargo requests and driver applications into one app. Discover services offered by participating transport operators and keep your travel details close at hand.
 
 DAILY COMMUTES
 
@@ -32,12 +32,26 @@ INTERCITY TRAVEL
 
 - Browse upcoming departures and search by route and travel date.
 - Review available seats, fares and departure details before booking.
-- Complete your booking using the payment options shown for the service.
 - Reopen confirmed tickets and use the boarding QR code or ticket number where supported.
+
+GROUP TRAVEL
+
+- Explore upcoming group trips approved by Passo administrators.
+- Request a private group journey with your departure, destination, travel date, group size and vehicle type.
+- Follow your request status and view the driver and vehicle details when an administrator assigns transport.
+
+CARGO TRANSPORT
+
+- Request transport with your route, date, contact details and requested vehicle type.
+- Describe the cargo, attach a photo and optionally mark pickup and delivery points on the map.
+- Follow review and assignment updates without creating a passenger account.
+
+Group and cargo transport requests require no passenger registration, sign-in or OTP. A request or quotation does not confirm payment or guarantee transport until an operator accepts and assigns it.
 
 FOR DRIVERS
 
 - Apply to drive with your route and vehicle details.
+- Choose daily commute, group travel or cargo registration according to your service.
 - Follow your application status and complete the requested details and documents.
 - Receive review feedback and submit corrections when needed.
 - After approval and assignment, view your trips and passenger roster and use the boarding tools for your service.
@@ -50,6 +64,8 @@ Use Passo in English, Amharic or Afaan Oromoo.
 Passo is for adults aged 18 and over. Adult parents or guardians may arrange transport for a child; children must not create or use their own Passo accounts.
 
 Routes, schedules, prices, payment options and vehicle tracking depend on the participating operator and service availability. Driver operations require approval and an eligible assignment. A seat reservation is not a paid ticket until payment is confirmed.
+
+Paid checkout is not enabled in this release. You can browse services, submit transport requests and manage the accounts and operational assignments available to you. Production payment service must be activated before paid ticket purchases become available.
 
 Need help? Contact info@passo.live or visit https://passo.live/.
 

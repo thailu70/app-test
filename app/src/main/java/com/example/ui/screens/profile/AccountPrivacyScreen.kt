@@ -110,8 +110,9 @@ fun AccountPrivacyScreen(
                     Text("PASSO", color = PrivacyTeal, fontWeight = FontWeight.SemiBold)
                 }
             }
+            com.example.ui.components.EnvironmentSettingsButton(enabled = !deleting)
             TextButton(enabled = !deleting, onClick = {
-                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ApiClient.portalUrl("privacy/")))) }
+                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://passo.live/privacy/"))) }
                     .onFailure { error = genericError }
             }, modifier = Modifier.testTag("privacy_policy")) {
                 Text(t("Read our privacy policy", "የግላዊነት ፖሊሲያችንን ያንብቡ", "Imaammata iccitii keenya dubbisi"), color = PrivacyTeal)

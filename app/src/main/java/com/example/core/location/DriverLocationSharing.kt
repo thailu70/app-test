@@ -14,7 +14,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 data class DriverLocationTarget(val driverId: String, val tripId: String, val intercity: Boolean, val currentStop: String = "")
-internal data class DriverLocationSession(val target: DriverLocationTarget, val token: String)
+internal data class DriverLocationSession(val target: DriverLocationTarget, val token: String,
+    val environmentScope: com.example.core.environment.ApiSessionScope = ApiClient.sessionScope())
 
 /** Process-only session: never restore a location service or bearer token from disk. */
 object DriverLocationSharing {
@@ -70,7 +71,8 @@ object DriverLocationSharing {
 
     internal fun isCurrent(value: DriverLocationSession): Boolean = session?.let {
         it.target.driverId == value.target.driverId && it.target.tripId == value.target.tripId &&
-            it.target.intercity == value.target.intercity && it.token == value.token && ApiClient.getAuthToken() == value.token
+            it.target.intercity == value.target.intercity && it.token == value.token && ApiClient.getAuthToken() == value.token &&
+            it.environmentScope == value.environmentScope && ApiClient.isCurrent(value.environmentScope)
     } == true
 
     internal fun started() { _running.value = true; report("Trip location sharing is on, including while the screen is locked.") }

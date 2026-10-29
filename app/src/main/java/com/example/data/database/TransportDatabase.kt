@@ -8,6 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.data.dao.TransportDao
 import com.example.data.entity.*
+import com.example.core.environment.AppEnvironment
+import com.example.data.api.ApiClient
 import kotlinx.coroutines.CoroutineScope
 
 @Database(
@@ -42,15 +44,15 @@ abstract class TransportDatabase : RoomDatabase() {
             }
         }
 
-        @Volatile
-        private var INSTANCE: TransportDatabase? = null
+        private val instances = mutableMapOf<AppEnvironment, TransportDatabase>()
 
-        fun getDatabase(context: Context, scope: CoroutineScope): TransportDatabase {
-            return INSTANCE ?: synchronized(this) {
+        @Synchronized
+        fun getDatabase(context: Context, scope: CoroutineScope, environment: AppEnvironment = ApiClient.environment()): TransportDatabase {
+            return instances[environment] ?: run {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     TransportDatabase::class.java,
-                    "transport_navigator_database"
+                    environment.storageName("transport_navigator_database")
                 )
                     .addMigrations(MIGRATION_4_5)
                     .addCallback(object : Callback() {
@@ -61,7 +63,7 @@ abstract class TransportDatabase : RoomDatabase() {
                     })
                     .fallbackToDestructiveMigration()
                     .build()
-                INSTANCE = instance
+                instances[environment] = instance
 
                 // Production data is loaded from authenticated server responses.
                 // Do not add sample passengers, vehicles, payments or active passes.

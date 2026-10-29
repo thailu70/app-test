@@ -249,6 +249,7 @@ fun PassengerDashboardScreen(
                 "Help & Complaints" -> item { ComplaintsCard(complaints, lang, onSubmitClick = { viewModel.openComplaintDialog() }) }
                 else -> {
                     item { PassengerMenuRow(passengerText(lang, "My profile", "የእኔ መገለጫ"), passengerText(lang, "Photo, ID and personal details", "ፎቶ፣ መታወቂያ እና የግል መረጃ"), Icons.Default.Person, onOpenProfile) }
+                    item { com.example.ui.components.EnvironmentSettingsButton() }
                     item { PassengerMenuRow(sectionLabel("Live Location"), passengerText(lang, "Your driver's latest position", "የአሽከርካሪዎ የቅርብ ጊዜ ቦታ"), Icons.Default.LocationOn, { passengerSection = "Live Location" }) }
                     item { PassengerMenuRow(sectionLabel("Trip Attendance"), passengerText(lang, "Review your recorded boardings", "የተመዘገቡ ጉዞዎችዎን ይመልከቱ"), Icons.Default.EventAvailable, { passengerSection = "Trip Attendance" }) }
                     item { PassengerMenuRow(sectionLabel("Help & Complaints"), passengerText(lang, "Get help or report an issue", "እገዛ ያግኙ ወይም ችግር ያሳውቁ"), Icons.Default.SupportAgent, { passengerSection = "Help & Complaints" }) }

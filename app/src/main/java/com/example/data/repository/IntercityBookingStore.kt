@@ -12,6 +12,9 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import com.example.core.environment.AppEnvironment
+import com.example.core.environment.capabilityContext
+import com.example.data.api.ApiClient
 
 /** A private booking capability, never a passenger profile or a cached boarding QR. */
 data class IntercityBookingAccess(val id: String, val secret: String)
@@ -27,10 +30,11 @@ interface IntercityBookingAccessStore {
  * Crypto/storage errors deliberately propagate so the UI can report that ticket recovery is
  * unavailable. They must not silently become an empty history or a plaintext fallback.
  */
-class AndroidEncryptedIntercityBookingStore(context: Context, namespace: String = "intercity") : IntercityBookingAccessStore {
+class AndroidEncryptedIntercityBookingStore(context: Context, namespace: String = "intercity", environment: AppEnvironment = ApiClient.environment()) : IntercityBookingAccessStore {
     init { require(namespace in setOf("intercity", "mobility")) }
-    private val preferences = context.applicationContext.getSharedPreferences(if (namespace == "intercity") PREFERENCES_NAME else "mobility_private_access", Context.MODE_PRIVATE)
-    private val authenticatedContext = if (namespace == "intercity") AUTHENTICATED_CONTEXT else "RoutePass.Mobility.PrivateAccess.v1".toByteArray(Charsets.UTF_8)
+    private val preferences = context.applicationContext.getSharedPreferences(environment.storageName(if (namespace == "intercity") PREFERENCES_NAME else "mobility_private_access"), Context.MODE_PRIVATE)
+    private val authenticatedContext = capabilityContext(namespace, environment)
+    private val keyAlias = environment.storageName(KEY_ALIAS)
 
     override fun load(): List<IntercityBookingAccess> = synchronized(storageLock) { readAccess() }
 
@@ -96,17 +100,17 @@ class AndroidEncryptedIntercityBookingStore(context: Context, namespace: String 
     private fun keyStore(): KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
 
     private fun existingKey(): SecretKey =
-        (keyStore().getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey
+        (keyStore().getEntry(keyAlias, null) as? KeyStore.SecretKeyEntry)?.secretKey
             ?: throw IOException("Saved ticket access cannot be opened on this device.")
 
     private fun keyForEncryption(): SecretKey {
         val store = keyStore()
-        if (store.containsAlias(KEY_ALIAS)) {
-            return (store.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey
+        if (store.containsAlias(keyAlias)) {
+            return (store.getEntry(keyAlias, null) as? KeyStore.SecretKeyEntry)?.secretKey
                 ?: throw IOException("Saved ticket key is unavailable.")
         }
         return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
-            init(KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+            init(KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(256)
@@ -128,7 +132,6 @@ class AndroidEncryptedIntercityBookingStore(context: Context, namespace: String 
         const val GCM_IV_BYTES = 12
         const val GCM_TAG_BITS = 128
         const val MAX_RECENT = 8
-        val AUTHENTICATED_CONTEXT = "RoutePass.Intercity.BookingAccess.v1".toByteArray(Charsets.UTF_8)
         val storageLock = Any()
     }
 }

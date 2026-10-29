@@ -62,14 +62,13 @@ object LiveTrackingWebSocket {
 
     @Synchronized
     fun connect(baseUrl: String = ApiClient.getBaseUrl()) {
+        require(baseUrl.trimEnd('/') == ApiClient.getBaseUrl().trimEnd('/')) { "Tracking must use the selected environment." }
         if (webSocket != null) return
         val generation = ++connectionGeneration
+        val environmentScope = ApiClient.sessionScope()
 
         val authToken = ApiClient.getAuthToken()
-        val baseWsUrl = baseUrl
-            .replace("http://", "ws://")
-            .replace("https://", "wss://")
-            .let { if (it.endsWith("/")) "${it}ws" else "$it/ws" }
+        val baseWsUrl = ApiClient.webSocketUrl()
 
         // Do not attach bearer tokens as URL query parameters: proxies may log them.
         // The first in-band AUTHENTICATE message is sent from onOpen below.
@@ -77,7 +76,10 @@ object LiveTrackingWebSocket {
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response): Unit = synchronized(LiveTrackingWebSocket) {
-                if (generation != connectionGeneration) return@synchronized
+                if (generation != connectionGeneration || !ApiClient.isCurrent(environmentScope)) {
+                    webSocket.close(1000, "Environment changed")
+                    return@synchronized
+                }
                 _isConnected.value = true
                 authToken?.let { token ->
                     val authMsg = JSONObject().apply {
@@ -89,7 +91,7 @@ object LiveTrackingWebSocket {
             }
 
             override fun onMessage(webSocket: WebSocket, text: String): Unit = synchronized(LiveTrackingWebSocket) {
-                if (generation != connectionGeneration) return@synchronized
+                if (generation != connectionGeneration || !ApiClient.isCurrent(environmentScope)) return@synchronized
                 try {
                     val json = JSONObject(text)
                     when (json.optString("type")) {

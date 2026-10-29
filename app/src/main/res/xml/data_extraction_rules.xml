@@ -8,6 +8,9 @@
         <exclude domain="database" path="."/>
         <exclude domain="sharedpref" path="intercity_booking_access.xml"/>
         <exclude domain="sharedpref" path="mobility_private_access.xml"/>
+        <exclude domain="sharedpref" path="intercity_booking_access_review.xml"/>
+        <exclude domain="sharedpref" path="mobility_private_access_review.xml"/>
+        <exclude domain="sharedpref" path="passo_environment.xml"/>
         <!-- TODO: Use <include> and <exclude> to control what is backed up.
         <include .../>
         <exclude .../>
@@ -17,6 +20,9 @@
         <exclude domain="database" path="."/>
         <exclude domain="sharedpref" path="intercity_booking_access.xml"/>
         <exclude domain="sharedpref" path="mobility_private_access.xml"/>
+        <exclude domain="sharedpref" path="intercity_booking_access_review.xml"/>
+        <exclude domain="sharedpref" path="mobility_private_access_review.xml"/>
+        <exclude domain="sharedpref" path="passo_environment.xml"/>
     </device-transfer>
     <!--
     <device-transfer>

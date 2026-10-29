@@ -303,6 +303,7 @@ fun DriverTripScreen(
                 }
             } }
             if (section == "More") {
+                item { com.example.ui.components.EnvironmentSettingsButton() }
                 item { DriverMenuRow(driverText(language, "My assignments", "የእኔ ምደባዎች", "Ramaddii koo"), driverText(language, "Daily commute and intercity journeys", "የዕለት እና የከተማ መካከል ጉዞዎች", "Imala guyyaa fi magaalaa gidduu"), Icons.Default.Route) { section = "My Trips" } }
                 item { DriverDocumentsOverview(completionProfile, profileLoading, profileError, language) { documentsOpen = true } }
                 item { DriverMenuRow(driverText(language, "Emergency contact", "የአደጋ ጊዜ ተጠሪ", "Nama yeroo balaa"), driverText(language, "Name, phone and profile details", "ስም፣ ስልክ እና የግል መረጃ", "Maqaa, bilbilaa fi odeeffannoo dhuunfaa"), Icons.Default.ContactPhone) { documentsOpen = true } }

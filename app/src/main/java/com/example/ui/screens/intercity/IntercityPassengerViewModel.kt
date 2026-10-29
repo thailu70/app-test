@@ -202,6 +202,9 @@ internal class IntercityPassengerViewModel(
     }
 
     private suspend fun loadRecent() {
+        // Explicitly loaded demo examples, like ordinary saved capabilities, are
+        // re-read on refresh without replacing unsaved in-memory ticket access.
+        withContext(ioDispatcher) { store.load() }.forEach { capabilities[it.id] = it.secret }
         val recent = coroutineScope {
             capabilities.keys.toList().map { id -> async {
                 try { fetchBooking(id) }

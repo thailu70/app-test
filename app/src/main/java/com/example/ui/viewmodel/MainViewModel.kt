@@ -22,6 +22,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.cancelChildren
 import java.util.UUID
 
 enum class AppRole {
@@ -667,6 +668,19 @@ class MainViewModel(
         _isAuthenticated.value = false
         _authError.value = null
         privateCacheCleanup = viewModelScope.async { repository.clearPrivateCache() }
+    }
+
+    /** Switching environments is not account deletion or guest-history deletion. */
+    fun prepareForEnvironmentChange() {
+        ++sessionGeneration
+        driverApplications.close()
+        com.example.core.location.DriverLocationSharing.stop()
+        LiveTrackingWebSocket.disconnect()
+        viewModelScope.coroutineContext.cancelChildren()
+        driverGpsUploads.reset()
+        _currentUser.value = null
+        _isAuthenticated.value = false
+        com.example.data.api.ApiClient.setAuthToken(null)
     }
 
     fun setRole(role: AppRole) {

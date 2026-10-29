@@ -46,6 +46,13 @@ import com.example.data.api.ApiClient
 import com.example.data.database.TransportDatabase
 import com.example.data.repository.TransportRepository
 import com.example.ui.components.NotificationTrayDialog
+import com.example.ui.components.LocalEnvironmentSettings
+import com.example.ui.components.EnvironmentChooser
+import com.example.ui.components.DemoEnvironmentBanner
+import com.example.core.environment.AppEnvironment
+import com.example.core.environment.EnvironmentPreferences
+import com.example.core.location.DriverLocationSharing
+import com.example.data.api.LiveTrackingWebSocket
 import com.example.ui.screens.auth.AuthScreen
 import com.example.ui.screens.home.BrowseFirstScreen
 import com.example.ui.screens.home.PassoWelcomeScreen
@@ -72,6 +79,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        ApiClient.setBaseUrl(EnvironmentPreferences.selected(this).baseUrl())
+
         val database = TransportDatabase.getDatabase(this, lifecycleScope)
         val repository = TransportRepository(database.transportDao())
         val factory = MainViewModelFactory(repository)
@@ -79,7 +88,49 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MyApplicationTheme {
-                MainTransportApp(viewModel = viewModel)
+                var environmentSettings by remember { mutableStateOf(false) }
+                var pendingEnvironment by remember { mutableStateOf<AppEnvironment?>(null) }
+                var environmentError by remember { mutableStateOf<String?>(null) }
+                var reviewTravelOpen by remember { mutableStateOf(false) }
+                LaunchedEffect(pendingEnvironment) {
+                    pendingEnvironment?.let { target ->
+                        try {
+                            // The old composition is removed before changing its endpoint. Its
+                            // guest stores remain intact, and all Activity-owned VMs are cancelled.
+                            EnvironmentPreferences.save(this@MainActivity, target)
+                            DriverLocationSharing.stop("Environment changed. Location sharing stopped.")
+                            LiveTrackingWebSocket.disconnect()
+                            ApiClient.cancelRequests()
+                            viewModel.prepareForEnvironmentChange()
+                            viewModelStore.clear()
+                            ApiClient.setBaseUrl(target.baseUrl())
+                            recreate()
+                        } catch (_: Exception) {
+                            environmentError = "The environment could not be changed. Please try again."
+                            pendingEnvironment = null
+                        }
+                    }
+                }
+                CompositionLocalProvider(LocalEnvironmentSettings provides { environmentSettings = true }) {
+                    Column(Modifier.fillMaxSize().background(Color(0xFFFFFBF4))) {
+                        if (ApiClient.environment() == AppEnvironment.DEMO) DemoEnvironmentBanner { environmentSettings = true }
+                        if (pendingEnvironment == null) Box(Modifier.weight(1f)) {
+                            key(ApiClient.environment()) {
+                            if (reviewTravelOpen && ApiClient.environment() == AppEnvironment.DEMO) {
+                                val language by viewModel.currentLanguage.collectAsState()
+                                IntercityPassengerScreen(language, { viewModel.setLanguage(it) }, onExit = { reviewTravelOpen = false })
+                            } else MainTransportApp(viewModel = viewModel)
+                            }
+                        }
+                        else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    }
+                    if (environmentSettings && pendingEnvironment == null) EnvironmentChooser(
+                        onDismiss = { environmentSettings = false },
+                        onSwitch = { environmentSettings = false; pendingEnvironment = it },
+                        onOpenTravel = { environmentSettings = false; reviewTravelOpen = true })
+                    environmentError?.let { message -> AlertDialog(onDismissRequest = { environmentError = null },
+                        text = { Text(message) }, confirmButton = { TextButton(onClick = { environmentError = null }) { Text("Close") } }) }
+                }
             }
         }
     }
@@ -103,6 +154,7 @@ internal fun PassengerTopBar(
     networkLabel: String = ""
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    val environmentSettings = LocalEnvironmentSettings.current
     TopAppBar(
         title = {
             if (profileOpen) Text("Your profile", fontWeight = FontWeight.Bold)
@@ -119,6 +171,7 @@ internal fun PassengerTopBar(
                     Icon(Icons.Default.MoreVert, contentDescription = "Account options")
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    if (environmentSettings != null) DropdownMenuItem(text = { Text("About & demo") }, leadingIcon = { Icon(Icons.Default.Info, null) }, onClick = { menuOpen = false; environmentSettings() })
                     DropdownMenuItem(text = { Text("Notifications" + if (notificationCount > 0) " ($notificationCount)" else "") }, leadingIcon = { Icon(Icons.Default.NotificationsNone, null) }, onClick = { menuOpen = false; onNotifications() }, modifier = Modifier.testTag("top_bar_notifications_button"))
                     DropdownMenuItem(text = { Text("Profile & documents") }, leadingIcon = { Icon(Icons.Default.AccountCircle, null) }, onClick = { menuOpen = false; onProfile() })
                     DropdownMenuItem(text = { Text(if (language == AppLanguage.ENGLISH) "አማርኛ" else "English") }, leadingIcon = { Icon(Icons.Default.Language, null) }, onClick = { menuOpen = false; onLanguage() }, modifier = Modifier.testTag("top_bar_language_button"))
@@ -203,7 +256,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                 },
                 language = currentLang,
                 onLanguage = { viewModel.setLanguage(it) },
-                onPrivacy = { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(ApiClient.portalUrl("privacy/")))) },
+                onPrivacy = { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://passo.live/privacy/"))) },
                 modifier = Modifier.fillMaxSize()
             )
         } else if (showIntercityPortal) {

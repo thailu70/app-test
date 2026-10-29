@@ -68,6 +68,7 @@ function sign(fields){
 function nonce(){const alphabet='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';let value='';for(let i=0;i<32;i++)value+=alphabet[crypto.randomInt(0,alphabet.length)];return value;}
 function merchantOrderId(){return 'RP'+Date.now().toString(10)+crypto.randomBytes(8).toString('hex').toUpperCase();}
 async function post(url,body,headers,operation){
+ if(require('../review/isolation').getReviewRuntime())throw Object.assign(new Error('Real payment traffic is disabled in the synthetic review environment.'),{status:503});
  let response;try{response=await fetch(url,{method:'POST',headers:Object.assign({'Content-Type':'application/json'},headers||{}),body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});}catch(_){throw Error('Telebirr '+operation+' gateway connection failed');}
  let data;try{data=await response.json();}catch(_){throw Error('Telebirr '+operation+' returned invalid JSON');}
  if(!response.ok)throw Error('Telebirr '+operation+' failed with HTTP '+response.status);

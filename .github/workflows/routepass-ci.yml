@@ -40,6 +40,11 @@ jobs:
         run: docker compose -f backend/docker-compose.yml -f backend/docker-compose.traefik.yml config --quiet
       - name: Verify HTTPS host routing and canonical redirects
         run: docker compose -f backend/docker-compose.yml -f backend/docker-compose.traefik.yml config --format json | node backend/test/traefik-routing-test.js
+      - name: Verify isolated review network, origin, volumes and resource limits
+        run: |
+          node backend/review/create-private-config.js /tmp/passo-review-ci.env
+          docker compose --env-file /tmp/passo-review-ci.env -f backend/review/compose.yml config --format json | node backend/test/review-compose-test.js
+          bash -n backend/review/init-schema.sh
 
   backend-sqlite:
     name: Backend syntax and SQLite integration
@@ -136,6 +141,48 @@ jobs:
           node test/account-recovery-postgres-test.js
           ASSIGNMENT_TEST_POSTGRES=true node --test test/assignment-closure-test.js
           MOBILITY_TEST_POSTGRES=true node --test --test-concurrency=1 test/mobility-test.js test/mobility-security-test.js
+        working-directory: backend
+
+  review-backend:
+    name: Isolated review API with PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: passo_review
+          POSTGRES_USER: passo_review
+          POSTGRES_PASSWORD: ci_review_database_password_only_2026
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U passo_review -d passo_review"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+      - name: Initialize independent schema without development seed accounts
+        env:
+          PGPASSWORD: ci_review_database_password_only_2026
+        run: node -e "process.stdout.write(require('fs').readFileSync('backend/init-db.sql','utf8').split('-- Initial Seed Data')[0])" | psql -h 127.0.0.1 -U passo_review -d passo_review -v ON_ERROR_STOP=1
+      - name: Verify review-only HTTP lifecycle and isolation on SQLite and PostgreSQL
+        env:
+          CI: "true"
+          NODE_ENV: test
+          REVIEW_TEST_POSTGRES: "true"
+          DATABASE_URL: postgres://passo_review:ci_review_database_password_only_2026@127.0.0.1:5432/passo_review
+        run: node --test test/review-environment-test.js
+        working-directory: backend
+      - name: Verify disposable SQLite review lifecycle
+        run: node --test test/review-environment-test.js
         working-directory: backend
 
   android-build:

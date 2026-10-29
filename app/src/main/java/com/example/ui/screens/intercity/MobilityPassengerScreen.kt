@@ -249,7 +249,7 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
                 }
                 traveler.boardingPassUrl?.let { link ->
                     if (trustedMobilityPassLink(link)) OutlinedButton(onClick = {
-                        val resolved = if (link.startsWith("/")) ApiClient.portalUrl(link) else link
+                        val resolved = ApiClient.portalUrl(link)
                         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(resolved))) }
                     }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.QrCode2, null); Spacer(Modifier.width(8.dp)); Text("Open boarding pass") }
                 }
@@ -266,8 +266,8 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
 internal fun canShowGroupTicket(booking: MobilityBooking, traveler: MobilityTraveler): Boolean =
     booking.paymentStatus == "PAID" && booking.status == "CONFIRMED" && !traveler.ticketNumber.isNullOrBlank()
 internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
-    val base = java.net.URI(ApiClient.getBaseUrl()); val resolved = base.resolve(value)
-    resolved.scheme == "https" && resolved.host == base.host && resolved.userInfo == null && resolved.port in setOf(-1, 443) && resolved.path.startsWith("/api/mobility/")
+    val resolved = java.net.URI(ApiClient.portalUrl(value))
+    resolved.scheme == "https" && resolved.path.startsWith(java.net.URI(ApiClient.getBaseUrl()).path + "api/mobility/")
 }.getOrDefault(false)
 
 @Composable private fun MobilityRequestForm(kind: String, state: MobilityUiState, language: AppLanguage,

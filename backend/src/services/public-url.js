@@ -4,6 +4,8 @@
 function publicBaseUrl() {
   const value = String(process.env.PUBLIC_BASE_URL || 'https://passo.live').trim();
   const url = new URL(value);
+  const review = require('../review/isolation').getReviewRuntime();
+  if (review && value === review.publicBaseUrl) return value;
   if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash)
     throw new Error('PUBLIC_BASE_URL must be an HTTPS origin without credentials, a path or query.');
   return url.origin;

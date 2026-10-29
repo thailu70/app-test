@@ -1,0 +1,102 @@
+name: passo-review
+services:
+  review-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: passo_review
+      POSTGRES_USER: passo_review
+      POSTGRES_PASSWORD: ${REVIEW_DB_PASSWORD:?Generate a private review environment file}
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=30", "-c", "work_mem=1MB", "-c", "maintenance_work_mem=16MB"]
+    volumes:
+      - review_database:/var/lib/postgresql/data
+      - ../init-db.sql:/review-schema/base.sql:ro
+      - ./init-schema.sh:/docker-entrypoint-initdb.d/01-schema.sh:ro
+    networks: [review_private]
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 100
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U passo_review -d passo_review"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: {driver: json-file, options: {max-size: 5m, max-file: "2"}}
+  review-api:
+    build: {context: .., dockerfile: Dockerfile}
+    restart: unless-stopped
+    depends_on: {review-db: {condition: service_healthy}}
+    command: ["node", "--max-old-space-size=256", "src/review/server.js"]
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3000"
+      REVIEW_ENVIRONMENT: "true"
+      REVIEW_SMS_MODE: DISABLED
+      PUBLIC_BASE_URL: https://passo.live/review
+      ALLOWED_ORIGINS: https://passo.live
+      DATA_DIR: /app/review-data
+      UPLOAD_DIR: /app/review-uploads
+      DATABASE_URL: postgres://passo_review:${REVIEW_DB_PASSWORD:?Required}@review-db:5432/passo_review
+      JWT_SECRET: ${REVIEW_JWT_SECRET:?Required}
+      QR_SIGNING_KEY: ${REVIEW_QR_SIGNING_KEY:?Required}
+      ADMIN_REGISTRATION_SECRET: ${REVIEW_ADMIN_SECRET:?Required}
+      REVIEW_INSTANCE_ID: ${REVIEW_INSTANCE_ID:?Required}
+      REVIEW_FIXTURE_SECRET: ${REVIEW_FIXTURE_SECRET:?Required}
+      REVIEW_DEMO_PASSWORD: ${REVIEW_DEMO_PASSWORD:?Required}
+      PAYMENT_MODE: PRODUCTION
+      PAYMENT_TESTS_ENABLED: "false"
+      PAYMENT_TEST_PASSENGER_ID: ""
+      ALLOW_MANUAL_TEST_RECHARGE: "false"
+      ALLOW_ADMIN_PASS_ACTIVATION: "false"
+    # No env_file, production secret, SMS credential, payment credential,
+    # host port, Docker socket, production DB network or upload volume.
+    volumes: ["review_uploads:/app/review-uploads"]
+    networks: [review_private]
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m", "/app/review-data:rw,noexec,nosuid,uid=1000,gid=1000,size=8m"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    cpus: 0.5
+    pids_limit: 80
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/api/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging: {driver: json-file, options: {max-size: 5m, max-file: "2"}}
+  review-proxy:
+    image: nginx:alpine
+    user: "101:101"
+    restart: unless-stopped
+    depends_on: {review-api: {condition: service_healthy}}
+    volumes: ["./nginx.conf:/etc/nginx/nginx.conf:ro"]
+    networks: [review_private, public_proxy]
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,uid=101,gid=101,size=8m", "/var/cache/nginx:rw,noexec,nosuid,uid=101,gid=101,size=8m", "/var/run:rw,noexec,nosuid,uid=101,gid=101,size=1m"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 32m
+    cpus: 0.1
+    pids_limit: 30
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=routepass_internal_net
+      - traefik.http.routers.passo-review.rule=Host(`passo.live`) && (Path(`/review`) || PathPrefix(`/review/`))
+      - traefik.http.routers.passo-review.priority=100
+      - traefik.http.routers.passo-review.entrypoints=websecure
+      - traefik.http.routers.passo-review.tls=true
+      - traefik.http.routers.passo-review.tls.certresolver=letsencrypt
+      - traefik.http.routers.passo-review.middlewares=passo-review-strip
+      - traefik.http.middlewares.passo-review-strip.stripprefix.prefixes=/review
+      - traefik.http.services.passo-review.loadbalancer.server.port=8080
+    logging: {driver: json-file, options: {max-size: 5m, max-file: "2"}}
+volumes:
+  review_database: {name: passo_review_database}
+  review_uploads: {name: passo_review_uploads}
+networks:
+  # Only the proxy joins the existing public-facing network. API/DB have no
+  # external egress or network path to the production database.
+  review_private: {name: passo_review_private, internal: true}
+  public_proxy: {external: true, name: routepass_internal_net}

@@ -11,8 +11,8 @@ bundle, manifest_path, config_path = map(Path, sys.argv[1:4])
 android = '{http://schemas.android.com/apk/res/android}'
 manifest = ET.parse(manifest_path).getroot()
 assert manifest.get('package') == 'live.passo.app', 'Unexpected permanent package ID'
-assert manifest.get(android + 'versionName') == '1.1.24', 'Unexpected release version'
-assert int(manifest.get(android + 'versionCode')) == 27, 'Unexpected release version code'
+assert manifest.get(android + 'versionName') == '1.1.25', 'Unexpected release version'
+assert int(manifest.get(android + 'versionCode')) == 28, 'Unexpected release version code'
 assert int(manifest.find('uses-sdk').get(android + 'targetSdkVersion')) >= 36
 application = manifest.find('application')
 assert application.get(android + 'debuggable', 'false') == 'false', 'A Play candidate must not be debuggable'
@@ -58,6 +58,6 @@ with ZipFile(bundle) as archive:
         native.append(name)
 assert native, 'Expected the bundled barcode scanner native libraries'
 print(json.dumps({'package': manifest.get('package'), 'versionName': manifest.get(android + 'versionName'),
-                  'versionCode': 27, 'targetSdk': int(manifest.find('uses-sdk').get(android + 'targetSdkVersion')),
+                  'versionCode': 28, 'targetSdk': int(manifest.find('uses-sdk').get(android + 'targetSdkVersion')),
                   'debuggable': False, 'unsigned': True, 'permissions': permissions, 'native16KbChecked': native,
                   'sha256': hashlib.sha256(bundle.read_bytes()).hexdigest()}, indent=2))
