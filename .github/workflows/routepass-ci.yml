@@ -45,6 +45,7 @@ jobs:
           node backend/review/create-private-config.js /tmp/passo-review-ci.env
           docker compose --env-file /tmp/passo-review-ci.env -f backend/review/compose.yml config --format json | node backend/test/review-compose-test.js
           bash -n backend/review/init-schema.sh
+          node backend/test/review-schema-filter-test.js
 
   backend-sqlite:
     name: Backend syntax and SQLite integration
