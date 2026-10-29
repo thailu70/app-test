@@ -49,6 +49,8 @@ Scheduled refresh is private, idempotent and runs only in the review container e
 
 Guest group/cargo requests still require no registration, sign-in or OTP in Demo. Enter clearly synthetic data. Newly submitted requests show normal pending state; separately seeded assignments let the reviewer inspect the completed handover state without waiting for a person. Checkout intentionally stays unavailable, and already-paid samples demonstrate ticket/boarding presentation. No payment success endpoint exists in the review API, and all production free/test payment paths remain disabled.
 
+Exported sample intercity PDFs and group HTML passes carry an explicit **synthetic demo / no real payment / not valid for real travel** warning, including when opened outside the app. Synthetic intercity samples never use the real-provider “Telebirr verified” label.
+
 ## Native sample-import contract
 
 `GET api/review/info` is public inside the selected review prefix and reports the environment flags above. `GET api/review/resources` requires a valid approved synthetic account token and returns only synthetic recovery capabilities:

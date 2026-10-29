@@ -38,6 +38,9 @@ jobs:
           gradle :app:testDebugUnitTest
           -PROUTEPASS_API_BASE_URL=https://passo.live/
           --tests com.example.ApiBaseUrlTest
+          --tests com.example.EnvironmentIsolationTest
+          --tests com.example.EnvironmentTransitionTest
+          --tests com.example.EnvironmentControlsTest
           --tests com.example.AuthLayoutTest
           --tests com.example.DriverApplicationTest
           --tests com.example.CredentialStorageTest

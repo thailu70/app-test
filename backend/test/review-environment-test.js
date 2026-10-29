@@ -71,6 +71,27 @@ test('isolated synthetic review runtime never adopts production data or enables 
     await assert.rejects(fixtures.refresh(),/collision/);
     await DB.prepare("UPDATE review_fixture_owners SET marker=? WHERE entity_type='route' AND entity_id='review_daily_route'").run(config.marker);
   });
+  await t.test('external sample PDF and HTML boarding passes visibly identify synthetic travel and no real payment',async()=>{
+    const paid=await request('/api/mobility/bookings/'+samples.groupBooking.id,{headers:{'X-Booking-Secret':samples.groupBooking.bookingSecret}});
+    const url=new URL(paid.data.booking.travelers[0].boardingPassUrl);
+    const html=await request(url.pathname.replace(/^\/review/,'')+url.search);
+    assert.equal(html.status,200);assert.match(html.headers.get('content-type'),/text\/html/);
+    const markup=html.bytes.toString('utf8');
+    assert.match(markup,/<strong>SYNTHETIC DEMO<\/strong>/);assert.match(markup,/no real payment; not valid for real travel/);
+    const pdf=await request('/api/intercity/bookings/'+samples.intercityBooking.id+'/ticket.pdf',{headers:{'X-Booking-Secret':samples.intercityBooking.bookingSecret}});
+    assert.equal(pdf.status,200);assert.match(pdf.headers.get('content-type'),/application\/pdf/);
+    assert.ok(pdf.bytes.subarray(0,5).equals(Buffer.from('%PDF-')));
+    const metadata=pdf.bytes.toString('latin1');
+    assert.match(metadata,/Passo synthetic demo ticket/);assert.match(metadata,/Synthetic demo - no real payment; not valid for real travel\./);
+    assert.equal(require('../src/services/ticket-presentation').ticketPresentation().synthetic,true);
+    // Optional local visual QA artifacts contain only this disposable test's
+    // synthetic data and keys, never production records or provider secrets.
+    if(process.env.REVIEW_ARTIFACT_OUTPUT_DIR) {
+      const output=path.resolve(process.env.REVIEW_ARTIFACT_OUTPUT_DIR);fs.mkdirSync(output,{recursive:true});
+      fs.writeFileSync(path.join(output,'synthetic-intercity-ticket.pdf'),pdf.bytes);
+      fs.writeFileSync(path.join(output,'synthetic-group-ticket.html'),html.bytes);
+    }
+  });
   await t.test('no admin pages, seed/reset endpoints, payment activation or SMS delivery exist publicly',async()=>{
     for(const endpoint of ['/admin/','/company/','/join/','/api/admin/users','/api/mobility/admin/trips','/api/review/reset','/api/review/seed']) assert.equal((await request(endpoint,{token:daily})).status,404);
     for(const endpoint of ['/api/subscriptions/telebirr/create-order','/api/mobility/bookings/'+samples.groupBooking.id+'/checkout','/api/auth/request-otp'])assert.equal((await request(endpoint,{method:'POST',body:{},token:passenger})).status,503);

@@ -291,17 +291,26 @@ router.post('/payments/webhook', asyncRoute(async (req, res) => {
 }));
 async function pdfTicket(req, res, b) {
   if (b.payment_status !== 'PAID') throw fail(409, 'A ticket is available after payment is settled.');
+  const presentation = require('../services/ticket-presentation').ticketPresentation(b);
   const d = await departure(DB, b.departure_id), company = await DB.prepare('SELECT name,phone FROM transport_companies WHERE id=?').get(d.company_id);
   const qr = await QRCode.toBuffer(ticketToken(b, d), { width: 260, margin: 2 });
   res.setHeader('Content-Type', 'application/pdf'); res.setHeader('Content-Disposition', 'attachment; filename="RoutePass-' + b.id + '.pdf"');
   const doc = new PDFDocument({ size: 'A5', margin: 30 });
+  if (presentation.synthetic) {
+    doc.info.Title = 'Passo synthetic demo ticket';
+    doc.info.Subject = presentation.warning;
+  }
   doc.font(path.join(__dirname, '../../public/travel/fonts/NotoSansEthiopic.ttf'));
   doc.pipe(res);
-  doc.rect(0, 0, 420, 95).fill('#10231c'); doc.fillColor('#ffffff').fontSize(26).text('PASSO', 30, 28); doc.fontSize(11).text('INTERCITY - CONFIRMED TICKET', 30, 62);
-  doc.fillColor('#10231c').fontSize(17).text(d.origin + ' to ' + d.destination, 30, 118, { width: 350 });
-  const lines = [['Transport', company ? company.name : 'Transport company'], ['Departure (Ethiopia)', new Date(d.departure_at).toLocaleString('en-GB', { timeZone: 'Africa/Addis_Ababa' })], ['Passenger', b.passenger_name], ['Phone', b.passenger_phone], ['Seat', String(b.seat_number)], ['Ticket fare', Number(b.amount_etb).toFixed(2) + ' ETB'], ['Payment', b.payment_method === 'TEST_AUTO' ? 'Authorized test - no money collected' : b.payment_method === 'CASH_COLLECTED' ? 'Cash collected by company' : 'Telebirr verified']];
+  doc.rect(0, 0, 420, 95).fill('#10231c'); doc.fillColor('#ffffff').fontSize(26).text('PASSO', 30, 28); doc.fontSize(11).text(presentation.heading, 30, 62);
+  if (presentation.synthetic) {
+    doc.rect(20, 98, 380, 18).fill('#fff1d6');
+    doc.fillColor('#8a3f11').fontSize(8).text(presentation.warning, 30, 102, { width: 350, align: 'center' });
+  }
+  doc.fillColor('#10231c').fontSize(17).text(d.origin + ' to ' + d.destination, 30, presentation.synthetic ? 124 : 118, { width: 350 });
+  const lines = [['Transport', company ? company.name : 'Transport company'], ['Departure (Ethiopia)', new Date(d.departure_at).toLocaleString('en-GB', { timeZone: 'Africa/Addis_Ababa' })], ['Passenger', b.passenger_name], ['Phone', b.passenger_phone], ['Seat', String(b.seat_number)], ['Ticket fare', Number(b.amount_etb).toFixed(2) + ' ETB'], ['Payment', presentation.payment]];
   let y = 165; for (const [label, value] of lines) { doc.fontSize(9).fillColor('#58645f').text(label, 30, y); doc.fontSize(12).fillColor('#10231c').text(value, 145, y, { width: 230 }); y += 29; }
-  doc.image(qr, 135, y + 5, { width: 145 }); doc.fontSize(8).fillColor('#58645f').text('Present this QR code to your assigned driver for boarding.', 30, y + 157, { align: 'center', width: 350 }); doc.text('Ticket ' + b.id, 30, y + 177, { align: 'center', width: 350 }); doc.end();
+  doc.image(qr, 135, y + 5, { width: 145 }); doc.fontSize(8).fillColor('#58645f').text(presentation.boardingInstruction, 30, y + 157, { align: 'center', width: 350 }); doc.text('Ticket ' + b.id, 30, y + 177, { align: 'center', width: 350 }); doc.end();
 }
 router.get('/bookings/:id/ticket.pdf', publicLimiter, asyncRoute(async (req, res) => pdfTicket(req, res, await guestBooking(req))));
 // A short-lived ticket-only capability lets native download managers fetch the
