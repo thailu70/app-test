@@ -185,6 +185,7 @@ import kotlin.coroutines.resumeWithException
                     }
                 } }
             } else {
+                item { DriverMarketplacePanel(api, dashboard, { runAction { refresh() } }) }
                 item { MobilityCard {
                     Icon(if (group) Icons.Default.Groups else Icons.Default.LocalShipping, null, tint = CommuteTeal, modifier = Modifier.size(38.dp))
                     Text(if (group) intercityText(language, "Your group journeys", "የቡድን ጉዞዎችዎ", "Imala garee kee") else intercityText(language, "Your cargo assignments", "የጭነት ምደባዎችዎ", "Ramaddii fe'umsaa kee"), color = CommuteInk, fontSize = 25.sp, fontWeight = FontWeight.Bold)
@@ -300,9 +301,9 @@ internal fun mobilityDepartureIso(date: String, time: String): String? = runCatc
     SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(parsed)
 }.getOrNull()
 
-private fun hasMobilityLocationPermission(context: Context) = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+internal fun hasMobilityLocationPermission(context: Context) = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 @Suppress("MissingPermission", "DEPRECATION")
-private suspend fun freshMobilityLocation(context: Context): Location {
+internal suspend fun freshMobilityLocation(context: Context): Location {
     check(hasMobilityLocationPermission(context)) { "Enable location permission first." }
     val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     return withTimeoutOrNull(30_000) {

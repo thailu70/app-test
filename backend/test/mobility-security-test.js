@@ -19,7 +19,7 @@ const { createMobilityService } = require('../src/services/mobility');
 test('mobility reservations retain capacity, expiry, operational approval and private cargo access', async t => {
   await initOnboardingSchema(); await initMasterDataSchema();
   await require('../src/services/mobility-schema').initMobilitySchema();
-  if (DB.isPostgres) await DB.exec('TRUNCATE mobility_sms_outbox,mobility_seats,mobility_travelers,mobility_bookings,mobility_requests,mobility_trips');
+  if (DB.isPostgres) await DB.exec('TRUNCATE mobility_sms_outbox,mobility_seats,mobility_travelers,mobility_bookings,mobility_requests,mobility_trips CASCADE');
   const time = new Date().toISOString();
   async function approvedDriver(driverId, phone, serviceType, vehicleId) {
     await DB.prepare('INSERT INTO users(id,role,fullName,phone,passwordHash,status) VALUES(?,?,?,?,?,?)')

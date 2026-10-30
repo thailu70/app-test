@@ -42,7 +42,8 @@
       '<div id="mobility-workspace" class="mobility-workspace" role="tabpanel" aria-labelledby="mobility-tab-trips">' +
       '<section class="card section-card mobility-list-section"><div class="section-title"><div><h3 id="mobility-list-title">Proposed group trips</h3><p id="mobility-list-count">Loading…</p></div></div>' +
       '<div id="mobility-list" class="mobility-list" aria-busy="true"></div></section>' +
-      '<section id="mobility-detail" class="card section-card mobility-detail" aria-label="Selected record"></section></div></div>';
+      '<section id="mobility-detail" class="card section-card mobility-detail" aria-label="Selected record"></section></div>' +
+      '<section id="mobility-marketplace" class="card section-card" aria-label="Pricing, driver credits and reviews"></section></div>';
   }
 
   function mount({ container, api, token, isActive = () => true, fetchPhoto = (...args) => fetch(...args), objectUrls = URL }) {
@@ -317,6 +318,83 @@
     });
     // Install the initial tab through the same path used when switching service.
     mode = ''; changeMode('trips');
+    // This panel has an independent lifecycle so changing request tabs does not discard pricing edits.
+    const market = find('marketplace');
+    if (market) {
+      const base = ROOT + '/marketplace';
+      market.append(node('h3', 'Pricing, driver credits & reviews'));
+      const status = node('p', 'Loading marketplace settings…', 'form-message'); status.setAttribute('role', 'status'); market.append(status);
+      const fields = [
+        ['cargoCommissionPercent', 'Cargo commission (%)', 0, 100, '0.01'],
+        ['groupCommissionPercent', 'Group travel commission (%)', 0, 100, '0.01'],
+        ['cargoRateEtbPerKgKm', 'Cargo suggestion rate (ETB per kg per road km)', 0, 100000, '0.0001'],
+        ['minimumCargoFareEtb', 'Minimum suggested cargo fare (ETB)', 0, 10000000, '0.01'],
+        ['notificationRadiusKm', 'Nearby request radius (km)', 1, 500, '1']
+      ];
+      const settingsForm = node('form', undefined, 'mobility-form'), controls = {};
+      for (const [key, label, min, max, step] of fields) controls[key] = field(settingsForm, label, 'input', 'mobility-setting-' + key,
+        { type: 'number', min: String(min), max: String(max), step, required: true, inputMode: 'decimal' });
+      const saveSettings = node('button', 'Save pricing & commission', 'btn btn-primary'); saveSettings.type = 'submit'; saveSettings.disabled = true;
+      settingsForm.append(node('p', 'The estimate is visible to drivers. Customers choose an actual driver quote. Commission is held at booking and collected after completion; rate changes apply to new bookings.', 'mobility-help'), saveSettings); market.append(settingsForm);
+      const creditsForm = node('form', undefined, 'mobility-form'); creditsForm.append(node('h3', 'Driver prepaid credits'));
+      const driver = field(creditsForm, 'Driver', 'select', 'mobility-credit-driver', { required: true });
+      const amount = field(creditsForm, 'Verified payment received (ETB)', 'input', 'mobility-credit-amount', { type: 'number', min: '0.01', max: '10000000', step: '0.01', required: true });
+      const reference = field(creditsForm, 'Unique payment reference', 'input', 'mobility-credit-reference', { required: true, maxLength: 120 });
+      const note = field(creditsForm, 'Payment verification note', 'textarea', 'mobility-credit-note', { required: true, maxLength: 1000 });
+      const wallet = node('div', undefined, 'mobility-help');
+      const topup = node('button', 'Record verified top-up', 'btn btn-primary'); topup.type = 'submit';
+      creditsForm.append(node('p', 'Record funds only after checking the actual payment. A screenshot alone does not confirm receipt. Reusing a payment reference must not create another credit.', 'mobility-help'), topup, wallet); market.append(creditsForm);
+      const reviews = node('div'); reviews.append(node('h3', 'Customer ratings & comments')); market.append(reviews);
+      let marketBusy = false;
+      async function guarded(action) {
+        if (!active() || marketBusy) return;
+        marketBusy = true; saveSettings.disabled = true; topup.disabled = true;
+        try { await action(); } catch (error) { if (active()) { status.textContent = error.message || 'Could not update marketplace.'; status.className = 'form-message error'; } }
+        finally { marketBusy = false; if (active()) { saveSettings.disabled = false; topup.disabled = false; } }
+      }
+      async function loadWallet() {
+        if (!driver.value) { wallet.textContent = 'Choose a driver to view their balance.'; return; }
+        const result = await call(base + '/credits?driverId=' + encodeURIComponent(driver.value)); if (!active()) return;
+        wallet.replaceChildren(node('p', 'Balance: ' + money(result.wallet?.balanceEtb) + ' · Held: ' + money(result.wallet?.heldEtb) + ' · Available: ' + money(result.wallet?.availableEtb)));
+        for (const row of (result.ledger || []).slice(0, 20)) wallet.append(node('p', [row.createdAt || row.created_at, row.type || row.kind, money(row.amountEtb ?? row.amount_etb), row.reference].filter(Boolean).join(' · ')));
+      }
+      listen(driver, 'change', () => guarded(loadWallet));
+      listen(settingsForm, 'submit', event => { event.preventDefault(); return guarded(async () => {
+        const body = {};
+        for (const [key, label, min, max] of fields) { const value = Number(controls[key].value); if (controls[key].value === '' || !Number.isFinite(value) || value < min || value > max) throw new Error('Enter a valid value for ' + label + '.'); body[key] = value; }
+        const result = await call(base + '/settings', { method: 'PUT', body: JSON.stringify(body) });
+        if (!result.success) throw new Error(result.error || 'Settings were not saved.'); if (active()) { status.textContent = 'Pricing and commission saved.'; status.className = 'form-message'; }
+      }); });
+      listen(creditsForm, 'submit', event => { event.preventDefault(); return guarded(async () => {
+        if (!driver.value || !reference.value.trim() || !note.value.trim() || !(Number(amount.value) > 0)) throw new Error('Choose a driver, amount, verified payment reference and note.');
+        const result = await call(base + '/credits', { method: 'POST', body: JSON.stringify({ driverId: driver.value, amountEtb: Number(amount.value), reference: reference.value.trim(), note: note.value.trim() }) });
+        if (!result.success) throw new Error(result.error || 'Credit was not recorded.');
+        if (active()) { status.textContent = 'Verified credit recorded.'; amount.value = ''; reference.value = ''; note.value = ''; await loadWallet(); }
+      }); });
+      void guarded(async () => {
+        const result = await call(base + '/settings'); if (!active()) return;
+        if (!result.success || !result.settings) throw new Error('Marketplace settings are unavailable.');
+        for (const [key] of fields) controls[key].value = result.settings[key] ?? 0;
+        status.textContent = 'Set your rates before accepting paid marketplace work.';
+        const [cargo, group, feedback] = await Promise.all([call(ROOT + '/options?kind=CARGO'), call(ROOT + '/options?kind=GROUP'), call(base + '/reviews')]); if (!active()) return;
+        const drivers = [...(cargo.drivers || []), ...(group.drivers || [])].filter((row, index, list) => list.findIndex(other => other.id === row.id) === index);
+        addOptions(driver, drivers, row => row.fullName + ' · ' + row.phone, 'Choose an approved driver');
+        wallet.textContent = 'Choose a driver to view their balance.';
+        const items = feedback.reviews || []; if (!items.length) reviews.append(node('p', 'No customer reviews yet.', 'mobility-help'));
+        for (const row of items) {
+          const item = node('div', undefined, 'card');
+          item.append(node('strong', (row.driverName || row.driverId || row.driver_id || 'Driver') + ' · ' + row.rating + '/5'), node('p', row.comment || 'No written comment'), node('p', row.status || 'PENDING', 'mobility-help'));
+          const reason = field(item, 'Moderation reason', 'input', 'mobility-review-reason-' + row.id, { maxLength: 1000 });
+          const moderate = node('button', row.status === 'VISIBLE' ? 'Hide abusive review' : 'Publish review', 'btn btn-secondary'); moderate.type = 'button';
+          listen(moderate, 'click', () => guarded(async () => {
+            if (!reason.value.trim()) throw new Error('Give a reason for moderating this review.');
+            const next = row.status === 'VISIBLE' ? 'HIDDEN' : 'VISIBLE';
+            const update = await call(base + '/reviews/' + encodeURIComponent(row.id) + '/moderate', { method: 'POST', body: JSON.stringify({ status: next, reason: reason.value.trim() }) });
+            if (!update.success) throw new Error(update.error || 'Review was not updated.'); if (active()) { row.status = next; moderate.textContent = next === 'VISIBLE' ? 'Hide abusive review' : 'Publish review'; status.textContent = 'Review moderation saved.'; }
+          })); item.append(moderate); reviews.append(item);
+        }
+      });
+    }
     return () => { disposed = true; revision++; clearPhoto(); for (const request of requests) request.abort(); for (const release of listeners) release(); };
   }
   return { markup, mount, money, photoPath, vehicleChoices };

@@ -154,6 +154,7 @@ app.use('/api/admin', require('./routes/company-admin'));
 app.use('/api/admin', require('./routes/commute-operations'));
 app.use('/api/profiles', require('./routes/profiles'));
 app.use('/api/intercity', require('./routes/intercity'));
+app.use('/api/mobility', require('./routes/mobility-geo'));
 app.use('/api/mobility', require('./routes/mobility'));
 app.use('/api/commute', require('./routes/commute-passenger'));
 app.use('/api/fleet', require('./routes/fleet-tracking'));

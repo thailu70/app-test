@@ -39,6 +39,7 @@ import com.example.data.api.*
 import com.example.data.repository.AndroidEncryptedIntercityBookingStore
 import com.example.ui.components.QrCodeCanvas
 import com.example.ui.screens.passenger.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -66,6 +67,9 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
             if (event == Lifecycle.Event.ON_RESUME && latestPhase == MobilityPhase.BOOKING) model.checkPayment()
         }
         lifecycle.addObserver(observer); onDispose { lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(state.phase, state.request?.id) {
+        while (state.phase == MobilityPhase.REQUEST_STATUS) { delay(15000); if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) model.refreshRequest() }
     }
     LaunchedEffect(state.checkoutUrl) {
         state.checkoutUrl?.let { url ->
@@ -127,7 +131,7 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
                 MobilityPhase.SEATS -> item { state.selected?.let { trip -> GroupSeatForm(trip, state, language, model::toggleSeat, model::setAdult, model::book) } }
                 MobilityPhase.BOOKING -> item { state.booking?.let { GroupBookingCard(it, state.busy, state.adultConfirmed, model::setAdult, model::checkout, model::checkPayment) } }
                 MobilityPhase.REQUEST -> item { MobilityRequestForm(kind, state, language, model::setAdult, model::sendRequest) }
-                MobilityPhase.REQUEST_STATUS -> item { state.request?.let { request -> MobilityRequestStatus(request, state.busy, { model.openRequest(request.id) }, model::retryCargo) } }
+                MobilityPhase.REQUEST_STATUS -> item { state.request?.let { request -> MobilityRequestStatus(request, state.busy, { model.openRequest(request.id) }, model::retryCargo); RequestMarketplacePanel(state, model::selectQuote, model::confirmRequest, model::reviewRequest) } }
                 MobilityPhase.HISTORY -> {
                     item { Text(t("Your tickets & requests", "ቲኬቶች እና ጥያቄዎችዎ", "Tikkeettii fi gaaffilee kee"), color = CommuteInk, fontSize = 23.sp, fontWeight = FontWeight.Bold) }
                     if (state.bookings.isEmpty() && state.requests.isEmpty()) item { Text(t("Bookings and requests made on this device appear here.", "በዚህ ስልክ የተደረጉ ጥያቄዎች እዚህ ይታያሉ።", "Ajajnii fi gaaffileen bilbila kana irratti taasifaman as mul'atu."), color = CommuteInk) }
@@ -274,36 +278,51 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
     onAdult: (Boolean) -> Unit, send: (MobilityRequestInput, ByteArray?, String?) -> Unit) {
     var name by remember { mutableStateOf("") }; var phone by remember { mutableStateOf("") }
     var origin by remember { mutableStateOf("") }; var destination by remember { mutableStateOf("") }
+    var weight by remember { mutableStateOf("") }; var travelTime by remember { mutableStateOf("08:00") }
     var date by remember { mutableStateOf(intercityToday()) }; var people by remember { mutableStateOf("") }
     var type by remember { mutableStateOf("") }; var details by remember { mutableStateOf("") }
     var fromPoint by remember { mutableStateOf<Pair<Double, Double>?>(null) }; var toPoint by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var picking by remember { mutableStateOf<String?>(null) }
+    var roadDistance by remember { mutableStateOf<String?>(null) }
+    val locationApi = remember { ApiClient.createFeatureService(MobilityApi::class.java) }
+    LaunchedEffect(fromPoint, toPoint) {
+        roadDistance = null
+        val from = fromPoint; val to = toPoint
+        if (from != null && to != null) {
+            roadDistance = "Calculating road distance…"
+            roadDistance = try { val result = mobilityBody(locationApi.road(from.first, from.second, to.first, to.second)); result.distanceKm?.let { "Road distance: ${formatIntercityFare(it)} km" } ?: "Road distance unavailable. Drivers can still quote." }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { "Road distance unavailable. Drivers can still quote." }
+        }
+    }
     val photo = rememberCargoPhoto()
     if (picking != null) MobilityLocationPicker(if (picking == "origin") "Departure location" else "Destination location", if (picking == "origin") fromPoint else toPoint,
         { picking = null }, { if (picking == "origin") fromPoint = it else toPoint = it; picking = null })
     MobilityCard {
         Text(if (kind == "GROUP") intercityText(language, "Plan a group journey", "የቡድን ጉዞ ይጠይቁ", "Imala garee karoorsi") else intercityText(language, "Tell us about your cargo", "ስለ ጭነትዎ ይግለጹ", "Waa'ee fe'umsa kee ibsi"), color = CommuteInk, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Text("Our team reviews your request and assigns a suitable driver and vehicle. Sending a request does not collect payment.", color = CommuteInk, fontSize = 12.sp)
+        Text("Nearby available drivers can send quotes. Compare their offers and choose your driver. Sending a request does not collect payment.", color = CommuteInk, fontSize = 12.sp)
         MobilityField(name, { name = it }, "Your full name", "request_name")
         MobilityField(phone, { phone = it }, "Phone number", "request_phone", number = true)
         MobilityField(origin, { origin = it }, "Departure / pickup address", "request_origin")
         MobilityField(destination, { destination = it }, "Destination / delivery address", "request_destination")
-        if (kind == "CARGO") {
+        run {
             OutlinedButton(onClick = { picking = "origin" }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.LocationOn, null); Text(if (fromPoint == null) "Choose departure location on map" else "Departure location selected ✓") }
             OutlinedButton(onClick = { picking = "destination" }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.LocationOn, null); Text(if (toPoint == null) "Choose destination location on map" else "Destination location selected ✓") }
         }
         MobilityDateField(date, { date = it })
+        roadDistance?.let { Text(it, color = CommuteTeal, fontSize = 12.sp) }
+        MobilityField(travelTime, { travelTime = it.take(5) }, "Pickup time · HH:mm", "request_time")
         if (kind == "GROUP") MobilityField(people, { people = it.filter(Char::isDigit).take(4) }, "Number of people", "request_people", number = true)
         MobilityVehicleChoice(type, state.types, { type = it }, !state.busy)
         if (kind == "CARGO") {
+            MobilityField(weight, { weight = it.filter { char -> char.isDigit() || char == '.' }.take(12) }, "Estimated cargo weight · kg", "cargo_weight", number = true)
             OutlinedTextField(details, { details = it.take(4000) }, label = { Text("Cargo details, weight, dimensions and handling needs") }, minLines = 3, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().testTag("cargo_details"))
             CargoPhotoChoice(photo, state.busy)
         }
         MobilityAdult(state.adultConfirmed, !state.busy, onAdult)
-        val validCargo = kind != "CARGO" || (details.isNotBlank() && photo.bytes != null && fromPoint != null && toPoint != null)
+        val validCargo = kind != "CARGO" || (details.isNotBlank() && (weight.toDoubleOrNull() ?: 0.0) > 0 && photo.bytes != null && fromPoint != null && toPoint != null)
         MobilityButton("Send request", !state.busy && !photo.busy && state.adultConfirmed && name.isNotBlank() && phone.isNotBlank() && origin.isNotBlank() && destination.isNotBlank() && type.isNotBlank() && validCargo && (kind != "GROUP" || (people.toIntOrNull() ?: 0) > 0), "mobility_send_request") {
             send(MobilityRequestInput(kind, origin.trim(), destination.trim(), date, people.toIntOrNull(), type, details.trim().takeIf { kind == "CARGO" }, name.trim(), phone.trim(), state.adultConfirmed,
-                fromPoint?.first, fromPoint?.second, toPoint?.first, toPoint?.second), photo.bytes, photo.type)
+                fromPoint?.first, fromPoint?.second, toPoint?.first, toPoint?.second, weight.toDoubleOrNull().takeIf { kind == "CARGO" }, travelTime), photo.bytes, photo.type)
         }
     }
 }
@@ -332,6 +351,8 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
         Text(request.status.replace('_', ' '), color = CommuteTeal, fontWeight = FontWeight.Bold)
         Text("${request.travelDate} · ${request.vehicleType}", fontSize = 13.sp)
         request.people?.let { Text("$it people") }; request.cargoDetails?.let { Text(it) }
+        request.estimatedWeightKg?.let { Text("Estimated weight: $it kg") }
+        request.routeDistanceKm?.let { Text("Road distance: ${formatIntercityFare(it)} km") }
         request.driverName?.let { Text("Driver: $it") }; request.driverPhone?.let { Text("Driver phone: $it") }
         request.vehiclePlate?.let { Text("Vehicle: $it") }
         request.quoteEtb?.let { Text("Quoted amount: ETB ${formatIntercityFare(it)}", color = CommuteTeal, fontWeight = FontWeight.Bold) }

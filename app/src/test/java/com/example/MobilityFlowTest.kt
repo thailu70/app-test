@@ -135,4 +135,34 @@ class MobilityFlowTest {
         assertNull(validMobilityPoint("NaN", "40")); assertNull(validMobilityPoint("9", "181"))
         assertEquals(9.0 to 38.0, validMobilityPoint("9", "38"))
     }
+    @Test fun `guest selects quote with private access then confirms service and reviews the driver`() = runTest(dispatcher) {
+        val store = Store().apply { save(IntercityBookingAccess("request:job-1", "private-request")) }
+        var request = MobilityRequest("job-1", "CARGO", "Addis Ababa", "Adama", "REQUESTED", estimatedWeightKg = 500.5)
+        val offer = MobilityQuote("quote-1", driverId = "driver-1", driverName = "Driver", priceEtb = 2500.0)
+        var reviewed = false
+        val model = MobilityViewModel(fake { method, args -> when (method) {
+            "requestStatus" -> Response.success(MobilityRequestResponse(true, request))
+            "quotes" -> { assertEquals("private-request", args[1]); Response.success(MobilityQuotesResponse(true, listOf(offer))) }
+            "requestLocation" -> Response.success(MobilityLocationResponse(true))
+            "selectQuote" -> { assertEquals("private-request", args[1]); assertEquals("quote-1", (args[2] as MobilitySelectInput).quoteId); request = request.copy(status = "ASSIGNED", driverId = "driver-1"); Response.success(MobilityRequestResponse(true, request)) }
+            "confirmRequest" -> { assertEquals("CONFIRM", (args[2] as MobilityConfirmInput).action); request = request.copy(status = "COMPLETED"); Response.success(MobilityRequestResponse(true, request)) }
+            "reviewRequest" -> { assertEquals(5, (args[2] as MobilityReview).rating); reviewed = true; Response.success(MobilityReviewResponse(true, args[2] as MobilityReview)) }
+            else -> initial(method)
+        } }, store, dispatcher)
+        advanceUntilIdle(); model.openRequest("job-1"); advanceUntilIdle()
+        assertEquals(offer, model.state.value.quotes.single())
+        model.selectQuote("quote-1"); advanceUntilIdle(); assertEquals("ASSIGNED", model.state.value.request!!.status)
+        request = request.copy(status = "AWAITING_CONFIRMATION")
+        model.openRequest("job-1"); advanceUntilIdle(); model.confirmRequest(false, ""); advanceUntilIdle()
+        assertEquals("COMPLETED", model.state.value.request!!.status)
+        model.reviewRequest(5, "Safe delivery"); advanceUntilIdle(); assertTrue(reviewed); assertTrue(model.state.value.reviewSent)
+    }
+    @Test fun `terminal request statuses never offer another driver progress action`() {
+        assertEquals("START_TRIP", mobilityNextAction("LOADED")!!.first)
+        assertNull(mobilityNextAction("AWAITING_CONFIRMATION")); assertNull(mobilityNextAction("COMPLETED")); assertNull(mobilityNextAction("DISPUTED"))
+        val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+        val parsed = moshi.adapter(MobilityOpportunitiesResponse::class.java).fromJson("""{"success":true,"requests":[{"id":"job","kind":"CARGO","origin":"Addis","destination":"Adama","estimatedWeightKg":500.5,"routeDistanceKm":90.2,"estimatedCargoPriceEtb":2257.25,"myQuote":{"id":"q","priceEtb":2200}}],"wallet":{"balanceEtb":1000,"heldEtb":200,"availableEtb":800},"busy":false}""")!!
+        assertEquals(500.5, parsed.requests.single().estimatedWeightKg!!, 0.001)
+        assertEquals(800.0, parsed.wallet.availableEtb, 0.001)
+    }
 }

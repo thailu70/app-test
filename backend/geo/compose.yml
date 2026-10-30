@@ -1,0 +1,41 @@
+services:
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:v6.0.0
+    container_name: routepass_osrm
+    command: osrm-routed --algorithm mld --threads 2 /data/ethiopia-latest.osrm
+    restart: unless-stopped
+    mem_limit: 2g
+    cpus: 1.5
+    volumes:
+      - ./data/osrm:/data:ro
+    networks:
+      routepass:
+        aliases: [osrm]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      options: {max-size: 10m, max-file: '2'}
+  photon:
+    image: eclipse-temurin:21-jre
+    container_name: routepass_photon
+    user: '1000:1000'
+    working_dir: /data
+    command: java -Xms256m -Xmx1g -jar /opt/photon.jar serve -listen-ip 0.0.0.0 -data-dir /data
+    restart: unless-stopped
+    mem_limit: 2g
+    cpus: 1.0
+    volumes:
+      - ./data/photon:/data
+      - ./data/photon.jar:/opt/photon.jar:ro
+    networks:
+      routepass:
+        aliases: [photon]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      options: {max-size: 10m, max-file: '2'}
+networks:
+  routepass:
+    external: true
+    name: routepass_internal_net

@@ -42,6 +42,7 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
   const instant = () => new Date(now()).toISOString();
   const root = path.resolve(uploadRoot, 'mobility');
   const write = fn => db.transaction(fn);
+  const marketplace = require('./mobility-marketplace').createMarketplace({db,now,fail,money,text,coordinates,vehicleDriver,serviceType,getRequest,requestView,sendSms});
   async function getTrip(key, tx = db, locked = false) {
     const row = await tx.prepare('SELECT * FROM mobility_trips WHERE id=?' + (locked ? lock(tx) : '')).get(key);
     if (!row) fail(404, 'Group trip unavailable.');
@@ -276,7 +277,7 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
       originLatitude: row.origin_latitude, originLongitude: row.origin_longitude, destinationLatitude: row.destination_latitude, destinationLongitude: row.destination_longitude,
       driverId: row.driver_id, vehicleId: row.vehicle_id, quoteEtb: row.quote_etb == null ? null : Number(row.quote_etb), reviewNote: row.review_note,
       driverName: driver?.fullName || null, driverPhone: driver?.phone || null, vehiclePlate: vehicle?.plateNumber || null, vehicleModel: vehicle?.model || null,
-      photoUrl: row.photo_storage ? '/api/mobility/requests/' + encodeURIComponent(row.id) + '/photo' : null };
+      photoUrl: row.photo_storage ? '/api/mobility/requests/' + encodeURIComponent(row.id) + '/photo' : null, ...await marketplace.enrich(row) };
   }
   async function getRequest(key, capability, tx = db, privileged = false) {
     const row = await tx.prepare('SELECT * FROM mobility_requests WHERE id=?').get(key);
@@ -296,8 +297,11 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
     const details = input.kind === 'CARGO' ? text(input.cargoDetails, 'cargo description', 2000) : text(input.details, 'request details', 2000, true);
     const [lat, lng] = coordinates(input.originLatitude, input.originLongitude, true), [toLat, toLng] = coordinates(input.destinationLatitude, input.destinationLongitude, true);
     const key = id('mrq_'), capability = secret();
-    await db.prepare('INSERT INTO mobility_requests(id,kind,secret_hash,origin,destination,travel_date,people,vehicle_type,customer_name,customer_phone,details,origin_latitude,origin_longitude,destination_latitude,destination_longitude,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    if(input.estimatedWeightKg!=null&&input.estimatedWeightKg!==''&&(!Number.isFinite(Number(input.estimatedWeightKg))||Number(input.estimatedWeightKg)<=0||Number(input.estimatedWeightKg)>100000))fail(400,'Enter a valid estimated weight in kilograms.');
+    if(input.travelTime&&(!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.travelTime)))fail(400,'Choose a valid pickup time.');
+    await write(async tx=>{await tx.prepare('INSERT INTO mobility_requests(id,kind,secret_hash,origin,destination,travel_date,people,vehicle_type,customer_name,customer_phone,details,origin_latitude,origin_longitude,destination_latitude,destination_longitude,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(key, input.kind, hash(capability), origin, destination, date, people, input.vehicleType, customer.name, customer.phone, details, lat, lng, toLat, toLng, input.kind === 'CARGO' ? 'DRAFT' : 'REQUESTED', instant());
+    await marketplace.createMeta(key,input,tx);});
     return { requestSecret: capability, request: await requestView(await getRequest(key, capability)) };
   }
   async function request(key, capability) { return { request: await requestView(await getRequest(key, capability)) }; }
@@ -325,7 +329,7 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
   }
   async function photo(key, capability, actor) {
     const row = await getRequest(key, capability, db, actor?.role === 'ADMIN' || actor?.role === 'DRIVER');
-    if (actor?.role === 'DRIVER' && row.driver_id !== actor.id) fail(404, 'Photo unavailable.');
+    if (actor?.role === 'DRIVER' && row.driver_id !== actor.id && !await marketplace.bidderPhoto(actor.id,row)) fail(404, 'Photo unavailable.');
     if (row.status === 'EXPIRED' || !row.photo_storage || !/^[a-f0-9-]{36}\.blob$/.test(row.photo_storage)) fail(404, 'Photo unavailable.');
     return { bytes: await fs.readFile(path.join(root, row.photo_storage)), contentType: row.photo_type };
   }
@@ -364,6 +368,8 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
       const before = await getRequest(key, null, tx, true);
       const { vehicle } = await vehicleDriver(input.vehicleId, input.driverId, before.kind, tx, true);
       const current = await tx.prepare('SELECT * FROM mobility_requests WHERE id=?' + lock(tx)).get(key);
+      const selected=await tx.prepare('SELECT selected_quote_id FROM mobility_request_market WHERE request_id=?').get(key);
+      if(selected?.selected_quote_id)fail(409,'Customer-selected bookings must be managed through marketplace resolution.');
       if (!['REQUESTED','ASSIGNED'].includes(current.status)) fail(409, 'This request is closed or not submitted.');
       if (vehicle.vehicleType !== current.vehicle_type || current.kind === 'GROUP' && Number(vehicle.capacityLimit) < Number(current.people)) fail(400, 'Choose the requested vehicle type with enough passenger capacity.');
       const quote = input.quoteEtb == null || input.quoteEtb === '' ? null : money(input.quoteEtb);
@@ -389,6 +395,8 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
     const row = await write(async tx => {
       const current = await tx.prepare('SELECT * FROM mobility_requests WHERE id=?' + lock(tx)).get(key);
       if (!current || !['REQUESTED','ASSIGNED'].includes(current.status) || input.status === 'COMPLETED' && current.status !== 'ASSIGNED') fail(409, 'Only an assigned request can be completed. Closed requests cannot be changed.');
+      const selected=await tx.prepare('SELECT selected_quote_id FROM mobility_request_market WHERE request_id=?').get(key);
+      if(selected?.selected_quote_id)fail(409,'Use marketplace completion or resolution for customer-selected bookings.');
       await tx.prepare('UPDATE mobility_requests SET status=?,review_note=? WHERE id=?').run(input.status, text(input.note, 'review note', 1000, true), key);
       await audit(tx, actor, 'MOBILITY_REQUEST_' + input.status, key);
       return getRequest(key, null, tx, true);
@@ -398,7 +406,7 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
   async function dashboard(driverId) {
     const type = await serviceType(driverId), fleet = await db.prepare('SELECT * FROM vehicles WHERE driverId=? ORDER BY plateNumber').all(driverId);
     const rows = ['GROUP_TRAVEL','CARGO'].includes(type) ? await db.prepare('SELECT * FROM mobility_trips WHERE driver_id=? ORDER BY departure_at DESC LIMIT 100').all(driverId) : [];
-    const assigned = ['GROUP_TRAVEL','CARGO'].includes(type) ? await db.prepare("SELECT * FROM mobility_requests WHERE driver_id=? AND status IN ('ASSIGNED','COMPLETED') ORDER BY travel_date DESC LIMIT 100").all(driverId) : [];
+    const assigned = ['GROUP_TRAVEL','CARGO'].includes(type) ? await db.prepare("SELECT * FROM mobility_requests WHERE driver_id=? AND status IN ('ASSIGNED','AT_PICKUP','LOADED','IN_TRANSIT','AT_DESTINATION','AWAITING_CONFIRMATION','DISPUTED','COMPLETED') ORDER BY travel_date DESC LIMIT 100").all(driverId) : [];
     return { serviceType: type, vehicles: fleet.filter(v => ['IN_SERVICE','AVAILABLE'].includes(v.status)).map(vehicleView), trips: await Promise.all(rows.map(r => tripView(r, db, true))), requests: await Promise.all(assigned.map(requestView)) };
   }
   async function ownedTrip(driverId, key, tx = db, locked = false) {
@@ -506,7 +514,7 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
             const request = await tx.prepare('SELECT * FROM mobility_requests WHERE id=?').get(current.request_id);
             const fingerprint = request && [request.driver_id,request.vehicle_id,request.quote_etb == null ? '' : Number(request.quote_etb)].join(':');
             const driver = request?.driver_id ? await tx.prepare('SELECT phone FROM users WHERE id=?').get(request.driver_id) : null;
-            deliverable = request?.status === 'ASSIGNED' && fingerprint === current.assignment_key && [request.customer_phone,normalizePhone(driver?.phone)].includes(current.phone);
+            deliverable = (current.event_key.startsWith('market:') ? ['ASSIGNED','AT_PICKUP','LOADED','IN_TRANSIT','AT_DESTINATION','AWAITING_CONFIRMATION','COMPLETED'].includes(request?.status) : request?.status === 'ASSIGNED') && fingerprint === current.assignment_key && [request.customer_phone,normalizePhone(driver?.phone)].includes(current.phone);
           }
           if (!deliverable) { await tx.prepare("UPDATE mobility_sms_outbox SET status='CANCELLED' WHERE id=?").run(current.id); return { cancelled: true }; }
           const lease = crypto.randomUUID();
@@ -537,7 +545,7 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
     }
     return { expired: rows.length };
   }
-  return { catalog, trips, createTrip, reviewTrip, seats, createBooking, booking, checkout, webhook, createRequest, request, uploadPhoto, photo, submitRequest, requests, options, assignRequest, requestStatus, dashboard, roster, startBoarding, board, completeTrip, ticket, flushSms, cleanDrafts, init: () => initMobilitySchema(db) };
+  return { catalog, trips, createTrip, reviewTrip, seats, createBooking, booking, checkout, webhook, createRequest, request, uploadPhoto, photo, submitRequest, requests, options, assignRequest, requestStatus, dashboard, roster, startBoarding, board, completeTrip, ticket, flushSms, cleanDrafts, marketplace, init: async () => {await initMobilitySchema(db);await marketplace.init();} };
 }
 let defaultService;
 const getMobilityService = () => defaultService ||= createMobilityService();

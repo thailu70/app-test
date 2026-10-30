@@ -24,7 +24,9 @@ internal data class MobilityUiState(val phase: MobilityPhase = MobilityPhase.BRO
     val occupied: List<Int> = emptyList(), val seats: List<Int> = emptyList(),
     val booking: MobilityBooking? = null, val bookings: List<MobilityBooking> = emptyList(),
     val requests: List<MobilityRequest> = emptyList(), val request: MobilityRequest? = null,
-    val checkoutUrl: String? = null, val adultConfirmed: Boolean = false)
+    val checkoutUrl: String? = null, val adultConfirmed: Boolean = false,
+    val quotes: List<MobilityQuote> = emptyList(), val driverLocation: MobilityLocation? = null,
+    val reviewSent: Boolean = false)
 
 internal fun <T> mobilityBody(response: Response<T>): T {
     if (!response.isSuccessful) {
@@ -70,7 +72,7 @@ internal class MobilityViewModel(private val api: MobilityApi, private val store
     fun home() { epoch++; mutable.update { it.copy(phase = MobilityPhase.BROWSE, checkoutUrl = null, message = null) } }
     fun clearMessage() { mutable.update { it.copy(message = null) } }
     fun setAdult(value: Boolean) { if (!mutable.value.busy) mutable.update { it.copy(adultConfirmed = value) } }
-    fun request() { epoch++; mutable.update { it.copy(phase = MobilityPhase.REQUEST, request = null, message = null) } }
+    fun request() { epoch++; mutable.update { it.copy(phase = MobilityPhase.REQUEST, request = null, message = null, quotes = emptyList(), driverLocation = null, reviewSent = false) } }
     fun choose(trip: MobilityTrip) = action { expected ->
         val result = mobilityBody(api.seats(trip.id)); check(result.success) { result.error ?: "Could not load seats." }
         if (expected == epoch) mutable.update { it.copy(phase = MobilityPhase.SEATS, selected = result.trip ?: trip, occupied = result.occupiedSeats, seats = emptyList(), booking = null) }
@@ -135,7 +137,7 @@ internal class MobilityViewModel(private val api: MobilityApi, private val store
             result = mobilityBody(api.submitRequest(request.id, secret)); check(result.success) { result.error ?: "The draft could not be submitted." }
             request = result.request ?: request
         }
-        if (expected == epoch) mutable.update { it.copy(request = request, message = "Your request has been sent for admin review.") }
+        if (expected == epoch) mutable.update { it.copy(request = request, quotes = emptyList(), message = "Your request is ready for driver quotes.") }
         loadHistory()
     }
     fun retryCargo(photo: ByteArray, photoType: String) = action { expected ->
@@ -150,7 +152,40 @@ internal class MobilityViewModel(private val api: MobilityApi, private val store
     fun openRequest(id: String) = action { expected ->
         val result = mobilityBody(api.requestStatus(id, capabilities["request:$id"] ?: error("Private request access is unavailable.")))
         check(result.success) { result.error ?: "Could not load request status." }
-        if (expected == epoch) mutable.update { it.copy(request = result.request, phase = MobilityPhase.REQUEST_STATUS) }
+        if (expected == epoch) mutable.update { it.copy(request = result.request, phase = MobilityPhase.REQUEST_STATUS,
+            reviewSent = if (it.request?.id == id) it.reviewSent else false,
+            quotes = if (it.request?.id == id) it.quotes else emptyList(), driverLocation = if (it.request?.id == id) it.driverLocation else null) }
+        loadRequestDetails(id)
+    }
+    private suspend fun loadRequestDetails(id: String) {
+        val secret = capabilities["request:$id"] ?: return
+        val quotes = mobilityBody(api.quotes(id, secret))
+        check(quotes.success) { quotes.error ?: "Could not load driver quotes." }
+        if (mutable.value.request?.id == id) mutable.update { it.copy(quotes = quotes.quotes) }
+        if (mutable.value.request?.driverId != null) {
+            val location = mobilityBody(api.requestLocation(id, secret))
+            if (mutable.value.request?.id == id) mutable.update { it.copy(driverLocation = location.location) }
+        }
+    }
+    fun refreshRequest() { mutable.value.request?.id?.let(::openRequest) }
+    fun selectQuote(id: String) = action {
+        val request = mutable.value.request ?: return@action
+        val result = mobilityBody(api.selectQuote(request.id, capabilities["request:${request.id}"] ?: error("Private access is unavailable."), MobilitySelectInput(id)))
+        check(result.success) { result.error ?: "Could not select this driver." }
+        mutable.update { it.copy(request = result.request ?: request) }; loadRequestDetails(request.id)
+    }
+    fun confirmRequest(dispute: Boolean, note: String) = action {
+        val request = mutable.value.request ?: return@action
+        require(!dispute || note.isNotBlank()) { "Please describe the problem." }
+        val result = mobilityBody(api.confirmRequest(request.id, capabilities["request:${request.id}"] ?: error("Private access is unavailable."), MobilityConfirmInput(if (dispute) "DISPUTE" else "CONFIRM", note)))
+        check(result.success) { result.error ?: "Could not update completion." }
+        mutable.update { it.copy(request = result.request ?: request) }
+    }
+    fun reviewRequest(rating: Int, comment: String) = action {
+        val request = mutable.value.request ?: return@action
+        val result = mobilityBody(api.reviewRequest(request.id, capabilities["request:${request.id}"] ?: error("Private access is unavailable."), MobilityReview(rating, comment.trim())))
+        check(result.success) { result.error ?: "Could not send your review." }
+        mutable.update { it.copy(reviewSent = true, message = "Thank you for reviewing your driver.") }
     }
     private suspend fun loadHistory() {
         withContext(ioDispatcher) { store.load() }.forEach { capabilities[it.id] = it.secret }

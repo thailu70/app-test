@@ -1,0 +1,11 @@
+# Free location search and road distance
+
+Application endpoints use private `http://photon:2322` and `http://osrm:5000` by default; override with `PHOTON_URL` / `OSRM_URL` only for your own services. There are no public demonstration server fallbacks and no paid API calls. Search falls back to named route stops when Photon is unavailable. Routing returns an explicit unavailable response; it never charges from an invented straight-line distance.
+
+From this directory on the VPS, run `bash prepare-osrm.sh` to download the Ethiopia OpenStreetMap extract and prepare an OSRM graph. The script refuses to replace a running graph. Preparation needs spare memory and time; perform it separately from app builds. Validate disk/RAM first. The Compose services do not expose any host ports and join the existing `routepass_internal_net`.
+
+For Photon, run `bash prepare-photon.sh`. It downloads official release 1.3.0, verifies the GitHub asset SHA-256 digest, downloads the matching regional Horn of Africa JSON data and its upstream checksum, then imports Ethiopia only with local, English, Amharic and Oromo names when available. It uses a fresh staging directory and refuses to replace existing/running data. Data import replaces its target, so updates must always use a separate staging directory. The import container is capped at 2 GB RAM and 1.5 CPU. Validate a real landmark search before declaring the service ready. A failed import retains its staging data for diagnosis.
+
+An Ethiopia-only search database avoids the planet database’s substantial resource requirements. Actual capacity and search coverage must be tested; do not advertise full search readiness until a real landmark query succeeds. Suggested pickup results still require user confirmation on a map. OSRM uses the car profile and does not certify heavy-vehicle clearance or legal cargo routes.
+
+Data attribution returned by both endpoints: © OpenStreetMap contributors. OSM data is under ODbL; https://www.openstreetmap.org/copyright . Photon license: Apache 2.0. OSRM license: BSD-2-Clause. Source setup documentation: https://github.com/komoot/photon/blob/master/docs/usage.md and https://github.com/Project-OSRM/osrm-backend .
