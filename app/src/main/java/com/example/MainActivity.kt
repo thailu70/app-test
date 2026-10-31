@@ -1,6 +1,7 @@
 package com.example
 
 import android.os.Bundle
+import android.content.Intent
 import android.graphics.Color as AndroidColor
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -52,6 +53,10 @@ import com.example.ui.components.DemoEnvironmentBanner
 import com.example.core.environment.AppEnvironment
 import com.example.core.environment.EnvironmentPreferences
 import com.example.core.location.DriverLocationSharing
+import com.example.core.location.AppLocationPrompt
+import com.example.core.notifications.AppPushRegistration
+import com.example.core.notifications.MobilityNotificationNavigation
+import com.example.core.notifications.MobilityNotificationDestination
 import com.example.data.api.LiveTrackingWebSocket
 import com.example.ui.screens.auth.AuthScreen
 import com.example.ui.screens.home.BrowseFirstScreen
@@ -80,11 +85,13 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         ApiClient.setBaseUrl(EnvironmentPreferences.selected(this).baseUrl())
+        com.example.core.notifications.MobilityPush.initialize(this)
 
         val database = TransportDatabase.getDatabase(this, lifecycleScope)
         val repository = TransportRepository(database.transportDao())
         val factory = MainViewModelFactory(repository)
         viewModel = ViewModelProvider(this, factory)[MainViewModel::class.java]
+        MobilityNotificationNavigation.acceptIntent(this, intent)
 
         setContent {
             MyApplicationTheme {
@@ -113,6 +120,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 CompositionLocalProvider(LocalEnvironmentSettings provides { environmentSettings = true }) {
+                    AppLocationPrompt(enabled = ApiClient.environment() != AppEnvironment.DEMO)
                     Column(Modifier.fillMaxSize().background(Color(0xFFFFFBF4))) {
                         if (ApiClient.environment() == AppEnvironment.DEMO) DemoEnvironmentBanner { environmentSettings = true }
                         if (pendingEnvironment == null) Box(Modifier.weight(1f)) {
@@ -134,6 +142,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        MobilityNotificationNavigation.acceptIntent(this, intent)
     }
 }
 
@@ -192,6 +205,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
     val isAuthenticated by viewModel.isAuthenticated.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val currentRole by viewModel.currentRole.collectAsState()
+    AppPushRegistration(userId = currentUser?.id, role = currentUser?.role)
     val currentLang by viewModel.currentLanguage.collectAsState()
     val networkStatus by viewModel.networkStatus.collectAsState()
     val isNotificationTrayOpen by viewModel.isNotificationTrayOpen.collectAsState()
@@ -210,6 +224,8 @@ fun MainTransportApp(viewModel: MainViewModel) {
         AppRole.ADMIN -> allNotifs
     }
 
+    MobilityNotificationDestination(currentLang, currentUser?.id, currentUser?.role,
+        onOpenDriver = { viewModel.setRole(AppRole.DRIVER) })
     if (!isAuthenticated) {
         var showWelcome by rememberSaveable { mutableStateOf(true) }
         var showPublicHome by rememberSaveable { mutableStateOf(true) }

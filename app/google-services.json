@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "65189085925",
+    "project_id": "passo-mobility",
+    "storage_bucket": "passo-mobility.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:65189085925:android:d6fac3e701224fa7468a0c",
+        "android_client_info": {
+          "package_name": "live.passo.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB6WYkec73YNT2ktbQLmtRixDyh6V89hTQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

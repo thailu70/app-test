@@ -47,18 +47,20 @@ import java.io.ByteArrayOutputStream
 
 @Composable
 internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack: () -> Unit,
-    modifier: Modifier = Modifier, providedModel: MobilityViewModel? = null) {
+    modifier: Modifier = Modifier, providedModel: MobilityViewModel? = null, initialRequestId: String? = null) {
     val context = LocalContext.current
     val factory = remember(context.applicationContext) { object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST") override fun <T : ViewModel> create(modelClass: Class<T>) = MobilityViewModel(
-            ApiClient.createFeatureService(MobilityApi::class.java), AndroidEncryptedIntercityBookingStore(context.applicationContext, "mobility")) as T
+            ApiClient.createFeatureService(MobilityApi::class.java), AndroidEncryptedIntercityBookingStore(context.applicationContext, "mobility"),
+            guestPush = com.example.core.notifications.AndroidMobilityGuestPushRegistrar(context.applicationContext)) as T
     } }
-    val model = providedModel ?: viewModel<MobilityViewModel>(key = "mobility-passenger", factory = factory)
+    val model = providedModel ?: viewModel<MobilityViewModel>(key = initialRequestId?.let { "mobility-notification-$it" } ?: "mobility-passenger", factory = factory)
     val state by model.state.collectAsState()
+    LaunchedEffect(model, initialRequestId) { initialRequestId?.let(model::openSavedRequest) }
     var origin by remember { mutableStateOf("") }; var destination by remember { mutableStateOf("") }
     var searchDate by remember { mutableStateOf("") }
     fun t(en: String, am: String, om: String) = intercityText(language, en, am, om)
-    fun back() { if (state.phase == MobilityPhase.BROWSE) onBack() else model.home() }
+    fun back() { if (initialRequestId != null || state.phase == MobilityPhase.BROWSE) onBack() else model.home() }
     BackHandler { back() }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val latestPhase by rememberUpdatedState(state.phase)
@@ -130,8 +132,15 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
                 }
                 MobilityPhase.SEATS -> item { state.selected?.let { trip -> GroupSeatForm(trip, state, language, model::toggleSeat, model::setAdult, model::book) } }
                 MobilityPhase.BOOKING -> item { state.booking?.let { GroupBookingCard(it, state.busy, state.adultConfirmed, model::setAdult, model::checkout, model::checkPayment) } }
-                MobilityPhase.REQUEST -> item { MobilityRequestForm(kind, state, language, model::setAdult, model::sendRequest) }
-                MobilityPhase.REQUEST_STATUS -> item { state.request?.let { request -> MobilityRequestStatus(request, state.busy, { model.openRequest(request.id) }, model::retryCargo); RequestMarketplacePanel(state, model::selectQuote, model::confirmRequest, model::reviewRequest) } }
+                MobilityPhase.REQUEST -> item {
+                    if (kind == "CARGO") CargoRequestForm(state, language, model::setAdult, model::sendRequest)
+                    else MobilityRequestForm(kind, state, language, model::setAdult, model::sendRequest)
+                }
+                MobilityPhase.REQUEST_STATUS -> item { state.request?.let { request ->
+                    com.example.core.notifications.MobilityNotificationOptIn(driver = false, language = language)
+                    MobilityRequestStatus(request, state.busy, { model.openRequest(request.id) }, model::retryCargo)
+                    RequestMarketplacePanel(state, model::selectQuote, model::confirmRequest, model::reviewRequest)
+                } }
                 MobilityPhase.HISTORY -> {
                     item { Text(t("Your tickets & requests", "ቲኬቶች እና ጥያቄዎችዎ", "Tikkeettii fi gaaffilee kee"), color = CommuteInk, fontSize = 23.sp, fontWeight = FontWeight.Bold) }
                     if (state.bookings.isEmpty() && state.requests.isEmpty()) item { Text(t("Bookings and requests made on this device appear here.", "በዚህ ስልክ የተደረጉ ጥያቄዎች እዚህ ይታያሉ።", "Ajajnii fi gaaffileen bilbila kana irratti taasifaman as mul'atu."), color = CommuteInk) }

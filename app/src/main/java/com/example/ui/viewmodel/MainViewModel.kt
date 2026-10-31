@@ -641,6 +641,7 @@ class MainViewModel(
     }
 
     fun logout() {
+        com.example.core.notifications.MobilityPush.beforeLogout()
         driverApplications.close()
         ++sessionGeneration
         com.example.core.location.DriverLocationSharing.stop()
@@ -672,6 +673,7 @@ class MainViewModel(
 
     /** Switching environments is not account deletion or guest-history deletion. */
     fun prepareForEnvironmentChange() {
+        com.example.core.notifications.MobilityPush.beforeLogout()
         ++sessionGeneration
         driverApplications.close()
         com.example.core.location.DriverLocationSharing.stop()

@@ -54,7 +54,7 @@ jobs:
           --tests com.example.IntercityApiContractTest
           --tests com.example.PlayStorePreviewTest
           --tests com.example.MobilityFlowTest
-          --tests com.example.MobilityLayoutTest
+          --tests com.example.MobilityLayoutTest --tests com.example.CargoRequestUiTest --tests com.example.MobilityDriverLayoutTest --tests com.example.MobilityLocationPickerTest --tests com.example.AppLocationPromptTest --tests com.example.MobilityPushTest --tests com.example.MobilityNotificationNavigationTest
       - name: Assemble unsigned production bundle and APK for local signing
         run: gradle :app:bundleRelease :app:assembleRelease -PPASSO_UNSIGNED_PLAY_BUNDLE=true -PROUTEPASS_API_BASE_URL=https://passo.live/
       - name: Download pinned Google bundletool and verify its checksum

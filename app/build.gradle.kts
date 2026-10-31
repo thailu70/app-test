@@ -5,7 +5,7 @@ plugins {
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.secrets)
-  // alias(libs.plugins.google.services)
+  alias(libs.plugins.google.services)
 }
 
 // Configure for each deployment with -PROUTEPASS_API_BASE_URL=https://api.yourdomain.com/
@@ -27,8 +27,8 @@ android {
     applicationId = "live.passo.app"
     minSdk = 24
     targetSdk = 36
-    versionCode = 29
-    versionName = "1.1.26"
+    versionCode = 30
+    versionName = "1.1.27"
     buildConfigField("String", "ROUTEPASS_API_BASE_URL", "\"$routePassApiBaseUrl\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -118,6 +118,8 @@ dependencies {
   // implementation(libs.firebase.appcheck.recaptcha)
   // implementation(libs.firebase.appcheck.debug)
   implementation(libs.kotlinx.coroutines.android)
+  implementation(platform(libs.firebase.bom))
+  implementation("com.google.firebase:firebase-messaging")
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)

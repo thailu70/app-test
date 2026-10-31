@@ -77,11 +77,12 @@ class MobilityLayoutTest {
         compose.waitUntil(10_000) { !model.state.value.busy }
         compose.onNodeWithTag("mobility_new_request").performScrollTo().performClick()
         compose.waitUntil { model.state.value.phase == MobilityPhase.REQUEST }
-        compose.onNodeWithTag("request_name").assertExists()
+        compose.onNodeWithTag("cargo_section_1").assertExists()
         capture("03-cargo-request")
+        compose.onNodeWithTag("cargo_section_2").performScrollTo().performClick()
         compose.onNodeWithTag("cargo_details").performScrollTo().assertExists()
         compose.onNodeWithTag("cargo_photo").performScrollTo().assertIsEnabled()
-        compose.onNodeWithTag("mobility_send_request").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithTag("mobility_send_request").assertDoesNotExist()
         capture("04-cargo-photo")
     }
 }

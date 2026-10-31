@@ -70,7 +70,7 @@ jobs:
         run: node --test test/resource-pressure-test.js test/api-traffic-test.js test/resource-websocket-test.js test/admin-resources-test.js test/admin-resources-ui-test.js test/admin-master-data-ui-test.js test/master-data-test.js test/route-search-test.js test/route-stop-identity-test.js test/company-portal-test.js test/company-ui-test.js test/admin-activation-test.js test/profiles-test.js test/departure-test.js test/intercity-test.js test/scope-report-test.js test/fleet-tracking-test.js test/passenger-assignment-test.js test/subscription-days-test.js test/account-deletion-test.js test/privacy-ui-test.js test/payment-safety-test.js test/assignment-closure-test.js test/travel-payment-ui-test.js test/mobility-test.js test/mobility-security-test.js test/admin-mobility-ui-test.js
         working-directory: backend
       - name: Check admin portal JavaScript syntax
-        run: node --test test/mobility-marketplace-test.js test/mobility-geo-test.js
+        run: node --test test/mobility-marketplace-test.js test/mobility-geo-test.js test/mobility-push-test.js
         working-directory: backend
       - name: Check marketplace admin portal JavaScript syntax
         run: node --check public/admin/admin.js && node --check public/admin/resources.js && node --check public/admin/master-data.js && node --check public/admin/mobility.js
@@ -145,7 +145,7 @@ jobs:
           node test/account-recovery-postgres-test.js
           ASSIGNMENT_TEST_POSTGRES=true node --test test/assignment-closure-test.js
           MOBILITY_TEST_POSTGRES=true node --test --test-concurrency=1 test/mobility-test.js test/mobility-security-test.js
-          MOBILITY_TEST_POSTGRES=true node --test test/mobility-marketplace-test.js
+          MOBILITY_TEST_POSTGRES=true node --test --test-concurrency=1 test/mobility-marketplace-test.js test/mobility-push-test.js
         working-directory: backend
 
   review-backend:

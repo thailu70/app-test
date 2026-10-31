@@ -165,4 +165,22 @@ class MobilityFlowTest {
         assertEquals(500.5, parsed.requests.single().estimatedWeightKg!!, 0.001)
         assertEquals(800.0, parsed.wallet.availableEtb, 0.001)
     }
+    @Test fun `notification request opening waits for encrypted guest access during initial loading`() = runTest(dispatcher) {
+        val store = Store().apply { save(IntercityBookingAccess("request:guest-job", "saved-private-capability")) }
+        val request = MobilityRequest("guest-job", "CARGO", "Bole", "Sendafa", "REQUESTED")
+        var privateReads = 0
+        val model = MobilityViewModel(fake { method, args -> when (method) {
+            "requestStatus" -> { assertEquals("saved-private-capability", args[1]); privateReads++; Response.success(MobilityRequestResponse(true, request)) }
+            "quotes" -> { assertEquals("saved-private-capability", args[1]); Response.success(MobilityQuotesResponse(true)) }
+            else -> initial(method)
+        } }, store, dispatcher)
+        model.openSavedRequest("guest-job")
+        advanceUntilIdle()
+        assertTrue(privateReads >= 1)
+        assertEquals(MobilityPhase.REQUEST_STATUS, model.state.value.phase)
+        assertEquals("guest-job", model.state.value.request!!.id)
+        model.openSavedRequest("not-on-this-device"); advanceUntilIdle()
+        assertEquals("guest-job", model.state.value.request!!.id)
+        assertTrue(model.state.value.message!!.contains("not saved"))
+    }
 }

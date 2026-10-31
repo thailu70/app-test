@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -38,7 +39,8 @@ internal fun <T> mobilityBody(response: Response<T>): T {
 
 /** Persist only encrypted capabilities; never cache passenger manifests, cargo photos or boarding credentials. */
 internal class MobilityViewModel(private val api: MobilityApi, private val store: IntercityBookingAccessStore,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO) : ViewModel() {
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val guestPush: com.example.core.notifications.MobilityGuestPushRegistrar? = null) : ViewModel() {
     private val mutable = MutableStateFlow(MobilityUiState())
     val state = mutable.asStateFlow()
     private val capabilities = linkedMapOf<String, String>()
@@ -99,6 +101,7 @@ internal class MobilityViewModel(private val api: MobilityApi, private val store
         try { withContext(ioDispatcher) { store.save(IntercityBookingAccess(id, secret)) } }
         catch (e: CancellationException) { throw e }
         catch (_: Exception) { mutable.update { it.copy(message = "Private access could not be saved. Keep the app open to finish.") } }
+        if (id.startsWith("request:")) guestPush?.registerRequest(id.removePrefix("request:"), secret)
     }
     fun openBooking(id: String) = action { expected ->
         val result = mobilityBody(api.booking(id, capabilities["booking:$id"] ?: error("Private ticket access is unavailable.")))
@@ -150,12 +153,22 @@ internal class MobilityViewModel(private val api: MobilityApi, private val store
         if (expected == epoch) mutable.update { it.copy(request = result.request ?: request) }
     }
     fun openRequest(id: String) = action { expected ->
+        capabilities["request:$id"]?.let { guestPush?.registerRequest(id, it) }
         val result = mobilityBody(api.requestStatus(id, capabilities["request:$id"] ?: error("Private request access is unavailable.")))
         check(result.success) { result.error ?: "Could not load request status." }
         if (expected == epoch) mutable.update { it.copy(request = result.request, phase = MobilityPhase.REQUEST_STATUS,
             reviewSent = if (it.request?.id == id) it.reviewSent else false,
             quotes = if (it.request?.id == id) it.quotes else emptyList(), driverLocation = if (it.request?.id == id) it.driverLocation else null) }
         loadRequestDetails(id)
+    }
+    /** Notification entry waits for the encrypted capability store and initial history to finish loading. */
+    fun openSavedRequest(id: String) {
+        viewModelScope.launch {
+            state.first { !it.busy }
+            if (capabilities["request:$id"] == null) {
+                mutable.update { it.copy(message = "This request is not saved on this device. Open your request history.") }
+            } else openRequest(id)
+        }
     }
     private suspend fun loadRequestDetails(id: String) {
         val secret = capabilities["request:$id"] ?: return
@@ -188,7 +201,10 @@ internal class MobilityViewModel(private val api: MobilityApi, private val store
         mutable.update { it.copy(reviewSent = true, message = "Thank you for reviewing your driver.") }
     }
     private suspend fun loadHistory() {
-        withContext(ioDispatcher) { store.load() }.forEach { capabilities[it.id] = it.secret }
+        withContext(ioDispatcher) { store.load() }.forEach {
+            capabilities[it.id] = it.secret
+            if (it.id.startsWith("request:")) guestPush?.registerRequest(it.id.removePrefix("request:"), it.secret)
+        }
         val bookings = mutableListOf<MobilityBooking>(); val requests = mutableListOf<MobilityRequest>()
         for ((key, secret) in capabilities.toMap()) {
             try {

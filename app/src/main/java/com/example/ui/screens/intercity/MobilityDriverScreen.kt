@@ -14,9 +14,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -26,6 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -91,6 +95,7 @@ import kotlin.coroutines.resumeWithException
         if (!locationAllowed) notice = "Location permission is needed to verify boarding at the approved departure point."
     }
     val group = dashboard.serviceType == "GROUP_TRAVEL"
+    var journeysExpanded by remember(group) { mutableStateOf(dashboard.trips.any { it.status == "BOARDING" }) }
     photoRequest?.let { id -> MobilityCargoPhotoDialog(api, id) { photoRequest = null } }
     fun runAction(block: suspend () -> Unit) {
         if (busy) return
@@ -141,11 +146,11 @@ import kotlin.coroutines.resumeWithException
     Column(Modifier.fillMaxSize().background(CommuteCream)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             if (proposing || selectedTrip != null) IconButton(onClick = { proposing = false; selectedTrip = null }) { Icon(Icons.Default.ArrowBack, "Back", tint = CommuteInk) }
-            Column(Modifier.weight(1f)) { Text("PASSO", fontWeight = FontWeight.ExtraBold, fontSize = 27.sp, color = CommuteInk); Text("Go Further, Together.", color = CommuteTeal, fontSize = 11.sp) }
+            Text(when { proposing -> "New group journey"; selectedTrip != null -> "Trip & travelers"; group -> intercityText(language, "Your group jobs", "የቡድን ጉዞ ሥራዎችዎ", "Hojii imala garee kee"); else -> intercityText(language, "Your cargo jobs", "የጭነት ሥራዎችዎ", "Hojii fe'umsaa kee") }, fontWeight = FontWeight.Bold, fontSize = 25.sp, color = CommuteInk, modifier = Modifier.weight(1f).padding(start = if (proposing || selectedTrip != null) 0.dp else 4.dp))
             IconButton(onClick = { runAction { refresh(); refreshParent() } }, enabled = !busy) { Icon(Icons.Default.Refresh, "Refresh", tint = CommuteTeal) }
         }
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = CommuteTeal)
-        LazyColumn(Modifier.weight(1f).testTag("mobility_driver_content"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        LazyColumn(Modifier.weight(1f).testTag("mobility_driver_content"), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             notice?.let { item { MobilityCard { Text(it, color = CommuteInk) } } }
             if (proposing) item {
                 GroupTripProposal(dashboard.vehicles, busy) { input -> runAction {
@@ -185,42 +190,69 @@ import kotlin.coroutines.resumeWithException
                     }
                 } }
             } else {
-                item { DriverMarketplacePanel(api, dashboard, { runAction { refresh() } }) }
-                item { MobilityCard {
-                    Icon(if (group) Icons.Default.Groups else Icons.Default.LocalShipping, null, tint = CommuteTeal, modifier = Modifier.size(38.dp))
-                    Text(if (group) intercityText(language, "Your group journeys", "የቡድን ጉዞዎችዎ", "Imala garee kee") else intercityText(language, "Your cargo assignments", "የጭነት ምደባዎችዎ", "Ramaddii fe'umsaa kee"), color = CommuteInk, fontSize = 25.sp, fontWeight = FontWeight.Bold)
-                    Text(if (group) "Propose trips, follow admin approval and welcome your travelers." else "Your assigned cargo requests and customer details appear here.", color = CommuteInk, fontSize = 13.sp)
-                    if (group) MobilityButton("Propose a group trip", !busy && dashboard.vehicles.isNotEmpty(), "group_propose_trip") { proposing = true }
-                    if (dashboard.vehicles.isEmpty()) Text("No approved vehicle is available. Contact your administrator.", color = CommuteInk)
-                } }
-                if (group) items(dashboard.trips, key = { it.id }) { trip -> MobilityCard {
-                    Text("${trip.origin} → ${trip.destination}", fontWeight = FontWeight.Bold, color = CommuteInk, fontSize = 19.sp)
-                    Text(formatIntercityTime(trip.departureAt), color = CommuteTeal)
-                    Text("${trip.status.replace('_', ' ')} · ETB ${formatIntercityFare(trip.fareEtb)} / seat", fontSize = 12.sp)
-                    if (trip.reviewNote.isNotBlank()) Text(trip.reviewNote, color = CommuteInk, fontSize = 13.sp)
-                    TextButton(onClick = { runAction { val result = mobilityBody(api.roster(trip.id)); check(result.success) { result.error ?: "Could not load travelers." }; selectedTrip = result.trip ?: trip; roster = result.travelers } }, enabled = !busy) { Text("Open trip & travelers", color = CommuteTeal) }
-                } }
-                if (dashboard.requests.isNotEmpty()) item { Text("Assigned private requests", color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 21.sp) }
-                if (!group && dashboard.requests.isEmpty()) item { Text("No cargo requests assigned yet. Refresh here for updates.", color = CommuteInk) }
-                items(dashboard.requests, key = { it.id }) { request -> MobilityCard {
-                    Text("${request.origin} → ${request.destination}", fontWeight = FontWeight.Bold, color = CommuteInk)
-                    Text("${request.travelDate} · ${request.status.replace('_', ' ')}", color = CommuteTeal)
-                    Text("Customer: ${request.customerName}\n${request.customerPhone}", color = CommuteInk)
-                    request.people?.let { Text("$it travelers") }; request.cargoDetails?.let { Text(it) }
-                    if (request.kind == "CARGO" && request.photoUrl != null) OutlinedButton(onClick = { photoRequest = request.id }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Photo, null); Spacer(Modifier.width(8.dp)); Text("View cargo photo") }
-                    if (request.originLatitude != null && request.originLongitude != null) TextButton(onClick = {
-                        val uri = android.net.Uri.parse("geo:${request.originLatitude},${request.originLongitude}?q=${request.originLatitude},${request.originLongitude}")
-                        runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri)) }
-                    }) { Text("Open pickup location", color = CommuteTeal) }
-                    if (request.destinationLatitude != null && request.destinationLongitude != null) TextButton(onClick = {
-                        val uri = android.net.Uri.parse("geo:${request.destinationLatitude},${request.destinationLongitude}?q=${request.destinationLatitude},${request.destinationLongitude}")
-                        runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri)) }
-                    }) { Text("Open destination location", color = CommuteTeal) }
-                    Text("${request.vehicleType} · ${request.vehiclePlate.orEmpty()}", fontSize = 12.sp)
-                    request.quoteEtb?.let { Text("Quoted amount: ETB ${formatIntercityFare(it)}", color = CommuteTeal) }
+                item { DriverMarketplacePanel(api, dashboard, { scope.launch { try { refresh() } catch (e: CancellationException) { throw e } catch (e: Exception) { notice = e.message ?: "Could not refresh assignments." } } }, onPhoto = { photoRequest = it }, language = language) }
+                if (group) item { MobilityCard {
+                    Row(Modifier.fillMaxWidth().clickable { journeysExpanded = !journeysExpanded }, verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Groups, null, tint = CommuteTeal, modifier = Modifier.size(24.dp)); Spacer(Modifier.width(9.dp))
+                        Column(Modifier.weight(1f)) { Text("Scheduled group journeys", color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 17.sp); Text("${dashboard.trips.size} journeys · seat bookings & boarding", color = CommuteTeal, fontSize = 12.sp) }
+                        Icon(if (journeysExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (journeysExpanded) "Collapse journeys" else "Open journeys", tint = CommuteTeal)
+                    }
+                    if (journeysExpanded) {
+                        if (dashboard.vehicles.isEmpty()) Text("No approved vehicle is available. Contact Passo.", color = CommuteInk, fontSize = 13.sp)
+                        MobilityButton("Propose a group trip", !busy && dashboard.vehicles.isNotEmpty(), "group_propose_trip") { proposing = true }
+                        if (dashboard.trips.isEmpty()) Text("Propose a journey and price per seat for admin approval.", color = CommuteInk, fontSize = 13.sp)
+                        dashboard.trips.forEach { trip ->
+                            HorizontalDivider(color = CommuteMint)
+                            Row(Modifier.fillMaxWidth().clickable(enabled = !busy) { runAction { val result = mobilityBody(api.roster(trip.id)); check(result.success) { result.error ?: "Could not load travelers." }; selectedTrip = result.trip ?: trip; roster = result.travelers } }, verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("${trip.origin} → ${trip.destination}", fontWeight = FontWeight.Bold, color = CommuteInk, fontSize = 15.sp)
+                                    Text(formatIntercityTime(trip.departureAt), color = CommuteTeal, fontSize = 12.sp)
+                                    Text("${mobilityDriverStatus(trip.status)} · ETB ${formatIntercityFare(trip.fareEtb)} / seat", color = CommuteInk, fontSize = 12.sp)
+                                    if (trip.reviewNote.isNotBlank()) Text(trip.reviewNote, color = CommuteInk, fontSize = 12.sp)
+                                }
+                                Icon(Icons.Default.ChevronRight, "Open trip & travelers", tint = CommuteTeal)
+                            }
+                        }
+                    }
                 } }
                 item { TextButton(onClick = onPrivacy) { Icon(Icons.Default.PrivacyTip, null); Spacer(Modifier.width(8.dp)); Text("Privacy & account") } }
             }
+        }
+    }
+}
+
+private suspend fun loadMobilityCargoPhoto(api: MobilityApi, requestId: String): android.graphics.Bitmap = withContext(Dispatchers.IO) {
+    val response = mobilityBody(api.requestPhoto(requestId))
+    val bytes = response.use { body ->
+        require(body.contentLength() <= 5 * 1024 * 1024) { "Cargo photo is too large." }
+        body.byteStream().use { input ->
+            val output = java.io.ByteArrayOutputStream(); val buffer = ByteArray(8192)
+            while (true) { val count = input.read(buffer); if (count < 0) break; require(output.size() + count <= 5 * 1024 * 1024) { "Cargo photo is too large." }; output.write(buffer, 0, count) }; output.toByteArray()
+        }
+    }
+    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    val options = android.graphics.BitmapFactory.Options().apply {
+        inSampleSize = 1
+        while (bounds.outWidth / inSampleSize > 1600 || bounds.outHeight / inSampleSize > 1600) inSampleSize *= 2
+    }
+    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: error("The cargo photo could not be displayed.")
+}
+
+@Composable internal fun MobilityCargoPhotoPreview(api: MobilityApi, requestId: String, open: () -> Unit) {
+    var bitmap by remember(requestId) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var failed by remember(requestId) { mutableStateOf(false) }
+    LaunchedEffect(requestId) {
+        try { bitmap = loadMobilityCargoPhoto(api, requestId) }
+        catch (e: CancellationException) { throw e }
+        catch (_: Exception) { failed = true }
+    }
+    Surface(color = CommuteMint, shape = RoundedCornerShape(9.dp), modifier = Modifier.size(62.dp).clickable(onClick = open).testTag("market_cargo_photo")) {
+        Box(contentAlignment = Alignment.Center) {
+            val image = bitmap
+            if (image != null) Image(image.asImageBitmap(), "View cargo photo", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(9.dp)))
+            else if (failed) Icon(Icons.Default.Photo, "Open cargo photo", tint = CommuteTeal)
+            else CircularProgressIndicator(Modifier.size(20.dp), color = CommuteTeal, strokeWidth = 2.dp)
         }
     }
 }
@@ -230,23 +262,7 @@ import kotlin.coroutines.resumeWithException
     var photoError by remember(requestId) { mutableStateOf<String?>(null) }
     LaunchedEffect(requestId) {
         try {
-            bitmap = withContext(Dispatchers.IO) {
-                val response = mobilityBody(api.requestPhoto(requestId))
-                val bytes = response.use { body ->
-                    require(body.contentLength() <= 5 * 1024 * 1024) { "Cargo photo is too large." }
-                    body.byteStream().use { input ->
-                        val output = java.io.ByteArrayOutputStream(); val buffer = ByteArray(8192)
-                        while (true) { val count = input.read(buffer); if (count < 0) break; require(output.size() + count <= 5 * 1024 * 1024) { "Cargo photo is too large." }; output.write(buffer, 0, count) }; output.toByteArray()
-                    }
-                }
-                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                val options = android.graphics.BitmapFactory.Options().apply {
-                    inSampleSize = 1
-                    while (bounds.outWidth / inSampleSize > 1600 || bounds.outHeight / inSampleSize > 1600) inSampleSize *= 2
-                }
-                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: error("The cargo photo could not be displayed.")
-            }
+            bitmap = loadMobilityCargoPhoto(api, requestId)
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { photoError = e.message ?: "Could not open the cargo photo." }
     }

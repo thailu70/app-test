@@ -1,0 +1,10 @@
+# Optional production override. The private credential stays outside the repository/image.
+services:
+  api:
+    environment:
+      FCM_SERVICE_ACCOUNT_FILE: /run/secrets/passo-fcm.json
+    volumes:
+      - type: bind
+        source: ${FCM_SERVICE_ACCOUNT_PATH:?Set the private VPS credential path}
+        target: /run/secrets/passo-fcm.json
+        read_only: true

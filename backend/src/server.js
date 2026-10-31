@@ -633,6 +633,7 @@ async function initializeFeatureSchemas() {
   await require('./services/intercity-schema').initIntercitySchema();
   await require('./services/onboarding').initOnboardingSchema();
   await require('./services/mobility-schema').initMobilitySchema();
+  await require('./services/mobility-push').initPushSchema(DB);
   await require('./services/account-recovery').initAccountRecoverySchema();
   await require('./services/application-notifications').initApplicationNotificationSchema();
   await require('./services/account-deletion').initAccountDeletionSchema();
@@ -649,6 +650,7 @@ async function startServer({ beforeListen, startWorkers = true } = {}) {
   if (startWorkers) {
     stopApplicationNotifications = require('./services/application-notifications').startApplicationNotificationWorker();
     stopMobilityNotifications = require('./services/mobility').startMobilityWorker();
+    stopMobilityPush = require('./services/mobility-push').startMobilityPushWorker();
   }
   resourcePressure.start();
   server.listen(PORT, HOST, () => {
@@ -669,11 +671,13 @@ if (process.env.NODE_ENV !== 'test' && require.main === module) {
 // Graceful Shutdown
 let stopApplicationNotifications = () => {};
 let stopMobilityNotifications = () => {};
+let stopMobilityPush = () => {};
 function gracefulShutdown(signal) {
   console.log(`[Server] Received ${signal}. Shutting down gracefully...`);
   resourcePressure.stop();
   stopApplicationNotifications();
   stopMobilityNotifications();
+  stopMobilityPush();
   server.close(() => {
     console.log('[Server] HTTP and WebSocket listeners closed.');
     process.exit(0);
