@@ -20,7 +20,7 @@ const { MobilityError } = require('../src/services/mobility');
 test('push tokens stay private; nearby eligibility, busy suppression, dedup and guest updates are enforced', async () => {
   await initMobilitySchema(DB); await initMarketplaceSchema(DB);
   for (const driver of ['push-driver1','push-driver2']) await DB.prepare("INSERT INTO users(id,role,fullName,phone,passwordHash,status) VALUES(?,'DRIVER','Fixture driver',?,'unused','ACTIVE')").run(driver, driver === 'push-driver1' ? '+251900000011' : '+251900000012');
-  await DB.prepare("INSERT INTO vehicles(id,plateNumber,model,vehicleType,capacityLimit,driverId,status) VALUES('push-vehicle','PUSH-FIXTURE','Fixture','MINIVAN_8',8,'push-driver1','AVAILABLE')").run();
+  await DB.prepare("INSERT INTO vehicles(id,plateNumber,model,vehicleType,capacityLimit,driverId,status) VALUES('push-vehicle','PUSH-FIXTURE','Fixture','MINIVAN_8',8,'push-driver1','IN_SERVICE')").run();
   let clock = Date.parse('2026-11-01T08:00:00Z');
   const at = () => new Date(clock).toISOString();
   await DB.prepare("INSERT INTO mobility_requests(id,kind,secret_hash,origin,destination,travel_date,people,vehicle_type,customer_name,customer_phone,status,created_at) VALUES('push-request','GROUP','fixture','Fixture pickup','Fixture destination','2026-11-02',4,'MINIVAN_8','Private person','+251900000099','REQUESTED',?)").run(at());

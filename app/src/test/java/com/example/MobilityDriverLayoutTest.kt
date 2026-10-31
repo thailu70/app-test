@@ -34,7 +34,10 @@ class MobilityDriverLayoutTest {
         vehicleType = "MINIVAN_8", estimatedWeightKg = 500.0, routeDistanceKm = 100.0, pickupDistanceKm = 2.0,
         estimatedCargoPriceEtb = 2500.0, nearby = true)
     private fun api(dashboard: MobilityDriverDashboard): MobilityApi = Proxy.newProxyInstance(MobilityApi::class.java.classLoader,
-        arrayOf(MobilityApi::class.java)) { _, method, _ -> when (method.name) {
+        arrayOf(MobilityApi::class.java)) { proxy, method, args -> when (method.name) {
+            "equals" -> proxy === args?.firstOrNull()
+            "hashCode" -> System.identityHashCode(proxy)
+            "toString" -> "Driver marketplace API fixture"
             "driverDashboard" -> Response.success(dashboard)
             "opportunities" -> Response.success(MobilityOpportunitiesResponse(true, listOf(opportunity), MobilityWallet(2100.0, 600.0, 1500.0)))
             else -> error("Unexpected API call ${method.name}")

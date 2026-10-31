@@ -30,8 +30,11 @@ import java.lang.reflect.Proxy
 class MobilityLocationPickerTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val bole = MobilityPlace("Bole Medhanialem, Addis Ababa", 8.9952, 38.7860)
-    private val api: MobilityApi = Proxy.newProxyInstance(MobilityApi::class.java.classLoader, arrayOf(MobilityApi::class.java)) { _, method, _ ->
+    private val api: MobilityApi = Proxy.newProxyInstance(MobilityApi::class.java.classLoader, arrayOf(MobilityApi::class.java)) { proxy, method, args ->
         when (method.name) {
+            "equals" -> proxy === args?.firstOrNull()
+            "hashCode" -> System.identityHashCode(proxy)
+            "toString" -> "Location search API fixture"
             "locations" -> Response.success(MobilityPlacesResponse(true, listOf(bole)))
             else -> error("Unexpected API call ${method.name}")
         }

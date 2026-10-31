@@ -37,8 +37,14 @@ class CargoRequestUiTest {
     private val types = listOf(MobilityVehicleType("TRUCK", "Truck", 1))
     private val complete = CargoRequestDraft("Bole, Addis Ababa", "Sendafa", intercityToday(), "10:30", "2000", "TRUCK",
         "Cement bags · loading help required", "Demo Customer", "0912000111", 9.00 to 38.78, 9.15 to 39.03)
-    private val api: MobilityApi get() = Proxy.newProxyInstance(MobilityApi::class.java.classLoader, arrayOf(MobilityApi::class.java)) { _, method, _ ->
-        when (method.name) { "road" -> Response.success(MobilityRoadResponse(true, 38.2, 60.0)); else -> error("Unexpected API call: ${method.name}") }
+    private val api: MobilityApi get() = Proxy.newProxyInstance(MobilityApi::class.java.classLoader, arrayOf(MobilityApi::class.java)) { proxy, method, args ->
+        when (method.name) {
+            "equals" -> proxy === args?.firstOrNull()
+            "hashCode" -> System.identityHashCode(proxy)
+            "toString" -> "Cargo request API fixture"
+            "road" -> Response.success(MobilityRoadResponse(true, 38.2, 60.0))
+            else -> error("Unexpected API call: ${method.name}")
+        }
     } as MobilityApi
 
     private fun photo(): CargoPhotoState {
