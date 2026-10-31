@@ -6,6 +6,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -120,10 +121,10 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
             onPlaceName = { label -> draft = if (pickup) draft.copy(origin = label) else draft.copy(destination = label) }, language = language,
             initialLabel = if (pickup) draft.origin else draft.destination)
     }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Column(Modifier.padding(bottom = 5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(t("Request cargo transport", "የጭነት መጓጓዣ ይጠይቁ", "Geejjiba fe'umsaa gaafadhu"), color = CommuteInk, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text(t("Get quotes from available drivers.", "ካሉ አሽከርካሪዎች ዋጋ ያግኙ።", "Konkolaachiftoota jiran irraa gatii argadhu."), color = Color(0xFF4A6175), fontSize = 14.sp)
+            Text(t("Get quotes from available drivers.", "ካሉ አሽከርካሪዎች ዋጋ ያግኙ።", "Konkolaachiftoota jiran irraa gatii argadhu."), color = Color(0xFF4A6175), fontSize = 14.sp, lineHeight = 19.sp)
         }
         CargoSection(1, t("Route & pickup", "መስመር እና መነሻ", "Karaa fi ka'umsa"), expanded == 1, routeReady,
             { expanded = if (expanded == 1) 0 else 1 }, enabled) {
@@ -135,18 +136,18 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
                 if (showErrors && "same_location" in errors) CargoError(t("Choose different pickup and destination locations.", "የተለያዩ መነሻ እና መድረሻ ይምረጡ።", "Bakka ka'umsaa fi ga'umsaa adda filadhu."))
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Default.Map, null, tint = CommuteTeal, modifier = Modifier.size(22.dp))
-                    Text(t("Search places or choose on map", "ቦታ ይፈልጉ ወይም በካርታ ይምረጡ", "Bakka barbaadi yookaan kaartaa irratti filadhu"), color = CommuteTeal, fontSize = 12.sp)
+                    Text(t("Search places or choose on map", "ቦታ ይፈልጉ ወይም በካርታ ይምረጡ", "Bakka barbaadi yookaan kaartaa irratti filadhu"), color = CommuteTeal, fontSize = 12.sp, lineHeight = 17.sp)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1.15f)) { MobilityDateField(draft.date, { draft = draft.copy(date = it) }) }
-                    OutlinedButton(onClick = {
+                    Box(Modifier.weight(1.15f)) { CargoDateSelector(draft.date, { draft = draft.copy(date = it) }, enabled, t("Date", "ቀን", "Guyyaa")) }
+                    CargoOutlinedSlot(t("Time", "ሰዓት", "Yeroo"), false, "request_time", enabled, Modifier.weight(1f), onClick = {
                         val parts = draft.time.split(':'); TimePickerDialog(context, { _, hour, minute -> draft = draft.copy(time = String.format(Locale.US, "%02d:%02d", hour, minute)) }, parts.firstOrNull()?.toIntOrNull() ?: 8, parts.getOrNull(1)?.toIntOrNull() ?: 0, true).show()
-                    }, enabled = enabled, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f).testTag("request_time")) {
+                    }) {
                         Icon(Icons.Default.Schedule, null, modifier = Modifier.size(19.dp)); Spacer(Modifier.width(5.dp)); Text(draft.time, color = CommuteInk)
                     }
                 }
-                Text(t("Pickup time · Ethiopia", "የመነሻ ሰዓት · ኢትዮጵያ", "Yeroo ka'umsaa · Itoophiyaa"), color = Color(0xFF617285), fontSize = 11.sp)
-                road?.let { Text(it, color = CommuteTeal, fontSize = 12.sp, modifier = Modifier.testTag("cargo_road_distance")) }
+                Text(listOfNotNull(road, t("Ethiopia time", "የኢትዮጵያ ሰዓት", "Yeroo Itoophiyaa")).joinToString(" · "),
+                    color = CommuteTeal, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.testTag("cargo_road_distance"))
             } else CargoSummary(Icons.Default.Route, draft.origin.ifBlank { t("Choose pickup and destination", "መነሻ እና መድረሻ ይምረጡ", "Ka'umsaa fi ga'umsaa filadhu") }, draft.destination.takeIf { it.isNotBlank() })
         }
         CargoSection(2, t("Cargo & vehicle", "ጭነት እና ተሽከርካሪ", "Fe'umsaa fi konkolaataa"), expanded == 2, cargoReady,
@@ -187,7 +188,7 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
         if (errors.isEmpty()) Surface(color = CommuteMint, shape = RoundedCornerShape(11.dp), modifier = Modifier.fillMaxWidth()) {
             Row(Modifier.padding(8.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.CheckCircle, null, tint = CommuteTeal, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp))
-                Text(t("All required details added", "ሁሉም አስፈላጊ ዝርዝሮች ተጨምረዋል", "Odeeffannoon barbaachisu hundi dabalameera"), fontSize = 11.sp, color = CommuteTeal)
+                Text(t("All required details added", "ሁሉም አስፈላጊ ዝርዝሮች ተጨምረዋል", "Odeeffannoon barbaachisu hundi dabalameera"), fontSize = 11.sp, lineHeight = 14.sp, color = CommuteTeal)
             }
         }
         MobilityButton(t("Review request", "ጥያቄውን ይገምግሙ", "Gaaffii ilaali"), enabled, "cargo_review") {
@@ -195,7 +196,7 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
             if (errors.isEmpty()) reviewing = true
             else expanded = when { !routeReady -> 1; !cargoReady -> 2; !contactReady -> 3; else -> 0 }
         }
-        Text(t("You choose a driver before confirming a booking.", "ቦታ ማስያዙን ከማረጋገጥዎ በፊት አሽከርካሪ ይምረጡ።", "Ajaja mirkaneessuu dura konkolaachisaa filatta."), fontSize = 11.sp, color = Color(0xFF617285), modifier = Modifier.align(Alignment.CenterHorizontally))
+        Text(t("You choose a driver before confirming a booking.", "ቦታ ማስያዙን ከማረጋገጥዎ በፊት አሽከርካሪ ይምረጡ።", "Ajaja mirkaneessuu dura konkolaachisaa filatta."), fontSize = 11.sp, lineHeight = 15.sp, color = Color(0xFF617285), modifier = Modifier.align(Alignment.CenterHorizontally))
     }
     if (reviewing) AlertDialog(onDismissRequest = { reviewing = false }, title = { Text(t("Review cargo request", "የጭነት ጥያቄን ይገምግሙ", "Gaaffii fe'umsaa ilaali"), color = CommuteInk) }, text = {
         Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -225,7 +226,7 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
 @Composable private fun CargoSection(number: Int, title: String, expanded: Boolean, complete: Boolean,
     toggle: () -> Unit, enabled: Boolean, content: @Composable ColumnScope.() -> Unit) {
     Surface(color = Color.White, shape = RoundedCornerShape(17.dp), border = BorderStroke(1.dp, Color(0xFFE3E6E5)), modifier = Modifier.fillMaxWidth().animateContentSize()) {
-        Column(Modifier.padding(horizontal = 13.dp, vertical = 11.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(horizontal = 13.dp, vertical = 11.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth().clickable(enabled = enabled, role = Role.Button, onClick = toggle).heightIn(min = 36.dp).testTag("cargo_section_$number")
                 .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Surface(color = CommuteTeal, shape = CircleShape, modifier = Modifier.size(31.dp)) { Box(contentAlignment = Alignment.Center) { Text(number.toString(), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) } }
@@ -240,16 +241,44 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
 
 @Composable private fun CargoLocationField(label: String, value: String, error: Boolean, tag: String, enabled: Boolean, choose: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text(label, fontSize = 11.sp, color = Color(0xFF617285))
-        Surface(color = Color.White, shape = RoundedCornerShape(11.dp), border = BorderStroke(1.dp, if (error) MaterialTheme.colorScheme.error else Color(0xFFC7CED2)),
-            modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, role = Role.Button, onClick = choose).testTag(tag)) {
-            Row(Modifier.padding(horizontal = 11.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.LocationOn, null, tint = CommuteTeal, modifier = Modifier.size(21.dp))
-                Text(value.ifBlank { label }, color = if (value.isBlank()) Color(0xFF617285) else CommuteInk, fontSize = 14.sp, maxLines = 2, modifier = Modifier.weight(1f))
-                Icon(Icons.Default.ChevronRight, null, tint = CommuteInk, modifier = Modifier.size(20.dp))
-            }
+        CargoOutlinedSlot(label, error, tag, enabled, onClick = choose) {
+            Icon(Icons.Default.LocationOn, null, tint = CommuteTeal, modifier = Modifier.size(21.dp))
+            Spacer(Modifier.width(9.dp))
+            Text(value.ifBlank { label }, color = if (value.isBlank()) Color(0xFF617285) else CommuteInk, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 2, modifier = Modifier.weight(1f))
+            Icon(Icons.Default.ChevronRight, null, tint = CommuteInk, modifier = Modifier.size(20.dp))
         }
         if (error) CargoError("Select and confirm this location on the map.")
+    }
+}
+
+@Composable private fun CargoOutlinedSlot(label: String, error: Boolean, tag: String, enabled: Boolean,
+    modifier: Modifier = Modifier, onClick: () -> Unit, content: @Composable RowScope.() -> Unit) {
+    Box(modifier.fillMaxWidth().padding(top = 6.dp)) {
+        Surface(color = Color.White, shape = RoundedCornerShape(11.dp), border = BorderStroke(1.dp, if (error) MaterialTheme.colorScheme.error else Color(0xFFC7CED2)),
+            modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, role = Role.Button, onClick = onClick).testTag(tag)) {
+            Row(Modifier.heightIn(min = 44.dp).padding(horizontal = 11.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, content = content)
+        }
+        Text(label, Modifier.offset(x = 10.dp, y = (-6).dp).background(Color.White).padding(horizontal = 3.dp), color = Color(0xFF617285), fontSize = 11.sp, lineHeight = 14.sp)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun CargoDateSelector(value: String, onValue: (String) -> Unit, enabled: Boolean, label: String) {
+    var open by remember { mutableStateOf(false) }
+    val parser = remember { java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") } }
+    val formatted = remember(value) { runCatching { java.text.SimpleDateFormat("EEE, d MMM yyyy", Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(parser.parse(value)!!) }.getOrDefault(value) }
+    CargoOutlinedSlot(label, false, "cargo_pickup_date", enabled, onClick = { open = true }) {
+        Icon(Icons.Default.CalendarMonth, null, tint = CommuteTeal, modifier = Modifier.size(19.dp)); Spacer(Modifier.width(6.dp))
+        Text(formatted, color = CommuteInk, fontSize = 11.sp, lineHeight = 15.sp, maxLines = 1, modifier = Modifier.weight(1f))
+        Icon(Icons.Default.ChevronRight, null, tint = CommuteInk, modifier = Modifier.size(16.dp))
+    }
+    if (open) {
+        val today = parser.parse(intercityToday())!!.time
+        val picker = rememberDatePickerState(initialSelectedDateMillis = runCatching { parser.parse(value)?.time }.getOrNull(), selectableDates = object : SelectableDates {
+            override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis >= today
+        })
+        DatePickerDialog(onDismissRequest = { open = false }, confirmButton = { TextButton(onClick = { picker.selectedDateMillis?.let { onValue(parser.format(java.util.Date(it))) }; open = false }) { Text("Choose") } },
+            dismissButton = { TextButton(onClick = { open = false }) { Text("Cancel") } }) { DatePicker(picker) }
     }
 }
 

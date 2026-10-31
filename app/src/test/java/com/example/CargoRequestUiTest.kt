@@ -24,6 +24,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowDialog
 import retrofit2.Response
 import java.io.File
 import java.lang.reflect.Proxy
@@ -67,7 +68,7 @@ class CargoRequestUiTest {
     private fun capture(name: String) {
         compose.waitForIdle()
         compose.runOnIdle {
-            val view = compose.activity.window.decorView
+            val view = ShadowDialog.getLatestDialog()?.takeIf { it.isShowing }?.window?.decorView ?: compose.activity.window.decorView
             val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
             view.draw(Canvas(bitmap))
             val dir = File("build/mobility-previews").apply { mkdirs() }
@@ -122,6 +123,7 @@ class CargoRequestUiTest {
         compose.waitUntil(5000) { compose.onAllNodesWithTag("cargo_photo_preview").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("cargo_photo_preview").assertExists()
         compose.onNodeWithText("All required details added").assertExists()
+        compose.onNodeWithTag("cargo_review").assertIsDisplayed()
         compose.onNodeWithText("Suggested cargo quote", substring = true).assertDoesNotExist()
         capture("05-cargo-compact-request")
         compose.onNodeWithTag("cargo_review").performScrollTo().performClick()
