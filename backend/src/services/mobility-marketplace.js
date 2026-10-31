@@ -110,6 +110,7 @@ function createMarketplace({ db, now, fail, money, text, coordinates, vehicleDri
     const result=await db.transaction(async tx=>{
       const before=await getRequest(key,null,tx,true);await vehicleDriver(input.vehicleId,driverId,before.kind,tx,true);
       const r=await tx.prepare('SELECT * FROM mobility_requests WHERE id=?'+lock(tx)).get(key);if(r.status!=='REQUESTED'||await busy(driverId,tx))fail(409,'This request or driver is no longer available.');
+      if(r.travel_date<new Date(now()+3*3600000).toISOString().slice(0,10))fail(409,'This transport request has expired.');
       const {vehicle}=await vehicleDriver(input.vehicleId,driverId,r.kind,tx);if(vehicle.vehicleType!==r.vehicle_type||r.kind==='GROUP'&&Number(vehicle.capacityLimit)<Number(r.people))fail(400,'Use a matching vehicle with enough capacity.');
       const old=await tx.prepare('SELECT * FROM mobility_quotes WHERE request_id=? AND driver_id=?').get(key,driverId),qid=old?.id||uid('mqt_');
       await tx.prepare('INSERT INTO mobility_quotes(id,request_id,driver_id,vehicle_id,price_etb,note,eta_minutes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(request_id,driver_id) DO UPDATE SET vehicle_id=excluded.vehicle_id,price_etb=excluded.price_etb,note=excluded.note,eta_minutes=excluded.eta_minutes,updated_at=excluded.updated_at').run(qid,key,driverId,input.vehicleId,price,note,eta,instant(),instant());
@@ -129,6 +130,9 @@ function createMarketplace({ db, now, fail, money, text, coordinates, vehicleDri
       const m=await tx.prepare('SELECT * FROM mobility_request_market WHERE request_id=?').get(key);
       if(m?.selected_quote_id===q.id&&r.status!=='REQUESTED')return;
       if(r.status!=='REQUESTED'||q.status!=='OPEN'||await busy(q.driver_id,tx,key))fail(409,'This driver or request is no longer available.');
+      if(r.travel_date<new Date(now()+3*3600000).toISOString().slice(0,10))fail(409,'This transport request has expired.');
+      const {vehicle:quotedVehicle}=await vehicleDriver(q.vehicle_id,q.driver_id,r.kind,tx);
+      if(quotedVehicle.vehicleType!==r.vehicle_type||r.kind==='GROUP'&&Number(quotedVehicle.capacityLimit)<Number(r.people))fail(409,'The quoted vehicle no longer matches your request. Ask for a new quote.');
       const percent=r.kind==='CARGO'?cfg.cargoCommissionPercent:cfg.groupCommissionPercent,cents=Math.round(Number(q.price_etb)*percent);
       const w=await walletRow(q.driver_id,tx,true);if(Number(w.balance_cents)-Number(w.held_cents)<cents)fail(409,'This driver needs to add Passo credit before this quote can be selected.','DRIVER_CREDIT_REQUIRED');
       await tx.prepare('UPDATE mobility_wallets SET held_cents=held_cents+? WHERE driver_id=?').run(cents,q.driver_id);

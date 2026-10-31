@@ -41,7 +41,9 @@ fi
 stage="data/photon-stage-$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir "$stage"
 chown 1000:1000 "$stage"
-docker run --rm --memory=2g --cpus=1.5 --user 1000:1000 -v "$PWD/$stage:/data" -v "$PWD/data/photon.jar:/opt/photon.jar:ro" -v "$PWD/data/photon-regional.jsonl:/input/regional.jsonl:ro" -w /data eclipse-temurin:21-jre java -Xms256m -Xmx1g -jar /opt/photon.jar import -import-file /input/regional.jsonl -country-codes ET -languages en,am,om -data-dir /data
+docker run --rm --memory=2g --cpus=1.5 --user 1000:1000 -v "$PWD/$stage:/data" -v "$PWD/data/photon.jar:/opt/photon.jar:ro" -v "$PWD/data/photon-regional.jsonl:/input/regional.jsonl:ro" -w /data eclipse-temurin:21-jre java -Xms256m -Xmx1g -jar /opt/photon.jar import -import-file /input/regional.jsonl -country-codes ET -languages en,am,om -data-dir /data 2>&1 | tee data/photon-import.log
+# Photon can exit zero after an import IO failure. Require its explicit success marker.
+grep -q 'Database has been successfully set up' data/photon-import.log
 mv "$stage" data/photon
 docker compose -f compose.yml up -d photon
 echo 'Photon started privately. Check /api/mobility/locations?q=Addis before declaring search ready.'
