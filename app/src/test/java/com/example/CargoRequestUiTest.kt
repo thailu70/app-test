@@ -29,7 +29,7 @@ import retrofit2.Response
 import java.io.File
 import java.lang.reflect.Proxy
 
-/** Production form with isolated local fixtures. No map, network, account, SMS or booking is opened. */
+/** Production forms and offline native maps with isolated API fixtures; no accounts, SMS or bookings. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w393dp-h852dp-xhdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -38,12 +38,23 @@ class CargoRequestUiTest {
     private val types = listOf(MobilityVehicleType("TRUCK", "Truck", 1))
     private val complete = CargoRequestDraft("Bole, Addis Ababa", "Sendafa", intercityToday(), "10:30", "2000", "TRUCK",
         "Cement bags · loading help required", "Demo Customer", "0912000111", 9.00 to 38.78, 9.15 to 39.03)
+    private val pickup = MobilityPlace("Bole Medhanialem, Addis Ababa", 8.9952, 38.7860)
+    private val delivery = MobilityPlace("Sendafa, Oromia", 9.1523, 39.0330)
+    private val roadCalls = mutableListOf<List<Double>>()
     private val api: MobilityApi get() = Proxy.newProxyInstance(MobilityApi::class.java.classLoader, arrayOf(MobilityApi::class.java)) { proxy, method, args ->
         when (method.name) {
             "equals" -> proxy === args?.firstOrNull()
             "hashCode" -> System.identityHashCode(proxy)
             "toString" -> "Cargo request API fixture"
-            "road" -> Response.success(MobilityRoadResponse(true, 38.2, 60.0))
+            "locations" -> Response.success(MobilityPlacesResponse(true, when {
+                (args!![0] as String).contains("Bole", ignoreCase = true) -> listOf(pickup)
+                (args[0] as String).contains("Sendafa", ignoreCase = true) -> listOf(delivery)
+                else -> emptyList()
+            }))
+            "road" -> {
+                roadCalls += args!!.take(4).map { it as Double }
+                Response.success(MobilityRoadResponse(true, 38.2, 60.0))
+            }
             else -> error("Unexpected API call: ${method.name}")
         }
     } as MobilityApi
@@ -55,15 +66,36 @@ class CargoRequestUiTest {
     }
     private fun show(draft: CargoRequestDraft, photo: CargoPhotoState, adult: Boolean = true,
         submit: (MobilityRequestInput, ByteArray?, String?) -> Unit = { _, _, _ -> }) {
+        val locationApi = api
         compose.setContent {
             var confirmed by remember { mutableStateOf(adult) }
             MyApplicationTheme {
                 Column(Modifier.fillMaxSize().background(CommuteCream).verticalScroll(rememberScrollState()).padding(16.dp)) {
                     CargoRequestForm(MobilityUiState(types = types, adultConfirmed = confirmed), AppLanguage.ENGLISH,
-                        { confirmed = it }, submit, initialDraft = draft, providedPhoto = photo, providedApi = api)
+                        { confirmed = it }, submit, initialDraft = draft, providedPhoto = photo, providedApi = locationApi,
+                        pickerTileDownloadsEnabled = false)
                 }
             }
         }
+    }
+    private fun chooseLocation(buttonTag: String, query: String, place: MobilityPlace) {
+        compose.onNodeWithTag(buttonTag).performScrollTo().performClick()
+        compose.onNodeWithTag("mobility_location_search").performTextInput(query)
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithTag("mobility_location_suggestion_0").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("mobility_location_suggestion_0").performClick()
+        compose.onNodeWithTag("mobility_location_selected_name").assertTextEquals(place.name)
+        compose.onNodeWithTag("mobility_location_confirm").assertIsEnabled().performClick()
+    }
+    private fun assertEndpoints(input: MobilityRequestInput) {
+        assertEquals(pickup.name, input.origin)
+        assertEquals(delivery.name, input.destination)
+        assertEquals(pickup.latitude, input.originLatitude!!, 0.00001)
+        assertEquals(pickup.longitude, input.originLongitude!!, 0.00001)
+        assertEquals(delivery.latitude, input.destinationLatitude!!, 0.00001)
+        assertEquals(delivery.longitude, input.destinationLongitude!!, 0.00001)
+        assertEquals(listOf(pickup.latitude, pickup.longitude, delivery.latitude, delivery.longitude), roadCalls.last())
     }
     private fun capture(name: String) {
         compose.waitForIdle()
@@ -128,5 +160,55 @@ class CargoRequestUiTest {
         capture("05-cargo-compact-request")
         compose.onNodeWithTag("cargo_review").performScrollTo().performClick()
         capture("06-cargo-review")
+    }
+    @Test fun `cargo suggestions keep pickup and delivery labels and points independent through review`() {
+        var sent: MobilityRequestInput? = null
+        show(complete.copy(origin = "", destination = "", pickup = null, delivery = null), photo(),
+            submit = { input, _, _ -> sent = input })
+
+        chooseLocation("request_origin", "Bole", pickup)
+        chooseLocation("request_destination", "Sendafa", delivery)
+        compose.onNodeWithTag("request_origin").assertTextContains(pickup.name)
+        compose.onNodeWithTag("request_destination").assertTextContains(delivery.name)
+
+        // Reopening pickup must restore its own label, never the last-selected destination.
+        compose.onNodeWithTag("request_origin").performScrollTo().performClick()
+        compose.onNodeWithTag("mobility_location_selected_name").assertTextEquals(pickup.name)
+        compose.onNodeWithTag("mobility_location_back").performClick()
+        compose.onNodeWithTag("request_destination").assertTextContains(delivery.name)
+        compose.onNodeWithTag("cargo_review").performScrollTo().performClick()
+        assertNull(sent)
+        compose.onNodeWithTag("mobility_send_request").performClick()
+        compose.runOnIdle {
+            assertEquals("CARGO", sent!!.kind)
+            assertEndpoints(sent!!)
+        }
+    }
+    @Test fun `group request fills each address from suggestions and submits their separate coordinates`() {
+        var sent: MobilityRequestInput? = null
+        val locationApi = api
+        compose.setContent { MyApplicationTheme {
+            Column(Modifier.fillMaxSize().background(CommuteCream).verticalScroll(rememberScrollState()).padding(16.dp)) {
+                MobilityRequestForm("GROUP", MobilityUiState(
+                    types = listOf(MobilityVehicleType("MINIBUS_14", "Minibus", 14)), adultConfirmed = true),
+                    AppLanguage.ENGLISH, {}, { input, _, _ -> sent = input }, providedApi = locationApi,
+                    pickerTileDownloadsEnabled = false)
+            }
+        } }
+        compose.onNodeWithTag("request_name").performScrollTo().performTextInput("Group Customer")
+        compose.onNodeWithTag("request_phone").performScrollTo().performTextInput("0912000111")
+        chooseLocation("request_pickup_location", "Bole", pickup)
+        chooseLocation("request_delivery_location", "Sendafa", delivery)
+        compose.onNodeWithTag("request_origin").assertTextContains(pickup.name)
+        compose.onNodeWithTag("request_destination").assertTextContains(delivery.name)
+        compose.onNodeWithTag("request_people").performScrollTo().performTextInput("6")
+        compose.onNodeWithText("Choose vehicle type").performScrollTo().performClick()
+        compose.onNodeWithText("Minibus").performClick()
+        compose.onNodeWithTag("mobility_send_request").performScrollTo().assertIsEnabled().performClick()
+        compose.runOnIdle {
+            assertEquals("GROUP", sent!!.kind)
+            assertEquals(6, sent!!.people)
+            assertEndpoints(sent!!)
+        }
     }
 }

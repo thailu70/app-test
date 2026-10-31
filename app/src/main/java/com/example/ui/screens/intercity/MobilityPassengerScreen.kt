@@ -283,8 +283,9 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
     resolved.scheme == "https" && resolved.path.startsWith(java.net.URI(ApiClient.getBaseUrl()).path + "api/mobility/")
 }.getOrDefault(false)
 
-@Composable private fun MobilityRequestForm(kind: String, state: MobilityUiState, language: AppLanguage,
-    onAdult: (Boolean) -> Unit, send: (MobilityRequestInput, ByteArray?, String?) -> Unit) {
+@Composable internal fun MobilityRequestForm(kind: String, state: MobilityUiState, language: AppLanguage,
+    onAdult: (Boolean) -> Unit, send: (MobilityRequestInput, ByteArray?, String?) -> Unit,
+    providedApi: MobilityApi? = null, pickerTileDownloadsEnabled: Boolean = true) {
     var name by remember { mutableStateOf("") }; var phone by remember { mutableStateOf("") }
     var origin by remember { mutableStateOf("") }; var destination by remember { mutableStateOf("") }
     var weight by remember { mutableStateOf("") }; var travelTime by remember { mutableStateOf("08:00") }
@@ -293,7 +294,7 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
     var fromPoint by remember { mutableStateOf<Pair<Double, Double>?>(null) }; var toPoint by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var picking by remember { mutableStateOf<String?>(null) }
     var roadDistance by remember { mutableStateOf<String?>(null) }
-    val locationApi = remember { ApiClient.createFeatureService(MobilityApi::class.java) }
+    val locationApi = providedApi ?: remember { ApiClient.createFeatureService(MobilityApi::class.java) }
     LaunchedEffect(fromPoint, toPoint) {
         roadDistance = null
         val from = fromPoint; val to = toPoint
@@ -304,8 +305,17 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
         }
     }
     val photo = rememberCargoPhoto()
-    if (picking != null) MobilityLocationPicker(if (picking == "origin") "Departure location" else "Destination location", if (picking == "origin") fromPoint else toPoint,
-        { picking = null }, { if (picking == "origin") fromPoint = it else toPoint = it; picking = null })
+    if (picking != null) {
+        val pickup = picking == "origin"
+        MobilityLocationPicker(
+            intercityText(language, if (pickup) "Choose pickup location" else "Choose destination location",
+                if (pickup) "መነሻ ቦታ ይምረጡ" else "መድረሻ ቦታ ይምረጡ", if (pickup) "Bakka ka'umsaa filadhu" else "Bakka ga'umsaa filadhu"),
+            if (pickup) fromPoint else toPoint, { picking = null },
+            { point -> if (pickup) fromPoint = point else toPoint = point; picking = null },
+            onPlaceName = { label -> if (pickup) origin = label else destination = label }, language = language,
+            initialLabel = if (pickup) origin else destination, providedApi = locationApi,
+            tileDownloadsEnabled = pickerTileDownloadsEnabled)
+    }
     MobilityCard {
         Text(if (kind == "GROUP") intercityText(language, "Plan a group journey", "የቡድን ጉዞ ይጠይቁ", "Imala garee karoorsi") else intercityText(language, "Tell us about your cargo", "ስለ ጭነትዎ ይግለጹ", "Waa'ee fe'umsa kee ibsi"), color = CommuteInk, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text("Nearby available drivers can send quotes. Compare their offers and choose your driver. Sending a request does not collect payment.", color = CommuteInk, fontSize = 12.sp)
@@ -314,8 +324,8 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
         MobilityField(origin, { origin = it }, "Departure / pickup address", "request_origin")
         MobilityField(destination, { destination = it }, "Destination / delivery address", "request_destination")
         run {
-            OutlinedButton(onClick = { picking = "origin" }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.LocationOn, null); Text(if (fromPoint == null) "Choose departure location on map" else "Departure location selected ✓") }
-            OutlinedButton(onClick = { picking = "destination" }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.LocationOn, null); Text(if (toPoint == null) "Choose destination location on map" else "Destination location selected ✓") }
+            OutlinedButton(onClick = { picking = "origin" }, modifier = Modifier.fillMaxWidth().testTag("request_pickup_location")) { Icon(Icons.Default.LocationOn, null); Text(if (fromPoint == null) "Choose departure location on map" else "Departure location selected ✓") }
+            OutlinedButton(onClick = { picking = "destination" }, modifier = Modifier.fillMaxWidth().testTag("request_delivery_location")) { Icon(Icons.Default.LocationOn, null); Text(if (toPoint == null) "Choose destination location on map" else "Destination location selected ✓") }
         }
         MobilityDateField(date, { date = it })
         roadDistance?.let { Text(it, color = CommuteTeal, fontSize = 12.sp) }

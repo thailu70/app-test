@@ -83,7 +83,7 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
 @Composable internal fun CargoRequestForm(state: MobilityUiState, language: AppLanguage,
     onAdult: (Boolean) -> Unit, send: (MobilityRequestInput, ByteArray?, String?) -> Unit,
     initialDraft: CargoRequestDraft = CargoRequestDraft(), providedPhoto: CargoPhotoState? = null,
-    providedApi: MobilityApi? = null) {
+    providedApi: MobilityApi? = null, pickerTileDownloadsEnabled: Boolean = true) {
     fun t(en: String, am: String, om: String) = intercityText(language, en, am, om)
     var draft by rememberSaveable(stateSaver = CargoDraftSaver) { mutableStateOf(initialDraft) }
     var expanded by rememberSaveable { mutableIntStateOf(1) }
@@ -119,7 +119,8 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
             if (pickup) draft.pickup else draft.delivery, { picking = null },
             { point -> draft = if (pickup) draft.copy(pickup = point) else draft.copy(delivery = point); picking = null },
             onPlaceName = { label -> draft = if (pickup) draft.copy(origin = label) else draft.copy(destination = label) }, language = language,
-            initialLabel = if (pickup) draft.origin else draft.destination)
+            initialLabel = if (pickup) draft.origin else draft.destination, providedApi = api,
+            tileDownloadsEnabled = pickerTileDownloadsEnabled)
     }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {

@@ -27,8 +27,8 @@ android {
     applicationId = "live.passo.app"
     minSdk = 24
     targetSdk = 36
-    versionCode = 30
-    versionName = "1.1.27"
+    versionCode = 31
+    versionName = "1.1.28"
     buildConfigField("String", "ROUTEPASS_API_BASE_URL", "\"$routePassApiBaseUrl\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
