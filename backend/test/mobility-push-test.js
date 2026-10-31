@@ -98,6 +98,27 @@ test('push tokens stay private; nearby eligibility, busy suppression, dedup and 
   } finally { await new Promise(resolve=>server.close(resolve)); }
 });
 
+test('a busy driver alert yields the delivery batch to a customer booking update', async () => {
+  await initMobilitySchema(DB); await initMarketplaceSchema(DB);
+  let clock=Date.parse('2026-11-05T08:00:00Z'),busy=false,failDelivery=true;
+  for(const id of ['push-blocked-request','push-ready-request'])await DB.prepare("INSERT INTO mobility_requests(id,kind,secret_hash,origin,destination,travel_date,people,vehicle_type,customer_name,customer_phone,status,created_at) VALUES(?,'GROUP','fixture','Fixture pickup','Fixture destination','2026-11-06',4,'MINIVAN_8','Private fixture','+251900000088','REQUESTED',?)").run(id,new Date(clock).toISOString());
+  const sent=[];
+  const fake={init:async()=>{},request:async(id,secret)=>{if(id!=='push-ready-request'||secret!=='private-ready-capability')throw new MobilityError(404,'Unavailable');return {request:{id}};},
+    marketplace:{opportunities:async()=>({busy,requests:busy?[]:[{id:'push-blocked-request',kind:'GROUP',nearby:true,myQuote:null}]})}};
+  const push=createMobilityPushService({db:DB,service:fake,now:()=>clock,env:{JWT_SECRET:process.env.JWT_SECRET},deliveryBatchSize:1,driverIsEligible:async(id)=>id==='push-driver1',
+    provider:{send:async(token,_notification,data)=>{if(failDelivery)return {sent:false};sent.push({token,event:data.eventType});return {sent:true};}}});
+  await push.registerDriver('push-driver1',{token:'busy-fixture-device-token-123456789',latitude:9,longitude:38.7});
+  await push.flush();
+  assert.equal(Number((await DB.prepare("SELECT attempts FROM mobility_push_outbox WHERE request_id='push-blocked-request'").get()).attempts),1);
+  clock+=60000;busy=true;failDelivery=false;
+  await push.registerRequest('push-ready-request','private-ready-capability',{token:'ready-fixture-device-token-123456789'});
+  await DB.prepare("UPDATE mobility_requests SET status='ASSIGNED' WHERE id='push-ready-request'").run();
+  await push.flush();
+  assert.equal(sent.some(x=>x.event==='NEW_REQUEST'),false,'Busy driver still receives no request alert.');
+  await push.flush();
+  assert.ok(sent.some(x=>x.token==='ready-fixture-device-token-123456789'&&x.event==='STATUS_ASSIGNED'),'A blocked older alert cannot starve a customer update.');
+});
+
 test('FCM HTTP v1 signs a scoped assertion, caches access and identifies revoked tokens', async () => {
   const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
   const file = path.join(process.env.DATA_DIR, 'synthetic-service-account.json');

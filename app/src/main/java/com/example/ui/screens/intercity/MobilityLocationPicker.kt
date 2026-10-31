@@ -182,6 +182,7 @@ internal fun MobilityLocationPicker(
         Surface(color = CommuteCream, modifier = Modifier.fillMaxSize().testTag("mobility_location_picker")) {
             BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
                 val landscape = maxWidth > maxHeight
+                val availableHeight = maxHeight
                 Column(Modifier.fillMaxSize()) {
                     Row(Modifier.fillMaxWidth().padding(start = 3.dp, end = 14.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = onDismiss, modifier = Modifier.testTag("mobility_location_back")) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back", "ተመለስ", "Deebi'i"), tint = CommuteInk) }
@@ -200,7 +201,7 @@ internal fun MobilityLocationPicker(
                             LocationMap(map, selected != null, locating, ::locate, Modifier.weight(1.15f).fillMaxHeight())
                         } else {
                             Column(Modifier.fillMaxSize()) {
-                                if (maxHeight < 560.dp) {
+                                if (availableHeight < 560.dp) {
                                     Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
                                         Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) { LocationSearch(query, { query = it.take(120); dismissedQuery = null }, searching, locating, ::locate, suggestions, searchMessage, { choosePoint(it.latitude to it.longitude, it.name) }, ::t) }
                                         LocationMap(map, selected != null, locating, ::locate, Modifier.fillMaxWidth().height(200.dp))

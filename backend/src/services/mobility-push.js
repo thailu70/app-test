@@ -67,13 +67,14 @@ function createFcmTransport({ accountFile, fetchImpl = globalThis.fetch, now = D
   } };
 }
 function createMobilityPushService({ db = DB, service, env = process.env, now = Date.now, provider, fetchImpl,
-  customerBatchSize = 200,
+  customerBatchSize = 200, deliveryBatchSize = 20,
   driverIsEligible = driverId => require('./operational-onboarding').driverEligible(driverId, db),
   isReview = () => Boolean(getReviewRuntime()) || env.REVIEW_ENVIRONMENT === 'true' } = {}) {
   const mobility = () => service || require('./mobility').getMobilityService();
   const encryptionSecret = env.PUSH_TOKEN_ENCRYPTION_KEY || env.JWT_SECRET || require('../middleware/auth').JWT_SECRET;
   const encryptionKey = crypto.createHash('sha256').update('Passo mobility notification tokens v1\0' + encryptionSecret).digest();
   const customerLimit = Math.min(500, Math.max(1, Math.floor(Number(customerBatchSize)) || 200));
+  const deliveryLimit = Math.min(100, Math.max(1, Math.floor(Number(deliveryBatchSize)) || 20));
   let transport = provider, configurationError = false, working = false, driverCursor = '', customerCursor = '';
   const instant = () => new Date(now()).toISOString();
   function health() {
@@ -180,7 +181,7 @@ function createMobilityPushService({ db = DB, service, env = process.env, now = 
     try {
       await init(); await collect();
       await db.prepare("UPDATE mobility_push_outbox SET status='EXPIRED' WHERE status='PENDING' AND expires_at<=?").run(instant());
-      const queue = await db.prepare("SELECT * FROM mobility_push_outbox WHERE status='PENDING' AND next_attempt_at<=? AND (lease_until IS NULL OR lease_until<?) ORDER BY created_at LIMIT 20").all(instant(), instant());
+      const queue = await db.prepare("SELECT * FROM mobility_push_outbox WHERE status='PENDING' AND next_attempt_at<=? AND (lease_until IS NULL OR lease_until<?) ORDER BY created_at,id LIMIT ?").all(instant(), instant(), deliveryLimit);
       for (const job of queue) {
         const token = await db.prepare('SELECT * FROM mobility_push_tokens WHERE id=?').get(job.token_id);
         if (!token) { await db.prepare("UPDATE mobility_push_outbox SET status='REVOKED' WHERE id=?").run(job.id); continue; }
@@ -192,9 +193,11 @@ function createMobilityPushService({ db = DB, service, env = process.env, now = 
         }
         if (job.event_type === 'NEW_REQUEST') {
           if (current.status !== 'REQUESTED') { await db.prepare("UPDATE mobility_push_outbox SET status='EXPIRED' WHERE id=?").run(job.id); continue; }
-          if (!token.gps_at || now() - Date.parse(token.gps_at) > 86400000) continue;
-          let feed; try { feed = await mobility().marketplace.opportunities(token.owner_id, { latitude: Number(token.latitude), longitude: Number(token.longitude) }); } catch (_) { continue; }
-          if (feed.busy) continue;
+          const postpone = () => db.prepare("UPDATE mobility_push_outbox SET next_attempt_at=? WHERE id=? AND status='PENDING'").run(new Date(now() + 60000).toISOString(), job.id);
+          // Blocked request alerts must yield the bounded delivery batch to other customers/devices.
+          if (!token.gps_at || now() - Date.parse(token.gps_at) > 86400000) { await postpone(); continue; }
+          let feed; try { feed = await mobility().marketplace.opportunities(token.owner_id, { latitude: Number(token.latitude), longitude: Number(token.longitude) }); } catch (_) { await postpone(); continue; }
+          if (feed.busy) { await postpone(); continue; }
           if (!(feed.requests || []).some(r => r.id === job.request_id && r.nearby && !r.myQuote)) { await db.prepare("UPDATE mobility_push_outbox SET status='EXPIRED' WHERE id=?").run(job.id); continue; }
         }
         const lease = crypto.randomUUID();
