@@ -198,7 +198,9 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
         }
         Text(t("You choose a driver before confirming a booking.", "ቦታ ማስያዙን ከማረጋገጥዎ በፊት አሽከርካሪ ይምረጡ።", "Ajaja mirkaneessuu dura konkolaachisaa filatta."), fontSize = 11.sp, lineHeight = 15.sp, color = Color(0xFF617285), modifier = Modifier.align(Alignment.CenterHorizontally))
     }
-    if (reviewing) AlertDialog(onDismissRequest = { reviewing = false }, title = { Text(t("Review cargo request", "የጭነት ጥያቄን ይገምግሙ", "Gaaffii fe'umsaa ilaali"), color = CommuteInk) }, text = {
+    if (reviewing) AlertDialog(onDismissRequest = { reviewing = false }, containerColor = CommuteCream, tonalElevation = 0.dp,
+        titleContentColor = CommuteInk, textContentColor = CommuteInk,
+        title = { Text(t("Review cargo request", "የጭነት ጥያቄን ይገምግሙ", "Gaaffii fe'umsaa ilaali"), color = CommuteInk, fontWeight = FontWeight.Bold) }, text = {
         Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("${draft.origin} → ${draft.destination}", fontWeight = FontWeight.Bold, color = CommuteInk)
             Text("${draft.date} · ${draft.time} · ${t("Ethiopia time", "የኢትዮጵያ ሰዓት", "Yeroo Itoophiyaa")}")
