@@ -1,48 +1,61 @@
-# Passo Mobility website design QA
+# Cargo option 3: design QA
 
-Source visual truth: second displayed website concept, `exec-4ece64e5-c452-4661-aec4-a4ddc979d30c.png` in the owner generated_images folder.
-Implementation: actual backend homepage at http://127.0.0.1:18561/.
-Initial implementation screenshot: ../passo-home-desktop-900.png.
-Comparison: source 900 x 1748; implementation 900 x 1841; CSS viewport 900 x 1000, browser screenshot density 1. Both images opened together in the same comparison input; no browser/device frames or density rescaling.
-State: public homepage, English, menu closed.
+## Scope and visual truth
 
-## Initial findings
+Selected visual reference: `C:/Users/abc/.codex/generated_images/01a14bb0-8c94-7111-8ea5-bb6697be3f36/exec-06d44eff-0354-42f7-b793-f9688d381918.png` (1448 × 1086 pixels), option 3, Compact sections. Existing Passo type, palette, reusable native controls, API bindings and private guest request capabilities remain the implementation foundation.
 
-- [P2] Driver recruitment photograph has a hard vertical boundary at 23% width and text crosses the bright portrait area. Source has a continuous dark teal band with a standing driver centered. Generate the matching band photograph and cover the full region, with dark negative space around the subject.
-- [P2] Driver headline wraps after “New” instead of after “vehicle.”. Preserve its two-line hierarchy using separate translated lines.
-- [P2] About photograph crop removes the top of the commuter head. Adjust crop position while keeping the existing region height.
-- [P2] Service body text is smaller and denser than the source; use at least 14px at the 900px comparison width. Compact the intentionally added test-APK download note so it does not dominate this section.
+Verified implementation commit: `9aa65290ddca7ab5ce62fc5c9945d03268ee0836`, candidate run [41222377316](https://github.com/thailu70/app-test/actions/runs/41222377316). The native candidate compiled, assembled and validated successfully.
 
-## Fidelity surfaces
+## Captured evidence
 
-Typography: Outfit matches the reference direction; headline hierarchy and baseline reviewed. Driver wrapping and service body density need the changes above. Ethiopic fallback requires phone verification after translation.
-Spacing: header/hero end at 72/527px, essentially matching source 71/526px. Main section proportions need the download note adjustment; lower region comparison will be repeated.
-Colors: ivory, navy and teal surfaces, white hero text, outline CTA and service tints match the target direction. Driver contrast is blocked until background correction.
-Images: real generated photographs are separate local assets; source logo reused; official MIT Tabler icon assets. No whole UI screenshot is used as a page. Driver image and story crop remain actionable.
-Copy: website routes are honest; daily commute uses Android app, intercity uses existing /travel/. Only daily commute driver registration is advertised. OTP/documents occur after initial administrator acceptance (intentional correction to mock copy).
+All actual images below are rendered native Compose output, rather than a mockup presented as a working screen.
 
-## Verification still required
+- Source and actual form together: `../play-release/1.1.27/cargo-form-comparison-9aa6529.png`.
+- Source and actual picker together: `../play-release/1.1.27/location-picker-comparison-9aa6529.png`.
+- Source and actual driver content together: `../play-release/1.1.27/cargo-driver-comparison-9aa6529.png`.
+- Actual filled cargo form: `../play-release/1.1.27/validation-9aa6529/app-test/app-test/app/build/mobility-previews/05-cargo-compact-request.png`.
+- Actual review dialog: `../play-release/1.1.27/validation-9aa6529/app-test/app-test/app/build/mobility-previews/06-cargo-review.png`.
+- Place picker portrait and landscape: same mobility-previews directory, `05-location-picker-portrait.png` and `06-location-picker-landscape.png`.
+- Driver Current and Requests: `../play-release/1.1.27/validation-9aa6529/app-test/app-test/app/build/driver-previews/cargo-compact-current.png` and `cargo-compact-requests.png`.
 
-- Recapture 900px desktop after fixes; compare in the same input with source.
-- Verify 1440px desktop and 390px phone, language changes, mobile menu, no overflow, portal navigation and console errors.
-- Update APK version/link only after successful native build and publication.
+The form reference was cropped to `(44,190)-(486,1070)` and normalized to 393 pixels wide. The implementation is a 393 × 852 dp native component rendered at density 2 (786 × 1704 pixels), downsampled to 393 pixels wide for the combined comparison. Shared app headers were excluded from both form crops. This is a component-viewport check, not a claim that every expanded field and the app header fit without scrolling. The location picker separately includes its own full native header.
 
-## Completed comparison and interaction pass
+Picker normalization uses source `(508,106)-(943,1073)` including its header; driver normalization uses `(965,190)-(1407,990)` excluding the shared header and app-owned navigation. These comparisons were opened with both source and implementation visible in the same image. The real Passo wordmark replaces the mockup's plain-text logo. The driver fixture has no cargo photo, so it correctly shows the existing cargo icon; delivery details still contain the photo when available. Existing icons and flat token fills are retained native equivalents. Fixture names, dates, and weights are test inputs rather than product copy.
 
-All initial P2 findings were corrected and captured again. Final English comparison: ../passo-home-desktop-900-final.png. Combined side-by-side comparison: ../passo-website-design-comparison.png, opened for direct visual judgment. Source is900x1748; implementation is884x1808 because the browser excludes its scrollbar from the900x1000 CSS viewport at density1. Source was proportionally normalized to884px content width before comparison. Nothing was stretched.
+## Findings and corrections
 
-Additional browser evidence: ../passo-home-desktop-1440.png (1440x1024 CSS,1424x2704 content); ../passo-home-mobile-final.png (390x844 CSS,375x3156 content), ../passo-home-mobile-amharic.png (375x3043) and ../passo-home-mobile-oromo.png (375x3253). Linked flows: ../passo-daily-driver-registration-mobile.png, ../passo-driver-signin-mobile.png, ../passo-privacy-mobile.png, ../passo-account-privacy-mobile.png.
+1. **Resolved P2, form density:** inherited small-text line heights and separate field labels made the initial route card too tall, placing Review request below the initial viewport. Floating outline labels, compact date/time fields, explicit line heights and a combined road-distance/timezone hint corrected this. The new initial-view assertion and actual screenshot both show Review request without scrolling at the verified component size.
+2. **Resolved P2, missing dialog evidence:** the previous capture read the Activity behind the dialog. The helper now selects the active dialog window. The actual modal, including Edit details and Send request, is captured.
+3. **Resolved P2, modal surface token:** the true dialog capture exposed the default Material lavender surface, which differed from the cream Passo palette. The final correction explicitly sets CommuteCream, zero tonal elevation, navy content and a bold title. The new actual modal screenshot was opened and inspected; it matches the Passo palette with readable details and both actions visible.
 
-Final five-surface review: Outfit/Noto variable-weight ranges are declared correctly. Translated headings wrap without horizontal overflow. Header/hero proportions follow the selected concept. Continuous dark-teal driver photography restores contrast and the intended standing pose. Driver heading breaks after vehicle; service text is readable. Separate optimized WebP photographs, source logo and licensed local Tabler icons are actual assets; the page uses HTML controls and never a whole mockup screenshot. Copy correctly places phone verification/documents after initial admin acceptance; the APK test-build caption is an intentional product addition.
+## Five fidelity surfaces
 
-Focused comparisons: hero heading/actions, service typography, story crop, driver heading/background/steps and language controls were inspected at readable size in original browser captures, alongside the normalized full-page comparison.
+| Surface | Result |
+| --- | --- |
+| Typography | Existing Outfit type, navy headings, teal controls and clear section hierarchy match the selected direction. Longer real labels and system dates remain readable. |
+| Spacing/layout | Three numbered rounded accordion cards, outlined route inputs, two-column date/time, actual thumbnail, consent, readiness and primary review action follow the source hierarchy. No overlap or clipping in the captured states. |
+| Color/tokens | Form, picker, driver and final review modal use existing cream/white/mint/navy/teal. No default lavender modal surface remains. |
+| Images | Production thumbnails decode user-selected bytes; the cement image is an isolated test resource. Offline map preview disables network tiles, so its grid proves bounds/pin layout, not online tile appearance. |
+| Copy/content | Route & pickup, Cargo & vehicle, Contact details and Review request follow the source. Real road km/Ethiopia time and operational wallet/status explanations are retained. Customer-side price estimates remain absent. |
 
-Interactions checked in the browser: Find a ride scrolls to services; driver Sign in opens login; Create account shows daily-driver fields only; company/intercity registration selectors are absent; actual vehicle-type catalogue loads; mobile menu opens and Escape dismisses it; Amharic/Oromo switch copy and selected states; no horizontal overflow; privacy/deletion links open actual pages. Error logs were empty. No real account, SMS, payment or deletion was submitted in browser QA.
+## Functional verification
 
-APK link targets1.1.20 and must be verified after publication before declaring production complete. Website does not claim Google Play availability.
+Validation artifact `13049964648`, SHA-256 `f13e5ea5d03e8ef36b25ea347466d47663586d163bd6f2c9b6e0c0f65cbae49d`, was downloaded and verified before extraction. JUnit XML reports **149 tests, 0 failures, 0 errors, 0 skipped**.
 
-## Follow-up polish
+Focused tests cover:
 
-P3: Footer decorative texture is omitted. Regenerated photographs preserve subjects/art direction rather than exact original pixels. The test-build caption and accurate approval explanation add modest lower-section height; controls and hierarchy remain intact.
+- Accordion state retention, required pickup/destination, explicit age/contact consent, actual photo preview, and review confirmation before submit.
+- Location picker selected name/coordinates and portrait/landscape map bounds.
+- Driver single current-job hierarchy, compact functional sections and preserved scheduled group journey proposal.
+- Saved guest capability notification navigation without an account; rejection of unknown request, invalid scope, custom links or secrets.
+- Production/demo isolation, private messaging service, durable logout revocation and conservative notification registration.
+- Contextual location prompts, settings return behavior and suppression in demo.
+
+All three final workflows passed: candidate 41222377316, general CI 41222377317, and Android test APK 41222377335. The final form/picker/driver images are byte-identical to the previous inspected render; only the review modal palette/title changed and was freshly inspected. No actionable P0/P1/P2 visual findings remain in the verified states.
+
+Remaining evidence limits: online OpenStreetMap tile appearance requires a connected device; enlarged fonts and every field combination were not visually captured. Functional long-form scrolling is intentionally preserved. These are coverage limits rather than defects observed in the verified screenshots.
+
+Real-device FCM delivery is not asserted by screenshot or native unit-test evidence. No Google Play upload is included in this release.
 
 final result: passed
+
