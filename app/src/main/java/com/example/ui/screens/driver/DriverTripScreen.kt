@@ -344,7 +344,9 @@ fun DriverTripScreen(
                         gpsStatus = gpsStatus, validation = validation, now = clockNow, language = language,
                         onDirection = { direction = it; validation = null }, onReadiness = if (vehicle != null) ({ checkReadiness() }) else null,
                         boarding = boardingEnabled, onComplete = { completeRoute() }, busy = busy,
-                        routeId = vehicle?.assignedRouteId)
+                        routeId = vehicle?.assignedRouteId,
+                        departurePoint = vehicle?.departureLatitude?.let { lat -> vehicle.departureLongitude?.let { lat to it } },
+                        destinationPoint = vehicle?.destinationLatitude?.let { lat -> vehicle.destinationLongitude?.let { lat to it } })
                     if (section == "My Trips") DriverBoardingBanner(boardingEnabled, journey?.status == "COMPLETED", driverHasPreciseFix(freshFix, clockNow), busy,
                         validation, scheduled, clockNow, language, onConfirm = { confirmArrival() }, onScan = { openScanner() })
                 }

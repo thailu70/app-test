@@ -63,8 +63,8 @@ internal fun AuthRegistrationDetails(
                 vehicleTypesError?.let { Text(it, color = Color(0xFFAC2F2F), fontSize = 12.sp) }
                 if (draft.service == "Daily Commuter" && applications != null) DriverRouteProposalFields(draft, applications, language, enabled)
                 else {
-                    AuthField(draft.pickup, { draft.pickup = it }, t("Preferred departure", "የሚመርጡት መነሻ", "Ka'umsa filatame"), Modifier.fillMaxWidth().testTag("auth_driver_preferred_origin"), enabled = enabled, language = language)
-                    AuthField(draft.destination, { draft.destination = it }, t("Preferred destination", "የሚመርጡት መድረሻ", "Ga'umsa filatame"), Modifier.fillMaxWidth().testTag("auth_driver_preferred_destination"), enabled = enabled, language = language)
+                    AuthRouteLocationField(draft, true, t("Preferred departure", "የሚመርጡት መነሻ", "Ka'umsa filatame"), "auth_driver_preferred_origin", enabled, language)
+                    AuthRouteLocationField(draft, false, t("Preferred destination", "የሚመርጡት መድረሻ", "Ga'umsa filatame"), "auth_driver_preferred_destination", enabled, language)
                     Text(if (draft.service == "Cargo") t("After approval, assigned cargo requests appear in your driver portal.", "ከተፈቀደ በኋላ የተመደቡ ጭነቶች በፖርታልዎ ይታያሉ።", "Hayyama booda gaaffileen fe'umsaa poortaalii kee irratti mul'atu.")
                         else t("After approval, propose trips with a per-seat price for admin review.", "ከተፈቀደ በኋላ ጉዞ እና የመቀመጫ ዋጋ ለግምገማ ያቅርቡ።", "Hayyama booda imalaa fi gatii teessoo gamaaggamaaf dhiyeessi."), color = CommuteInk, fontSize = 12.sp)
                 }
@@ -93,10 +93,8 @@ internal fun AuthRegistrationDetails(
             }
         }
         if (!driver && draft.isCustomCommute) {
-            AuthField(draft.pickup, { draft.pickup = it }, t("Pickup location", "የመነሻ ቦታ", "Bakka ka'umsaa"),
-                Modifier.fillMaxWidth().testTag("auth_passenger_pickup_input"), enabled = enabled, language = language, leadingIcon = Icons.Default.LocationOn)
-            AuthField(draft.destination, { draft.destination = it }, t("Destination", "መድረሻ", "Bakka ga'umsaa"),
-                Modifier.fillMaxWidth().testTag("auth_passenger_destination_input"), enabled = enabled, language = language, leadingIcon = Icons.Default.LocationOn)
+            AuthRouteLocationField(draft, true, t("Pickup location", "የመነሻ ቦታ", "Bakka ka'umsaa"), "auth_passenger_pickup_input", enabled, language)
+            AuthRouteLocationField(draft, false, t("Destination", "መድረሻ", "Bakka ga'umsaa"), "auth_passenger_destination_input", enabled, language)
             AuthChoiceChips(listOf("One way" to t("One way", "አንድ መንገድ", "Karaa tokko"), "Two way" to t("Two way", "ደርሶ መልስ", "Deebii waliin")),
                 draft.journey, enabled, { draft.journey = it }, "auth_journey")
         }

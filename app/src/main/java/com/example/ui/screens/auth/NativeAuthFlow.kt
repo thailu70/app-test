@@ -45,6 +45,8 @@ internal class AuthDraft(routeId: String?, routeName: String?, tier: String?) {
     var routeMode by mutableStateOf("custom")
     var pickup by mutableStateOf("")
     var destination by mutableStateOf("")
+    var pickupPoint by mutableStateOf<Pair<Double, Double>?>(null)
+    var destinationPoint by mutableStateOf<Pair<Double, Double>?>(null)
     var departure by mutableStateOf("06:30")
     var journey by mutableStateOf("Two way")
     var monthlyFee by mutableStateOf("")

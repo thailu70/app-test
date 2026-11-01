@@ -10,7 +10,7 @@ const LEGACY_DEMO_STOPS = new Set(['stop_atlas', 'stop_merkato']);
 // A deleted legacy ID is unambiguous only on a route with exactly two stops. An explicit ID
 // belonging to another route is never used, except the two historical demo defaults.
 async function populatePassengerStopLocations(subscription) {
-  const stops = await DB.prepare('SELECT id, stopName, stopNameAm FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC, id ASC')
+  const stops = await DB.prepare('SELECT id, stopName, stopNameAm, latitude, longitude FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC, id ASC')
     .all(subscription.routeId);
   const ownStops = new Map(stops.map(stop => [stop.id, stop]));
   const unknownIds = [...new Set([subscription.pickupStopId, subscription.destinationStopId]
@@ -32,6 +32,10 @@ async function populatePassengerStopLocations(subscription) {
   subscription.pickupStopNameAm = pickup?.stopNameAm || '';
   subscription.destinationStopName = destination?.stopName || '';
   subscription.destinationStopNameAm = destination?.stopNameAm || '';
+  subscription.departureLatitude = pickup?.latitude ?? null;
+  subscription.departureLongitude = pickup?.longitude ?? null;
+  subscription.destinationLatitude = destination?.latitude ?? null;
+  subscription.destinationLongitude = destination?.longitude ?? null;
   return subscription;
 }
 
@@ -54,7 +58,7 @@ async function passengerAssignment(passengerId) {
       u.fullName AS driverName, u.phone AS assignment_driver_phone,
       p.vehicle_color AS assignment_vehicle_color,
       l.latitude, l.longitude, l.speed, l.current_stop AS currentStop,
-      l.updated_at AS lastGpsAt, t.id AS assignment_trip_id
+      l.updated_at AS lastGpsAt, t.id AS assignment_trip_id, t.direction AS assignment_trip_direction
     FROM vehicles v
     JOIN routes r ON r.id=v.assignedRouteId AND r.id=? AND COALESCE(r.companyId,'')=''
       AND COALESCE(r.routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'

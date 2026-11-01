@@ -321,11 +321,11 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
         Text("Nearby available drivers can send quotes. Compare their offers and choose your driver. Sending a request does not collect payment.", color = CommuteInk, fontSize = 12.sp)
         MobilityField(name, { name = it }, "Your full name", "request_name")
         MobilityField(phone, { phone = it }, "Phone number", "request_phone", number = true)
-        MobilityField(origin, { origin = it }, "Departure / pickup address", "request_origin")
-        MobilityField(destination, { destination = it }, "Destination / delivery address", "request_destination")
-        run {
-            OutlinedButton(onClick = { picking = "origin" }, modifier = Modifier.fillMaxWidth().testTag("request_pickup_location")) { Icon(Icons.Default.LocationOn, null); Text(if (fromPoint == null) "Choose departure location on map" else "Departure location selected ✓") }
-            OutlinedButton(onClick = { picking = "destination" }, modifier = Modifier.fillMaxWidth().testTag("request_delivery_location")) { Icon(Icons.Default.LocationOn, null); Text(if (toPoint == null) "Choose destination location on map" else "Destination location selected ✓") }
+        Box(Modifier.testTag("request_pickup_location")) {
+            CargoLocationField("Pickup location", origin, false, "request_origin", !state.busy) { picking = "origin" }
+        }
+        Box(Modifier.testTag("request_delivery_location")) {
+            CargoLocationField("Destination", destination, false, "request_destination", !state.busy) { picking = "destination" }
         }
         MobilityDateField(date, { date = it })
         roadDistance?.let { Text(it, color = CommuteTeal, fontSize = 12.sp) }
@@ -339,7 +339,7 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
         }
         MobilityAdult(state.adultConfirmed, !state.busy, onAdult)
         val validCargo = kind != "CARGO" || (details.isNotBlank() && (weight.toDoubleOrNull() ?: 0.0) > 0 && photo.bytes != null && fromPoint != null && toPoint != null)
-        MobilityButton("Send request", !state.busy && !photo.busy && state.adultConfirmed && name.isNotBlank() && phone.isNotBlank() && origin.isNotBlank() && destination.isNotBlank() && type.isNotBlank() && validCargo && (kind != "GROUP" || (people.toIntOrNull() ?: 0) > 0), "mobility_send_request") {
+        MobilityButton("Send request", !state.busy && !photo.busy && state.adultConfirmed && name.isNotBlank() && phone.isNotBlank() && origin.isNotBlank() && destination.isNotBlank() && type.isNotBlank() && validCargo && (kind != "GROUP" || ((people.toIntOrNull() ?: 0) > 0 && fromPoint != null && toPoint != null && fromPoint != toPoint)), "mobility_send_request") {
             send(MobilityRequestInput(kind, origin.trim(), destination.trim(), date, people.toIntOrNull(), type, details.trim().takeIf { kind == "CARGO" }, name.trim(), phone.trim(), state.adultConfirmed,
                 fromPoint?.first, fromPoint?.second, toPoint?.first, toPoint?.second, weight.toDoubleOrNull().takeIf { kind == "CARGO" }, travelTime), photo.bytes, photo.type)
         }

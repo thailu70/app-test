@@ -279,9 +279,18 @@ private suspend fun loadMobilityCargoPhoto(api: MobilityApi, requestId: String):
     var origin by remember { mutableStateOf("") }; var destination by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(intercityToday()) }; var time by remember { mutableStateOf("08:00") }
     var seats by remember { mutableStateOf("") }; var fare by remember { mutableStateOf("") }
-    var point by remember { mutableStateOf<Pair<Double, Double>?>(null) }; var mapOpen by remember { mutableStateOf(false) }
+    var point by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var destinationPoint by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var mapOpen by remember { mutableStateOf<String?>(null) }
     var problem by remember { mutableStateOf<String?>(null) }
-    if (mapOpen) MobilityLocationPicker("Approved departure / boarding point", point, { mapOpen = false }, { point = it; mapOpen = false })
+    if (mapOpen != null) {
+        val pickup = mapOpen == "pickup"
+        MobilityLocationPicker(if (pickup) "Choose pickup location" else "Choose destination location",
+            if (pickup) point else destinationPoint, { mapOpen = null },
+            { chosen -> if (pickup) point = chosen else destinationPoint = chosen; mapOpen = null },
+            onPlaceName = { name -> if (pickup) origin = name else destination = name },
+            initialLabel = if (pickup) origin else destination)
+    }
     MobilityCard {
         Text("Propose your group trip", fontWeight = FontWeight.Bold, fontSize = 25.sp, color = CommuteInk)
         Text("Your trip and per-seat price require admin approval before travelers can see or book it.", fontSize = 12.sp, color = CommuteInk)
@@ -289,15 +298,14 @@ private suspend fun loadMobilityCargoPhoto(api: MobilityApi, requestId: String):
             OutlinedButton(onClick = { vehicleMenu = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(vehicles.find { it.id == vehicle }?.let { "${it.plateNumber} · ${it.model}" } ?: "Choose your vehicle"); Icon(Icons.Default.ArrowDropDown, null) }
             DropdownMenu(vehicleMenu, { vehicleMenu = false }) { vehicles.forEach { item -> DropdownMenuItem(text = { Text("${item.plateNumber} · ${item.capacityLimit} seats") }, onClick = { vehicle = item.id; vehicleMenu = false; seats = "" }) } }
         }
-        MobilityField(origin, { origin = it }, "Departure", "group_proposal_origin")
-        MobilityField(destination, { destination = it }, "Destination", "group_proposal_destination")
+        CargoLocationField("Departure / boarding point", origin, false, "group_proposal_origin", !busy) { mapOpen = "pickup" }
+        CargoLocationField("Destination", destination, false, "group_proposal_destination", !busy) { mapOpen = "destination" }
         MobilityDateField(date, { date = it })
         MobilityField(time, { time = it.take(5) }, "Departure time · HH:mm · Ethiopia time", "group_proposal_time")
-        OutlinedButton(onClick = { mapOpen = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.LocationOn, null); Spacer(Modifier.width(5.dp)); Text(if (point == null) "Choose boarding point on map" else "Boarding point selected ✓") }
         MobilityField(seats, { seats = it.filter(Char::isDigit).take(3) }, "Bookable seats · vehicle limit ${vehicles.find { it.id == vehicle }?.capacityLimit ?: 0}", "group_proposal_seats", number = true)
         MobilityField(fare, { fare = it }, "Price per seat · ETB", "group_proposal_fare", number = true)
         problem?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        MobilityButton("Send trip for approval", !busy && point != null && origin.isNotBlank() && destination.isNotBlank() && vehicle.isNotBlank(), "group_proposal_submit") {
+        MobilityButton("Send trip for approval", !busy && point != null && destinationPoint != null && point != destinationPoint && origin.isNotBlank() && destination.isNotBlank() && vehicle.isNotBlank(), "group_proposal_submit") {
             try {
                 val count = seats.toIntOrNull(); val price = fare.toDoubleOrNull(); val capacity = vehicles.find { it.id == vehicle }?.capacityLimit ?: 0
                 require(count != null && count in 1..capacity.coerceAtMost(100)) { "Choose a seat count within your vehicle capacity." }

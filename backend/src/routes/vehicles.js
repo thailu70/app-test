@@ -160,13 +160,14 @@ router.get('/tracking', authenticate, async (req, res) => {
   try {
     res.set('Cache-Control', 'private, no-store');
     let row = null;
+    let routeEndpoints = {};
     if (req.user.role === 'DRIVER') {
       // Assignment exists before departure too. A stopped trip is not an unassigned vehicle.
       row = await DB.prepare(`
         SELECT v.*, r.name AS routeName, r.morningDeparture,
           u.fullName AS driverName, l.latitude, l.longitude, l.speed,
           l.current_stop AS currentStop, l.updated_at AS lastGpsAt,
-          t.id AS assignment_trip_id
+          t.id AS assignment_trip_id, t.direction AS assignment_trip_direction
         FROM vehicles v
         JOIN users u ON u.id=v.driverId AND u.role='DRIVER' AND u.status='ACTIVE'
         JOIN routes r ON r.id=v.assignedRouteId AND COALESCE(r.companyId,'')=COALESCE(v.companyId,'')
@@ -175,6 +176,13 @@ router.get('/tracking', authenticate, async (req, res) => {
         WHERE v.driverId=? AND COALESCE(v.companyId,'')=?
         ORDER BY t.startTime DESC, v.updatedAt DESC LIMIT 1
       `).get(req.user.id, req.user.companyId || '');
+      if (row) {
+        const stops = await DB.prepare('SELECT stopName,latitude,longitude FROM route_stops WHERE routeId=? ORDER BY stopOrder ASC,id ASC').all(row.assignedRouteId);
+        const start = stops[0], end = stops.length > 1 ? stops[stops.length - 1] : null;
+        routeEndpoints = { departureStopName: start?.stopName || '', destinationStopName: end?.stopName || '',
+          departureLatitude: start?.latitude ?? null, departureLongitude: start?.longitude ?? null,
+          destinationLatitude: end?.latitude ?? null, destinationLongitude: end?.longitude ?? null };
+      }
     } else if (req.user.role === 'PASSENGER') {
       const assignment = await passengerAssignment(req.user.id);
       if (!assignment.subscription) return res.json({ success: true, status: 'UNASSIGNED', vehicle: null,
@@ -182,6 +190,10 @@ router.get('/tracking', authenticate, async (req, res) => {
       if (!assignment.active) return res.json({ success: true, status: 'INACTIVE', vehicle: null,
         message: 'Live tracking is available when your commute pass is active.' });
       row = assignment.vehicle;
+      const s = assignment.subscription;
+      routeEndpoints = { departureStopName: s.pickupStopName, destinationStopName: s.destinationStopName,
+        departureLatitude: s.departureLatitude, departureLongitude: s.departureLongitude,
+        destinationLatitude: s.destinationLatitude, destinationLongitude: s.destinationLongitude };
     } else {
       return res.status(403).json({ success: false, error: 'Only drivers and passengers can access vehicle tracking.' });
     }
@@ -199,7 +211,8 @@ router.get('/tracking', authenticate, async (req, res) => {
       capacityLimit: row.capacityLimit, currentOccupancy: row.currentOccupancy,
       assignedRouteId: row.assignedRouteId, routeName: row.routeName || '',
       morningDeparture: row.morningDeparture || null,
-      driverId: row.driverId, driverName: row.driverName || '', ...location
+      driverId: row.driverId, driverName: row.driverName || '', ...location, ...routeEndpoints,
+      tripDirection: row.assignment_trip_direction || null, tripStatus: row.assignment_trip_id ? 'IN_PROGRESS' : null
     } });
   } catch (err) {
     console.error('[RoutePass] vehicle tracking query failed:', err);

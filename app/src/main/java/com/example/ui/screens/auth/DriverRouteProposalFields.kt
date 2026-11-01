@@ -66,13 +66,11 @@ internal fun DriverRouteProposalFields(draft: AuthDraft, applications: DriverApp
         finally { draft.quoteLoading = false }
     }
     Text(t("Propose your daily route", "የዕለት መስመርዎን ይጠቁሙ", "Karaa guyyaa kee yaada dhiheessi"), color = CommuteInk)
-    AuthField(draft.pickup, { draft.pickup = it.take(120) }, t("Pickup / departure", "መነሻ", "Bakka ka'umsaa"),
-        Modifier.fillMaxWidth().testTag("auth_driver_pickup_input"), enabled = enabled, language = language, leadingIcon = Icons.Default.LocationOn)
+    AuthRouteLocationField(draft, true, t("Pickup / departure", "መነሻ", "Bakka ka'umsaa"), "auth_driver_pickup_input", enabled, language)
     departures.filter { !it.label.equals(draft.pickup.trim(), true) }.take(3).forEach { place ->
         TextButton(onClick = { draft.pickup = place.label }, enabled = enabled, modifier = Modifier.testTag("auth_departure_suggestion_${place.label}")) { Text(place.label, color = CommuteTeal) }
     }
-    AuthField(draft.destination, { draft.destination = it.take(120) }, t("Destination", "መድረሻ", "Bakka ga'umsaa"),
-        Modifier.fillMaxWidth().testTag("auth_driver_destination_input"), enabled = enabled, language = language, leadingIcon = Icons.Default.LocationOn)
+    AuthRouteLocationField(draft, false, t("Destination", "መድረሻ", "Bakka ga'umsaa"), "auth_driver_destination_input", enabled, language)
     destinations.filter { !it.label.equals(draft.destination.trim(), true) }.take(3).forEach { place ->
         TextButton(onClick = { draft.destination = place.label }, enabled = enabled, modifier = Modifier.testTag("auth_destination_suggestion_${place.label}")) { Text(place.label, color = CommuteTeal) }
     }

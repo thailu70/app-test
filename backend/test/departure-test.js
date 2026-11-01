@@ -75,6 +75,10 @@ test('driver operations enforce assignment and departure gate on direct API call
     assert.equal(assigned.departureStopName, 'ops_origin');
     assert.equal(assigned.destinationStopId, 'ops_end');
     assert.equal(assigned.destinationStopName, 'ops_end');
+    assert.equal(assigned.departureLatitude, 9);
+    assert.equal(assigned.departureLongitude, 38.7);
+    assert.equal(assigned.destinationLatitude, 9.1);
+    assert.equal(assigned.destinationLongitude, 38.8);
     await DB.prepare('UPDATE route_stops SET stopName=?,stopNameAm=? WHERE id=?')
       .run('Updated actual departure', 'የተዘመነ መነሻ', 'ops_origin');
     await DB.prepare('UPDATE route_stops SET stopName=?,stopNameAm=? WHERE id=?')
@@ -90,6 +94,8 @@ test('driver operations enforce assignment and departure gate on direct API call
     assert.equal(unconfigured.departureStopName, '');
     assert.equal(unconfigured.destinationStopId, null);
     assert.equal(unconfigured.destinationStopName, '');
+    assert.equal(unconfigured.departureLatitude, null);
+    assert.equal(unconfigured.destinationLatitude, null);
     // Keep the separate boarding-gate fixtures independent of these edit checks.
     await DB.prepare('UPDATE route_stops SET stopName=?,stopNameAm=? WHERE id=?').run('ops_origin', 'ops_origin', 'ops_origin');
     await DB.prepare('UPDATE route_stops SET stopName=?,stopNameAm=? WHERE id=?').run('ops_end', 'ops_end', 'ops_end');

@@ -92,8 +92,16 @@ fun MiniVehicleMap(
                     }
                 }
             }
-            if (hasPosition && vehicle != null && lat != null && lon != null) {
-                VehiclePositionMap(vehicle, lat, lon, mapHeight)
+            if (vehicle != null && (hasPosition || vehicle.departureLatitude != null || vehicle.destinationLatitude != null)) {
+                val origin = vehicle.departureLatitude?.let { a -> vehicle.departureLongitude?.let { a to it } }
+                val target = vehicle.destinationLatitude?.let { a -> vehicle.destinationLongitude?.let { a to it } }
+                val inbound = vehicle.tripDirection == "INBOUND"
+                MobilityRoadMap(if (inbound) target else origin, if (inbound) origin else target,
+                    driverLocation = if (hasPosition && lat != null && lon != null) com.example.data.api.MobilityLocation(lat, lon, vehicle.lastGpsAt.orEmpty(), stale = !live) else null,
+                    stage = if (vehicle.tripStatus == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED",
+                    pickupLabel = (if (inbound) vehicle.destinationStopName else vehicle.departureStopName).orEmpty().ifBlank { "Departure" },
+                    destinationLabel = (if (inbound) vehicle.departureStopName else vehicle.destinationStopName).orEmpty().ifBlank { "Destination" },
+                    mapHeight = mapHeight, trackingActive = live)
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (updateFailed) {
                         Text("Unable to refresh the location. Showing the last update.", style = MaterialTheme.typography.bodySmall, color = Slate600)
@@ -139,64 +147,4 @@ private fun locationUpdateLabel(ageSeconds: Long): String = when {
     ageSeconds < 86_400 -> "Updated ${ageSeconds / 3600} hours ago"
     ageSeconds < 172_800 -> "Updated 1 day ago"
     else -> "Updated ${ageSeconds / 86_400} days ago"
-}
-
-@Composable
-private fun VehiclePositionMap(vehicle: TrackedVehicleDto, latitude: Double, longitude: Double, mapHeight: Int) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val mapView = remember(context, vehicle.id) { createMapView(context) }
-    val marker = remember(mapView) {
-        Marker(mapView).apply {
-            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            mapView.overlays.add(this)
-        }
-    }
-    DisposableEffect(lifecycleOwner, mapView) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
-                else -> Unit
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) mapView.onResume()
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            mapView.onPause()
-            mapView.onDetach()
-        }
-    }
-    // Clip the Android view itself as well as its Compose bounds when the page scrolls.
-    Box(Modifier.fillMaxWidth().height(mapHeight.coerceIn(160, 280).dp).clip(RoundedCornerShape(14.dp))) {
-        key(mapView) {
-            AndroidView(
-                factory = { mapView },
-                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
-                update = { view ->
-                    val point = GeoPoint(latitude, longitude)
-                    marker.position = point
-                    marker.title = vehicle.plateNumber
-                    marker.snippet = vehicle.currentStop.orEmpty()
-                    view.controller.setCenter(point)
-                    view.invalidate()
-                }
-            )
-        }
-    }
-}
-
-private fun createMapView(context: Context): MapView {
-    Configuration.getInstance().userAgentValue = context.packageName
-    return MapView(context).apply {
-        setTileSource(TileSourceFactory.MAPNIK)
-        setMultiTouchControls(true)
-        setBuiltInZoomControls(false)
-        clipChildren = true
-        clipToPadding = true
-        clipToOutline = true
-        contentDescription = "Your vehicle location map"
-        controller.setZoom(15.0)
-    }
 }

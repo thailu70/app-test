@@ -231,7 +231,7 @@ fun CommuterLocationCard(vehicle: TrackedVehicleDto?, message: String?, lang: Ap
                 Text(commuteText(lang, "VEHICLE LOCATION", "የተሽከርካሪ ቦታ", "BAKKA KONKOLAATAA"), fontSize = 10.sp, letterSpacing = 1.3.sp, fontWeight = FontWeight.Bold, color = CommuteTeal, modifier = Modifier.weight(1f))
                 IconButton(onClick = onOpen, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.ArrowForward, commuteText(lang, "Open location", "ቦታ ክፈት", "Bakka bani"), tint = CommuteTeal) }
             }
-            if (vehicle?.hasGpsLocation == true) MiniVehicleMap(vehicle, mapHeight = 150, serverMessage = message)
+            if (vehicle?.hasGpsLocation == true || vehicle?.departureLatitude != null) MiniVehicleMap(vehicle, mapHeight = 190, serverMessage = message)
             else {
                 Text(commuteText(lang, "Stay close\nto your ride.", "የጉዞዎን መረጃ\nይከታተሉ።", "Imala kee\nhordofi."), fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
                 Text(message?.takeIf { it.isNotBlank() } ?: commuteText(lang, "Your driver's location will appear when GPS sharing starts.", "የሹፌርዎ ቦታ ማጋራት ሲጀምር ይታያል።", "Bakka konkolaachisaa yeroo GPS banamu ni argita."), fontSize = 12.sp, lineHeight = 17.sp, color = Color(0xFF526270))

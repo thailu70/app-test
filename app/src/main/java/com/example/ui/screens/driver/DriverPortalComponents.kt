@@ -158,7 +158,8 @@ fun DriverRouteOverview(routeName: String, vehiclePlate: String, vehicleType: St
                         origin: String?, destination: String?, fix: DriverGpsFix?, gpsStatus: String,
                         validation: DriverDepartureValidation?, now: Long, language: AppLanguage,
                         onDirection: (String) -> Unit, onReadiness: (() -> Unit)?, boarding: Boolean,
-                        onComplete: () -> Unit, busy: Boolean, routeId: String? = null) {
+                        onComplete: () -> Unit, busy: Boolean, routeId: String? = null,
+                        departurePoint: Pair<Double, Double>? = null, destinationPoint: Pair<Double, Double>? = null) {
     val assignedRouteId = routeId ?: stops.map { it.routeId }.distinct().singleOrNull()
     val scopedStops = stops.filter { it.routeId == assignedRouteId }
     val locations = assignedRouteLocations(assignedRouteId, routeName, scopedStops, language,
@@ -184,9 +185,14 @@ fun DriverRouteOverview(routeName: String, vehiclePlate: String, vehicleType: St
                     DriverRouteStop(driverText(language, "DEPARTURE", "መነሻ", "KA'UMSA"), locations.departure ?: driverText(language, "Departure unavailable", "መነሻ አልተገኘም", "Ka'umsi hin argamne"), driverWindowInfo(schedule, now).timeLabel)
                     DriverRouteStop(driverText(language, "DESTINATION", "መድረሻ", "GA'UMSA"), locations.destination ?: driverText(language, "Destination unavailable", "መድረሻ አልተገኘም", "Ga'umsi hin argamne"), null)
                 }
-                val mapHeight = (155 * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
-                DriverRouteMap(fix, Modifier.weight(1f).height(mapHeight), language)
             }
+            val ordered = scopedStops.sortedBy { it.stopOrder }
+            val first = departurePoint ?: ordered.firstOrNull()?.let { it.latitude to it.longitude }
+            val last = destinationPoint ?: ordered.takeIf { it.size > 1 }?.last()?.let { it.latitude to it.longitude }
+            DriverRouteMap(fix, Modifier.fillMaxWidth(), language,
+                pickup = if (direction == "INBOUND") last else first,
+                destination = if (direction == "INBOUND") first else last,
+                pickupLabel = locations.departure ?: "Departure", destinationLabel = locations.destination ?: "Destination", inProgress = boarding)
             Text(gpsStatus, fontSize = 10.sp, lineHeight = 14.sp, color = Color(0xFF526575))
             validation?.let { Text(it.message, color = if (it.allowed) CommuteTeal else Color(0xFF9A302F), fontSize = 12.sp) }
             if (boarding) OutlinedButton(onClick = onComplete, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("driver_complete_route"), shape = CircleShape) {

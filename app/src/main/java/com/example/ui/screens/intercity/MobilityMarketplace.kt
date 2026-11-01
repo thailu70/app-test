@@ -28,6 +28,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.data.api.*
+import com.example.ui.components.MobilityRoadMap
 import com.example.core.localization.AppLanguage
 import com.example.core.notifications.MobilityNotificationNavigation
 import com.example.core.notifications.MobilityNotificationOptIn
@@ -84,6 +85,7 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
     var knownRequests by remember { mutableStateOf<Set<String>?>(null) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permission = hasMobilityLocationPermission(context) }
     val active = dashboard.requests.firstOrNull { mobilityNextAction(it.status) != null }
+    var ownLocation by remember(active?.id) { mutableStateOf<MobilityLocation?>(null) }
     val pending = dashboard.requests.filter { it.status in setOf("AWAITING_CONFIRMATION", "DISPUTED") }
     val current = active ?: pending.firstOrNull()
     val history = dashboard.requests.filter { it.status in setOf("COMPLETED", "CANCELLED", "REJECTED", "EXPIRED") }
@@ -121,7 +123,9 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
             if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) try {
                 val fix = freshMobilityLocation(context)
                 val timestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date(fix.time))
-                val response = mobilityBody(api.updateRequestLocation(active.id, MobilityLocation(fix.latitude, fix.longitude, timestamp, fix.accuracy.toDouble())))
+                val position = MobilityLocation(fix.latitude, fix.longitude, timestamp, fix.accuracy.toDouble())
+                ownLocation = position
+                val response = mobilityBody(api.updateRequestLocation(active.id, position))
                 check(response.success) { response.error ?: "Location update failed." }
             } catch (e: CancellationException) { throw e } catch (e: Exception) { message = e.message ?: "Location could not be shared." }
             delay(15000)
@@ -193,7 +197,7 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
             "Current" -> {
                 current?.let { job -> DriverJobCard(api, job, working, permission, onPhoto,
                     enableLocation = { permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) },
-                    progress = { action -> act { val response = mobilityBody(api.progress(job.id, MobilityProgressInput(action))); check(response.success) { response.error ?: "Could not update this task." } } }) }
+                    progress = { action -> act { val response = mobilityBody(api.progress(job.id, MobilityProgressInput(action))); check(response.success) { response.error ?: "Could not update this task." } } }, driverLocation = ownLocation) }
                     ?: MobilityCard { Icon(Icons.Default.LocalShipping, null, tint = CommuteTeal); Text("Ready for your next job", color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 20.sp); Text("Choose a request and send your quote. The customer chooses their driver.", color = CommuteInk, fontSize = 13.sp) }
                 if (active == null && result?.busy != true) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 5.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -250,7 +254,8 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
 }
 
 @Composable private fun DriverJobCard(api: MobilityApi, job: MobilityRequest, working: Boolean, permission: Boolean,
-    onPhoto: (String) -> Unit, enableLocation: () -> Unit, progress: (String) -> Unit, compact: Boolean = false) {
+    onPhoto: (String) -> Unit, enableLocation: () -> Unit, progress: (String) -> Unit, compact: Boolean = false,
+    driverLocation: MobilityLocation? = null) {
     val context = LocalContext.current
     var expanded by remember(job.id) { mutableStateOf(!compact) }
     var detailsOpen by remember(job.id) { mutableStateOf(false) }
@@ -266,6 +271,11 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
             Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ChevronRight, if (expanded) "Collapse job" else "View job", tint = CommuteTeal)
         }
         if (expanded) {
+            if (inProgress) MobilityRoadMap(
+                pickup = job.originLatitude?.let { lat -> job.originLongitude?.let { lat to it } },
+                destination = job.destinationLatitude?.let { lat -> job.destinationLongitude?.let { lat to it } },
+                driverLocation = driverLocation, stage = job.status, pickupLabel = job.origin,
+                destinationLabel = job.destination, providedApi = api, mapHeight = 250)
             if (awaiting) Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.CheckCircle, null, tint = CommuteTeal, modifier = Modifier.size(19.dp)); Spacer(Modifier.width(9.dp)); Text(if (job.kind == "CARGO") "Cargo delivered" else "Journey completed", color = CommuteInk, fontSize = 13.sp) }
                 Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.RadioButtonUnchecked, null, tint = Color(0xFF9AAAB5), modifier = Modifier.size(19.dp)); Spacer(Modifier.width(9.dp)); Text("Customer confirmation pending", color = Color(0xFF61768A), fontSize = 13.sp) }
@@ -344,10 +354,12 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
         request.driverPhone?.takeIf { it.isNotBlank() }?.let { phone -> OutlinedButton(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))) } }, modifier = Modifier.fillMaxWidth()) { Text("Call driver") } }
         if (request.status in setOf("ASSIGNED", "AT_PICKUP", "LOADED", "IN_TRANSIT", "AT_DESTINATION")) {
             Text("Driver location", fontWeight = FontWeight.Bold, color = CommuteInk)
-            state.driverLocation?.let { location ->
-                MobilityTrackingMap(location)
-                Text("Last updated: ${location.timestamp}", fontSize = 12.sp)
-            } ?: Text("Waiting for the driver's location. Ask the driver to enable location and keep Passo open.", fontSize = 12.sp)
+            MobilityRoadMap(
+                pickup = request.originLatitude?.let { lat -> request.originLongitude?.let { lat to it } },
+                destination = request.destinationLatitude?.let { lat -> request.destinationLongitude?.let { lat to it } },
+                driverLocation = state.driverLocation, stage = request.status, pickupLabel = request.origin,
+                destinationLabel = request.destination, trackingActive = state.driverTrackingActive,
+                statusMessage = if (state.driverLocation == null) "Waiting for the driver's shared location." else null)
         }
         if (request.status == "AWAITING_CONFIRMATION") {
             Text("Your driver has completed the service", fontWeight = FontWeight.Bold)
@@ -362,18 +374,4 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
             MobilityButton("Send $rating-star review", !state.busy, "market_review") { review(rating, comment) }
         }
     }
-}
-
-@Composable private fun MobilityTrackingMap(location: MobilityLocation) {
-    val context = LocalContext.current
-    val map = remember {
-        Configuration.getInstance().userAgentValue = context.packageName
-        MapView(context).apply { setTileSource(TileSourceFactory.MAPNIK); setMultiTouchControls(true); controller.setZoom(14.0) }
-    }
-    val marker = remember(map) { Marker(map).apply { title = "Your driver"; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM); map.overlays.add(this) } }
-    DisposableEffect(map) { map.onResume(); onDispose { map.onPause(); map.onDetach() } }
-    AndroidView(factory = { map }, modifier = Modifier.fillMaxWidth().height(210.dp), update = {
-        val point = GeoPoint(location.latitude, location.longitude); marker.position = point; map.controller.setCenter(point); map.invalidate()
-    })
-    Text("© OpenStreetMap contributors", fontSize = 10.sp)
 }

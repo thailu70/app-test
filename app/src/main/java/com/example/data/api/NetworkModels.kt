@@ -260,7 +260,11 @@ data class TrackedVehicleDto(
     val lastGpsAt: String? = null,
     val hasGpsLocation: Boolean = false,
     val trackingStatus: String = "NO_GPS",
-    val gpsAgeSeconds: Long? = null
+    val gpsAgeSeconds: Long? = null,
+    val departureLatitude: Double? = null, val departureLongitude: Double? = null,
+    val destinationLatitude: Double? = null, val destinationLongitude: Double? = null,
+    val departureStopName: String? = null, val destinationStopName: String? = null,
+    val tripDirection: String? = null, val tripStatus: String? = null
 )
 
 @JsonClass(generateAdapter = true)

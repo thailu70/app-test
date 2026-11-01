@@ -27,7 +27,7 @@ internal data class MobilityUiState(val phase: MobilityPhase = MobilityPhase.BRO
     val requests: List<MobilityRequest> = emptyList(), val request: MobilityRequest? = null,
     val checkoutUrl: String? = null, val adultConfirmed: Boolean = false,
     val quotes: List<MobilityQuote> = emptyList(), val driverLocation: MobilityLocation? = null,
-    val reviewSent: Boolean = false)
+    val reviewSent: Boolean = false, val driverTrackingActive: Boolean = true)
 
 internal fun <T> mobilityBody(response: Response<T>): T {
     if (!response.isSuccessful) {
@@ -177,7 +177,7 @@ internal class MobilityViewModel(private val api: MobilityApi, private val store
         if (mutable.value.request?.id == id) mutable.update { it.copy(quotes = quotes.quotes) }
         if (mutable.value.request?.driverId != null) {
             val location = mobilityBody(api.requestLocation(id, secret))
-            if (mutable.value.request?.id == id) mutable.update { it.copy(driverLocation = location.location) }
+            if (mutable.value.request?.id == id) mutable.update { it.copy(driverLocation = location.location, driverTrackingActive = location.trackingActive) }
         }
     }
     fun refreshRequest() { mutable.value.request?.id?.let(::openRequest) }

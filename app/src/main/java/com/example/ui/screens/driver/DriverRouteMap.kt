@@ -55,8 +55,18 @@ import org.osmdroid.views.overlay.Marker
 fun DriverRouteMap(
     fix: DriverGpsFix?,
     modifier: Modifier = Modifier,
-    language: AppLanguage = AppLanguage.ENGLISH
+    language: AppLanguage = AppLanguage.ENGLISH,
+    pickup: Pair<Double, Double>? = null, destination: Pair<Double, Double>? = null,
+    pickupLabel: String = "Departure", destinationLabel: String = "Destination", inProgress: Boolean = false
 ) {
+    if (pickup != null || destination != null) {
+        com.example.ui.components.MobilityRoadMap(pickup, destination,
+            driverLocation = driverMapFreshFix(fix, System.currentTimeMillis())?.let {
+                com.example.data.api.MobilityLocation(it.latitude, it.longitude, java.time.Instant.ofEpochMilli(it.timestamp).toString(), it.accuracyMeters)
+            }, stage = if (inProgress) "IN_PROGRESS" else "ASSIGNED", pickupLabel = pickupLabel,
+            destinationLabel = destinationLabel, modifier = modifier, mapHeight = 240)
+        return
+    }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(fix) {
         now = System.currentTimeMillis()

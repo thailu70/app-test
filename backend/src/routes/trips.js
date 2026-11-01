@@ -25,7 +25,7 @@ router.get('/assignments', authenticate, requireRole('DRIVER'), operationalAccou
     // Fetch the endpoint names with each assignment response. Route edits can replace stop IDs
     // without changing assignedRouteId, so a driver's existing local stop cache is insufficient.
     const endpointRows = await Promise.all([...new Set(vehicles.map(v => v.assignedRouteId))].map(async routeId => {
-      const stops = await DB.prepare('SELECT id, stopName, stopNameAm FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC, id ASC').all(routeId);
+      const stops = await DB.prepare('SELECT id, stopName, stopNameAm, latitude, longitude FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC, id ASC').all(routeId);
       return [routeId, { departure: stops[0] || null, destination: stops.length > 1 ? stops[stops.length - 1] : null }];
     }));
     const endpoints = new Map(endpointRows);
@@ -37,7 +37,9 @@ router.get('/assignments', authenticate, requireRole('DRIVER'), operationalAccou
         departureStopNameAm: departure?.stopNameAm || '',
         destinationStopId: destination?.id || null,
         destinationStopName: destination?.stopName || '',
-        destinationStopNameAm: destination?.stopNameAm || '' };
+        destinationStopNameAm: destination?.stopNameAm || '',
+        departureLatitude: departure?.latitude ?? null, departureLongitude: departure?.longitude ?? null,
+        destinationLatitude: destination?.latitude ?? null, destinationLongitude: destination?.longitude ?? null };
     }) });
   } catch (err) { console.error('[Driver assignments]', err); res.status(500).json({ success: false, error: 'Could not load driver assignments.' }); }
 });

@@ -14,7 +14,9 @@ data class DriverVehicleAssignment(
     val id: String, val plateNumber: String, val vehicleType: String, val capacityLimit: Int,
     val assignedRouteId: String, val routeName: String = "", val morningDeparture: String = "", val eveningDeparture: String = "",
     val departureStopName: String? = null, val departureStopNameAm: String? = null,
-    val destinationStopName: String? = null, val destinationStopNameAm: String? = null
+    val destinationStopName: String? = null, val destinationStopNameAm: String? = null,
+    val departureLatitude: Double? = null, val departureLongitude: Double? = null,
+    val destinationLatitude: Double? = null, val destinationLongitude: Double? = null
 )
 data class DriverDepartureValidation(
     val allowed: Boolean = false, val code: String = "", val message: String = "",

@@ -55,6 +55,24 @@ test('passenger assignment, pass and location remain consistent without fabricat
     assert.equal(pass.data.subscription.vehicleId,tracked.vehicle.id);
     assert.equal(pass.cache,'private, no-store');
   });
+  await t.test('journey graphics use the passengers own pickup rather than another route stop', async () => {
+    for (const [id, name, order, latitude, longitude] of [
+      ['pa_origin', 'Route origin', 1, 8.9, 38.6],
+      ['real_pickup', 'Personal pickup', 2, 9.04, 38.76],
+      ['real_destination', 'Personal destination', 3, 9.2, 38.8]
+    ]) await DB.prepare('INSERT INTO route_stops(id,routeId,stopName,stopNameAm,stopOrder,latitude,longitude) VALUES(?,?,?,?,?,?,?)')
+      .run(id, 'pa_route', name, name, order, latitude, longitude);
+    const passenger = (await tracking()).vehicle;
+    assert.equal(passenger.departureStopName, 'Personal pickup');
+    assert.equal(passenger.departureLatitude, 9.04);
+    assert.equal(passenger.departureLongitude, 38.76);
+    assert.equal(passenger.destinationLatitude, 9.2);
+    assert.equal(passenger.tripStatus, null);
+    const driver = (await get('/api/vehicles/tracking', 'pa_driver')).data.vehicle;
+    assert.equal(driver.departureLatitude, 8.9);
+    assert.equal(driver.departureStopName, 'Route origin');
+    assert.equal((await get('/api/vehicles/tracking', 'pa_b')).data.vehicle, null);
+  });
   await t.test('real GPS is labeled offline, live, stale and invalid accurately', async () => {
     await DB.prepare('INSERT INTO vehicle_live_locations(vehicle_id,latitude,longitude,updated_at) VALUES(?,?,?,?)').run('pa_vehicle',9.04,38.76,new Date().toISOString());
     let tracked = await tracking();

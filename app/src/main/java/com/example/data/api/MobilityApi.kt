@@ -103,9 +103,9 @@ data class MobilityProgressInput(val action: String)
 @JsonClass(generateAdapter = true)
 data class MobilityConfirmInput(val action: String, val note: String = "")
 @JsonClass(generateAdapter = true)
-data class MobilityLocation(val latitude: Double, val longitude: Double, val timestamp: String = "", val accuracyMeters: Double? = null)
+data class MobilityLocation(val latitude: Double, val longitude: Double, val timestamp: String = "", val accuracyMeters: Double? = null, val stale: Boolean = false)
 @JsonClass(generateAdapter = true)
-data class MobilityLocationResponse(val success: Boolean, val location: MobilityLocation? = null, val error: String? = null)
+data class MobilityLocationResponse(val success: Boolean, val location: MobilityLocation? = null, val error: String? = null, val trackingActive: Boolean = true)
 @JsonClass(generateAdapter = true)
 data class MobilityReview(val rating: Int, val comment: String = "")
 @JsonClass(generateAdapter = true)
@@ -115,7 +115,9 @@ data class MobilityPlace(val name: String, val latitude: Double, val longitude: 
 @JsonClass(generateAdapter = true)
 data class MobilityPlacesResponse(val success: Boolean, val places: List<MobilityPlace> = emptyList(), val searchAvailable: Boolean = true, val error: String? = null)
 @JsonClass(generateAdapter = true)
-data class MobilityRoadResponse(val success: Boolean, val distanceKm: Double? = null, val durationMinutes: Double? = null, val error: String? = null)
+data class MobilityRoadResponse(val success: Boolean, val distanceKm: Double? = null, val durationMinutes: Double? = null, val error: String? = null, val geometry: MobilityRoadGeometry? = null)
+@JsonClass(generateAdapter = true)
+data class MobilityRoadGeometry(val type: String = "", val coordinates: List<List<Double>> = emptyList())
 
 /** Public availability is separate from capability-protected guest details and authenticated driver operations. */
 interface MobilityApi {

@@ -229,7 +229,8 @@ internal fun AuthField(
     leadingIcon: ImageVector? = null,
     placeholder: String? = null,
     readOnly: Boolean = false,
-    decimal: Boolean = false
+    decimal: Boolean = false,
+    onMap: (() -> Unit)? = null
 ) {
     var visible by rememberSaveable(label) { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
@@ -262,6 +263,9 @@ internal fun AuthField(
                             Icon(if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                                 authDesignText(language, if (visible) "Hide password" else "Show password", if (visible) "የይለፍ ቃል ደብቅ" else "የይለፍ ቃል አሳይ", if (visible) "Jecha icciitii dhoksi" else "Jecha icciitii agarsiisi"),
                                 tint = AuthMuted, modifier = Modifier.size(22.dp))
+                        }
+                        else if (onMap != null) IconButton(onClick = onMap, enabled = enabled, modifier = Modifier.size(38.dp)) {
+                            Icon(Icons.Default.Map, authDesignText(language, "Choose location on map", "ቦታ በካርታ ይምረጡ", "Bakka kaartaa irratti filadhu"), tint = AuthTeal)
                         }
                     }
                 }

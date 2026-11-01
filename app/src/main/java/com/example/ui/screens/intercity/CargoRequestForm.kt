@@ -242,7 +242,7 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
     }
 }
 
-@Composable private fun CargoLocationField(label: String, value: String, error: Boolean, tag: String, enabled: Boolean, choose: () -> Unit) {
+@Composable internal fun CargoLocationField(label: String, value: String, error: Boolean, tag: String, enabled: Boolean, choose: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         CargoOutlinedSlot(label, error, tag, enabled, onClick = choose) {
             Icon(Icons.Default.LocationOn, null, tint = CommuteTeal, modifier = Modifier.size(21.dp))
