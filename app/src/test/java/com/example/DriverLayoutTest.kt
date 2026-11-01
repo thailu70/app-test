@@ -136,7 +136,7 @@ class DriverLayoutTest {
         } finally { map.onDetach() }
     }
 
-    @Test fun `known departure and destination remain text while missing current GPS shows awaiting location`() {
+    @Test fun `known endpoints show the journey map while missing current GPS stays explicitly unavailable`() {
         compose.setContent {
             MyApplicationTheme {
                 DriverRouteOverview("Test pickup – Test destination", "TEST-4321", "MINIVAN_8", "07:15", "OUTBOUND", false,
@@ -147,7 +147,9 @@ class DriverLayoutTest {
         }
         compose.onNode(hasText("Test pickup") and hasAnyAncestor(hasTestTag("driver_route_overview"))).assertExists()
         compose.onNode(hasText("Test destination") and hasAnyAncestor(hasTestTag("driver_route_overview"))).assertExists()
-        compose.onNodeWithTag("driver_location_unavailable").assertIsDisplayed()
+        compose.onNodeWithTag("mobility_road_map").assertExists()
+        compose.onNodeWithText("Journey route").assertExists()
+        compose.onNodeWithTag("road_map_estimate").assertDoesNotExist()
         compose.onNodeWithText("Your current GPS location will appear here.").assertExists()
     }
 

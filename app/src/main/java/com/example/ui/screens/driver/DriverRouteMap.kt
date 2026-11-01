@@ -64,7 +64,9 @@ fun DriverRouteMap(
             driverLocation = driverMapFreshFix(fix, System.currentTimeMillis())?.let {
                 com.example.data.api.MobilityLocation(it.latitude, it.longitude, java.time.Instant.ofEpochMilli(it.timestamp).toString(), it.accuracyMeters)
             }, stage = if (inProgress) "IN_PROGRESS" else "ASSIGNED", pickupLabel = pickupLabel,
-            destinationLabel = destinationLabel, modifier = modifier, mapHeight = 240)
+            destinationLabel = destinationLabel, modifier = modifier, mapHeight = 240,
+            statusMessage = if (driverMapFreshFix(fix, System.currentTimeMillis()) == null)
+                driverText(language, "Your current GPS location will appear here.", "የእርስዎ ወቅታዊ የGPS ቦታ እዚህ ይታያል።", "Bakki GPS kee yeroo ammaa asitti mul'ata.") else null)
         return
     }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
