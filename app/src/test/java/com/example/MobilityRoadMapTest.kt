@@ -4,6 +4,10 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.example.data.api.*
@@ -96,7 +100,7 @@ class MobilityRoadMapTest {
                 else -> error("Unexpected ${method.name}")
             }
         } as MobilityApi
-        compose.setContent { MyApplicationTheme { Column { MobilityRoadMap(pickup, destination, pickupLabel = "Bole loading", destinationLabel = "Sendafa delivery", providedApi = api, tileDownloadsEnabled = false) } } }
+        compose.setContent { MyApplicationTheme { Surface(Modifier.fillMaxSize(), color = Color(0xFFFFFBF4)) { Column { MobilityRoadMap(pickup, destination, pickupLabel = "Bole loading", destinationLabel = "Sendafa delivery", providedApi = api, tileDownloadsEnabled = false) } } } }
         compose.waitUntil(10_000) { compose.activity.window.decorView.findViewWithTag<MapView>("mobility_road_native_map")?.overlays?.filterIsInstance<Polyline>()?.size == 1 }
         compose.onNodeWithText("Journey route").assertIsDisplayed()
         compose.onNodeWithTag("road_map_estimate").assertDoesNotExist()

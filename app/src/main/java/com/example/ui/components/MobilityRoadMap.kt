@@ -147,7 +147,8 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
     fun fitMap() {
         val points = (plannedPoints + movingPoints + listOfNotNull(from, to,
             driverLocation?.let { (it.latitude to it.longitude).takeIf(::validRoadPoint) })).map { GeoPoint(it.first, it.second) }
-        if (points.size > 1 && points.distinct().size > 1) map.zoomToBoundingBox(BoundingBox.fromGeoPoints(points), false, 45)
+        if (points.size > 1 && points.distinct().size > 1)
+            map.zoomToBoundingBox(BoundingBox.fromGeoPoints(points), false, (52 * context.resources.displayMetrics.density).toInt())
         else points.firstOrNull()?.let { map.controller.setCenter(it); map.controller.setZoom(15.0) }
     }
     Column(modifier.fillMaxWidth().testTag("mobility_road_map"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -177,8 +178,8 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (!roadToDestination(stage)) Text("┄ To pickup", fontSize = 11.sp, color = Color(0xFF248B9A))
-            Text("━ To destination", fontSize = 11.sp, color = Color(0xFF00685C))
+            if (!roadToDestination(stage) && movingPoints.isNotEmpty()) Text("┄ To pickup", fontSize = 11.sp, color = Color(0xFF248B9A))
+            if (plannedPoints.isNotEmpty() || movingPoints.isNotEmpty()) Text("━ To destination", fontSize = 11.sp, color = Color(0xFF00685C))
         }
         val estimate = if (fresh && movingPoints.isNotEmpty()) moving else null
         if (estimate?.distanceKm != null && estimate.durationMinutes != null) Text(
