@@ -48,7 +48,7 @@ class DriverApplicationRepository(private val api: RoutePassApiService) {
         }
     }
 
-    suspend fun register(input: DriverApplicationInput) = action("Your application was received.", true) { api.registerDriverApplication(input) }
+    suspend fun register(input: DriverApplicationInput) = action("Your details were saved. Upload your documents to complete your application.", true) { api.registerDriverApplication(input) }
     suspend fun login(phone: String, password: String) = action(newSession = true) { api.loginDriverApplication(LoginRequest(phone.trim(), password, "DRIVER")) }
     suspend fun refresh() = action { api.driverApplication(authorization()) }
     suspend fun saveProfile(name: String, phone: String, color: String) = action("Your details were saved.") {
@@ -57,19 +57,19 @@ class DriverApplicationRepository(private val api: RoutePassApiService) {
     }
     suspend fun saveRoute(departure: String, destination: String, vehicleType: String, fee: Double) = action("Your route proposal was saved.") {
         val application = mutable.value.application ?: error("Sign in to your application again.")
-        check(application.onboarding?.acceptanceRequired == true && application.onboarding?.reviewStatus !in setOf("SUBMITTED", "APPROVED")) { "Your application is not open for route changes." }
+        check(application.account?.serviceType == "DAILY_COMMUTE" && application.editable) { "Your application is not open for route changes." }
         api.updateDriverApplication(authorization(), mapOf("routeChoice" to "PROPOSED", "proposedDeparture" to departure.trim(),
             "proposedDestination" to destination.trim(), "vehicleType" to vehicleType, "proposedMonthlyFeeEtb" to fee, "proposedMonthlyFeeBasis" to "PER_VEHICLE"))
     }
     suspend fun savePreferredRoute(departure: String, destination: String, vehicleType: String) = action("Your preferred route was saved.") {
         val application = mutable.value.application ?: error("Sign in to your application again.")
-        check(application.account?.serviceType in setOf("GROUP_TRAVEL", "CARGO") && application.onboarding?.reviewStatus !in setOf("SUBMITTED", "APPROVED")) { "Your application is not open for route changes." }
+        check(application.account?.serviceType in setOf("GROUP_TRAVEL", "CARGO") && application.editable) { "Your application is not open for route changes." }
         require(departure.trim().length >= 2 && destination.trim().length >= 2) { "Enter your preferred departure and destination." }
         api.updateDriverApplication(authorization(), mapOf("routeChoice" to "PROPOSED", "proposedDeparture" to departure.trim(),
             "proposedDestination" to destination.trim(), "vehicleType" to vehicleType))
     }
     suspend fun upload(kind: String, bytes: ByteArray, mime: String) = action("Your document was uploaded.") {
-        check(mutable.value.application?.editable == true) { "Document uploads open after your application is accepted." }
+        check(mutable.value.application?.editable == true) { "Your application is not open for document changes. Refresh its status first." }
         require(bytes.isNotEmpty() && bytes.size <= 5 * 1024 * 1024) { "Each document must be between 1 byte and 5 MB." }
         require(mime in setOf("image/jpeg", "image/png", "application/pdf") && (kind != "PHOTO" || mime != "application/pdf")) { "Choose a JPEG or PNG photo, or a PDF for other documents." }
         api.uploadDriverApplicationDocument(authorization(), kind, bytes.toRequestBody(mime.toMediaType()))

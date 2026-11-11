@@ -191,9 +191,9 @@ internal fun AuthIdentityTitle(isDriver: Boolean, isRegister: Boolean, language:
 @Composable
 internal fun AuthStepProgress(step: Int, isDriver: Boolean, language: AppLanguage, modifier: Modifier = Modifier) {
     val active = step.coerceIn(0, 1)
-    val labels = listOf(authDesignText(language, "Account", "መለያ", "Herrega"),
-        if (isDriver) authDesignText(language, "Driver details", "የሹፌር ዝርዝር", "Odeeffannoo konkolaachisaa")
-        else authDesignText(language, "Choose route", "መስመር ምረጥ", "Karaa filadhu"))
+    val labels = if (isDriver) listOf(authDesignText(language, "Driver details", "የሹፌር ዝርዝር", "Odeeffannoo konkolaachisaa"),
+        authDesignText(language, "Documents", "ሰነዶች", "Sanadoota"))
+        else listOf(authDesignText(language, "Account", "መለያ", "Herrega"), authDesignText(language, "Choose route", "መስመር ምረጥ", "Karaa filadhu"))
     Column(modifier.fillMaxWidth().testTag("auth_step_progress").semantics { progressBarRangeInfo = ProgressBarRangeInfo(active.toFloat(), 0f..1f, 0) },
         verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

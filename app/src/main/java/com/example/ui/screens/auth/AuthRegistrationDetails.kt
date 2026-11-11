@@ -39,7 +39,7 @@ internal fun AuthRegistrationDetails(
             else t("Choose your daily route", "የዕለት መስመርዎን ይምረጡ", "Karaa guyyaa kee filadhu"),
             color = CommuteInk, fontSize = 26.sp, fontWeight = FontWeight.Bold)
         if (driver) {
-            Text(t("Apply now, follow your status, and upload documents after initial acceptance.", "አሁን ያመልክቱ፣ ሁኔታዎን ይከታተሉ፣ ከመጀመሪያ ተቀባይነት በኋላ ሰነዶችን ይላኩ።", "Amma iyyadhu, haala kee hordofi, fudhatama jalqabaa booda sanadoota olkaa'i."), fontSize = 13.sp, color = CommuteInk)
+            Text(t("Enter your details, then upload your documents. An administrator reviews your complete application before you can start driving.", "ዝርዝሮችዎን ያስገቡ፣ ከዚያ ሰነዶችዎን ይላኩ። ሥራ ከመጀመርዎ በፊት አስተዳዳሪው ሙሉ ማመልከቻዎን ይገመግማል።", "Odeeffannoo kee galchi, itti aansii sanadoota olkaa'i. Hojii jalqabuu kee dura bulchaan iyyata kee guutuu gamaaggama."), fontSize = 13.sp, color = CommuteInk)
             AuthField(draft.license, { draft.license = it }, t("Commercial driving licence number", "የንግድ መንጃ ፈቃድ ቁጥር", "Lakkoofsa eeyyama konkolaachisummaa"),
                 Modifier.fillMaxWidth().testTag("auth_driver_license_input"), enabled = enabled, language = language, leadingIcon = Icons.Default.Badge)
             Text(t("Service type", "የአገልግሎት ዓይነት", "Gosa tajaajilaa"), color = CommuteInk, fontWeight = FontWeight.SemiBold)
@@ -69,6 +69,14 @@ internal fun AuthRegistrationDetails(
                         else t("After approval, propose trips with a per-seat price for admin review.", "ከተፈቀደ በኋላ ጉዞ እና የመቀመጫ ዋጋ ለግምገማ ያቅርቡ።", "Hayyama booda imalaa fi gatii teessoo gamaaggamaaf dhiyeessi."), color = CommuteInk, fontSize = 12.sp)
                 }
             }
+        }
+        if (driver) {
+            AuthField(draft.vehicleColor, { draft.vehicleColor = it.take(40) }, t("Vehicle color", "የተሽከርካሪ ቀለም", "Halluu konkolaataa"),
+                Modifier.fillMaxWidth().testTag("auth_driver_vehicle_color_input"), enabled = enabled, language = language)
+            AuthField(draft.emergencyContactName, { draft.emergencyContactName = it.take(100) }, t("Emergency contact name", "የአደጋ ጊዜ ተጠሪ ስም", "Maqaa nama yeroo balaa"),
+                Modifier.fillMaxWidth().testTag("auth_driver_contact_name_input"), enabled = enabled, language = language)
+            AuthField(draft.emergencyContactPhone, { draft.emergencyContactPhone = it.take(24) }, t("Emergency contact phone", "የአደጋ ጊዜ ተጠሪ ስልክ", "Bilbila nama yeroo balaa"),
+                Modifier.fillMaxWidth().testTag("auth_driver_contact_phone_input"), phone = true, enabled = enabled, language = language)
         }
         if (!driver && !draft.isCustomCommute) {
             if (routes.isEmpty()) Text(t("No active daily routes are available. Return to daily routes to request a new route.", "ንቁ የዕለት መስመሮች የሉም። አዲስ መስመር ለመጠየቅ ወደ መስመሮች ይመለሱ።", "Karaaleen guyyaa hojii irra jiran hin jiran. Karaa haaraa gaafachuuf deebi'i."),

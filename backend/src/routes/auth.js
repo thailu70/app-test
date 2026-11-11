@@ -119,11 +119,11 @@ router.post('/register', authLimiter, async (req, res) => {
         companyId = company.id;
       }
       const result = await createOnboardingService().register({ ...req.body, role: 'DRIVER',
-        serviceType: companyId ? 'INTERCITY' : 'DAILY_COMMUTE', companyId,
+        serviceType: companyId ? 'INTERCITY' : req.body.serviceType || 'DAILY_COMMUTE', companyId,
         routeChoice: req.body.routeChoice || (appliedRouteId ? 'EXISTING' : '') });
       return res.status(201).json({ success: true, token: null, user: result.account,
         onboarding: result.onboarding, subscription: null, applicationPath: '/join/?view=login',
-        message: 'Driver application received. Sign in to your application to follow acceptance, documents and final approval. Phone verification is optional for now.' });
+        message: 'Driver application received. Sign in to upload your documents and submit the application for review. Phone verification is optional for now.' });
     }
 
     // Allow secret-gated bootstrap only while no administrator exists.
@@ -322,7 +322,7 @@ router.post('/login', authLimiter, async (req, res) => {
 
     if (user.status && user.status !== 'ACTIVE') {
       const error = user.status === 'PENDING'
-        ? 'Thank you for registering. Your account is awaiting administrator approval and route assignment. Please try signing in after the administrator contacts you.'
+        ? 'Sign in to your driver application to complete your details, upload documents and submit for administrator review. Your dashboard opens after final approval.'
         : (user.status === 'REJECTED'
           ? 'Your driver registration was not approved. Please contact RoutePass administration.'
           : 'This account is inactive. Contact your transport administrator.');

@@ -20,8 +20,13 @@ async function initMasterDataSchema(db = DB) {
   CREATE TABLE IF NOT EXISTS app_settings (
     key VARCHAR(100) PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   );`);
-  for (const type of DEFAULT_VEHICLE_TYPES) await db.prepare('INSERT INTO vehicle_types(code,name,capacity,active) VALUES(?,?,?,TRUE) ON CONFLICT(code) DO NOTHING')
-    .run(type.code, type.name, type.capacity);
+  // An administrator can start over with an empty catalog and add vehicle types manually.
+  if ((await setting('VEHICLE_TYPE_DEFAULTS_DISABLED', db)) !== 'true') {
+    for (const type of DEFAULT_VEHICLE_TYPES) {
+      await db.prepare('INSERT INTO vehicle_types(code,name,capacity,active) VALUES(?,?,?,TRUE) ON CONFLICT(code) DO NOTHING')
+        .run(type.code, type.name, type.capacity);
+    }
+  }
   if (db.isPostgres) {
     // Replace the original four-value enumeration; new catalog entries still use the existing
     // vehicle_type column and its 30-character limit. Existing vehicle records are untouched.

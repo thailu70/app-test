@@ -77,7 +77,7 @@ test('typed daily commute quotes use exact public endpoints and catalog capacity
     const pref = known.onboarding.routePreference;
     assert.equal(pref.mode, 'EXISTING'); assert.equal(pref.routeId, 'quote_direct'); assert.equal(pref.proposedMonthlyFeeEtb, 20002);
     assert.equal(pref.feeLocked, true); assert.equal(pref.feeSource, 'ROUTE_PASSENGER_FARE_X_CAPACITY'); assert.equal(pref.passengerCapacity, 8);
-    assert.equal(known.account.status, 'PENDING'); assert.equal(known.onboarding.canVerifyAndUpload, false);
+    assert.equal(known.account.status, 'PENDING'); assert.equal(known.onboarding.canVerifyAndUpload, true);
     const vehicle = await DB.prepare('SELECT assignedRouteId,currentOccupancy FROM vehicles WHERE driverId=?').get(known.account.id);
     assert.equal(vehicle.assignedRouteId, null); assert.equal(vehicle.currentOccupancy, 0, 'Quote capacity never comes from occupancy');
     await assert.rejects(() => service.register(input('0912346902','QUOTE-MISSING',{ proposedDeparture: 'New Alpha', proposedDestination: 'New Omega' })), error => error.status === 400);
@@ -86,8 +86,8 @@ test('typed daily commute quotes use exact public endpoints and catalog capacity
     assert.equal((await DB.prepare("SELECT basePriceEtb FROM routes WHERE id='quote_direct'").get()).basePriceEtb, 2500.25, 'Driver applications never mutate passenger fares');
   });
 
-  await t.test('endpoint edits use the registered type and invalidate acceptance; changed published prices need fresh review', async () => {
-    await service.review(admin, known.account.id, 'DRIVER', 'ACCEPT');
+  await t.test('endpoint edits use the registered type and invalidate final approval; changed published prices need fresh review', async () => {
+    assert.equal((await service.snapshot(known.account.id, 'DRIVER')).onboarding.canVerifyAndUpload, true);
     await assert.rejects(() => service.updateProfile(known.account.id, 'DRIVER', { vehicleType: 'MINIBUS_14' }), error => error.status === 400);
     const edited = await service.updateProfile(known.account.id, 'DRIVER', { proposedDeparture: 'መነሻ', proposedDestination: 'መድረሻ', vehicleType: 'MINIVAN_8', proposedMonthlyFeeEtb: 2 });
     assert.equal(edited.onboarding.routePreference.routeId, 'quote_stops'); assert.equal(edited.onboarding.routePreference.proposedMonthlyFeeEtb, 800.4);
@@ -96,8 +96,8 @@ test('typed daily commute quotes use exact public endpoints and catalog capacity
     await assert.rejects(() => service.review(admin, known.account.id, 'DRIVER', 'ACCEPT'), error => error.status === 409);
     assert.equal((await service.snapshot(known.account.id, 'DRIVER')).onboarding.routePreference.proposedMonthlyFeeEtb, 800.4, 'A reviewer never silently accepts a different price');
     const refreshed = await service.submit(known.account.id, 'DRIVER');
-    assert.equal(refreshed.onboarding.routePreference.proposedMonthlyFeeEtb, 1600); assert.equal(refreshed.onboarding.reviewStatus, 'AWAITING_ACCEPTANCE');
-    await service.review(admin, known.account.id, 'DRIVER', 'ACCEPT');
+    assert.equal(refreshed.onboarding.routePreference.proposedMonthlyFeeEtb, 1600); assert.equal(refreshed.onboarding.reviewStatus, 'DRAFT');
+    assert.equal((await service.snapshot(known.account.id, 'DRIVER')).onboarding.canVerifyAndUpload, true);
     // Simulate already completed verification and private documents without any SMS delivery.
     await DB.prepare('UPDATE onboarding_accounts SET phone_verified_at=?,phone_verified_for=? WHERE account_id=?').run(new Date().toISOString(), known.account.phone, known.account.id);
     await DB.prepare('INSERT INTO user_profiles(user_id,emergency_contact_name,emergency_contact_phone,vehicle_color,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET emergency_contact_name=excluded.emergency_contact_name,emergency_contact_phone=excluded.emergency_contact_phone,vehicle_color=excluded.vehicle_color').run(known.account.id, 'Contact person', '+251912000099', 'White', new Date().toISOString());

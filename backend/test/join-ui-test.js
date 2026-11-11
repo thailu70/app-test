@@ -127,14 +127,14 @@ test('the homepage sign-in link opens driver login while URL role/service values
   assert.equal(portal.accountPayload('COMPANY',portal.initialMode('?view=login&role=company'),{phone:'0912345678',password:'local-fixture'}).role,'DRIVER');
 });
 
-test('administrator acceptance hides and disables verification/uploads before acceptance without changing other roles', () => {
+test('document uploads are immediately available while incomplete or restricted responses stay locked', () => {
   const sections=Array.from({length:4},()=>({hidden:false,controls:[{disabled:false},{disabled:false}],querySelectorAll(){return this.controls;}}));
-  const waiting={acceptanceRequired:true,acceptanceStatus:'PENDING',canVerifyAndUpload:false,ready:true,reviewStatus:'AWAITING_ACCEPTANCE'};
+  const waiting={acceptanceRequired:false,acceptanceStatus:'NOT_REQUIRED',canVerifyAndUpload:false,ready:true,reviewStatus:'DRAFT'};
   assert.deepEqual(portal.onboardingAccess(waiting),{locked:true,canSubmit:false});
   portal.applyOnboardingAccess(sections,waiting);
-  assert.ok(sections.every(section=>section.hidden&&section.controls.every(control=>control.disabled)),'OTP/profile/upload/final-review controls are inaccessible while waiting.');
+  assert.ok(sections.every(section=>section.hidden&&section.controls.every(control=>control.disabled)),'Unavailable account controls stay inaccessible.');
   assert.equal(portal.onboardingAccess({...waiting,canVerifyAndUpload:undefined}).locked,true,'A partial response cannot unlock protected steps.');
-  assert.deepEqual(portal.onboardingAccess({...waiting,acceptanceStatus:'ACCEPTED',canVerifyAndUpload:true,reviewStatus:'DRAFT'}),{locked:false,canSubmit:true});
+  assert.deepEqual(portal.onboardingAccess({...waiting,canVerifyAndUpload:true,reviewStatus:'DRAFT'}),{locked:false,canSubmit:true});
   for(const status of ['SUBMITTED','APPROVED'])assert.equal(portal.onboardingAccess({acceptanceRequired:false,ready:true,reviewStatus:status}).canSubmit,false);
   assert.equal(portal.onboardingAccess({acceptanceRequired:false,canVerifyAndUpload:true,reviewStatus:'DRAFT'}).locked,false,'Company/intercity onboarding retains existing verification flow.');
   for(const value of ['0',-1,Infinity,'NaN',1000000.01,'1.001',''])assert.equal(portal.validMonthlyFee(value),false,String(value));
@@ -147,7 +147,7 @@ test('driver review can proceed without OTP only when server review readiness pe
   assert.equal(portal.onboardingAccess(accepted).canSubmit,true);
   assert.equal(portal.onboardingAccess({...accepted,ready:true,reviewReady:false}).canSubmit,false);
   assert.equal(portal.onboardingAccess({...accepted,reviewReady:undefined}).canSubmit,false,'Missing review readiness cannot bypass other requirements.');
-  assert.equal(portal.onboardingAccess({...accepted,canVerifyAndUpload:false}).canSubmit,false,'Initial acceptance is still mandatory.');
+  assert.equal(portal.onboardingAccess({...accepted,canVerifyAndUpload:false}).canSubmit,false,'An explicit server restriction blocks submission.');
   assert.equal(portal.onboardingAccess({...accepted,reviewStatus:'APPROVED'}).canSubmit,false);
   for(const language of ['en','am','om']){
     assert.notEqual(portal.translate('phoneDeferred',language),'phoneDeferred');
@@ -195,7 +195,7 @@ test('typing is debounced and malformed fixed prices never become an editable fa
   assert.equal(calls,1);assert.equal(controller.getState().status,'ERROR');assert.equal(portal.quoteAccess(controller.getState()).canSubmit,false);controller.dispose();
 });
 
-test('frontend API client completes real daily driver onboarding with pricing and administrator acceptance before OTP/uploads', async t => {
+test('frontend API client completes driver details and immediate uploads before one admin review', async t => {
   const os=require('node:os');
   process.env.NODE_ENV='test';delete process.env.DATABASE_URL;
   process.env.DATA_DIR=fs.mkdtempSync(path.join(os.tmpdir(),'passo-join-contract-'));
@@ -217,31 +217,29 @@ test('frontend API client completes real daily driver onboarding with pricing an
   await DB.prepare("INSERT INTO users(id,role,fullName,phone,passwordHash,status) VALUES('join_review_admin','ADMIN','Local Reviewer','0900000088','unused','ACTIVE')").run();
   const admin=require('../src/middleware/auth').signToken({id:'join_review_admin',role:'ADMIN'});
   const oldFare=(await DB.prepare("SELECT basePriceEtb FROM routes WHERE id='route_bole_merkato'").get()).basePriceEtb;
-  const dailyInput={fullName:'Daily Route Applicant',phone:'0912346703',password:'Local fixture password',serviceType:'DAILY_COMMUTE',licenseNumber:'DAILY-LICENCE',assignedVehiclePlate:'JOIN-DAILY-TEST',vehicleModel:'Minibus',vehicleType:'MINIBUS_14',proposedDeparture:'Bole Medhanialem',proposedDestination:'Merkato Bus Terminal',proposedMonthlyFeeEtb:'1'};
+  const dailyInput={fullName:'Daily Route Applicant',emergencyContactName:'Local Contact',emergencyContactPhone:'0912000070',vehicleColor:'Teal',phone:'0912346703',password:'Local fixture password',serviceType:'DAILY_COMMUTE',licenseNumber:'DAILY-LICENCE',assignedVehiclePlate:'JOIN-DAILY-TEST',vehicleModel:'Minibus',vehicleType:'MINIBUS_14',proposedDeparture:'Bole Medhanialem',proposedDestination:'Merkato Bus Terminal',proposedMonthlyFeeEtb:'1'};
   const quoteController=portal.createCommuteQuoteController({fetchFn:(url,options)=>fetch(base+url,options)});
   await quoteController.update({departure:dailyInput.proposedDeparture,destination:dailyInput.proposedDestination,vehicleType:dailyInput.vehicleType},{immediate:true});
   assert.equal(quoteController.getState().status,'READY');assert.equal(quoteController.getState().quote.price.amountEtb,35000);
   const suggestions=await fetch(base+'/api/onboarding/commute-suggestions?field=departure&q=Bole');assert.ok((await suggestions.json()).places.some(place=>place.label==='Bole Medhanialem'));
   token='';const daily=await api('/register',{method:'POST',anonymous:true,body:portal.accountPayload('DRIVER','register',dailyInput,quoteController.getState().quote)});token=daily.token;
-  assert.equal(daily.onboarding.reviewStatus,'AWAITING_ACCEPTANCE');assert.equal(daily.onboarding.routePreference.routeId,'route_bole_merkato');assert.equal(daily.onboarding.routePreference.proposedMonthlyFeeEtb,35000);assert.equal(daily.onboarding.routePreference.feeLocked,true);assert.equal(daily.onboarding.routePreference.proposedMonthlyFeeBasis,'PER_VEHICLE');
-  assert.equal(portal.onboardingAccess(daily.onboarding).locked,true);
-  await assert.rejects(api('/request-otp',{method:'POST',body:{}}),error=>error.status===428);
-  await assert.rejects(api('/documents/PHOTO',{method:'PUT',raw:new Blob([png],{type:'image/png'})}),error=>error.status===428);
+  assert.equal(daily.onboarding.reviewStatus,'DRAFT');assert.equal(daily.onboarding.routePreference.routeId,'route_bole_merkato');assert.equal(daily.onboarding.routePreference.proposedMonthlyFeeEtb,35000);assert.equal(daily.onboarding.routePreference.feeLocked,true);assert.equal(daily.onboarding.routePreference.proposedMonthlyFeeBasis,'PER_VEHICLE');
+  assert.equal(portal.onboardingAccess(daily.onboarding).locked,false);assert.equal(daily.onboarding.profile.emergencyContactName,'Local Contact');assert.equal(daily.onboarding.profile.vehicleColor,'Teal');
+  await api('/request-otp',{method:'POST',body:{}});
+  await api('/documents/PHOTO',{method:'PUT',raw:new Blob([png],{type:'image/png'})});
   assert.ok((await api('/login',{method:'POST',anonymous:true,body:portal.accountPayload('DRIVER','login',dailyInput)})).token,'Waiting drivers can sign in without requesting OTP.');
-  const accepted=await fetch(base+'/api/onboarding/applications/DRIVER/'+daily.account.id+'/review',{method:'POST',headers:{Authorization:'Bearer '+admin,'Content-Type':'application/json'},body:JSON.stringify({decision:'ACCEPT'})});
-  assert.equal(accepted.status,200,await accepted.text());
   const unlocked=await api('/me');assert.equal(portal.onboardingAccess(unlocked.onboarding).locked,false);assert.equal(unlocked.onboarding.reviewStatus,'DRAFT');
-  await api('/request-otp',{method:'POST',body:{}});await api('/verify-otp',{method:'POST',body:{code:sent.at(-1).code}});
+  await api('/verify-otp',{method:'POST',body:{code:sent.at(-1).code}});
   for(const kind of unlocked.onboarding.requiredDocuments)await api('/documents/'+kind,{method:'PUT',raw:new Blob([png],{type:'image/png'})});
   await api('/profile',{method:'PATCH',body:{emergencyContactName:'Local Contact',emergencyContactPhone:'0912000070',vehicleColor:'Teal'}});
   assert.equal((await api('/submit',{method:'POST',body:{}})).onboarding.reviewStatus,'SUBMITTED');
   assert.equal((await DB.prepare("SELECT basePriceEtb FROM routes WHERE id='route_bole_merkato'").get()).basePriceEtb,oldFare,'The proposal never changes published route fare.');
   await DB.prepare("UPDATE routes SET basePriceEtb=2600 WHERE id='route_bole_merkato'").run();
   await quoteController.update({departure:dailyInput.proposedDeparture,destination:dailyInput.proposedDestination,vehicleType:dailyInput.vehicleType},{immediate:true,force:true});assert.equal(quoteController.getState().quote.price.amountEtb,36400);
-  const refreshed=await api('/profile',{method:'PATCH',body:portal.routePreferencePayload(dailyInput,quoteController.getState().quote)});assert.equal(refreshed.onboarding.routePreference.proposedMonthlyFeeEtb,36400);assert.equal(refreshed.onboarding.acceptanceStatus,'PENDING','Explicit route/price refresh reopens required acceptance after a fare change.');
+  const refreshed=await api('/profile',{method:'PATCH',body:portal.routePreferencePayload(dailyInput,quoteController.getState().quote)});assert.equal(refreshed.onboarding.routePreference.proposedMonthlyFeeEtb,36400);assert.equal(refreshed.onboarding.acceptanceStatus,'NOT_REQUIRED');assert.equal(refreshed.onboarding.reviewStatus,'DRAFT','Changed route pricing requires a new complete submission.');
   await quoteController.update({departure:'Garment',destination:'Bole',vehicleType:'MINIBUS_14'},{immediate:true});assert.equal(quoteController.getState().quote.price.mode,'PROPOSED');
   token='';const proposedDaily=await api('/register',{method:'POST',anonymous:true,body:portal.accountPayload('DRIVER','register',{...dailyInput,phone:'0912346704',assignedVehiclePlate:'JOIN-PROPOSED-TEST',proposedDeparture:'Garment',proposedDestination:'Bole',proposedMonthlyFeeEtb:'45000.25'},quoteController.getState().quote)});
-  assert.equal(proposedDaily.onboarding.routePreference.mode,'PROPOSED');assert.equal(proposedDaily.onboarding.routePreference.departure,'Garment');assert.equal(proposedDaily.onboarding.routePreference.destination,'Bole');assert.equal(proposedDaily.onboarding.canVerifyAndUpload,false);
+  assert.equal(proposedDaily.onboarding.routePreference.mode,'PROPOSED');assert.equal(proposedDaily.onboarding.routePreference.departure,'Garment');assert.equal(proposedDaily.onboarding.routePreference.destination,'Bole');assert.equal(proposedDaily.onboarding.canVerifyAndUpload,true);
   quoteController.dispose();
 });
 
@@ -258,4 +256,16 @@ test('password recovery uses a separate same-origin client without application c
   assert.equal(JSON.parse(sent.options.body).newPassword,'Recovery fixture password');
   await assert.rejects(api('https://another.example/reset',{}),/Invalid recovery API path/);
   await assert.rejects(api('//another.example/reset',{}),/Invalid recovery API path/);
+});
+
+test('first registration step collects complete driver details and the second offers documents',()=>{
+  const values={fullName:'Fixture Driver',phone:'0912345678',password:'Fixture password',serviceType:'CARGO',licenseNumber:'LIC',assignedVehiclePlate:'AA-1',vehicleModel:'Truck',vehicleType:'TRUCK',emergencyContactName:'Contact',emergencyContactPhone:'0912345679',vehicleColor:'White',proposedDeparture:'Addis Ababa',proposedDestination:'Hawassa'};
+  const payload=portal.accountPayload('DRIVER','register',values);
+  for(const key of ['licenseNumber','assignedVehiclePlate','emergencyContactName','emergencyContactPhone','vehicleColor']){
+    assert.equal(payload[key],values[key]);assert.ok(portal.registrationFields('DRIVER','register','CARGO').includes(key));
+  }
+  const html=fs.readFileSync(path.join(__dirname,'../public/join/index.html'),'utf8');
+  assert.equal((html.match(/class="step-number"/g)||[]).length,2);
+  assert.equal((html.match(/class="checklist-nav"[\s\S]*?<\/nav>/)?.[0].match(/<a /g)||[]).length,2);
+  assert.doesNotMatch(html,/resubmitRegistration|Send registration for acceptance|STEP 3|STEP 4/);
 });

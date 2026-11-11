@@ -69,7 +69,7 @@ test('driver application approval, corrections and suspension have separate life
       assert.equal(await isOperationallyEligible(id, 'DRIVER'), false);
       assert.ok(state.missing.includes('LICENSE'));
     }
-    assert.equal((await getOnboardingReadiness('repair_pending_daily', 'DRIVER')).acceptanceRequired, true);
+    assert.equal((await getOnboardingReadiness('repair_pending_daily', 'DRIVER')).acceptanceRequired, false);
     assert.equal((await getOnboardingReadiness('repair_pending_company', 'DRIVER')).acceptanceRequired, false);
     assert.equal((await request('/api/onboarding/login', 'POST', null, { role: 'DRIVER', phone: '0911770001', password })).status, 200);
     const legacyState = await getOnboardingReadiness('retain_active_legacy', 'DRIVER');
@@ -80,7 +80,7 @@ test('driver application approval, corrections and suspension have separate life
     assert.equal((await legacy('late_untracked_pending', 'ACTIVE')).status, 409);
   });
 
-  await t.test('native daily signup cannot bypass acceptance, required documents or final approval', async () => {
+  await t.test('native daily signup opens uploads while requiring documents and final approval', async () => {
     const created = await request('/api/auth/register', 'POST', null, {
       role: 'DRIVER', fullName: 'Lifecycle daily driver', phone: '0911770010', password, licenseNumber: 'LIFE-LICENSE',
       assignedVehiclePlate: 'LIFE-DAILY', vehicleModel: 'Fixture van', vehicleType: 'MINIVAN_8',
@@ -93,8 +93,8 @@ test('driver application approval, corrections and suspension have separate life
     dailyToken = await login('0911770010');
     assert.equal((await review(daily.id, 'APPROVE')).status, 428);
     assert.equal((await legacy(daily.id, 'ACTIVE')).status, 409);
-    assert.equal((await request('/api/onboarding/documents/LICENSE', 'PUT', dailyToken, png, 'image/png')).status, 428);
-    assert.equal((await review(daily.id, 'ACCEPT')).status, 200);
+    assert.equal((await request('/api/onboarding/documents/LICENSE', 'PUT', dailyToken, png, 'image/png')).status, 200);
+    assert.equal((await review(daily.id, 'ACCEPT')).status, 409);
     assert.equal((await request('/api/onboarding/submit', 'POST', dailyToken, {})).status, 428);
     await documentsAndProfile(dailyToken);
     assert.equal((await legacy(daily.id, 'ACTIVE')).status, 409, 'Uploading documents is not submission or final approval');
@@ -141,7 +141,7 @@ test('driver application approval, corrections and suspension have separate life
     const corrected = await review(daily.id, 'CORRECTIONS', note);
     assert.equal(corrected.status, 200, JSON.stringify(corrected.data));
     assert.equal(corrected.data.account.status, 'PENDING'); assert.equal(corrected.data.onboarding.reviewStatus, 'CORRECTIONS_REQUESTED');
-    assert.equal(corrected.data.onboarding.acceptanceStatus, 'ACCEPTED'); assert.equal(corrected.data.onboarding.canVerifyAndUpload, true);
+    assert.equal(corrected.data.onboarding.acceptanceStatus, 'NOT_REQUIRED'); assert.equal(corrected.data.onboarding.canVerifyAndUpload, true);
     assert.equal(corrected.data.onboarding.submittedAt, null);
     assert.equal((await request('/api/onboarding/documents/LICENSE', 'PUT', dailyToken, png, 'image/png')).status, 200);
     const afterUpload = await stored(daily.id);
@@ -220,7 +220,7 @@ test('driver application approval, corrections and suspension have separate life
     const changed = await request('/api/admin/drivers/' + daily.id + '/contact', 'PATCH', admin, { phone: '0911770011' });
     assert.equal(changed.status, 200); assert.equal(changed.data.driver.unchanged, false);
     let state = await getOnboardingReadiness(daily.id, 'DRIVER');
-    assert.equal(state.acceptanceStatus, 'PENDING'); assert.equal(state.submittedAt, null); assert.equal(await isOperationallyEligible(daily.id, 'DRIVER'), false);
+    assert.equal(state.acceptanceStatus, 'NOT_REQUIRED'); assert.equal(state.submittedAt, null); assert.equal(await isOperationallyEligible(daily.id, 'DRIVER'), false);
     await DB.prepare("UPDATE users SET status='SUSPENDED' WHERE id=?").run(daily.id);
     await DB.prepare("UPDATE onboarding_accounts SET review_status='REJECTED' WHERE account_id=?").run(daily.id);
     const restored = await legacy(daily.id, 'ACTIVE');

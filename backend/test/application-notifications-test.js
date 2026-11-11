@@ -13,9 +13,9 @@ test('application notifications are durable, account-specific and delivered afte
   const service=createApplicationNotificationService({now:()=>clock,sendSms:async(phone,message)=>{deliveries.push({phone,message,status:(await DB.prepare("SELECT status FROM users WHERE id='outbox_driver'").get()).status});return {sent:available};}});
   const queue=(decision,eventKey)=>DB.transaction(tx=>service.queue(tx,{accountId:'outbox_driver',role:'DRIVER',decision,eventKey}));
   await t.test('rollback produces no SMS and repeated event keys are idempotent',async()=>{
-    await assert.rejects(()=>DB.transaction(async tx=>{await service.queue(tx,{accountId:'outbox_driver',role:'DRIVER',decision:'ACCEPT',eventKey:'rolled-back'});throw Error('Rollback fixture');}),/Rollback/);
+    await assert.rejects(()=>DB.transaction(async tx=>{await service.queue(tx,{accountId:'outbox_driver',role:'DRIVER',decision:'APPROVE',eventKey:'rolled-back'});throw Error('Rollback fixture');}),/Rollback/);
     assert.equal((await DB.prepare('SELECT COUNT(*) AS count FROM application_notification_outbox').get()).count,0);
-    const id=await queue('ACCEPT','accepted-event');assert.equal(await queue('ACCEPT','accepted-event'),id);
+    const id=await queue('APPROVE','accepted-event');assert.equal(await queue('APPROVE','accepted-event'),id);
     assert.equal(deliveries.length,0,'Queue does not deliver before its transaction commits');
     assert.equal((await DB.prepare('SELECT COUNT(*) AS count FROM application_notification_outbox').get()).count,1);
   });
@@ -74,7 +74,7 @@ test('application notifications are durable, account-specific and delivered afte
     let sendStarted,finishSend,foregroundStarted,finishForeground;
     const sending=new Promise(resolve=>sendStarted=resolve),providerWait=new Promise(resolve=>finishSend=resolve),foreground=new Promise(resolve=>foregroundStarted=resolve),foregroundWait=new Promise(resolve=>finishForeground=resolve);
     const slow=createApplicationNotificationService({now:()=>clock,sendSms:async()=>{sendStarted();await providerWait;return {sent:true};}});
-    await DB.transaction(tx=>slow.queue(tx,{accountId:'outbox_race_driver',role:'DRIVER',decision:'ACCEPT',eventKey:'slow-provider-event'}));
+    await DB.transaction(tx=>slow.queue(tx,{accountId:'outbox_race_driver',role:'DRIVER',decision:'APPROVE',eventKey:'slow-provider-event'}));
     const background=slow.flush();await sending;
     const transaction=DB.transaction(async tx=>{await tx.prepare("UPDATE users SET status='ACTIVE' WHERE id='outbox_race_driver'").run();foregroundStarted();await foregroundWait;throw Error('Rollback during provider fixture');});
     const rejected=assert.rejects(transaction,/Rollback during provider fixture/);await foreground;

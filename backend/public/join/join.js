@@ -91,6 +91,21 @@
     dataUse:['We use your contact, vehicle and preferred route details to review your driver application. Phone verification can be completed later.','የሹፌር ማመልከቻዎን ለመገምገም የመገናኛ፣ የተሽከርካሪ እና የመስመር መረጃዎን እንጠቀማለን። የስልክ ማረጋገጫ በኋላ ሊጠናቀቅ ይችላል።','Iyyata konkolaachisummaa keessan ilaaluuf odeeffannoo qunnamtii, konkolaataa fi daandii fayyadamna. Bilbila booda mirkaneessuu dandeessu.'],
     independentApprovalBody:['Your driver application is approved. Sign in to the Passo app for your service and assignments.','የሹፌር ማመልከቻዎ ጸድቋል። አገልግሎትዎን እና ምደባዎን ለማየት ወደ ፓሶ መተግበሪያ ይግቡ።','Iyyanni konkolaachisummaa keessan raggaʼeera. Tajaajila fi ramaddii keessaniif appii Passo seenaa.']
   });
+  Object.assign(words, {
+    dailyCreateIntro:['Enter your driver, vehicle and route details. Continue directly to document upload, then send your complete application for admin approval.','የሹፌር፣ የተሽከርካሪና የመስመር መረጃዎን ያስገቡ። በቀጥታ ሰነዶችን ይስቀሉና ሙሉ ማመልከቻዎን ለአስተዳዳሪ ማጽደቅ ይላኩ።','Odeeffannoo konkolaachisaa, konkolaataa fi daandii galchaa. Battalumatti sanadoota galchaatii iyyata guutuu bulchaan akka raggaasisuuf ergaa.'],
+    independentIntro:['Enter your driver, vehicle and preferred route details, then upload your documents. One admin review unlocks your app dashboard.','የሹፌር፣ የተሽከርካሪና የመስመር መረጃዎን ያስገቡና ሰነዶችን ይስቀሉ። አስተዳዳሪው ሲያጸድቅ የመተግበሪያ መነሻዎ ይከፈታል።','Odeeffannoo konkolaachisaa, konkolaataa fi daandii filattan galchaatii sanadoota galchaa. Raggaasni bulchaa tokkichi daashboordii appii keessanii bana.'],
+    dailyStepAccount:['Enter your details','መረጃዎን ያስገቡ','Odeeffannoo galchaa'],
+    dailyStepAccountBody:['Add your licence, vehicle and preferred route.','ፈቃድ፣ ተሽከርካሪና መስመር ያስገቡ።','Hayyama, konkolaataa fi daandii filattan galchaa.'],
+    dailyStepDetails:['Upload & submit','ይስቀሉና ይላኩ','Galchaatii ergaa'],
+    dailyStepDetailsBody:['Upload your documents immediately. Admin approval unlocks the app dashboard.','ሰነዶችዎን ወዲያውኑ ይስቀሉ። የአስተዳዳሪ ማጽደቅ የመተግበሪያ መነሻውን ይከፍታል።','Sanadoota battalumatti galchaa. Raggaasni bulchaa daashboordii appii bana.'],
+    createButton:['Continue to documents','ወደ ሰነዶች ቀጥል','Gara sanadootaatti itti fufi'],
+    sendRegistration:['Save route details','የመስመር መረጃ አስቀምጥ','Odeeffannoo daandii olkaaʼi'],
+    initialRegistration:['YOUR DETAILS','የእርስዎ መረጃ','ODEEFFANNOO KEESSAN'],
+    routeDetailsHelp:['Check your route details before submitting your documents for review.','ሰነዶችን ለግምገማ ከመላክዎ በፊት የመስመር መረጃዎን ያረጋግጡ።','Sanadoota ilaalchaaf erguu dura odeeffannoo daandii keessanii ilaalaa.'],
+    stepOne:['STEP 1','ደረጃ 1','SADARKAA 1'],stepTwo:['STEP 2','ደረጃ 2','SADARKAA 2'],
+    reviewPending:['Your complete application is with the administrator. Approval unlocks your dashboard in the Passo app.','ሙሉ ማመልከቻዎ ለአስተዳዳሪው ተልኳል። ሲጸድቅ በፓሶ መተግበሪያ የመነሻ ገጽዎ ይከፈታል።','Iyyanni guutuun keessan bulchaa bira jira. Raggaasni daashboordii appii Passo keessan bana.'],
+    correctionsBody:['Read the review note, update your details or documents and submit again.','የግምገማ ማስታወሻውን ያንብቡ፣ መረጃዎን ወይም ሰነዶችን ያስተካክሉና እንደገና ይላኩ።','Yaada ilaalchaa dubbisaatii odeeffannoo yookaan sanadoota haaromsaatii irra deebiʼaa ergaa.']
+  });
   const DRIVER_SERVICES=['DAILY_COMMUTE','GROUP_TRAVEL','CARGO'];
   const driverService=value=>DRIVER_SERVICES.includes(value)?value:'DAILY_COMMUTE';
   const uploadProblem = (file, kind) => !file || !Number.isFinite(file.size) || file.size <= 0 || file.size > 5*1024*1024 ? 'fileSize' : !(kind === 'PHOTO' ? ['image/jpeg','image/png'] : ['image/jpeg','image/png','application/pdf']).includes(file.type) ? kind === 'PHOTO' ? 'photoType' : 'fileType' : null;
@@ -102,6 +117,7 @@
     payload.fullName=clean('fullName');
     payload.serviceType=driverService(clean('serviceType'));payload.licenseNumber=clean('licenseNumber');
     for(const key of ['assignedVehiclePlate','vehicleModel','vehicleType'])payload[key]=clean(key);
+    for(const key of ['emergencyContactName','emergencyContactPhone','vehicleColor'])if(values[key]!==undefined)payload[key]=clean(key);
     Object.assign(payload,routePreferencePayload(values,quote,payload.serviceType));
     return payload;
   }
@@ -115,7 +131,7 @@
   function registrationFields(role,mode,service,choice) {
     service=driverService(service);
     const fields=['phone','password'];if(mode!=='register')return fields;
-    fields.push('fullName','serviceType','licenseNumber','adultConfirmation');
+    fields.push('fullName','serviceType','licenseNumber','emergencyContactName','emergencyContactPhone','vehicleColor','adultConfirmation');
     return fields.concat('assignedVehiclePlate','vehicleModel','vehicleType',...(service==='DAILY_COMMUTE'?['proposedMonthlyFeeEtb']:[]),'proposedDeparture','proposedDestination');
   }
   function applyRegistrationFields(controls,role,mode,service,choice) {
@@ -123,7 +139,7 @@
     for(const control of controls)if(control.name){control.disabled=!enabled.includes(control.name);control.required=!control.disabled;if(control.name==='adultConfirmation'&&control.disabled)control.checked=false;}
   }
   function onboardingAccess(onboarding) {
-    const locked=onboarding?.acceptanceRequired===true&&onboarding.canVerifyAndUpload!==true;
+    const locked=onboarding?.canVerifyAndUpload!==true;
     return {locked,canSubmit:!locked&&(onboarding?.reviewReady??onboarding?.ready)===true&&!['SUBMITTED','APPROVED'].includes(onboarding.reviewStatus)};
   }
   function applyOnboardingAccess(sections,onboarding) {
@@ -271,10 +287,10 @@
       updateAdultValidation();
       $('#registerTab').setAttribute('aria-pressed',String(registration));$('#loginTab').setAttribute('aria-pressed',String(!registration));
       $('#formTitle').textContent=t(registration?'createTitle':'loginTitle'); $('#formIntro').textContent=t(registration?(daily?'dailyCreateIntro':'independentIntro'):'loginIntro');
-      $('#fullNameLabel').textContent=t(driver?'fullName':'representative'); $('#accountSubmit span').textContent=t(registration?(driver&&daily?'sendRegistration':'createButton'):'loginButton');
+      $('#fullNameLabel').textContent=t(driver?'fullName':'representative'); $('#accountSubmit span').textContent=t(registration?'createButton':'loginButton');
       $('#password').minLength=registration?10:1; $('#password').autocomplete=registration?'new-password':'current-password';
       $('#showPassword').textContent=t($('#password').type==='password'?'show':'hide');
-      for(const key of ['stepAccount','stepAccountBody','stepDetails','stepDetailsBody','stepReview','stepReviewBody'])$('[data-i18n="'+key+'"]').textContent=t(!daily&&key==='stepAccountBody'?'independentStepAccountBody':'daily'+key[0].toUpperCase()+key.slice(1));
+      for(const key of ['stepAccount','stepAccountBody','stepDetails','stepDetailsBody'])$('[data-i18n="'+key+'"]').textContent=t('daily'+key[0].toUpperCase()+key.slice(1));
       if(quotes.registration){if(registration&&driver&&daily)updateQuote('registration');else quotes.registration.reset();}updateSubmitAvailability();
     }
     function renderOptions() {
@@ -317,31 +333,27 @@
       $('#accountIdentity').textContent=[t(account.serviceType==='CARGO'?'cargoService':account.serviceType==='GROUP_TRAVEL'?'groupService':'dailyService'),account.companyName,account.phone].filter(Boolean).join(' · ');
       $('#reviewBadge').textContent=t(status);$('#progressTitle').textContent=status==='CORRECTIONS_REQUESTED'?t('CORRECTIONS_REQUESTED'):status==='APPROVED'?t('APPROVED'):status==='SUBMITTED'?t('SUBMITTED'):t('progressTitle');
       $('#progressBody').textContent=status==='CORRECTIONS_REQUESTED'?t('correctionsBody'):status==='APPROVED'?t('approvalBody'):status==='SUBMITTED'?t('reviewPending'):t('progressBody');
-      $('#acceptancePanel').hidden=o.acceptanceRequired!==true;
-      const rejected=o.acceptanceStatus==='REJECTED';
-      $('#acceptanceBadge').textContent=t(access.locked?(rejected?'acceptanceRejected':'AWAITING_ACCEPTANCE'):'acceptanceAccepted');
-      $('#acceptanceBadge').classList.toggle('warning',access.locked);$('#acceptanceBadge').classList.toggle('error',rejected);
-      $('#acceptanceMessage').textContent=t(access.locked?(rejected?'acceptanceRejectedBody':'acceptanceWaitingBody'):'acceptanceAcceptedBody')+(access.locked&&o.reviewNote?' '+o.reviewNote:'');
+      $('#acceptancePanel').hidden=Boolean(account.companyId);
+      const editable=!access.locked&&!['SUBMITTED','APPROVED'].includes(status);
+      $('#acceptanceBadge').textContent=t(status);
+      $('#acceptanceBadge').classList.toggle('warning',status==='CORRECTIONS_REQUESTED'||status==='REJECTED');
+      $('#acceptanceBadge').classList.toggle('error',status==='REJECTED');
+      $('#acceptanceMessage').textContent=t('routeDetailsHelp');
       const selectedRoute=preference.mode==='EXISTING'?(preference.routeName||t('existingRoute')):preference.mode==='PROPOSED'?[preference.departure,preference.destination].filter(Boolean).join(' → '):'';
       $('#acceptanceTitle').textContent=t(daily?'routePreference':'preferredRoute');
       $('#routePreferenceSummary').innerHTML=(selectedRoute?'<div><dt>'+escape(t(daily?'routePreference':'preferredRoute'))+'</dt><dd>'+escape(selectedRoute)+'</dd></div>':'')+(daily&&validMonthlyFee(preference.proposedMonthlyFeeEtb)?'<div><dt>'+escape(t(preference.feeLocked?'monthlyVehiclePrice':'monthlyProposal'))+'</dt><dd>ETB '+escape(Number(preference.proposedMonthlyFeeEtb).toLocaleString('en-GB',{maximumFractionDigits:2}))+'</dd></div>':'');
       $('#savedPriceHelp').textContent=preference.feeLocked?t('priceFormula').replace(/\{(\w+)\}/g,(_match,key)=>({capacity:preference.passengerCapacity,fare:Number(preference.passengerMonthlyFareEtb).toLocaleString('en-GB',{maximumFractionDigits:2}),total:Number(preference.proposedMonthlyFeeEtb).toLocaleString('en-GB',{maximumFractionDigits:2})}[key])):'';
-      const needsPreference=access.locked&&((o.initialMissing||[]).length>0||!preference.mode||(daily&&!validMonthlyFee(preference.proposedMonthlyFeeEtb))||(o.missing||[]).includes('ROUTE_PREFERENCE'));
+      const needsPreference=editable&&((o.initialMissing||[]).length>0||!preference.mode||(daily&&!validMonthlyFee(preference.proposedMonthlyFeeEtb))||(o.missing||[]).includes('ROUTE_PREFERENCE'));
       if($('#routePreferenceForm').dataset.accountId!==account.id){$('#pendingDeparture').value=preference.departure||'';$('#pendingDestination').value=preference.destination||'';$('#pendingFee').value=preference.proposedMonthlyFeeEtb||'';$('#routePreferenceForm').dataset.accountId=account.id;}
       $('#pendingVehicleType').value=account.vehicleType||'';
       $('#pendingVehicleSummary').textContent=t('vehicleType')+': '+(catalog.types.find(type=>type.code===account.vehicleType)?.name||account.vehicleType||'—');
-      $('#editRoutePreference').hidden=o.acceptanceRequired!==true;$('#editRoutePreference').textContent=t(editingPreference?'closeRouteEditor':daily?'reviewRoutePrice':'reviewPreferredRoute');$('#editRoutePreference').setAttribute('aria-expanded',String(editingPreference||needsPreference));
+      $('#editRoutePreference').hidden=!editable;$('#editRoutePreference').textContent=t(editingPreference?'closeRouteEditor':daily?'reviewRoutePrice':'reviewPreferredRoute');$('#editRoutePreference').setAttribute('aria-expanded',String(editingPreference||needsPreference));
       $('#routePreferenceForm').hidden=!(needsPreference||editingPreference);updatePendingPreference();
-      $('#resubmitRegistration').hidden=!(access.locked&&rejected&&o.canInitiallySubmit===true);
-      $('#resubmitRegistration').disabled=$('#resubmitRegistration').hidden;
-      if(access.locked){$('#reviewBadge').textContent=t(rejected?'acceptanceRejected':'AWAITING_ACCEPTANCE');$('#progressTitle').textContent=t(rejected?'acceptanceRejected':'awaitingAcceptance');$('#progressBody').textContent=t(rejected?'acceptanceRejectedBody':'acceptanceWaitingBody');}
-      if(needsPreference){$('#acceptanceBadge').textContent=t('DRAFT');$('#acceptanceMessage').textContent=t('completeRoutePreference');$('#reviewBadge').textContent=t('DRAFT');$('#progressTitle').textContent=t('initialRegistrationIncomplete');$('#progressBody').textContent=t('completeRoutePreference');}
       $('#progressCount').hidden=access.locked;
       const missing=Array.isArray(o.reviewMissing)?o.reviewMissing:Array.isArray(o.missing)?o.missing:[], documents=o.documents||[], required=o.requiredDocuments||[];
       const otpOptional=o.phoneVerificationRequiredForApproval===false, otpDeferred=otpOptional&&o.phoneVerificationRequiredForAllocation===false, reviewReady=(o.reviewReady??o.ready)===true;
       const complete={phone:o.phoneVerified===true,profile:!missing.some(key=>['EMERGENCY_CONTACT_NAME','EMERGENCY_CONTACT_PHONE','VEHICLE_COLOR'].includes(key)),documents:required.length>0&&required.every(kind=>documents.some(item=>item.kind===kind)),submitted:Boolean(o.submittedAt)||status==='APPROVED'};
-      const requiredSteps=otpOptional?['profile','documents','submitted']:['phone','profile','documents','submitted'];
-      $('#progressCount').textContent=requiredSteps.filter(key=>complete[key]).length+' / '+requiredSteps.length;
+      $('#progressCount').textContent=t('stepTwo');
       all('[data-check]').forEach(icon=>icon.closest('a').classList.toggle('done',complete[icon.dataset.check]));
       $('#phoneBadge').textContent=t(complete.phone?'verified':otpOptional?'optional':'notVerified');$('#phoneBadge').classList.toggle('warning',!complete.phone&&!otpOptional);
       $('#phoneSummary').textContent=complete.phone?(account.phone+' · '+t('verified')):t(otpDeferred?'phoneDeferred':otpOptional?'phoneOptionalApproval':'phoneInstruction')+' '+account.phone;
@@ -428,7 +440,6 @@
     $('#editRoutePreference').addEventListener('click',()=>{editingPreference=!editingPreference;renderDashboard(false);if(editingPreference)$('#pendingDeparture').focus();});
     $('#profileForm').addEventListener('submit',event=>{event.preventDefault();if(onboardingAccess(snapshot?.onboarding).locked||!event.currentTarget.reportValidity())return;const keys=role==='DRIVER'?['emergencyContactName','emergencyContactPhone','vehicleColor']:['address','registrationNumber'];const body=Object.fromEntries(keys.map(key=>[key,$('#'+key).value.trim()]));run($('#saveProfile'),'#profileMessage',()=>api('/profile',{method:'PATCH',body}),'saved');});
     $('#routePreferenceForm').addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget,quote=quotes.pending.getState(),service=currentService('pending'),daily=service==='DAILY_COMMUTE';if(form.hidden||!form.reportValidity())return;if(daily&&quote.status!=='READY'){message('#preferenceMessage',t('priceLookupError'),true);return;}const body=routePreferencePayload(Object.fromEntries([...form.elements].filter(input=>input.name&&!input.disabled).map(input=>[input.name,input.value])),quote.quote,service);if(daily&&quote.quote.price.mode==='PROPOSED'&&!validMonthlyFee(body.proposedMonthlyFeeEtb)){message('#preferenceMessage',t('feeInvalid'),true);return;}preferenceBusy=true;try{await run($('#saveRoutePreference'),'#preferenceMessage',async()=>{const result=await api('/profile',{method:'PATCH',body});editingPreference=false;return result;});}finally{preferenceBusy=false;updateSubmitAvailability();}});
-    $('#resubmitRegistration').addEventListener('click',()=>{const o=snapshot?.onboarding;if(!o?.canInitiallySubmit||o.acceptanceStatus!=='REJECTED')return;run($('#resubmitRegistration'),'#preferenceMessage',()=>api('/submit',{method:'POST',body:{}}),'AWAITING_ACCEPTANCE');});
     $('#requestOtp').addEventListener('click',async()=>{
       if(onboardingAccess(snapshot?.onboarding).locked)return;
       const current=revision;busy($('#requestOtp'),true);message('#otpMessage','');

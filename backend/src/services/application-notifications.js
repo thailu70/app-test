@@ -3,9 +3,8 @@ const crypto = require('crypto');
 const { DB } = require('../db');
 const schemas = new WeakMap();
 const DECISIONS = Object.freeze({
-  ACCEPT: 'Your initial driver application was accepted. Complete your details and documents for final review.',
   CORRECTIONS: 'Your application needs corrections. Sign in to read the review note and update the requested details or documents.',
-  REJECT: 'Your initial application was returned. Sign in to read the review note before resubmitting.',
+  REJECT: 'Your application was returned. Sign in to read the review note before resubmitting.',
   APPROVE: 'Your application is approved. Sign in to the Passo app for your assignments.',
   SUSPEND: 'Your driver account is paused. Contact Passo support before operating.',
   RESTORE: 'Your driver account was restored. Sign in to check your current application and assignments.'

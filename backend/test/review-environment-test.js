@@ -46,7 +46,7 @@ test('isolated synthetic review runtime never adopts production data or enables 
     assert.equal((await request('/api/intercity/driver/departures',{token:companyDriver})).status,200);
     for(const phone of ['0900000106','0900000107']) {
       const r=await request('/api/onboarding/login',{method:'POST',body:{phone,password:config.password,role:'DRIVER'}});assert.equal(r.status,200,JSON.stringify(r.data));
-      assert.equal(r.data.onboarding.acceptanceStatus,phone==='0900000106'?'PENDING':'ACCEPTED');
+      assert.equal(r.data.onboarding.acceptanceStatus,'NOT_REQUIRED');
       assert.equal((await request('/api/auth/login',{method:'POST',body:{phone,password:config.password,role:'DRIVER'}})).status,403);
     }
   });

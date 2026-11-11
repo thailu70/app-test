@@ -10,7 +10,9 @@ data class DriverApplicationInput(
     val assignedVehiclePlate: String? = null, val vehicleModel: String? = null,
     val vehicleType: String? = null, val routeChoice: String? = null,
     val proposedDeparture: String? = null, val proposedDestination: String? = null,
-    val proposedMonthlyFeeEtb: Double? = null, val proposedMonthlyFeeBasis: String? = null
+    val proposedMonthlyFeeEtb: Double? = null, val proposedMonthlyFeeBasis: String? = null,
+    val emergencyContactName: String? = null, val emergencyContactPhone: String? = null,
+    val vehicleColor: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -39,7 +41,7 @@ data class DriverRoutePreference(
 
 @JsonClass(generateAdapter = true)
 data class DriverApplicationProgress(
-    val acceptanceRequired: Boolean = true, val acceptanceStatus: String = "PENDING",
+    val acceptanceRequired: Boolean = false, val acceptanceStatus: String = "NOT_REQUIRED",
     val canVerifyAndUpload: Boolean = false, val reviewStatus: String? = null,
     val reviewNote: String = "", val submittedAt: String? = null,
     val reviewReady: Boolean = false, val reviewMissing: List<String> = emptyList(),

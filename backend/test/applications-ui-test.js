@@ -52,10 +52,10 @@ test('switching applicants discards an older response and cleanup prevents a lat
   await flush();
   assert.doesNotMatch(f.node('[data-application-detail]').innerHTML, /After sign out/);
 });
-test('initial acceptance reviews the route and whole-vehicle fee while final allocation approval remains disabled', async () => {
+test('one completed-application review includes route and vehicle fee while incomplete files block approval', async () => {
   let decision;
   const account = { id: 'daily', role: 'DRIVER', fullName: 'Daily applicant', status: 'PENDING' };
-  const onboarding = { acceptanceRequired: true, acceptanceStatus: 'PENDING', canVerifyAndUpload: false, reviewStatus: 'AWAITING_ACCEPTANCE', ready: false, missing: ['ADMIN_ACCEPTANCE','PHONE_VERIFICATION'],
+  const onboarding = { acceptanceRequired: false, acceptanceStatus: 'NOT_REQUIRED', canVerifyAndUpload: true, reviewStatus: 'DRAFT', ready: false, missing: ['LICENSE','PHONE_VERIFICATION'],
     routePreference: { mode: 'PROPOSED', departure: '<script>departure</script>', destination: 'Destination', proposedMonthlyFeeEtb: 45000, proposedMonthlyFeeBasis: 'PER_VEHICLE' }, documents: [] };
   const f = fixture(async (path, options) => {
     if (path.endsWith('/review')) { decision = JSON.parse(options.body); return {}; }
@@ -63,22 +63,19 @@ test('initial acceptance reviews the route and whole-vehicle fee while final all
     return { account, onboarding };
   });
   await flush();
-  assert.match(f.node('[data-application-list]').innerHTML, /Awaiting admin acceptance/);
-  assert.match(f.node('[data-application-list]').innerHTML, /After admin acceptance/);
+  assert.match(f.node('[data-application-list]').innerHTML, /In progress/);
   f.click('[data-application-open]', { applicationRole: 'DRIVER', applicationOpen: 'daily' }); await flush();
   const html = f.node('[data-application-detail]').innerHTML;
   assert.match(html, /45,000\.00 ETB \/ vehicle \/ month/);
   assert.match(html, /&lt;script&gt;departure/);
   assert.doesNotMatch(html, /<script>/);
-  assert.match(html, /data-application-decision="ACCEPT">Accept initial application/);
+  assert.doesNotMatch(html, /data-application-decision="ACCEPT"|Initial acceptance/);
   assert.match(html, /data-application-decision="APPROVE" disabled/);
   onboarding.routePreference = { mode: 'EXISTING', routeName: 'Bole to CMC', proposedMonthlyFeeEtb: 20000, proposedMonthlyFeeBasis: 'PER_VEHICLE', feeLocked: true, passengerCapacity: 8, passengerMonthlyFareEtb: 2500 };
   f.click('[data-application-open]', { applicationRole: 'DRIVER', applicationOpen: 'daily' }); await flush();
   assert.match(f.node('[data-application-detail]').innerHTML, /Calculated monthly fee/);
   assert.match(f.node('[data-application-detail]').innerHTML, /8 seats × 2,500\.00 ETB per passenger \/ month/);
-  f.click('[data-application-decision]', { applicationDecision: 'ACCEPT' }); await flush();
-  assert.equal(decision.decision, 'ACCEPT');
-  assert.match(f.node('[data-application-message]').textContent, /upload documents for final approval/);
+  assert.equal(decision,undefined);
   f.cleanup();
 });
 
@@ -112,22 +109,22 @@ test('driver approval uses review readiness while truthful phone status remains 
   f.cleanup();
 });
 
-test('group and cargo initial reviews identify the service and do not require a daily commute monthly fee',async()=>{
+test('group and cargo completed reviews identify the service and do not require a daily commute monthly fee',async()=>{
   for(const serviceType of ['GROUP_TRAVEL','CARGO']){
     const account={id:serviceType,role:'DRIVER',fullName:'Fixture Driver',status:'PENDING',serviceType};
-    const onboarding={serviceType,acceptanceRequired:true,acceptanceStatus:'PENDING',reviewStatus:'AWAITING_ACCEPTANCE',documents:[],routePreference:{mode:'PROPOSED',departure:'Addis Ababa',destination:'Hawassa',vehicleType:'MINIBUS_14',passengerCapacity:14,proposedMonthlyFeeEtb:null}};
+    const onboarding={serviceType,acceptanceRequired:false,acceptanceStatus:'NOT_REQUIRED',reviewStatus:'DRAFT',documents:[],routePreference:{mode:'PROPOSED',departure:'Addis Ababa',destination:'Hawassa',vehicleType:'MINIBUS_14',passengerCapacity:14,proposedMonthlyFeeEtb:null}};
     const f=fixture(async path=>path.endsWith('/applications')?{applications:[{...account,onboarding}]}:{account,onboarding});
     await flush();f.click('[data-application-open]',{applicationRole:'DRIVER',applicationOpen:serviceType});await flush();
     const html=f.node('[data-application-detail]').innerHTML;
     assert.match(html,new RegExp(serviceType==='CARGO'?'Cargo transport proposal':'Group travel proposal'));
-    assert.match(html,/data-application-decision="ACCEPT">/);assert.doesNotMatch(html,/Monthly fee for the whole vehicle|Not provided yet/);
+    assert.doesNotMatch(html,/data-application-decision="ACCEPT"/);assert.doesNotMatch(html,/Monthly fee for the whole vehicle|Not provided yet/);
     if(serviceType==='GROUP_TRAVEL')assert.match(html,/separate admin approval/);else assert.doesNotMatch(html,/Registered seats/);
     f.cleanup();
   }
 });
 
 
-test('document corrections need instructions and are separate from initial rejection or suspension', async () => {
+test('document corrections need instructions and are available with one final review and separate suspension', async () => {
   const calls=[];
   const account={id:'corrections',role:'DRIVER',fullName:'Correction Fixture',status:'PENDING'};
   const onboarding={acceptanceRequired:true,acceptedAt:'accepted',reviewStatus:'SUBMITTED',submittedAt:'submitted',reviewReady:true,documents:[]};
@@ -142,7 +139,7 @@ test('document corrections need instructions and are separate from initial rejec
   f.node('[data-application-note]').value='Please upload a clearer licence image.';
   f.click('[data-application-decision]',{applicationDecision:'CORRECTIONS'});await flush();
   assert.deepEqual(calls,[{decision:'CORRECTIONS',note:'Please upload a clearer licence image.'}]);
-  assert.match(f.node('[data-application-message]').textContent,/accepted route is retained/);f.cleanup();
+  assert.match(f.node('[data-application-message]').textContent,/update details and documents/);f.cleanup();
 });
 
 test('a suspended driver offers restoration and reports pending recovery without claiming activation', async () => {

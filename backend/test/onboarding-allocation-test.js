@@ -14,7 +14,7 @@ delete process.env.DATABASE_URL;
 const express = require('express');
 const { DB } = require('../src/db');
 const { signToken } = require('../src/middleware/auth');
-const { createOnboardingService, acceptInitialOnboarding, initOnboardingSchema, getOnboardingReadiness, isOperationallyEligible, normalizePhone, REQUIRED } = require('../src/services/onboarding');
+const { createOnboardingService, initOnboardingSchema, getOnboardingReadiness, isOperationallyEligible, normalizePhone, REQUIRED } = require('../src/services/onboarding');
 const { initIntercitySchema } = require('../src/services/intercity-schema');
 
 test('legacy allocation APIs cannot bypass required web onboarding and approval', async t => {
@@ -84,10 +84,11 @@ test('legacy allocation APIs cannot bypass required web onboarding and approval'
   function blocked(response) { assert.ok([401,403,409,428].includes(response.status), JSON.stringify(response)); }
   async function completeDriver(id, submitted = true) {
     const initial = await getOnboardingReadiness(id, 'DRIVER');
-    if (initial.acceptanceRequired && !initial.acceptedAt) {
-      const service = createOnboardingService();
-      await service.updateProfile(id, 'DRIVER', { routeChoice: 'EXISTING', appliedRouteId: 'allocation_route', proposedMonthlyFeeEtb: 45000, proposedMonthlyFeeBasis: 'PER_VEHICLE' });
-      await DB.transaction(async tx => acceptInitialOnboarding(id, 'usr_adm_root', 'Fixture initial acceptance', tx));
+    assert.equal(initial.acceptanceRequired, false);
+    assert.equal(initial.canVerifyAndUpload, true);
+    const owner = await DB.prepare('SELECT companyId FROM users WHERE id=?').get(id);
+    if (!owner.companyId && !initial.initialApplicationComplete) {
+      await createOnboardingService().updateProfile(id, 'DRIVER', { routeChoice: 'EXISTING', appliedRouteId: 'allocation_route', proposedMonthlyFeeEtb: 45000, proposedMonthlyFeeBasis: 'PER_VEHICLE' });
     }
     const account = await DB.prepare('SELECT phone FROM users WHERE id=?').get(id);
     const now = new Date().toISOString();

@@ -40,6 +40,9 @@ internal class AuthDraft(routeId: String?, routeName: String?, tier: String?) {
     var service by mutableStateOf("Daily Commuter")
     var plate by mutableStateOf("")
     var vehicleModel by mutableStateOf("")
+    var vehicleColor by mutableStateOf("")
+    var emergencyContactName by mutableStateOf("")
+    var emergencyContactPhone by mutableStateOf("")
     var vehicleType by mutableStateOf("MINIBUS_14")
     var company by mutableStateOf("")
     var routeMode by mutableStateOf("custom")
@@ -157,6 +160,9 @@ internal fun NativeAuthFlow(
             !driver && draft.isCustomCommute && draft.destination.isBlank() -> "Enter your destination."
             !driver && !draft.isCustomCommute && routes.none { it.id == draft.selectedRoute && it.active } -> "Choose an active daily route to create your account."
             driver && draft.license.isBlank() -> "Enter your commercial driving licence number."
+            driver && draft.emergencyContactName.trim().length < 2 -> "Enter your emergency contact name."
+            driver && canonicalAccountPhone(draft.emergencyContactPhone) == null -> "Enter a valid emergency contact phone number."
+            driver && draft.vehicleColor.trim().length < 2 -> "Enter the vehicle color."
             driver && draft.service == "Intercity" && companies.none { it.id == draft.company } -> "Choose a registered transport company."
             driver && draft.service != "Intercity" && (draft.plate.isBlank() || draft.vehicleModel.isBlank()) -> "Enter your vehicle plate and model."
             driver && draft.service != "Intercity" && vehicleTypesLoading -> "Wait for vehicle types to finish loading."
@@ -179,7 +185,9 @@ internal fun NativeAuthFlow(
                 vehicleModel = draft.vehicleModel.trim().takeUnless { intercity }, vehicleType = draft.vehicleType.takeUnless { intercity },
                 routeChoice = "PROPOSED".takeUnless { intercity }, proposedDeparture = draft.pickup.trim().takeUnless { intercity },
                 proposedDestination = draft.destination.trim().takeUnless { intercity }, proposedMonthlyFeeEtb = if (draft.service == "Daily Commuter") driverMonthlyFee(draft) else null,
-                proposedMonthlyFeeBasis = "PER_VEHICLE".takeIf { draft.service == "Daily Commuter" }
+                proposedMonthlyFeeBasis = "PER_VEHICLE".takeIf { draft.service == "Daily Commuter" },
+                emergencyContactName = draft.emergencyContactName.trim(), emergencyContactPhone = draft.emergencyContactPhone.trim(),
+                vehicleColor = draft.vehicleColor.trim()
             )) }
             return
         }
@@ -221,7 +229,7 @@ internal fun NativeAuthFlow(
                 Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp).testTag("auth_form_card"), verticalArrangement = Arrangement.spacedBy(if (register) 6.dp else 10.dp)) {
                     AuthRoleBadge(driver, language, if (register && !driver) Modifier.align(Alignment.CenterHorizontally) else Modifier)
                     if (!register || step == 0) AuthIdentityTitle(driver, register, language)
-                    if (register) AuthStepProgress(step, driver, language)
+                    if (register) AuthStepProgress(if (driver) 0 else step, driver, language)
                     if (!register || step == 0) {
                         if (register) AuthField(draft.name, { draft.name = it; message = null }, t("Full name", "ሙሉ ስም", "Maqaa guutuu"),
                             Modifier.fillMaxWidth().testTag("auth_full_name_input"), enabled = !busy, language = language)
@@ -251,7 +259,7 @@ internal fun NativeAuthFlow(
                             else { waitingForAuth = true; message = null; model.clearRegistrationMessage(); model.login(draft.phone.trim(), draft.password, role) }
                         }, modifier = Modifier.testTag("auth_submit_button"), enabled = !busy, busy = busy)
                     if (register && step == 1) AuthPrimaryButton(
-                        if (driver) t("Submit driver registration", "የሹፌር ምዝገባ ላክ", "Galmee konkolaachisaa ergi") else t("Create account", "መለያ ፍጠር", "Herrega uumi"),
+                        if (driver) t("Continue to documents", "ወደ ሰነዶች ቀጥል", "Gara sanadootaatti itti fufi") else t("Create account", "መለያ ፍጠር", "Herrega uumi"),
                         ::submit, Modifier.testTag(if (driver) "auth_driver_submit" else "auth_passenger_submit"), enabled = !busy && draft.adultConfirmed, busy = busy)
                     if (register) Text(t("Phone verification is optional for now. We’ll notify you when it’s time to verify.", "ለአሁኑ ስልክ ማረጋገጥ አማራጭ ነው። ማረጋገጥ ሲያስፈልግ እናሳውቅዎታለን።", "Ammaaf bilbila mirkaneessuun filannoo dha. Yeroo mirkaneessuu qabdu si beeksifna."), fontSize = 11.sp, color = CommuteInk, modifier = Modifier.testTag("auth_verification_notice"))
                     if (driver && register && step == 0) Text(t("Next: licence and service details. Approval required.", "ቀጣይ፦ ፈቃድ እና የአገልግሎት ዝርዝር። ፈቃድ ያስፈልጋል።", "Itti aansuun: eeyyamaa fi odeeffannoo tajaajilaa. Hayyamni barbaachisa."), color = CommuteInk, fontSize = 10.sp)

@@ -119,7 +119,7 @@ router.patch('/drivers/:id/approval', async (req, res) => {
         changed = update.changed; actualStatus = update.status; decision = status === 'SUSPENDED' ? 'SUSPEND' : 'RESTORE';
       } else {
         const readiness = await getOnboardingReadiness(driver.id, 'DRIVER', tx);
-        if (!readiness.reviewReady) throw Object.assign(new Error('Complete initial acceptance, required documents and profile information, then submit the driver application before approval.'), { status: 409, code: 'ONBOARDING_REQUIRED' });
+        if (!readiness.reviewReady) throw Object.assign(new Error('Complete the driver details and required documents, then submit the application before approval.'), { status: 409, code: 'ONBOARDING_REQUIRED' });
         changed = driver.status !== 'ACTIVE' || (readiness.tracked && readiness.reviewStatus !== 'APPROVED');
         if (changed) {
           await markOnboardingReviewed(driver.id, 'DRIVER', 'APPROVED', req.user.id, '', tx);

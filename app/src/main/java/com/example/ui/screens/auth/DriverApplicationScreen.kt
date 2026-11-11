@@ -39,8 +39,7 @@ internal fun driverApplicationStatus(progress: DriverApplicationProgress): Strin
     progress.reviewStatus == "CORRECTIONS_REQUESTED" -> "Changes requested"
     progress.acceptanceStatus == "REJECTED" || progress.reviewStatus == "REJECTED" -> "Application needs changes"
     progress.reviewStatus == "SUBMITTED" -> "Final review in progress"
-    progress.canVerifyAndUpload -> "Complete your application"
-    else -> "Waiting for initial acceptance"
+    else -> "Complete your application"
 }
 
 @Composable
@@ -110,6 +109,7 @@ internal fun DriverApplicationScreen(applications: DriverApplicationRepository, 
                     Box(Modifier.weight(1f).padding(start = 8.dp)) { CommuterLanguageSwitch(language, onLanguage, compact = true) }
                 }
                 Text(t("Your driver application", "የሹፌር ማመልከቻዎ", "Iyyata konkolaachisaa kee"), color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 26.sp)
+                AuthStepProgress(1, true, language)
             }
             item {
                 Surface(shape = RoundedCornerShape(24.dp), color = CommuteTeal, contentColor = Color.White) {
@@ -121,12 +121,12 @@ internal fun DriverApplicationScreen(applications: DriverApplicationRepository, 
                             "Application needs changes" -> t("Application needs changes", "ማመልከቻው ማስተካከያ ይፈልጋል", "Iyyanni fooyya'iinsa barbaada")
                             "Final review in progress" -> t("Final review in progress", "የመጨረሻ ግምገማ በሂደት ላይ", "Gamaaggamni dhumaa adeemsa irra jira")
                             "Complete your application" -> t("Complete your application", "ማመልከቻዎን ያጠናቅቁ", "Iyyata kee xumuri")
-                            else -> t("Waiting for initial acceptance", "የመጀመሪያ ተቀባይነት በመጠባበቅ ላይ", "Fudhatama jalqabaa eegaa jira")
+                            else -> t("Complete your application", "ማመልከቻዎን ያጠናቅቁ", "Iyyata kee xumuri")
                         }
                         Text(status, fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("driver_application_status"))
                         Text(if (snapshot.approved) t("Your documents and application have been approved. Sign in to open your driver portal.", "ሰነዶችዎ እና ማመልከቻዎ ተፈቅደዋል። የሹፌር ፖርታል ለመክፈት ይግቡ።", "Sanadoonni fi iyyanni kee hayyamamaniiru. Poortaalii konkolaachisaa banuuf seeni.")
-                            else if (!progress.canVerifyAndUpload) t("An administrator must first accept your route proposal. Refresh here to check for updates.", "አስተዳዳሪው መጀመሪያ የመስመር ጥቆማዎን መቀበል አለበት። ለውጦችን ለማየት ያድሱ።", "Bulchaan dursee yaada karaa kee fudhachuu qaba. Jijjiirama ilaaluuf haaromsi.")
-                            else t("Required documents and final approval are needed before driving or passenger allocation. Phone verification is optional for now.", "ከሥራ እና ከተሳፋሪ ምደባ በፊት ሰነዶች እና የመጨረሻ ፈቃድ ያስፈልጋሉ። ስልክ ማረጋገጥ ለአሁኑ አማራጭ ነው።", "Hojii fi ramaddii imaltootaa dura sanadoonni fi hayyamni dhumaa barbaachisu. Mirkaneessi bilbilaa ammaaf filannoo dha."), fontSize = 13.sp)
+                            else if (progress.reviewStatus == "SUBMITTED") t("Your complete application is with the administrator. Once approved, sign in to open your driver dashboard.", "ሙሉ ማመልከቻዎ ለአስተዳዳሪው ተልኳል። ከተፈቀደ በኋላ ወደ ሹፌር ዳሽቦርድ ለመግባት ይግቡ።", "Iyyanni kee guutuun gara bulchaatti ergameera. Erga hayyamamee booda daashboordii konkolaachisaa banuuf seeni.")
+                            else t("Upload your documents, then submit your complete application for admin approval. Phone verification is optional for now.", "ሰነዶችዎን ይላኩ፣ ከዚያ ሙሉ ማመልከቻዎን ለአስተዳዳሪ ፈቃድ ያቅርቡ። ስልክ ማረጋገጥ ለአሁኑ አማራጭ ነው።", "Sanadoota kee olkaa'i, itti aansii iyyata guutuu hayyama bulchaaf ergi. Mirkaneessi bilbilaa ammaaf filannoo dha."), fontSize = 13.sp)
                     }
                 }
             }
@@ -139,7 +139,7 @@ internal fun DriverApplicationScreen(applications: DriverApplicationRepository, 
                     Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text(t("Refresh application status", "የማመልከቻ ሁኔታን ያድሱ", "Haala iyyataa haaromsi"))
                 }
             }
-            if (progress.acceptanceRequired && progress.routePreference.departure.isNotBlank()) item {
+            if (progress.routePreference.departure.isNotBlank()) item {
                 Surface(shape = RoundedCornerShape(20.dp), color = Color.White, border = BorderStroke(1.dp, Color(0xFFE5E2DA))) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("${progress.routePreference.departure} → ${progress.routePreference.destination}", color = CommuteInk, fontWeight = FontWeight.Bold)
@@ -147,12 +147,12 @@ internal fun DriverApplicationScreen(applications: DriverApplicationRepository, 
                     }
                 }
             }
-            if (progress.acceptanceRequired && progress.reviewStatus !in setOf("SUBMITTED", "APPROVED")) item {
+            if (snapshot.editable && account.serviceType in setOf("DAILY_COMMUTE", "GROUP_TRAVEL", "CARGO")) item {
                 TextButton(onClick = { editingRoute = !editingRoute }, enabled = !state.busy, modifier = Modifier.testTag("driver_application_edit_route")) {
                     Text(t("Update route proposal", "የመስመር ጥቆማን ያዘምኑ", "Yaada karaa haaromsi"), color = CommuteTeal)
                 }
                 if (editingRoute) Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(t("Changing your route or fee requires initial acceptance again.", "መስመር ወይም ዋጋ መቀየር የመጀመሪያ ተቀባይነትን እንደገና ይፈልጋል።", "Karaa ykn kaffaltii jijjiiruun fudhatama jalqabaa irra deebi'ee barbaada."), color = CommuteInk, fontSize = 12.sp)
+                    Text(t("Your route and fee will be reviewed with your documents.", "መስመርዎ እና ክፍያዎ ከሰነዶችዎ ጋር ይገመገማሉ።", "Karaa fi kaffaltiin kee sanadoota waliin gamaaggamamu."), color = CommuteInk, fontSize = 12.sp)
                     if (account.serviceType == "DAILY_COMMUTE") DriverRouteProposalFields(routeDraft, applications, language, !state.busy)
                     else {
                         AuthField(routeDraft.pickup, { routeDraft.pickup = it }, t("Preferred departure", "የሚመርጡት መነሻ", "Ka'umsa filatame"), enabled = !state.busy, language = language)
@@ -164,11 +164,18 @@ internal fun DriverApplicationScreen(applications: DriverApplicationRepository, 
                     }, enabled = !state.busy && if (account.serviceType == "DAILY_COMMUTE") !routeDraft.quoteLoading && driverMonthlyFee(routeDraft) != null else routeDraft.pickup.trim().length >= 2 && routeDraft.destination.trim().length >= 2)
                 }
             }
-            if (progress.canInitiallySubmit && !progress.canVerifyAndUpload && progress.reviewStatus != "AWAITING_ACCEPTANCE") item {
-                AuthPrimaryButton(t("Resubmit for initial acceptance", "ለመጀመሪያ ተቀባይነት እንደገና ላክ", "Fudhatama jalqabaaf irra deebi'ii ergi"), { scope.launch { applications.submit() } }, enabled = !state.busy,
-                    modifier = Modifier.testTag("driver_application_initial_submit"))
-            }
             if (progress.canVerifyAndUpload) {
+                item {
+                    Text(t("Contact and vehicle details", "የእውቂያ እና የተሽከርካሪ ዝርዝር", "Odeeffannoo qunnamtii fi konkolaataa"), color = CommuteInk, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        AuthField(vehicleColor, { vehicleColor = it.take(40) }, t("Vehicle color", "የተሽከርካሪ ቀለም", "Halluu konkolaataa"), Modifier.testTag("driver_application_vehicle_color"), enabled = snapshot.editable && !state.busy, language = language)
+                        AuthField(contactName, { contactName = it.take(100) }, t("Emergency contact name", "የአደጋ ጊዜ ተጠሪ ስም", "Maqaa nama yeroo balaa"), Modifier.testTag("driver_application_contact_name"), enabled = snapshot.editable && !state.busy, language = language)
+                        AuthField(contactPhone, { contactPhone = it.take(24) }, t("Emergency contact phone", "የአደጋ ጊዜ ተጠሪ ስልክ", "Bilbila nama yeroo balaa"), Modifier.testTag("driver_application_contact_phone"), phone = true, enabled = snapshot.editable && !state.busy, language = language)
+                        if (snapshot.editable) AuthPrimaryButton(t("Save details", "ዝርዝር አስቀምጥ", "Odeeffannoo olkaa'i"), { scope.launch { applications.saveProfile(contactName, contactPhone, vehicleColor) } },
+                            enabled = !state.busy && contactName.trim().length >= 2 && contactPhone.trim().length >= 7 && vehicleColor.trim().length >= 2,
+                            modifier = Modifier.testTag("driver_application_save_details"))
+                    }
+                }
                 item {
                     Text(t("Required documents", "የሚፈለጉ ሰነዶች", "Sanadoota barbaachisan"), color = CommuteInk, fontSize = 21.sp, fontWeight = FontWeight.Bold)
                     Text(t("Clear JPEG, PNG or PDF files, up to 5 MB each. Your photo must be JPEG or PNG.", "እያንዳንዱ እስከ 5 ሜባ የሆኑ JPEG፣ PNG ወይም PDF ይጠቀሙ። ፎቶ JPEG ወይም PNG መሆን አለበት።", "JPEG, PNG ykn PDF ifa ta'e, tokkoon tokkoon hanga 5 MB. Suuraan JPEG ykn PNG haa ta'u."), color = CommuteInk, fontSize = 12.sp)
@@ -187,17 +194,6 @@ internal fun DriverApplicationScreen(applications: DriverApplicationRepository, 
                         }
                     }
                 } }
-                item {
-                    Text(t("Contact and vehicle details", "የእውቂያ እና የተሽከርካሪ ዝርዝር", "Odeeffannoo qunnamtii fi konkolaataa"), color = CommuteInk, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        AuthField(vehicleColor, { vehicleColor = it.take(40) }, t("Vehicle color", "የተሽከርካሪ ቀለም", "Halluu konkolaataa"), Modifier.testTag("driver_application_vehicle_color"), enabled = snapshot.editable && !state.busy, language = language)
-                        AuthField(contactName, { contactName = it.take(100) }, t("Emergency contact name", "የአደጋ ጊዜ ተጠሪ ስም", "Maqaa nama yeroo balaa"), Modifier.testTag("driver_application_contact_name"), enabled = snapshot.editable && !state.busy, language = language)
-                        AuthField(contactPhone, { contactPhone = it.take(24) }, t("Emergency contact phone", "የአደጋ ጊዜ ተጠሪ ስልክ", "Bilbila nama yeroo balaa"), Modifier.testTag("driver_application_contact_phone"), phone = true, enabled = snapshot.editable && !state.busy, language = language)
-                        if (snapshot.editable) AuthPrimaryButton(t("Save details", "ዝርዝር አስቀምጥ", "Odeeffannoo olkaa'i"), { scope.launch { applications.saveProfile(contactName, contactPhone, vehicleColor) } },
-                            enabled = !state.busy && contactName.trim().length >= 2 && contactPhone.trim().length >= 7 && vehicleColor.trim().length >= 2,
-                            modifier = Modifier.testTag("driver_application_save_details"))
-                    }
-                }
                 if (snapshot.editable) item {
                     AuthPrimaryButton(t("Submit for final review", "ለመጨረሻ ግምገማ ላክ", "Gamaaggama dhumaaf ergi"), { scope.launch { applications.submit() } }, enabled = !state.busy && progress.reviewReady && !detailsDirty && !editingRoute,
                         modifier = Modifier.testTag("driver_application_final_submit"))

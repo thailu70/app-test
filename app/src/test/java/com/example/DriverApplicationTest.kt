@@ -17,7 +17,7 @@ import retrofit2.http.Header
 import java.lang.reflect.Proxy
 
 class DriverApplicationTest {
-    private fun snapshot(progress: DriverApplicationProgress = DriverApplicationProgress(reviewStatus = "AWAITING_ACCEPTANCE"), token: String? = "private-scoped-token") = DriverApplicationResponse(true,
+    private fun snapshot(progress: DriverApplicationProgress = DriverApplicationProgress(canVerifyAndUpload = true, reviewStatus = "DRAFT"), token: String? = "private-scoped-token") = DriverApplicationResponse(true,
         DriverApplicationAccount("application-fixture", "DRIVER", "Fixture Driver", "+251912000111", "PENDING", vehicleType = "MINIVAN_8"), progress, token)
     private fun fake(block: (String, Array<out Any?>?) -> Any): RoutePassApiService = Proxy.newProxyInstance(RoutePassApiService::class.java.classLoader,
         arrayOf(RoutePassApiService::class.java)) { _, method, args -> block(method.name, args) } as RoutePassApiService
@@ -35,7 +35,8 @@ class DriverApplicationTest {
         })
         applications.register(input)
         assertEquals(input, captured)
-        assertEquals("AWAITING_ACCEPTANCE", applications.state.value.application!!.onboarding!!.reviewStatus)
+        assertEquals("DRAFT", applications.state.value.application!!.onboarding!!.reviewStatus)
+        assertTrue(applications.state.value.application!!.editable)
         assertNull("The private scoped capability is not exposed as UI state", applications.state.value.application!!.token)
         assertFalse(applications.state.value.application!!.approved)
         assertEquals("existing-operational-session", ApiClient.getAuthToken())
@@ -53,8 +54,8 @@ class DriverApplicationTest {
         })
         applications.login("0912000111", "fixture-password")
         applications.upload("LICENSE", byteArrayOf(1), "image/jpeg")
-        assertEquals(listOf("loginDriverApplication"), calls)
-        assertTrue(applications.state.value.error!!.contains("after your application is accepted"))
+        assertEquals(listOf("loginDriverApplication", "uploadDriverApplicationDocument"), calls)
+        assertNull(applications.state.value.error)
 
         current = snapshot(DriverApplicationProgress(canVerifyAndUpload = true, acceptanceStatus = "ACCEPTED", reviewStatus = "DRAFT"), token = null)
         applications.refresh()
@@ -65,6 +66,10 @@ class DriverApplicationTest {
         current = current.copy(onboarding = current.onboarding!!.copy(reviewReady = true, reviewStatus = "SUBMITTED"))
         applications.submit()
         assertFalse(applications.state.value.application!!.editable)
+        val uploadCount = calls.count { it == "uploadDriverApplicationDocument" }
+        applications.upload("LICENSE", byteArrayOf(1), "image/jpeg")
+        assertEquals(uploadCount, calls.count { it == "uploadDriverApplicationDocument" })
+        assertTrue(applications.state.value.error!!.contains("not open for document changes"))
         current = current.copy(account = current.account!!.copy(status = "ACTIVE"), onboarding = current.onboarding!!.copy(reviewStatus = "APPROVED"))
         applications.refresh()
         assertTrue(applications.state.value.application!!.approved)
@@ -86,6 +91,24 @@ class DriverApplicationTest {
         assertEquals(1, uploads)
         val method = RoutePassApiService::class.java.methods.single { it.name == "uploadDriverApplicationDocument" }
         assertEquals("Authorization", method.parameterAnnotations[0].filterIsInstance<Header>().single().value)
+    }
+
+    @Test fun `route proposals remain editable without initial approval and lock during final review`() = runBlocking {
+        var current = snapshot()
+        var changes = 0
+        val applications = DriverApplicationRepository(fake { method, _ ->
+            if (method == "updateDriverApplication") changes++
+            Response.success(current)
+        })
+        applications.login("0912000111", "fixture-password")
+        applications.saveRoute("Bole", "CMC", "MINIVAN_8", 20000.0)
+        assertEquals(1, changes)
+        assertNull(applications.state.value.error)
+        current = current.copy(onboarding = current.onboarding!!.copy(reviewStatus = "SUBMITTED"))
+        applications.refresh()
+        applications.saveRoute("Bole", "CMC", "MINIVAN_8", 20000.0)
+        assertEquals(1, changes)
+        assertNotNull(applications.state.value.error)
     }
 
     @Test fun `missing session capability and wrong account role cannot establish an application session`() = runBlocking {

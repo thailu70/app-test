@@ -26,13 +26,8 @@ const prepareDriverApplication = async (baseUrl, { id, phone, password, acceptan
   const token = result.data.token;
   assert.ok(token, 'The application session must be scoped separately from operational login');
   assert.equal((await requestJson(baseUrl, '/api/trips/assignments', 'GET', null, token)).status, 401);
-  if (result.data.onboarding.acceptanceRequired) {
-    assert.ok(acceptanceToken, 'Daily commute applications require an administrator to accept their route proposal');
-    result = await requestJson(baseUrl, '/api/onboarding/applications/DRIVER/' + id + '/review', 'POST', { decision: 'ACCEPT' }, acceptanceToken);
-    assert.equal(result.status, 200, 'Accepting a native daily application must use the shared initial review');
-    assert.equal(result.data.onboarding.canVerifyAndUpload, true);
-    assert.equal(result.data.account.status, 'PENDING');
-  }
+  assert.equal(result.data.onboarding.acceptanceRequired, false);
+  assert.equal(result.data.onboarding.canVerifyAndUpload, true);
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aB9sAAAAASUVORK5CYII=', 'base64');
   for (const kind of ['LICENSE', 'VEHICLE_REGISTRATION', 'INSURANCE', 'PHOTO']) {
     const response = await fetch(new URL('/api/onboarding/documents/' + kind, baseUrl), {
@@ -122,11 +117,11 @@ async function run() {
     assert.equal((await requestJson(baseUrl, '/api/onboarding/me', 'GET', null, applicantToken)).status, 200, 'Applicants may sign in and complete onboarding');
     assert.equal((await requestJson(baseUrl, '/api/trips/assignments', 'GET', null, applicantToken)).status, 401, 'Onboarding tokens never grant driver operations');
     assert.notEqual((await requestJson(baseUrl, '/api/admin/drivers/' + applicantId + '/approval', 'PATCH', { status: 'ACTIVE' }, adminToken)).status, 200, 'An incomplete web applicant cannot be approved via the old API');
-    assert.equal((await requestJson(baseUrl, '/api/onboarding/request-otp', 'POST', {}, applicantToken)).status, 428, 'Daily commute phone verification waits for initial admin acceptance');
     result = await requestJson(baseUrl, '/api/onboarding/applications/DRIVER/' + applicantId + '/review', 'POST', { decision: 'ACCEPT' }, adminToken);
-    assert.equal(result.status, 200, 'Administrator accepts the initial route and whole-vehicle fee proposal');
+    assert.equal(result.status, 409, 'Preliminary acceptance has been removed');
+    result = await requestJson(baseUrl, '/api/onboarding/me', 'GET', null, applicantToken);
     assert.equal(result.data.onboarding.canVerifyAndUpload, true);
-    assert.equal(result.data.account.status, 'PENDING', 'Initial acceptance does not activate passenger operations');
+    assert.equal(result.data.account.status, 'PENDING', 'Immediate upload access never activates passenger operations');
     result = await requestJson(baseUrl, '/api/onboarding/login', 'POST', { role: 'DRIVER', phone: '+251900000109', password: 'CI_Web_Applicant#2026' });
     assert.equal(result.status, 200, 'Pending web applicants can log in without OTP');
     result = await requestJson(baseUrl, '/api/onboarding/register', 'POST', {
@@ -138,7 +133,7 @@ async function run() {
     await runDatabaseMigrations();
     assert.equal((await DB.prepare("SELECT status FROM transport_companies WHERE name='CI Public Web Transport'").get()).status, 'PENDING', 'Restart migrations preserve pending company applications');
     result = await requestJson(baseUrl, '/api/onboarding/me', 'GET', null, applicantToken);
-    assert.equal(result.data.onboarding.acceptanceStatus, 'ACCEPTED', 'Restart migrations preserve initial admin acceptance');
+    assert.equal(result.data.onboarding.acceptanceStatus, 'NOT_REQUIRED', 'Restart migrations preserve immediate document upload access');
     assert.equal(result.data.onboarding.routePreference.proposedMonthlyFeeBasis, 'PER_VEHICLE');
 
     result = await requestJson(baseUrl, '/api/master-data/vehicle-types');

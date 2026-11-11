@@ -71,7 +71,7 @@ class AuthLayoutTest {
     private val recoveryResets = mutableListOf<AccountRecoveryReset>()
     private var applicationResponse = DriverApplicationResponse(true,
         DriverApplicationAccount("pending-driver", "DRIVER", "Native Test Driver", "+251912345678", "PENDING", vehicleType = "COACH_53"),
-        DriverApplicationProgress(requiredDocuments = listOf("LICENSE", "VEHICLE_REGISTRATION", "INSURANCE", "PHOTO")), token = "scoped-application-fixture")
+        DriverApplicationProgress(canVerifyAndUpload = true, reviewStatus = "DRAFT", requiredDocuments = listOf("LICENSE", "VEHICLE_REGISTRATION", "INSURANCE", "PHOTO")), token = "scoped-application-fixture")
     private val requestedCodes = mutableListOf<Map<String, String>>()
     private val verifiedCodes = mutableListOf<Map<String, String>>()
     private var vehicleCatalog = VehicleTypesResponse(true, listOf(VehicleTypeOption("COACH_53", "Executive Coach", 53)))
@@ -280,6 +280,9 @@ class AuthLayoutTest {
         compose.onNodeWithTag("auth_driver_license_input").performScrollTo().performTextInput("LIC-TEST-24")
         compose.onNodeWithTag("auth_driver_vehicle_plate_input").performScrollTo().performTextInput("AA-TEST-24")
         compose.onNodeWithTag("auth_driver_vehicle_model_input").performScrollTo().performTextInput("Toyota Hiace")
+        compose.onNodeWithTag("auth_driver_vehicle_color_input").performScrollTo().performTextInput("Green")
+        compose.onNodeWithTag("auth_driver_contact_name_input").performScrollTo().performTextInput("Emergency Contact")
+        compose.onNodeWithTag("auth_driver_contact_phone_input").performScrollTo().performTextInput("0912000222")
         compose.onNodeWithTag("auth_driver_pickup_input").performScrollTo().performTextInput("Bole")
         compose.onNodeWithTag("auth_driver_destination_input").performScrollTo().performTextInput("CMC")
         confirmAdultForRegistration("auth_driver_submit")
@@ -335,6 +338,9 @@ class AuthLayoutTest {
         assertEquals("LIC-TEST-24", request.licenseNumber)
         assertEquals("AA-TEST-24", request.assignedVehiclePlate)
         assertEquals("Toyota Hiace", request.vehicleModel)
+        assertEquals("Green", request.vehicleColor)
+        assertEquals("Emergency Contact", request.emergencyContactName)
+        assertEquals("0912000222", request.emergencyContactPhone)
         assertEquals("COACH_53", request.vehicleType)
         assertEquals("PROPOSED", request.routeChoice)
         assertEquals("Bole", request.proposedDeparture)
@@ -343,7 +349,7 @@ class AuthLayoutTest {
         assertEquals("PER_VEHICLE", request.proposedMonthlyFeeBasis)
         assertTrue("Driver signup must not use the untracked legacy account endpoint", registrations.isEmpty())
         compose.onNodeWithTag("driver_application_screen").assertExists()
-        compose.onNodeWithTag("driver_application_upload_LICENSE").assertDoesNotExist()
+        applicationNode("driver_application_upload_LICENSE").assertIsEnabled()
         compose.onNodeWithTag("driver_application_portal_signin").assertDoesNotExist()
         assertFalse("Pending drivers must not receive an authenticated session", model.isAuthenticated.value)
         assertTrue(logins.isEmpty())
@@ -358,7 +364,7 @@ class AuthLayoutTest {
         compose.onNodeWithTag("auth_submit_button").performClick()
         compose.waitUntil(5_000) { applicationLogins.isNotEmpty() && model.driverApplications.state.value.application != null }
         compose.onNodeWithTag("driver_application_screen").assertExists()
-        compose.onNodeWithTag("driver_application_upload_LICENSE").assertDoesNotExist()
+        applicationNode("driver_application_upload_LICENSE").assertIsEnabled()
         assertFalse(model.isAuthenticated.value)
         assertNull(ApiClient.getAuthToken())
 
