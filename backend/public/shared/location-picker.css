@@ -1,0 +1,229 @@
+@import url('/shared/vendor/leaflet/leaflet.css');
+.passo-location-field {
+  min-width: 0;
+  color: #17212b;
+}
+
+.passo-location-label {
+  display: block;
+  margin: 0 0 7px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #334654;
+}
+
+.passo-location-controls {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.passo-location-search {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.passo-location-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #d6e0e3;
+  border-radius: 10px;
+  padding: 11px 12px;
+  background: #fff;
+  color: #17212b;
+  font: inherit;
+  font-size: 14px;
+}
+
+.passo-location-map-button {
+  flex-shrink: 0;
+  min-height: 44px;
+  border: 1px solid #cfe0dc;
+  border-radius: 10px;
+  padding: 10px 13px;
+  background: #edf7f3;
+  color: #086b5c;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.passo-location-input:focus-visible,.passo-location-map-button:focus-visible,.passo-location-option:focus-visible,.passo-location-dialog button:focus-visible {
+  outline: 3px solid #36b3a2;
+  outline-offset: 2px;
+}
+
+.passo-location-status {
+  margin: 7px 0 0;
+  color: #677983;
+  font-size: 12px;
+  line-height: 1.45;
+  min-height: 18px;
+}
+
+.passo-location-results {
+  position: absolute;
+  inset: calc(100% + 4px) 0 auto;
+  z-index: 1100;
+  background: #fff;
+  border: 1px solid #d9e4e2;
+  box-shadow: 0 10px 24px #133e3024;
+  border-radius: 12px;
+  max-height: 270px;
+  overflow: auto;
+  padding: 4px;
+}
+
+.passo-location-results[hidden] {
+  display: none;
+}
+
+.passo-location-option {
+  display: block;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 8px;
+  padding: 11px 12px;
+  background: #fff;
+  color: #173b35;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.passo-location-option:hover,.passo-location-option.active {
+  background: #e5f3ed;
+}
+
+.passo-location-dialog {
+  box-sizing: border-box;
+  width: min(680px,calc(100vw - 28px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid #d5e2df;
+  border-radius: 20px;
+  background: #fff;
+  color: #17212b;
+  box-shadow: 0 16px 80px #173b3533;
+}
+
+.passo-location-dialog::backdrop {
+  background: #142d336e;
+}
+
+.passo-location-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  margin-bottom: 18px;
+}
+
+.passo-location-dialog h3 {
+  margin: 0;
+  font-size: 21px;
+  line-height: 1.3;
+  color: #102f39;
+}
+
+.passo-location-dialog button {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  border: 1px solid #d5e2df;
+  border-radius: 10px;
+  min-height: 42px;
+  padding: 10px 15px;
+  cursor: pointer;
+  background: #fff;
+  color: #28554b;
+}
+
+.passo-location-dialog .passo-location-close {
+  font-size: 12px;
+  min-height: 36px;
+  padding: 7px 11px;
+}
+
+.passo-location-map {
+  height: min(43dvh,390px);
+  min-height: 230px;
+  margin-top: 15px;
+  border: 1px solid #d9e4e2;
+  border-radius: 13px;
+  background: #eaf0ed;
+  z-index: 0;
+}
+
+.passo-location-map-status {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #667b76;
+  margin: 10px 0 15px;
+}
+
+.passo-location-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.passo-location-dialog .passo-location-confirm {
+  background: #087c68;
+  border-color: #087c68;
+  color: #fff;
+}
+
+.passo-location-dialog button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.passo-location-pin {
+  background: #087c68;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px #087c68,0 3px 10px #173b354d;
+}
+
+.passo-location-pin span {
+  display: block;
+  width: 8px;
+  height: 8px;
+  margin: 7px;
+  background: #fff;
+  border-radius: 50%;
+}
+
+.passo-location-map .leaflet-control-attribution {
+  font-size: 10px;
+}
+
+@media(max-width:540px) {
+  .passo-location-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .passo-location-map-button {
+    width: 100%;
+  }
+  .passo-location-dialog {
+    padding: 17px;
+  }
+  .passo-location-dialog h3 {
+    font-size: 18px;
+  }
+  .passo-location-map {
+    height: 39dvh;
+    min-height: 220px;
+  }
+}

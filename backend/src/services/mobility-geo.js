@@ -33,25 +33,32 @@ function createGeoService({ fetchImpl = globalThis.fetch, db, env = process.env,
     // Only named public route stops are searched. Never read driver GPS or customer pins here.
     const rows = await database.prepare('SELECT stopName,stopNameAm,latitude,longitude FROM route_stops ORDER BY stopName LIMIT 2000').all();
     const normalized = query.toLocaleLowerCase();
-    return rows.filter(row => [row.stopName, row.stopNameAm].some(name => String(name || '').toLocaleLowerCase().includes(normalized)))
-      .map(row => ({ name: String(row.stopName || row.stopNameAm), latitude: Number(row.latitude), longitude: Number(row.longitude) }))
-      .filter(row => row.name && Number.isFinite(row.latitude) && Number.isFinite(row.longitude) && Math.abs(row.latitude) <= 90 && Math.abs(row.longitude) <= 180).slice(0, 8);
+    return rows.filter(row => [row.stopName, row.stopNameAm].some(name => String(name || '').toLocaleLowerCase().includes(normalized))
+      && row.latitude != null && row.longitude != null && String(row.latitude).trim() !== '' && String(row.longitude).trim() !== '')
+      .map(row => ({ name: String(row.stopName || '').trim() || String(row.stopNameAm || '').trim(), latitude: Number(row.latitude), longitude: Number(row.longitude) }))
+      .filter(row => row.name && Number.isFinite(row.latitude) && Number.isFinite(row.longitude) && Math.abs(row.latitude) <= 90 && Math.abs(row.longitude) <= 180
+        && (row.latitude !== 0 || row.longitude !== 0)).slice(0, 8);
   }
   async function locations(input) {
     const query = String(input || '').trim().replace(/\s+/g, ' ');
     if (query.length < 2) return { places: [], source: 'saved', searchAvailable: true, attribution: '© OpenStreetMap contributors' };
     if (query.length > 120) throw new GeoError('Keep location searches under 120 characters.', 400);
-    const key = query.toLocaleLowerCase(), cached = cacheGet(searchCache, key);
-    if (cached) return cached;
+    const key = query.toLocaleLowerCase();
     let saved = []; try { saved = await savedLocations(query); } catch (_) { /* A new empty database can still use Photon. */ }
+    let result = cacheGet(searchCache, key);
     try {
-      const data = await json(photon, '/api/', { q: query, limit: 8, countrycode: 'ET' });
-      const places = (data.features || []).map(feature => {
-        const p = feature.properties || {}, c = feature.geometry?.coordinates || [];
-        return { name: [...new Set([p.name, p.street, p.district, p.city, p.state, p.country].filter(Boolean))].join(', '), latitude: Number(c[1]), longitude: Number(c[0]) };
-      }).filter(place => place.name && Number.isFinite(place.latitude) && Number.isFinite(place.longitude) && Math.abs(place.latitude) <= 90 && Math.abs(place.longitude) <= 180);
-      const merged = [...saved, ...places].filter((p, i, list) => list.findIndex(other => other.name === p.name && Math.abs(other.latitude - p.latitude) < 0.00001 && Math.abs(other.longitude - p.longitude) < 0.00001) === i).slice(0, 8);
-      return cachePut(searchCache, key, { places: merged, source: 'photon', searchAvailable: true, attribution: '© OpenStreetMap contributors' }, 300);
+      if (!result) {
+        const data = await json(photon, '/api/', { q: query, limit: 8, countrycode: 'ET' });
+        const places = (data.features || []).map(feature => {
+          const p = feature.properties || {}, c = feature.geometry?.coordinates || [];
+          return { name: [...new Set([p.name, p.street, p.district, p.city, p.state, p.country].filter(Boolean))].join(', '), latitude: Number(c[1]), longitude: Number(c[0]) };
+        }).filter(place => place.name && Number.isFinite(place.latitude) && Number.isFinite(place.longitude) && Math.abs(place.latitude) <= 90 && Math.abs(place.longitude) <= 180);
+        // Cache the geocoder response only. Saved route stops can change while an
+        // administrator creates or edits routes and must be current on each search.
+        result = cachePut(searchCache, key, { places, source: 'photon', searchAvailable: true, attribution: '© OpenStreetMap contributors' }, 300);
+      }
+      const places = [...saved, ...result.places].filter((p, i, list) => list.findIndex(other => other.name === p.name && Math.abs(other.latitude - p.latitude) < 0.00001 && Math.abs(other.longitude - p.longitude) < 0.00001) === i).slice(0, 8);
+      return { ...result, places };
     } catch (_) {
       return { places: saved, source: 'saved', searchAvailable: false, message: 'Showing saved stops. You can also choose a map pin.', attribution: '© OpenStreetMap contributors' };
     }

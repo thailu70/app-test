@@ -1,0 +1,92 @@
+.route-stop-list {
+  display: grid;
+  gap: 16px;
+  margin-top: 14px;
+  margin-bottom: 14px;
+}
+
+.route-stop-card {
+  min-width: 0;
+  margin: 0;
+  padding: 18px;
+  border: 1px solid #dce6e2;
+  border-radius: 14px;
+  background: #fafcfb;
+}
+
+.route-stop-card legend {
+  padding: 0 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #12372e;
+}
+
+.route-stop-am, .route-stop-name {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: #52635d;
+}
+
+.route-stop-am input, .route-stop-name input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid #d5deea;
+  border-radius: 8px;
+  padding: 9px 12px;
+  background: #fff;
+  font: inherit;
+  color: #172c25;
+}
+
+.route-stop-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.route-stop-actions .btn {
+  font-size: 12px;
+  padding: 7px 10px;
+}
+
+.route-stop-actions button:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.route-area-dialog {
+  box-sizing: border-box;
+  width: min(620px, calc(100vw - 28px));
+  max-height: calc(100dvh - 36px);
+  padding: 24px;
+  border: 1px solid #dce6e2;
+  border-radius: 18px;
+  background: #fff;
+  color: #172c25;
+  overflow: auto;
+  box-shadow: 0 24px 80px #102c2530;
+}
+
+.route-area-dialog::backdrop {
+  background: #102c2566;
+}
+
+.route-area-dialog h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.route-area-dialog [data-route-area-name] {
+  margin: 0;
+  color: #52635d;
+}
+
+@media (max-width: 600px) {
+  .route-stop-card { padding: 12px; }
+  .route-stop-actions { gap: 6px; }
+  .route-area-dialog { padding: 18px; }
+}

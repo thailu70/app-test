@@ -11,6 +11,46 @@ test('location suggestions use private Photon and safely fall back to public sav
   const failed = createGeoService({ db, fetchImpl: async () => { throw new Error('offline'); } });
   const saved = await failed.locations('ቦሌ'); assert.equal(saved.source, 'saved'); assert.equal(saved.places[0].name, 'Bole'); assert.equal(saved.searchAvailable, false);
 });
+
+test('saved suggestions skip missing coordinates and zero placeholders', async () => {
+  const savedDb = { prepare: () => ({ all: async () => [
+    { stopName: 'Bole missing latitude', latitude: null, longitude: 38.78 },
+    { stopName: 'Bole missing longitude', latitude: 8.99, longitude: null },
+    { stopName: 'Bole blank latitude', latitude: ' ', longitude: 38.78 },
+    { stopName: 'Bole blank longitude', latitude: 8.99, longitude: '' },
+    { stopName: 'Bole placeholder', latitude: 0, longitude: 0 },
+    { stopName: 'Bole invalid latitude', latitude: 91, longitude: 38.78 },
+    { stopName: 'Bole valid', latitude: '8.99', longitude: '38.78' },
+    { stopName: ' ', stopNameAm: 'Bole ቦሌ', latitude: 9, longitude: 38.79 }
+  ] }) };
+  const geo = createGeoService({ db: savedDb, fetchImpl: async () => { throw Error('offline'); } });
+  const result = await geo.locations('Bole');
+  assert.deepEqual(result.places, [
+    { name: 'Bole valid', latitude: 8.99, longitude: 38.78 },
+    { name: 'Bole ቦሌ', latitude: 9, longitude: 38.79 }
+  ]);
+  assert.equal(result.source, 'saved');
+});
+
+test('saved route locations refresh during the geocoder cache lifetime', async () => {
+  let rows = [{ stopName: 'Bole old stop', latitude: 8.99, longitude: 38.78 }], fetches = 0;
+  const savedDb = { prepare: () => ({ all: async () => rows }) };
+  const geo = createGeoService({ db: savedDb, fetchImpl: async () => {
+    fetches++;
+    return response({ features: [{ properties: { name: 'Bole geocoder result' }, geometry: { coordinates: [38.8, 9.1] } }] });
+  } });
+  const before = await geo.locations('Bole');
+  assert.equal(before.places[0].name, 'Bole old stop');
+  rows = [{ stopName: 'Bole new stop', latitude: 9.01, longitude: 38.79 }];
+  const after = await geo.locations('Bole');
+  assert.equal(fetches, 1, 'The unchanged Photon response remains cached');
+  assert.deepEqual(after.places, [
+    { name: 'Bole new stop', latitude: 9.01, longitude: 38.79 },
+    { name: 'Bole geocoder result', latitude: 9.1, longitude: 38.8 }
+  ]);
+  rows = [];
+  assert.deepEqual((await geo.locations('Bole')).places, [after.places[1]], 'Deleted stops disappear from the next search');
+});
 test('road kilometres come from OSRM, validate coordinates and cache real routes', async () => {
   let count = 0;
   const geo = createGeoService({ db, fetchImpl: async url => { count++; assert.equal(url.hostname, 'osrm'); assert.match(url.pathname, /38.7,9;38.8,9.1/); return response({ code: 'Ok', routes: [{ distance: 15750, duration: 1680, geometry: { type: 'LineString', coordinates: [[38.7, 9], [38.8, 9.1]] } }] }); } });

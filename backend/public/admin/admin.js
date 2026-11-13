@@ -9,6 +9,9 @@
   let masterDataCleanup = null;
   let applicationsCleanup = null;
   let mobilityCleanup = null;
+  let routeEditor = null;
+  let departureAreaController = null;
+  let routeEditRequest = 0;
   let renderRevision = 0;
   const labels = {
     overview: ["Overview", "A live snapshot of RoutePass service operations."],
@@ -87,6 +90,7 @@
     toast.timer = window.setTimeout(() => { el.hidden = true; }, 4500);
   }
   function logout(show = true) {
+    clearRouteControls();
     fleetMapCleanup?.();
     fleetMapCleanup = null;
     resourcePanelCleanup?.();
@@ -243,7 +247,7 @@
         '<div class="field"><label for="route-morning">Morning departure</label><input id="route-morning" name="morningDeparture" type="time" value="06:30" required></div>' +
         '<div class="field"><label for="route-evening">Evening departure</label><input id="route-evening" name="eveningDeparture" type="time" value="17:30" required></div>' +
         '<div class="field"><label for="route-price">Monthly tariff (ETB)</label><input id="route-price" name="basePriceEtb" type="number" min="0" step="1" value="2500" required></div>' +
-        '</div><div class="field" style="margin-top:14px"><label for="route-stops">Ordered route stops *</label><textarea id="route-stops" name="stopsText" rows="5" required placeholder="Bole Medhanialem | ቦሌ መድኃኔዓለም | 8.995000 | 38.788000&#10;Bole Atlas | ቦሌ አትላስ | 9.006000 | 38.780000&#10;Merkato Bus Terminal | መርካቶ ተርሚናል | 9.031000 | 38.736000"></textarea><span class="hint">One stop per line: English name | Amharic name | latitude | longitude. Keep stops in travel order and use real coordinates from a map.</span></div>' +
+        '</div><div class="field" style="margin-top:14px"><strong>Route locations</strong><span class="hint">Search saved locations or choose a point on the map. Add any stops in travel order.</span><div id="route-location-editor"></div></div>' +
         '<input name="routeId" type="hidden"><div class="form-actions"><button class="btn btn-primary" type="submit">Create route</button><button class="btn btn-secondary" id="route-cancel" type="button" hidden>Cancel edit</button></div><p id="route-form-message" class="form-message" hidden role="status"></p></form>') +
       section("Existing routes", routes.length + " route(s)",
         table([
@@ -417,6 +421,7 @@
   }
 
   async function renderView() {
+    clearRouteControls();
     const revision = ++renderRevision;
     const view = state.view;
     fleetMapCleanup?.();
@@ -489,6 +494,7 @@
       }
       const routeForm = $("#create-route-form");
       if (routeForm) {
+        routeEditor = window.PassoRouteEditor.mount({ container: $("#route-location-editor"), api });
         routeForm.addEventListener("submit", submitRoute);
         const cancelButton = $("#route-cancel");
         if (cancelButton) cancelButton.addEventListener("click", cancelRouteEdit);
@@ -514,22 +520,12 @@
       $("#retry-button")?.addEventListener("click", renderView);
     }
   }
-  function parseStopsText(value) {
-    const lines = String(value || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-    if (lines.length < 2) throw new Error("Add at least two ordered route stops.");
-    return lines.map((line, index) => {
-      const parts = line.split("|").map(part => part.trim());
-      if (parts.length < 4 || !parts[0] || !parts[1]) {
-        throw new Error("Stop line " + (index + 1) + " must include English name | Amharic name | latitude | longitude.");
-      }
-      const latitude = Number(parts[2]);
-      const longitude = Number(parts[3]);
-      if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
-          !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
-        throw new Error("Stop line " + (index + 1) + " has invalid coordinates.");
-      }
-      return { stopName: parts[0], stopNameAm: parts[1], latitude, longitude };
-    });
+  function clearRouteControls() {
+    routeEditRequest++;
+    routeEditor?.destroy();
+    routeEditor = null;
+    departureAreaController?.abort();
+    departureAreaController = null;
   }
 
   async function submitRoute(event) {
@@ -541,14 +537,14 @@
     const routeId = data.routeId;
     delete data.routeId;
     try {
-      data.stops = parseStopsText(data.stopsText);
+      if (!routeEditor) throw Error('Refresh the route form before saving.');
+      data.stops = routeEditor.getStops();
     } catch (error) {
       message.textContent = error.message;
       message.className = "form-message error";
       message.hidden = false;
       return;
     }
-    delete data.stopsText;
     data.distanceKm = Number(data.distanceKm);
     data.basePriceEtb = Number(data.basePriceEtb);
     button.disabled = true;
@@ -645,18 +641,19 @@
   }
 
   async function configureDeparture(button) {
+    const revision = renderRevision;
     button.disabled = true;
     try {
       const result = await api('/api/admin/routes/' + encodeURIComponent(button.dataset.geofenceRoute) + '/departure-settings');
-      const settings = result.settings;
-      const latitude = window.prompt('Departure latitude (-90 to 90)', settings.latitude ?? '');
-      if (latitude === null) return;
-      const longitude = window.prompt('Departure longitude (-180 to 180)', settings.longitude ?? '');
-      if (longitude === null) return;
-      const radius = window.prompt('Allowed radius in metres (25–5000). Diameter is twice the radius. Drivers must also be within 30 minutes of departure.', settings.radius_m || 300);
-      if (radius === null) return;
-      if (![latitude,longitude,radius].every(v => v.trim() !== '' && Number.isFinite(Number(v)))) throw Error('Enter numeric coordinates and a radius.');
-      const saved = await api('/api/admin/routes/' + encodeURIComponent(button.dataset.geofenceRoute) + '/departure-settings', {method:'PUT',body:JSON.stringify({latitude:Number(latitude),longitude:Number(longitude),radiusMeters:Number(radius)})});
+      if (revision !== renderRevision || !state.token) return;
+      departureAreaController?.abort();
+      const controller = new AbortController();
+      departureAreaController = controller;
+      const route = (state.cache.routes || []).find(item => item.id === button.dataset.geofenceRoute);
+      const selected = await window.PassoRouteEditor.selectDepartureArea({ api, settings: result.settings,
+        routeName: route?.name, signal: controller.signal });
+      if (!selected || controller.signal.aborted || revision !== renderRevision) return;
+      const saved = await api('/api/admin/routes/' + encodeURIComponent(button.dataset.geofenceRoute) + '/departure-settings', {method:'PUT',body:JSON.stringify(selected)});
       toast(saved.message);
     } catch(e) { toast(e.message,true); } finally { button.disabled=false; }
   }
@@ -675,6 +672,7 @@
   }
 
   async function editRoute(button) {
+    const request = ++routeEditRequest;
     const id = button.dataset.editRoute;
     const summary = (state.cache.routes || []).find(item => item.id === id);
     if (!summary) return toast("Route data is stale. Refresh and try again.", true);
@@ -683,11 +681,8 @@
       const details = await api("/api/routes/" + encodeURIComponent(id));
       const route = details.route || summary;
       const currentStops = asArray(details, "stops");
-      const stopsTextDefault = currentStops.map(stop =>
-        [value(stop, "stopName", "stop_name"), value(stop, "stopNameAm", "stop_name_am"),
-          value(stop, "latitude"), value(stop, "longitude")].join(" | ")
-      ).join("\n");
-      await renderRoutesIntoEditForm(route, stopsTextDefault, id);
+      if (request !== routeEditRequest || state.view !== 'routes') return;
+      await renderRoutesIntoEditForm(route, currentStops, id);
     } catch (error) {
       toast(error.message, true);
     } finally {
@@ -695,7 +690,7 @@
     }
   }
 
-  async function renderRoutesIntoEditForm(route, stopsText, routeId) {
+  async function renderRoutesIntoEditForm(route, stops, routeId) {
     const form = $("#create-route-form");
     if (!form) return;
     for (const [name, keys] of Object.entries({
@@ -707,16 +702,18 @@
       if (field) field.value = value(route, ...keys) === "—" ? "" : value(route, ...keys);
     }
     form.elements.namedItem("routeId").value = routeId;
-    form.elements.namedItem("stopsText").value = stopsText;
+    routeEditor.setStops(stops);
     form.querySelector('button[type="submit"]').textContent = "Save route changes";
     $("#route-cancel").hidden = false;
     form.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function cancelRouteEdit() {
+    routeEditRequest++;
     const form = $("#create-route-form");
     if (!form) return;
     form.reset();
+    routeEditor?.reset();
     form.elements.namedItem("routeId").value = "";
     form.querySelector('button[type="submit"]').textContent = "Create route";
     $("#route-cancel").hidden = true;
