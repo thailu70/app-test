@@ -72,7 +72,7 @@ async function offers(route, db) {
     FROM vehicles v
     JOIN users u ON u.id=v.driverId AND u.role='DRIVER' AND u.status='ACTIVE' AND COALESCE(u.companyId,'')=''
     LEFT JOIN commute_route_terms t ON t.vehicle_id=v.id AND t.driver_id=v.driverId AND t.route_id=v.assignedRouteId
-    WHERE v.assignedRouteId=? AND COALESCE(v.companyId,'')='' AND v.status IN ('IN_SERVICE','AVAILABLE')
+    WHERE v.assignedRouteId=? AND COALESCE(v.companyId,'')='' AND v.status IN ('IN_SERVICE','AVAILABLE','FULL')
     ORDER BY v.id
   `).all(route.id);
   const result = [];

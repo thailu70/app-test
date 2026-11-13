@@ -93,6 +93,18 @@ test('monthly fares and service classes belong to driver route assignments witho
     await assert.rejects(resolveCommuteFare({ route, serviceClass: 'DELUXE' }), error => error.status === 409);
   });
 
+  await t.test('a full current trip retains its monthly service fare while boarding capacity remains separate', async () => {
+    await DB.prepare("UPDATE vehicles SET status='FULL',currentOccupancy=capacityLimit WHERE id='v_pricing_vip'").run();
+    const priced = await request('GET', '/api/routes/' + route.id, undefined, null);
+    assert.equal(priced.body.route.serviceFares.VIP, 3600);
+    const fare = await resolveCommuteFare({ route, serviceClass: 'VIP' });
+    assert.equal(fare.monthlyFareEtb, 3600);
+    assert.equal(fare.vehicleId, 'v_pricing_vip');
+    const full = await DB.prepare("SELECT status,currentOccupancy,capacityLimit FROM vehicles WHERE id='v_pricing_vip'").get();
+    assert.equal(full.status, 'FULL');
+    assert.equal(full.currentOccupancy, full.capacityLimit, 'Reading monthly fares never changes trip occupancy.');
+  });
+
   await DB.prepare("INSERT INTO users(id,role,fullName,phone,passwordHash,status) VALUES('pricing_passenger','PASSENGER','Fixture passenger','+251911701004','unused','ACTIVE')").run();
   await DB.prepare("INSERT INTO subscriptions(id,passengerId,routeId,priceEtb,paymentStatus,subscriptionStatus,vehicleId,qrToken,endDate,daysRemaining) VALUES('pricing_sub','pricing_passenger',?,2100.5,'PAID','ACTIVE','v_pricing_economy','immutable-qr','2099-01-01',30)").run(route.id);
   await saveSubscriptionTerms(DB, 'pricing_sub', { serviceClass: 'ECONOMY', monthlyFareEtb: 2100.5, vehicleId: 'v_pricing_economy' }, route.id);
