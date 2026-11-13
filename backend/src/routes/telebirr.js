@@ -108,7 +108,7 @@ router.post('/pay', authenticate, requireRole('PASSENGER'), async (req, res, nex
       const explicitClass = request.serviceClass == null ? null : String(request.serviceClass).trim().toUpperCase();
       if (explicitClass && !['ECONOMY', 'DELUXE', 'VIP'].includes(explicitClass)) return res.status(400).json({ success: false, error: 'Choose Economy, Deluxe or VIP.' });
       if (explicitClass && explicitClass !== (priorTerms?.serviceClass || 'ECONOMY')) return res.status(409).json({ success: false, error: 'This payment reference belongs to a different service class.' });
-      if (prior.status === 'PAID') return res.json({ success: true, status: 'PAID', paymentMode: prior.merchant_order_id.startsWith('RPT') ? 'TEST_AUTO' : 'TELEBIRR_H5', merchantOrderId: prior.merchant_order_id });
+      if (prior.status === 'PAID') return res.json({ success: true, status: 'PAID', idempotentReplay: true, subscriptionId: prior.subscription_id, paymentMode: prior.merchant_order_id.startsWith('RPT') ? 'TEST_AUTO' : 'TELEBIRR_H5', merchantOrderId: prior.merchant_order_id });
       if (prior.status === 'PENDING' && prior.checkout_url) return res.json({
         success: true, status: 'PENDING', paymentMode: 'TELEBIRR_H5', merchantOrderId: prior.merchant_order_id,
         checkoutUrl: prior.checkout_url, amountEtb: Number(prior.amount_etb), serviceClass: priorTerms?.serviceClass || 'ECONOMY', message: 'Continue the existing Telebirr checkout.'
