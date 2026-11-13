@@ -220,6 +220,13 @@ test('frontend API client completes driver details and immediate uploads before 
   const {DB}=require('../src/db');
   const {initOnboardingSchema,createOnboardingService}=require('../src/services/onboarding');
   await initOnboardingSchema();await require('../src/services/master-data').initMasterDataSchema();
+  await require('../src/services/commute-pricing').initCommutePricingSchema();
+  // A fixed quote requires a priced assignment for the applicant's vehicle type.
+  // This active legacy driver is operationally approved without a new application.
+  await DB.prepare("INSERT INTO users(id,role,fullName,phone,passwordHash,status) VALUES('join_priced_driver','DRIVER','Approved minibus fixture','+251911700014','unused','ACTIVE')").run();
+  await DB.prepare("INSERT INTO vehicles(id,plateNumber,model,vehicleType,capacityLimit,driverId,assignedRouteId,status) VALUES('join_priced_minibus','JOIN-PRICED-MINIBUS','Fixture minibus','MINIBUS_14',14,'join_priced_driver','route_bole_merkato','IN_SERVICE')").run();
+  await DB.prepare("INSERT INTO commute_route_terms(vehicle_id,route_id,driver_id,service_class,monthly_fare_etb) VALUES('join_priced_minibus','route_bole_merkato','join_priced_driver','ECONOMY',2500)").run();
+  assert.equal(await require('../src/services/operational-onboarding').dailyDriverEligible('join_priced_driver'),true);
   await DB.prepare("INSERT INTO transport_companies(id,name,phone,representative_name,password_hash,status) VALUES('join_existing_company','Existing Transport','0900000099','Existing Representative','unused','ACTIVE')").run();
   let sent=[];
   const service=createOnboardingService({sendSms:async(phone,message)=>{sent.push({phone,code:/\b(\d{6})\b/.exec(message)?.[1]});return {sent:true};}});
@@ -251,8 +258,9 @@ test('frontend API client completes driver details and immediate uploads before 
   await api('/profile',{method:'PATCH',body:{emergencyContactName:'Local Contact',emergencyContactPhone:'0912000070',vehicleColor:'Teal'}});
   assert.equal((await api('/submit',{method:'POST',body:{}})).onboarding.reviewStatus,'SUBMITTED');
   assert.equal((await DB.prepare("SELECT basePriceEtb FROM routes WHERE id='route_bole_merkato'").get()).basePriceEtb,oldFare,'The proposal never changes published route fare.');
-  await DB.prepare("UPDATE routes SET basePriceEtb=2600 WHERE id='route_bole_merkato'").run();
+  await DB.prepare("UPDATE commute_route_terms SET monthly_fare_etb=2600 WHERE vehicle_id='join_priced_minibus'").run();
   await quoteController.update({departure:dailyInput.proposedDeparture,destination:dailyInput.proposedDestination,vehicleType:dailyInput.vehicleType},{immediate:true,force:true});assert.equal(quoteController.getState().quote.price.amountEtb,36400);
+  assert.equal((await DB.prepare("SELECT basePriceEtb FROM routes WHERE id='route_bole_merkato'").get()).basePriceEtb,oldFare,'Changing a driver assignment fare leaves the route tariff untouched.');
   const refreshed=await api('/profile',{method:'PATCH',body:portal.routePreferencePayload(dailyInput,quoteController.getState().quote)});assert.equal(refreshed.onboarding.routePreference.proposedMonthlyFeeEtb,36400);assert.equal(refreshed.onboarding.acceptanceStatus,'NOT_REQUIRED');assert.equal(refreshed.onboarding.reviewStatus,'DRAFT','Changed route pricing requires a new complete submission.');
   await quoteController.update({departure:'Garment',destination:'Bole',vehicleType:'MINIBUS_14'},{immediate:true});assert.equal(quoteController.getState().quote.price.mode,'PROPOSED');
   token='';const proposedDaily=await api('/register',{method:'POST',anonymous:true,body:portal.accountPayload('DRIVER','register',{...dailyInput,phone:'0912346704',assignedVehiclePlate:'JOIN-PROPOSED-TEST',proposedDeparture:'Garment',proposedDestination:'Bole',proposedMonthlyFeeEtb:'45000.25'},quoteController.getState().quote)});
