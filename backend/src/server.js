@@ -630,6 +630,7 @@ async function initializeFeatureSchemas() {
   await require('./services/master-data').initMasterDataSchema(DB);
   await require('./services/profile-schema').initProfileSchema();
   await require('./services/ops-schema').initOpsSchema(DB);
+  await require('./services/commute-pricing').initCommutePricingSchema(DB);
   await require('./services/intercity-schema').initIntercitySchema();
   await require('./services/onboarding').initOnboardingSchema();
   await require('./services/mobility-schema').initMobilitySchema();

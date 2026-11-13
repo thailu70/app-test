@@ -54,6 +54,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.ui.viewmodel.MainViewModel
 import com.example.data.entity.RouteEntity
+import com.example.data.entity.monthlyFareForClass
+import com.example.data.entity.lowestMonthlyFare
 import com.example.ui.theme.TransportGreenPrimary
 import com.example.ui.theme.Slate600
 import com.example.ui.theme.Slate900
@@ -100,7 +102,7 @@ fun BrowseFirstScreen(
                 }
             }
     }
-    val displayedRoutes = if (sortByFare) commuterRoutes.sortedBy { it.basePriceEtb } else commuterRoutes
+    val displayedRoutes = if (sortByFare) commuterRoutes.sortedBy { it.lowestMonthlyFare() ?: Double.POSITIVE_INFINITY } else commuterRoutes
     var intercityTripType by remember { mutableStateOf("One-way") }
     var intercityPassengers by remember { mutableIntStateOf(1) }
     var intercityDepartureDate by remember { mutableStateOf<Long?>(null) }
@@ -157,7 +159,7 @@ fun BrowseFirstScreen(
                     Surface(color = if (commuterTierFare(route, selectedTier) != null) HomeMint else Color(0xFFFFF3D6), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(if (commuterTierFare(route, selectedTier) != null) "$selectedTier fare configured" else "$selectedTier not available", color = if (commuterTierFare(route, selectedTier) != null) HomeGreen else Color(0xFF9A6700), fontWeight = FontWeight.Bold)
-                            Text(if (commuterTierFare(route, selectedTier) != null) "The route monthly fare is $selectedFare. Live seat availability still requires confirmation." else "No $selectedTier fare or live seat count is stored for this route yet. The operator must configure it before booking or payment.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                            Text(if (commuterTierFare(route, selectedTier) != null) "Monthly fares from $selectedFare. Your assigned driver's fare is confirmed before payment." else "No $selectedTier driver fare is configured for this route yet. The operator must assign this service before payment.", style = MaterialTheme.typography.bodySmall, color = Slate600)
                         }
                     }
                     Button(
@@ -560,7 +562,7 @@ private fun ExistingRouteCard(route: RouteEntity, onClick: () -> Unit, compact: 
                 Surface(color = HomeMint, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(54.dp)) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.DirectionsBus, contentDescription = "Commuter bus", tint = HomeGreen, modifier = Modifier.size(30.dp)) } }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(route.name, fontWeight = FontWeight.Bold, color = HomeInk, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                    Text("ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), color = HomeGreen, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
+                    Text(route.lowestMonthlyFare()?.let { "From ETB " + String.format(java.util.Locale.US, "%,.0f", it) } ?: "Not available", color = HomeGreen, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
                     Text(route.morningDeparture + " • " + route.eveningDeparture, color = Slate600, style = MaterialTheme.typography.labelSmall)
                 }
                 Icon(Icons.Default.ArrowForward, contentDescription = "View route", tint = HomeBlue)
@@ -586,7 +588,7 @@ private fun ExistingRouteCard(route: RouteEntity, onClick: () -> Unit, compact: 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Monthly from", color = Slate600, style = MaterialTheme.typography.labelSmall)
-                        Text("ETB " + String.format(java.util.Locale.US, "%,.0f", route.basePriceEtb), color = HomeGreen, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge)
+                        Text(route.lowestMonthlyFare()?.let { "ETB " + String.format(java.util.Locale.US, "%,.0f", it) } ?: "Not available", color = HomeGreen, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge)
                     }
                     Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = HomeGreen)) { Text("View route"); Spacer(Modifier.width(5.dp)); Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp)) }
                 }
@@ -699,7 +701,7 @@ private fun TierChoice(name: String, fare: Double?, selected: Boolean, modifier:
 }
 
 private fun commuterTierFare(route: RouteEntity, tier: String): Double? =
-    route.basePriceEtb.takeIf { tier == "Economy" && it.isFinite() && it > 0 }
+    route.monthlyFareForClass(tier)
 
 @Composable
 private fun CommuterTierFareLabel(fare: Double?) {

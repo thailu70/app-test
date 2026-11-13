@@ -5,6 +5,7 @@ const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const telebirr = require('../services/telebirr');
 const { isTestPaymentPhone, paymentTestsEnabled, grantCommuterTestPass } = require('../services/payment-test');
+const { resolveCommuteFare, saveSubscriptionTerms, savePaymentTerms, getPaymentTerms } = require('../services/commute-pricing');
 
 const router = express.Router();
 const PAYMENT_MODE = process.env.PAYMENT_MODE || 'TEST';
@@ -56,6 +57,8 @@ async function settleOrder(order, status) {
 
     await tx.prepare("UPDATE subscriptions SET routeId=?, priceEtb=?, paymentStatus='PAID', subscriptionStatus='ACTIVE', startDate=?, endDate=?, daysRemaining=?, qrToken=?, updatedAt=CURRENT_TIMESTAMP WHERE id=?")
       .run(current.route_id, due, startDate, endDate, days, qr, current.subscription_id);
+    const terms = await getPaymentTerms(current.merchant_order_id, tx);
+    if (terms) await saveSubscriptionTerms(tx, current.subscription_id, terms, current.route_id);
     await tx.prepare("INSERT INTO payment_transactions (id, passengerId, referenceNumber, idempotencyKey, amountEtb, provider, phoneNumber, status, notes) VALUES (?, ?, ?, ?, ?, 'Telebirr', ?, 'VERIFIED', ?)")
       .run(txn, current.passenger_id, current.merchant_order_id, current.idempotency_key, due,
         payer ? payer.phone : null, 'Confirmed server-to-server through Telebirr queryOrder');
@@ -96,30 +99,32 @@ router.post('/pay', authenticate, requireRole('PASSENGER'), async (req, res, nex
     if (!routeId) return res.status(400).json({ success: false, error: 'Select a route before checkout.' });
     const route = await DB.prepare("SELECT * FROM routes WHERE id=? AND active=TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'").get(routeId);
     if (!route) return res.status(404).json({ success: false, error: 'Active route not found.' });
-    const amount = Number(route.basePriceEtb);
-    if (!Number.isFinite(amount) || amount <= 0) return res.status(409).json({ success: false, error: 'Invalid route fare.' });
-
-    // Eligibility comes from the authenticated account's current database phone,
-    // never a payer phone supplied in the request body.
-    if (paymentTestsEnabled() && isTestPaymentPhone(passenger.phone)) return res.status(200).json(await grantCommuterTestPass({ passengerId, route, key, signedQr }));
-    const missing = telebirr.missingConfiguration();
-    if (!telebirr.config().publicKey) missing.push('TELEBIRR_PUBLIC_KEY');
-    if (missing.length) return res.status(503).json({ success: false, code: 'LIVE_TELEBIRR_NOT_CONFIGURED', error: 'H5 checkout needs merchant credentials configured on the VPS.', missingSettings: missing });
-
     const prior = await DB.prepare('SELECT * FROM telebirr_payment_orders WHERE idempotency_key=?').get(key);
     if (prior) {
-      if (String(prior.passenger_id) !== String(passengerId) || String(prior.route_id) !== String(route.id) || Math.abs(Number(prior.amount_etb) - amount) > 0.01) {
+      const priorTerms = await getPaymentTerms(prior.merchant_order_id);
+      if (String(prior.passenger_id) !== String(passengerId) || String(prior.route_id) !== String(route.id)) {
         return res.status(409).json({ success: false, error: 'Idempotency key already belongs to a different order.' });
       }
-      if (prior.status === 'PAID') return res.json({ success: true, status: 'PAID', paymentMode: 'TELEBIRR_H5', merchantOrderId: prior.merchant_order_id });
+      const explicitClass = request.serviceClass == null ? null : String(request.serviceClass).trim().toUpperCase();
+      if (explicitClass && !['ECONOMY', 'DELUXE', 'VIP'].includes(explicitClass)) return res.status(400).json({ success: false, error: 'Choose Economy, Deluxe or VIP.' });
+      if (explicitClass && explicitClass !== (priorTerms?.serviceClass || 'ECONOMY')) return res.status(409).json({ success: false, error: 'This payment reference belongs to a different service class.' });
+      if (prior.status === 'PAID') return res.json({ success: true, status: 'PAID', paymentMode: prior.merchant_order_id.startsWith('RPT') ? 'TEST_AUTO' : 'TELEBIRR_H5', merchantOrderId: prior.merchant_order_id });
       if (prior.status === 'PENDING' && prior.checkout_url) return res.json({
         success: true, status: 'PENDING', paymentMode: 'TELEBIRR_H5', merchantOrderId: prior.merchant_order_id,
-        checkoutUrl: prior.checkout_url, message: 'Continue the existing Telebirr checkout.'
+        checkoutUrl: prior.checkout_url, amountEtb: Number(prior.amount_etb), serviceClass: priorTerms?.serviceClass || 'ECONOMY', message: 'Continue the existing Telebirr checkout.'
       });
       if (prior.status === 'PENDING') return res.status(503).json({ success: false, code: 'PAYMENT_CONFIRMATION_PENDING', merchantOrderId: prior.merchant_order_id,
         error: 'The existing payment order is still being confirmed. Check its status before starting another payment.' });
       return res.status(409).json({ success: false, error: 'This order cannot be restarted. Use a new idempotency key.' });
     }
+
+    const fare = await resolveCommuteFare({ route, passengerId, serviceClass: request.serviceClass });
+    const amount = fare.monthlyFareEtb;
+    // Eligibility comes from the authenticated account's current database phone.
+    if (paymentTestsEnabled() && isTestPaymentPhone(passenger.phone)) return res.status(200).json(await grantCommuterTestPass({ passengerId, route, key, signedQr, fare }));
+    const missing = telebirr.missingConfiguration();
+    if (!telebirr.config().publicKey) missing.push('TELEBIRR_PUBLIC_KEY');
+    if (missing.length) return res.status(503).json({ success: false, code: 'LIVE_TELEBIRR_NOT_CONFIGURED', error: 'H5 checkout needs merchant credentials configured on the VPS.', missingSettings: missing });
 
     let sub = await DB.prepare('SELECT * FROM subscriptions WHERE passengerId=? ORDER BY updatedAt DESC LIMIT 1').get(passengerId);
     if (!sub) {
@@ -134,8 +139,12 @@ router.post('/pay', authenticate, requireRole('PASSENGER'), async (req, res, nex
     }
 
     const orderId = telebirr.merchantOrderId();
-    await DB.prepare("INSERT INTO telebirr_payment_orders (merchant_order_id, idempotency_key, passenger_id, subscription_id, route_id, amount_etb, status) VALUES (?, ?, ?, ?, ?, ?, 'PENDING')")
-      .run(orderId, key, passengerId, sub.id, route.id, amount);
+    await DB.transaction(async tx => {
+      await tx.prepare("INSERT INTO telebirr_payment_orders (merchant_order_id, idempotency_key, passenger_id, subscription_id, route_id, amount_etb, status) VALUES (?, ?, ?, ?, ?, ?, 'PENDING')")
+        .run(orderId, key, passengerId, sub.id, route.id, amount);
+      await savePaymentTerms(tx, orderId, fare, route.id);
+      if (sub.paymentStatus !== 'PAID') await saveSubscriptionTerms(tx, sub.id, fare, route.id);
+    });
     try {
       const checkout = await telebirr.createCheckout(orderId, amount, 'RoutePass monthly pass - ' + route.name);
       await DB.prepare('UPDATE telebirr_payment_orders SET prepay_id=?, checkout_url=?, updated_at=CURRENT_TIMESTAMP WHERE merchant_order_id=?')
@@ -143,6 +152,7 @@ router.post('/pay', authenticate, requireRole('PASSENGER'), async (req, res, nex
       return res.status(201).json({
         success: true, status: 'PENDING', paymentMode: 'TELEBIRR_H5',
         merchantOrderId: orderId, checkoutUrl: checkout.checkoutUrl, amountEtb: amount, currency: 'ETB',
+        serviceClass: fare.serviceClass,
         message: 'Complete payment on Telebirr checkout. The pass activates only after server verification.'
       });
     } catch (e) {

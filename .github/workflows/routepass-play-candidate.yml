@@ -42,6 +42,9 @@ jobs:
           --tests com.example.EnvironmentTransitionTest
           --tests com.example.EnvironmentControlsTest --tests com.example.EnvironmentCompanyPortalTest
           --tests com.example.AuthLayoutTest
+          --tests com.example.CommuterPricingTest
+          --tests com.example.CommuterBrowseTest
+          --tests com.example.PublicCommuterLoadingTest
           --tests com.example.DriverApplicationTest
           --tests com.example.CredentialStorageTest
           --tests com.example.AccountPrivacyTest

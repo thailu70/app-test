@@ -120,7 +120,7 @@ test('legacy allocation APIs cannot bypass required web onboarding and approval'
     assert.equal((await DB.prepare('SELECT status FROM users WHERE id=?').get('allocation_daily')).status, 'PENDING');
     // Even a pre-existing/misconfigured ACTIVE row cannot bypass readiness.
     await DB.prepare("UPDATE users SET status='ACTIVE' WHERE id='allocation_daily'").run();
-    blocked(await req('/api/admin/drivers/allocation_daily/route', 'PATCH', { routeId: 'allocation_route' }));
+    blocked(await req('/api/admin/drivers/allocation_daily/route', 'PATCH', { routeId: 'allocation_route', serviceClass: 'ECONOMY', monthlyFareEtb: 2500 }));
     blocked(await req('/api/admin/subscriptions/allocation_sub/assignment', 'PATCH', { vehicleId: 'allocation_van' }));
     assert.equal((await DB.prepare('SELECT vehicleId FROM subscriptions WHERE id=?').get('allocation_sub')).vehicleId, null);
     blocked(await req('/api/trips/roster?vehicleId=allocation_van', 'GET', undefined, 'daily'));
@@ -133,16 +133,17 @@ test('legacy allocation APIs cannot bypass required web onboarding and approval'
     blocked(await req('/api/admin/drivers/allocation_daily/approval', 'PATCH', { status: 'ACTIVE' }));
     await completeDriver('allocation_daily');
     await DB.prepare("UPDATE onboarding_accounts SET phone_verified_at=NULL,phone_verified_for=NULL WHERE account_id='allocation_daily'").run();
-    assert.equal((await req('/api/admin/drivers/allocation_daily/approval', 'PATCH', { status: 'ACTIVE' })).status, 200);
+    const approval = await req('/api/admin/drivers/allocation_daily/approval', 'PATCH', { status: 'ACTIVE' });
+    assert.equal(approval.status, 200, JSON.stringify(approval.body));
     const approved = await getOnboardingReadiness('allocation_daily', 'DRIVER');
     assert.equal(approved.reviewReady, true); assert.equal(approved.ready, true); assert.equal(approved.phoneVerified, false);
     assert.equal(approved.phoneVerificationRequiredForApproval, false); assert.equal(approved.reviewStatus, 'APPROVED');
     assert.equal(approved.phoneVerificationRequiredForAllocation, false);
     assert.equal(await isOperationallyEligible('allocation_daily', 'DRIVER'), true);
-    assert.equal((await req('/api/admin/drivers/allocation_daily/route', 'PATCH', { routeId: 'allocation_route' })).status, 200);
+    assert.equal((await req('/api/admin/drivers/allocation_daily/route', 'PATCH', { routeId: 'allocation_route', serviceClass: 'ECONOMY', monthlyFareEtb: 2500 })).status, 200);
     assert.equal((await req('/api/admin/subscriptions/allocation_sub/assignment', 'PATCH', { vehicleId: 'allocation_van' })).status, 200);
     assert.equal((await req('/api/trips/roster?vehicleId=allocation_van', 'GET', undefined, 'daily')).status, 200);
-    assert.equal((await req('/api/admin/drivers/allocation_legacy/route', 'PATCH', { routeId: 'allocation_route' })).status, 200,
+    assert.equal((await req('/api/admin/drivers/allocation_legacy/route', 'PATCH', { routeId: 'allocation_route', serviceClass: 'ECONOMY', monthlyFareEtb: 2500 })).status, 200,
       'Existing untracked approved drivers retain their current workflow');
   });
 
@@ -152,7 +153,7 @@ test('legacy allocation APIs cannot bypass required web onboarding and approval'
       await DB.prepare('UPDATE onboarding_accounts SET service_type=? WHERE account_id=?').run(serviceType,'allocation_daily');
       assert.equal(await driverEligible('allocation_daily'),true,'Mobility and authentication keep generic approved-driver access');
       assert.equal(await dailyDriverEligible('allocation_daily'),false);
-      blocked(await req('/api/admin/drivers/allocation_daily/route','PATCH',{routeId:'allocation_route'}));
+      blocked(await req('/api/admin/drivers/allocation_daily/route','PATCH',{routeId:'allocation_route',serviceClass:'ECONOMY',monthlyFareEtb:2500}));
       blocked(await req('/api/admin/subscriptions/allocation_sub/assignment','PATCH',{vehicleId:'allocation_van'}));
       blocked(await req('/api/trips/assignments','GET',undefined,'daily'));
       blocked(await req('/api/trips/roster?vehicleId=allocation_van','GET',undefined,'daily'));

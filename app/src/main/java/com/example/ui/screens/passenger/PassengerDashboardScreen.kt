@@ -31,6 +31,8 @@ import com.example.core.localization.AppLanguage
 import com.example.data.entity.PaymentTransactionEntity
 import com.example.data.entity.RouteEntity
 import com.example.data.entity.SubscriptionEntity
+import com.example.data.entity.commuterCheckoutFare
+import com.example.data.entity.commuterServiceClass
 import com.example.ui.components.QrCodeCanvas
 import com.example.ui.components.MiniVehicleMap
 import com.example.ui.components.PassoBrandHeader
@@ -95,8 +97,7 @@ fun PassengerDashboardScreen(
 
     val routeId = subscription?.routeId?.takeIf { it.isNotBlank() } ?: currentUser?.appliedRouteId
     val selectedRoute = routes.find { it.id == routeId }
-    val checkoutAmount = selectedRoute?.basePriceEtb?.takeIf { it.isFinite() && it > 0 }
-        ?: subscription?.priceEtb?.takeIf { it.isFinite() && it > 0 }
+    val checkoutAmount = commuterCheckoutFare(subscription, selectedRoute)
     val routeName = selectedRoute?.name?.takeIf { it.isNotBlank() }
         ?: currentUser?.appliedRouteName?.takeIf { it.isNotBlank() }
     val canBoard = canShowPassengerBoardingPass(subscription)
@@ -304,6 +305,7 @@ fun SubscriptionStatusCard(
             if (subscription.endDate.isNotBlank()) DetailRow(passengerText(lang, "Valid until", "የሚያበቃበት ቀን"), subscription.endDate.take(10))
             DetailRow(passengerText(lang, "Days remaining", "የቀሩ ቀናት"), daysLeft?.toString() ?: passengerText(lang, "Not available", "አልተገኘም"))
             DetailRow(passengerText(lang, "Payment", "ክፍያ"), paymentStatus(subscription.paymentStatus, lang))
+            DetailRow(passengerText(lang, "Service class", "የአገልግሎት ደረጃ"), serviceClassLabel(subscription.serviceClass))
             val morning = subscription.morningSchedule.takeIf { it.isNotBlank() } ?: route?.morningDeparture?.takeIf { it.isNotBlank() }
             val evening = subscription.eveningSchedule.takeIf { it.isNotBlank() } ?: route?.eveningDeparture?.takeIf { it.isNotBlank() }
             if (morning != null) DetailRow(passengerText(lang, "Morning departure", "የጠዋት መነሻ"), morning)
@@ -388,6 +390,7 @@ fun FinancialBalanceCard(
         Text(passengerText(lang, "Pass payments", "የጉዞ ፈቃድ ክፍያ"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         DetailRow(passengerText(lang, "Monthly fare", "ወርሃዊ ክፍያ"), monthlyAmountEtb?.takeIf { it.isFinite() && it > 0 }?.let(::etb) ?: passengerText(lang, "Not available", "አልተገኘም"))
         if (subscription != null) {
+            DetailRow(passengerText(lang, "Service class", "የአገልግሎት ደረጃ"), serviceClassLabel(subscription.serviceClass))
             DetailRow(passengerText(lang, "Payment status", "የክፍያ ሁኔታ"), paymentStatus(subscription.paymentStatus, lang))
             if (subscription.endDate.isNotBlank()) DetailRow(passengerText(lang, "Pass valid until", "የፈቃድ ማብቂያ ቀን"), subscription.endDate.take(10))
         }
@@ -463,6 +466,13 @@ private fun DetailRow(label: String, value: String) {
         Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = Slate600)
         Text(value, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = Slate900, textAlign = TextAlign.End)
     }
+}
+
+private fun serviceClassLabel(value: String): String = when (commuterServiceClass(value)) {
+    "VIP" -> "VIP"
+    "DELUXE" -> "Deluxe"
+    "ECONOMY" -> "Economy"
+    else -> "Not available"
 }
 
 @Composable

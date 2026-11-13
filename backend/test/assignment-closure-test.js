@@ -71,7 +71,7 @@ test('assignment writers revalidate accounts after closure commits between prefl
   });
   await t.test('driver route assignment cannot restore route fields on a closed account', async () => {
     const d = await driver(); beforeWrite = () => close(d.id);
-    assert.equal((await request('/api/admin/drivers/' + d.id + '/route', 'PATCH', { routeId: 'race_commute' })).status, 409);
+    assert.equal((await request('/api/admin/drivers/' + d.id + '/route', 'PATCH', { routeId: 'race_commute', serviceClass: 'ECONOMY', monthlyFareEtb: 2500 })).status, 409);
     const account = await DB.prepare('SELECT appliedRouteId,status FROM users WHERE id=?').get(d.id);
     assert.equal(account.status, 'SUSPENDED'); assert.equal(account.appliedRouteId, '');
   });

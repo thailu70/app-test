@@ -204,7 +204,7 @@ async function validatePreference(input, db = DB) {
     const endpoints = (await commuteEndpoints(db)).find(item => item.id === route.id);
     departure = currentEndpointLabel(input.proposedDeparture, endpoints?.departureAliases, endpoints?.departure);
     destination = currentEndpointLabel(input.proposedDestination, endpoints?.destinationAliases, endpoints?.destination);
-    resolved = { routeMatch: { status: 'EXACT', routeId: route.id, routeName: route.name }, price: vehicleMonthlyPrice({ passengerMonthlyFareEtb: route.basePriceEtb }, type) };
+    resolved = { routeMatch: { status: 'EXACT', routeId: route.id, routeName: route.name }, price: await require('./commute-quote').assignmentMonthlyPrice(route, type, db) };
   } else {
     if (mode && mode !== 'PROPOSED') fail(400, 'Choose an existing daily commute route or propose a route.');
     resolved = await commuteQuote({ proposedDeparture: departure, proposedDestination: destination, vehicleType: type.code }, db);

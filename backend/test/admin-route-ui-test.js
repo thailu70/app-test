@@ -12,7 +12,7 @@ const savedStops = [
   { id: 'current_stop_b', stopName: 'Bole', stopNameAm: 'ቦሌ', latitude: 8.99, longitude: 38.79, scheduledEveningTime: '17:40', maxCapacity: 18 }
 ];
 
-function fixture() {
+function fixture({ drivers = [] } = {}) {
   const html = fs.readFileSync(path.join(folder, 'index.html'), 'utf8');
   const nodes = new Map(), dynamicIds = new Set(), documentListeners = new Map(), calls = [], instances = [];
   const routes = [{ id: 'current_route', name: 'Garment to Bole', nameAm: 'ጋርመንት ቦሌ', morningDeparture: '06:30', eveningDeparture: '17:30', distanceKm: 12, basePriceEtb: 2500, active: true }];
@@ -22,6 +22,8 @@ function fixture() {
     const listeners = new Map();
     const result = {
       id, value: /\bvalue="([^"]*)"/.exec(markup)?.[1] || '', hidden: /\bhidden\b/.test(markup), disabled: false,
+      attributes: new Set([...markup.matchAll(/\b(data-[a-z-]+)=/g)].map(match => match[1])),
+      dataset: Object.fromEntries([...markup.matchAll(/\bdata-([a-z-]+)="([^"]*)"/g)].map(match => [match[1].replace(/-([a-z])/g, (_, letter) => letter.toUpperCase()), match[2]])),
       textContent: '', className: '', classList: { add() {}, remove() {}, toggle() {} },
       listeners, addEventListener: (type, fn) => listeners.set(type, fn),
       removeEventListener: (type, fn) => { if (listeners.get(type) === fn) listeners.delete(type); },
@@ -46,6 +48,10 @@ function fixture() {
       nodes.set(match[1], node(match[1], match[0]));
       if (dynamic) dynamicIds.add(match[1]);
     }
+    for (const match of markup.matchAll(/<select\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/select>/g)) {
+      const selected = /<option\b[^>]*\bvalue="([^"]*)"[^>]*\bselected\b/.exec(match[2]);
+      nodes.get(match[1]).value = selected?.[1] || '';
+    }
     for (const match of markup.matchAll(/<form\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/form>/g)) {
       const form = nodes.get(match[1]);
       const fields = new Map();
@@ -67,7 +73,10 @@ function fixture() {
     AbortController, Date, console,
     document: {
       querySelector: selector => nodes.get(selector.slice(1)) || null,
-      querySelectorAll: () => [],
+      querySelectorAll: selector => {
+        const attribute = /^\[([a-z-]+)\]$/.exec(selector)?.[1];
+        return attribute ? [...nodes.values()].filter(item => item.attributes.has(attribute)) : [];
+      },
       addEventListener: (type, fn) => documentListeners.set(type, fn)
     },
     FormData: class { constructor(form) { this.form = form; } entries() { return [...this.form.fields].map(([key, field]) => [key, field.value]); } },
@@ -91,6 +100,7 @@ function fixture() {
       let data = {};
       if (url === '/api/auth/me') data = { user: { role: 'ADMIN', fullName: 'UI Test Administrator' } };
       if (url === '/api/admin/routes') data = { routes };
+      if (url === '/api/admin/drivers') data = { drivers };
       if (url === '/api/routes/current_route' && !options.method) data = detailHandler ? await detailHandler() : { route: routes[0], stops: savedStops };
       if (url.endsWith('/departure-settings') && !options.method) data = { settings: { latitude: 8.95, longitude: 38.76, radius_m: 300 } };
       return { ok: true, status: 200, json: async () => data };
@@ -109,6 +119,7 @@ function fixture() {
     navigate: view => click('[data-view]', { view }),
     edit: () => click('[data-edit-route]', { editRoute: 'current_route' }),
     departure: () => click('[data-geofence-route]', { geofenceRoute: 'current_route' }),
+    assign: driverId => click('[data-assign-route]', { assignRoute: driverId }),
     writes: () => calls.filter(call => call.options.method && call.options.method !== 'GET'),
     setDetailsHandler: handler => { detailHandler = handler; },
     setAreaHandler: handler => { areaHandler = handler; }
@@ -121,6 +132,8 @@ test('admin route creation and editing send the selected stop payload through th
   const instance = app.current();
   assert.ok(instance);
   assert.doesNotMatch(app.get('page-content').innerHTML, /stopsText|latitude \| longitude/);
+  assert.doesNotMatch(app.get('page-content').innerHTML, /route-price|Monthly tariff|name="basePriceEtb"/);
+  assert.equal(form.elements.namedItem('basePriceEtb'), undefined);
   form.elements.namedItem('name').value = 'Selected route';
   form.elements.namedItem('nameAm').value = 'መስመር';
   instance.stops = savedStops.map(({ id, ...stop }) => stop);
@@ -130,6 +143,7 @@ test('admin route creation and editing send the selected stop payload through th
   assert.equal(created.options.method, 'POST');
   assert.equal(created.options.headers.Authorization, 'Bearer admin-ui-fixture-token');
   assert.deepEqual(JSON.parse(created.options.body).stops, instance.stops);
+  assert.equal(Object.hasOwn(JSON.parse(created.options.body), 'basePriceEtb'), false);
   assert.equal(instance.destroyed, true, 'A saved route refresh must dispose the old location controls.');
   app.edit(); await flush();
   assert.deepEqual(app.current().setCalls[0], savedStops, 'Editing must pass existing IDs and stop metadata into the selector.');
@@ -140,6 +154,45 @@ test('admin route creation and editing send the selected stop payload through th
   assert.equal(updated.url, '/api/routes/current_route');
   assert.equal(updated.options.method, 'PUT');
   assert.deepEqual(JSON.parse(updated.options.body).stops.map(stop => stop.id), ['current_stop_a', 'current_stop_b']);
+  assert.equal(Object.hasOwn(JSON.parse(updated.options.body), 'basePriceEtb'), false);
+});
+
+test('driver assignments send an explicit route, service class and monthly fare per passenger', async () => {
+  const app = fixture({ drivers: [{ id: 'new_driver', fullName: 'New driver', status: 'ACTIVE', appliedRouteId: '' }] });
+  await flush(); app.navigate('drivers'); await flush();
+  const route = app.get('driver-route-new_driver');
+  const service = app.get('driver-class-new_driver');
+  const fare = app.get('driver-fare-new_driver');
+  assert.equal(service.value, '', 'A service class must be chosen explicitly.');
+  assert.equal(fare.value, '', 'The route default fare must never populate new assignment terms.');
+  assert.match(app.get('page-content').innerHTML, /Monthly fare per passenger \(ETB\)/);
+  route.value = 'current_route'; service.value = 'DELUXE'; fare.value = '3400.25';
+  app.assign('new_driver'); await flush();
+  const saved = app.writes()[0];
+  assert.equal(saved.url, '/api/admin/drivers/new_driver/route');
+  assert.equal(saved.options.method, 'PATCH');
+  assert.deepEqual(JSON.parse(saved.options.body), { routeId: 'current_route', serviceClass: 'DELUXE', monthlyFareEtb: 3400.25 });
+});
+
+test('existing assignment terms prefill from the driver assignment and invalid terms cannot write', async () => {
+  const app = fixture({ drivers: [{ id: 'assigned_driver', fullName: 'Assigned driver', status: 'ACTIVE',
+    appliedRouteId: 'current_route', appliedRouteName: 'Garment to Bole', assignmentServiceClass: 'VIP', assignmentMonthlyFareEtb: 4200.5 }] });
+  await flush(); app.navigate('drivers'); await flush();
+  assert.equal(app.get('driver-route-assigned_driver').value, 'current_route');
+  const service = app.get('driver-class-assigned_driver');
+  const fare = app.get('driver-fare-assigned_driver');
+  assert.equal(service.value, 'VIP');
+  assert.equal(fare.value, '4200.5');
+  assert.match(app.get('page-content').innerHTML, /per passenger \/ month/);
+  service.value = ''; app.assign('assigned_driver'); await flush();
+  service.value = 'UNKNOWN'; app.assign('assigned_driver'); await flush();
+  service.value = 'ECONOMY';
+  for (const invalid of ['', '0', '-1', '1000000.01', '12.345', 'Infinity']) {
+    fare.value = invalid;
+    app.assign('assigned_driver'); await flush();
+  }
+  assert.equal(app.writes().length, 0);
+  assert.match(app.get('toast').textContent, /monthly fare per passenger/);
 });
 
 test('invalid unselected locations prevent route writes and cancel returns to a clean create form', async () => {

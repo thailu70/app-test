@@ -3,6 +3,7 @@ package com.example.core.payment
 import com.example.data.api.TelebirrPayRequest
 import com.example.data.entity.PaymentTransactionEntity
 import com.example.data.entity.SubscriptionEntity
+import com.example.data.entity.commuterServiceClass
 import com.example.data.repository.TransportRepository
 import kotlinx.coroutines.CancellationException
 import java.text.SimpleDateFormat
@@ -37,7 +38,8 @@ object TelebirrGateway {
         phoneNumber: String,
         vehicleId: String,
         idempotencyKey: String = "TB-IDEM-${UUID.randomUUID().toString().take(12)}",
-        repository: TransportRepository
+        repository: TransportRepository,
+        serviceClass: String? = null
     ): TelebirrPaymentResult {
         // Validation of Telebirr Phone Number
         val cleanPhone = phoneNumber.trim()
@@ -49,7 +51,8 @@ object TelebirrGateway {
             val request = TelebirrPayRequest(
                 routeId = routeId,
                 phone = cleanPhone,
-                idempotencyKey = idempotencyKey
+                idempotencyKey = idempotencyKey,
+                serviceClass = serviceClass?.let(::commuterServiceClass)
             )
 
             val response = repository.requestSubscriptionCheckout(request, idempotencyKey)
@@ -108,12 +111,14 @@ object TelebirrGateway {
                     eveningSchedule = subDto?.eveningSchedule ?: eveningSchedule,
                     startDate = subDto?.startDate ?: SimpleDateFormat("dd MMM yyyy", Locale.US).format(Date()),
                     endDate = subDto?.endDate ?: SimpleDateFormat("dd MMM yyyy", Locale.US).format(Date(System.currentTimeMillis() + 30L * 86400000)),
-                    priceEtb = amountEtb,
+                    priceEtb = subDto?.priceEtb ?: txnDto?.amountEtb ?: amountEtb,
                     paymentStatus = "PAID",
                     subscriptionStatus = "ACTIVE",
                     vehicleId = subDto?.vehicleId.orEmpty(),
                     qrToken = subDto?.qrToken ?: "",
-                    daysRemaining = subDto?.daysRemaining ?: 30
+                    daysRemaining = subDto?.daysRemaining ?: 30,
+                    serviceClass = commuterServiceClass(subDto?.serviceClass ?: serviceClass),
+                    renewalPriceEtb = subDto?.renewalPriceEtb
                 )
 
                 // Sync transaction and subscription to local Room cache

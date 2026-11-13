@@ -26,7 +26,7 @@ import kotlinx.coroutines.CoroutineScope
         AuditLogEntity::class,
         NotificationEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class TransportDatabase : RoomDatabase() {
@@ -44,6 +44,18 @@ abstract class TransportDatabase : RoomDatabase() {
             }
         }
 
+        /** Preserve cached routes and paid passes while adding assignment-specific fares. */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE routes ADD COLUMN economyMonthlyFareEtb REAL")
+                db.execSQL("ALTER TABLE routes ADD COLUMN deluxeMonthlyFareEtb REAL")
+                db.execSQL("ALTER TABLE routes ADD COLUMN vipMonthlyFareEtb REAL")
+                db.execSQL("ALTER TABLE routes ADD COLUMN serviceFaresConfigured INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE subscriptions ADD COLUMN serviceClass TEXT NOT NULL DEFAULT 'ECONOMY'")
+                db.execSQL("ALTER TABLE subscriptions ADD COLUMN renewalPriceEtb REAL")
+            }
+        }
+
         private val instances = mutableMapOf<AppEnvironment, TransportDatabase>()
 
         @Synchronized
@@ -54,7 +66,7 @@ abstract class TransportDatabase : RoomDatabase() {
                     TransportDatabase::class.java,
                     environment.storageName("transport_navigator_database")
                 )
-                    .addMigrations(MIGRATION_4_5)
+                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6)
                     .addCallback(object : Callback() {
                         override fun onOpen(db: SupportSQLiteDatabase) {
                             super.onOpen(db)

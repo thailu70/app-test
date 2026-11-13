@@ -51,6 +51,16 @@ async function passengerAssignment(passengerId) {
   `).get(passengerId);
   if (!subscription) return { subscription: null, vehicle: null, active: false };
   await populatePassengerStopLocations(subscription);
+  const { getSubscriptionTerms, resolveCommuteFare } = require('./commute-pricing');
+  const terms = await getSubscriptionTerms(subscription.id);
+  subscription.serviceClass = terms?.routeId === subscription.routeId ? terms.serviceClass : 'ECONOMY';
+  try {
+    const fare = await resolveCommuteFare({ route: { id: subscription.routeId }, passengerId });
+    subscription.renewalPriceEtb = fare.monthlyFareEtb;
+  } catch (error) {
+    if (error.status !== 409) throw error;
+    subscription.renewalPriceEtb = 0;
+  }
   subscription.daysRemaining = remainingSubscriptionDays(subscription);
   const active = subscription.subscriptionStatus === 'ACTIVE' && subscription.paymentStatus === 'PAID' && Number(subscription.daysRemaining) > 0;
   let vehicle = subscription.vehicleId ? await DB.prepare(`

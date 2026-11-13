@@ -142,7 +142,8 @@ class TransportRepository(
         vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
         appliedRouteName: String = "",
-        otpVerificationToken: String = ""
+        otpVerificationToken: String = "",
+        serviceClass: String? = null
     ): UserEntity {
         val normalizedRole = role.trim().uppercase()
         val cleanPhone = phone.trim()
@@ -161,7 +162,8 @@ class TransportRepository(
             vehicleType = vehicleType.ifBlank { null },
             appliedRouteId = appliedRouteId.ifBlank { null },
             appliedRouteName = appliedRouteName.ifBlank { null },
-            otpVerificationToken = otpVerificationToken.ifBlank { null }
+            otpVerificationToken = otpVerificationToken.ifBlank { null },
+            serviceClass = serviceClass?.let(::commuterServiceClass)
         )
 
         val response = try {
@@ -213,7 +215,9 @@ class TransportRepository(
                     subscriptionStatus = subDto.status ?: "PENDING",
                     vehicleId = subDto.vehicleId.orEmpty(),
                     qrToken = subDto.qrToken ?: "",
-                    daysRemaining = subDto.daysRemaining
+                    daysRemaining = subDto.daysRemaining,
+                    serviceClass = commuterServiceClass(subDto.serviceClass),
+                    renewalPriceEtb = subDto.renewalPriceEtb
                 )
                 dao.insertSubscription(sub)
             }
@@ -323,7 +327,11 @@ class TransportRepository(
         eveningDeparture = route.eveningDeparture ?: "17:30",
         distanceKm = route.distanceKm ?: 12.0,
         basePriceEtb = route.basePriceEtb ?: 2500.0,
-        active = route.active ?: true
+        active = route.active ?: true,
+        economyMonthlyFareEtb = route.serviceFares?.get("ECONOMY"),
+        deluxeMonthlyFareEtb = route.serviceFares?.get("DELUXE"),
+        vipMonthlyFareEtb = route.serviceFares?.get("VIP"),
+        serviceFaresConfigured = route.serviceFares != null
     )
 
     suspend fun createRoute(
@@ -507,7 +515,8 @@ class TransportRepository(
                 startDate = sub.startDate.orEmpty(), endDate = sub.endDate.orEmpty(),
                 priceEtb = sub.priceEtb ?: 0.0, paymentStatus = sub.paymentStatus ?: "UNPAID",
                 subscriptionStatus = sub.status ?: "PENDING", vehicleId = sub.vehicleId.orEmpty(),
-                qrToken = if (body.isSubscribed) sub.qrToken.orEmpty() else "", daysRemaining = sub.daysRemaining
+                qrToken = if (body.isSubscribed) sub.qrToken.orEmpty() else "", daysRemaining = sub.daysRemaining,
+                serviceClass = commuterServiceClass(sub.serviceClass), renewalPriceEtb = sub.renewalPriceEtb
             )
         }
         // A successful empty response revokes the cached pass too; a failed request

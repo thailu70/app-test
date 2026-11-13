@@ -532,7 +532,8 @@ class MainViewModel(
         vehicleType: String = "MINIBUS_14",
         appliedRouteId: String = "",
         appliedRouteName: String = "",
-        otpVerificationToken: String = ""
+        otpVerificationToken: String = "",
+        serviceClass: String? = null
     ) {
         if (!_authBusy.compareAndSet(false, true)) return
         viewModelScope.launch {
@@ -581,7 +582,8 @@ class MainViewModel(
                     vehicleType = vehicleType,
                     appliedRouteId = appliedRouteId,
                     appliedRouteName = appliedRouteName,
-                    otpVerificationToken = otpVerificationToken
+                    otpVerificationToken = otpVerificationToken,
+                    serviceClass = serviceClass
                 )
                 if (role == AppRole.DRIVER) {
                     _registrationMessage.value = "Thank you for registering. We will review your licence and vehicle, authorize your account, assign your route, and connect appropriate passenger subscriptions to your vehicle. We will contact you when it is ready. You can sign in after approval."
@@ -985,7 +987,12 @@ class MainViewModel(
                 _paymentMessage.value = "Your commute route is not available. Refresh your pass or contact support."
                 return@launch
             }
-            val amount = matchedRoute.basePriceEtb
+            val amount = commuterCheckoutFare(subscription, matchedRoute)
+            if (amount == null) {
+                _isProcessingPayment.value = false
+                _paymentMessage.value = "A monthly fare has not been assigned for your service class. Contact support."
+                return@launch
+            }
 
             val result = TelebirrGateway.processSubscriptionPayment(
                 passengerId = passengerId,
@@ -998,7 +1005,8 @@ class MainViewModel(
                 phoneNumber = user?.phone.orEmpty(),
                 vehicleId = subscription?.vehicleId.orEmpty(),
                 idempotencyKey = UUID.randomUUID().toString(),
-                repository = repository
+                repository = repository,
+                serviceClass = subscription?.serviceClass
             )
 
             if (session != sessionGeneration || currentPassengerId != passengerId) return@launch

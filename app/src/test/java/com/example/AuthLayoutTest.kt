@@ -398,7 +398,7 @@ class AuthLayoutTest {
         assertTrue(registrations.isEmpty())
     }
 
-    @Test fun unverifiedPassengerSubmissionKeepsSelectedDailyRouteAndServerAuthenticationGate() {
+    @Test fun unverifiedPassengerSubmissionKeepsSelectedDailyRouteTierAndServerAuthenticationGate() {
         show(AppRole.PASSENGER, signup = true)
         compose.onNodeWithTag("auth_full_name_input").performTextInput("Native Test Passenger")
         compose.onNodeWithTag("auth_phone_input").performTextInput("0912345678")
@@ -410,7 +410,7 @@ class AuthLayoutTest {
         assertTrue(requestedCodes.isEmpty())
         assertTrue(verifiedCodes.isEmpty())
         compose.onNodeWithTag("auth_route_route-auth-test").performScrollTo().performClick()
-        compose.onNodeWithTag("auth_tier_Economy").performScrollTo().performClick().assertIsSelected()
+        compose.onNodeWithTag("auth_tier_Deluxe").performScrollTo().performClick().assertIsSelected()
         confirmAdultForRegistration("auth_passenger_submit")
         compose.onNodeWithTag("auth_passenger_submit").performScrollTo().performClick()
         compose.waitUntil(5_000) { registrations.isNotEmpty() }
@@ -418,6 +418,7 @@ class AuthLayoutTest {
         assertEquals("PASSENGER", request.role)
         assertEquals("route-auth-test", request.appliedRouteId)
         assertEquals("Bole → CMC", request.appliedRouteName)
+        assertEquals("DELUXE", request.serviceClass)
         assertNull("Deferred account verification must not invent a phone proof", request.otpVerificationToken)
         assertTrue(requestedCodes.isEmpty())
         assertTrue(verifiedCodes.isEmpty())

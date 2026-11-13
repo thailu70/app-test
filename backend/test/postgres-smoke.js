@@ -428,7 +428,7 @@ async function run() {
     assert.equal(result.status, 200, 'Admin should explicitly approve the complete submitted driver before route assignment');
 
     result = await requestJson(baseUrl, `/api/admin/drivers/${encodeURIComponent(driver.id)}/route`, 'PATCH', {
-      routeId: 'route_bole_merkato'
+      routeId: 'route_bole_merkato', serviceClass: 'ECONOMY', monthlyFareEtb: 2500
     }, adminToken);
     assert.equal(result.status, 200, 'Admin should assign an active route to the approved driver-owned vehicle');
     assert.equal(result.data.vehicle.plateNumber, '3-CI-0001');

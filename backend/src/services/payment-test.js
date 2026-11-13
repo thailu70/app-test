@@ -91,18 +91,23 @@ function createPaymentTestService({ db = DB, sendSms = require('./afro-sms').sen
   return { requestOtp, verifyOtp, consume };
 }
 let commuterWrites = Promise.resolve();
-async function grantCommuterTestPass({ passengerId, route, key, signedQr }, db = DB, { allowedPassengerId = process.env.PAYMENT_TEST_PASSENGER_ID, isEnabled = paymentTestsEnabled } = {}) {
+async function grantCommuterTestPass({ passengerId, route, key, signedQr, fare: selectedFare }, db = DB, { allowedPassengerId = process.env.PAYMENT_TEST_PASSENGER_ID, isEnabled = paymentTestsEnabled } = {}) {
+  const { resolveCommuteFare, saveSubscriptionTerms, savePaymentTerms, getPaymentTerms } = require('./commute-pricing');
+  await require('./commute-pricing').initCommutePricingSchema(db);
   const operation = () => db.transaction(async tx => {
     assertPaymentTestsEnabled(isEnabled());
     const passenger = await tx.prepare("SELECT id,phone FROM users WHERE id=? AND role='PASSENGER' AND status='ACTIVE'" + (tx.isPostgres ? ' FOR UPDATE' : '')).get(passengerId);
     const authorizedId = typeof allowedPassengerId === 'string' ? allowedPassengerId.trim() : '';
     if (!passenger || !authorizedId || String(passenger.id) !== authorizedId || !isTestPaymentPhone(passenger.phone)) fail(403, 'The current account is not authorized for test payment.');
-    const amount = Number(route.basePriceEtb);
     const prior = await tx.prepare('SELECT * FROM telebirr_payment_orders WHERE idempotency_key=?').get(key);
     if (prior) {
-      if (prior.passenger_id !== passengerId || prior.route_id !== route.id || Number(prior.amount_etb) !== amount || !String(prior.merchant_order_id).startsWith('RPT')) fail(409, 'This idempotency key belongs to a different payment.');
+      if (prior.passenger_id !== passengerId || prior.route_id !== route.id || !String(prior.merchant_order_id).startsWith('RPT')) fail(409, 'This idempotency key belongs to a different payment.');
+      const terms = await getPaymentTerms(prior.merchant_order_id, tx);
+      if (terms && selectedFare && terms.serviceClass !== selectedFare.serviceClass) fail(409, 'This payment reference belongs to a different service class.');
       return { success: true, status: 'PAID', paymentMode: 'TEST_AUTO', idempotentReplay: true, subscriptionId: prior.subscription_id };
     }
+    const fare = selectedFare || await resolveCommuteFare({ route, passengerId, db: tx });
+    const amount = fare.monthlyFareEtb;
     if (await tx.prepare('SELECT id FROM payment_transactions WHERE idempotencyKey=?').get(key)) fail(409, 'This idempotency key is already in use.');
     const current = await tx.prepare('SELECT * FROM subscriptions WHERE passengerId=? ORDER BY updatedAt DESC,id DESC LIMIT 1').get(passengerId);
     const subId = current?.id || 'sub_' + crypto.randomUUID().replace(/-/g, '').slice(0, 24), instant = Date.now();
@@ -116,6 +121,8 @@ async function grantCommuterTestPass({ passengerId, route, key, signedQr }, db =
       .run(subId, passengerId, route.id, route.morningDeparture, route.eveningDeparture, start, end, amount, days, qr);
     const orderId = 'RPT' + crypto.randomBytes(16).toString('hex');
     await tx.prepare("INSERT INTO telebirr_payment_orders(merchant_order_id,idempotency_key,passenger_id,subscription_id,route_id,amount_etb,status) VALUES(?,?,?,?,?,?,'PAID')").run(orderId, key, passengerId, subId, route.id, amount);
+    await saveSubscriptionTerms(tx, subId, fare, route.id);
+    await savePaymentTerms(tx, orderId, fare, route.id);
     await tx.prepare("INSERT INTO payment_transactions(id,passengerId,referenceNumber,idempotencyKey,amountEtb,provider,phoneNumber,status,notes) VALUES(?,?,?,?,?,'TEST_AUTO',?,'VERIFIED',?)")
       .run('tx_' + crypto.randomUUID().slice(0, 24), passengerId, orderId, key, amount, TEST_PHONE, 'Authorized test payment for 0912469923; no money collected');
     await tx.prepare('INSERT INTO audit_logs(action,userId,role,details) VALUES(?,?,?,?)').run('TEST_PAYMENT_GRANTED', passengerId, 'PASSENGER', 'Authorized test payment ' + orderId + '; no money collected');

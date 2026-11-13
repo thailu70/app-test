@@ -5,6 +5,7 @@ const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { passengerAssignment, populatePassengerStopLocations } = require('../services/passenger-assignment');
 const { paymentTestsEnabled } = require('../services/payment-policy');
+const { resolveCommuteFare, saveSubscriptionTerms } = require('../services/commute-pricing');
 
 function resolveQrSigningKey() {
   if (process.env.QR_SIGNING_KEY && process.env.QR_SIGNING_KEY.trim().length > 0) {
@@ -88,6 +89,8 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), async (req, res
           status: sub.subscriptionStatus,
           paymentStatus: sub.paymentStatus,
           priceEtb: sub.priceEtb,
+          serviceClass: sub.serviceClass,
+          renewalPriceEtb: sub.renewalPriceEtb,
           daysRemaining: sub.daysRemaining,
           pickupStopId: sub.pickupStopId,
           destinationStopId: sub.destinationStopId,
@@ -117,6 +120,8 @@ router.get('/my-status', authenticate, requireRole('PASSENGER'), async (req, res
         status: sub.subscriptionStatus,
         paymentStatus: sub.paymentStatus,
         priceEtb: sub.priceEtb,
+        serviceClass: sub.serviceClass,
+        renewalPriceEtb: sub.renewalPriceEtb,
         startDate: sub.startDate,
         endDate: sub.endDate,
         daysRemaining: sub.daysRemaining,
@@ -158,22 +163,34 @@ router.post('/subscribe', authenticate, requireRole('PASSENGER'), async (req, re
     }
 
     const subId = `sub_${passengerId}_${Date.now().toString(36)}`;
-    const existing = await DB.prepare('SELECT id FROM subscriptions WHERE passengerId = ?').get(passengerId);
+    const existing = await DB.prepare('SELECT * FROM subscriptions WHERE passengerId = ? ORDER BY updatedAt DESC,id DESC LIMIT 1').get(passengerId);
+    if (existing?.paymentStatus === 'PAID' && existing.subscriptionStatus === 'ACTIVE' &&
+        require('../services/subscription-days').remainingSubscriptionDays(existing) > 0) {
+      return res.status(409).json({ success: false, error: 'Your paid pass is still active. Renew that pass without replacing its current route or service class.' });
+    }
+    const fare = await resolveCommuteFare({ route, passengerId, serviceClass: req.body.serviceClass });
 
-    if (existing) {
-      await DB.prepare(`
+    await DB.transaction(async tx => {
+      const current = existing ? await tx.prepare('SELECT * FROM subscriptions WHERE id=?' + (tx.isPostgres ? ' FOR UPDATE' : '')).get(existing.id) : null;
+      if (current?.paymentStatus === 'PAID' && current.subscriptionStatus === 'ACTIVE' && require('../services/subscription-days').remainingSubscriptionDays(current) > 0) {
+        throw Object.assign(Error('Your paid pass is still active. Renew that pass without replacing it.'), { status: 409 });
+      }
+      if (existing) {
+        await tx.prepare(`
         UPDATE subscriptions
         SET routeId = ?, pickupStopId = ?, destinationStopId = ?, priceEtb = ?,
             subscriptionStatus = 'PENDING', paymentStatus = 'UNPAID', daysRemaining = 0,
-            qrToken = NULL, updatedAt = CURRENT_TIMESTAMP
+            qrToken = NULL, vehicleId = ?, morningSchedule = ?, eveningSchedule = ?, updatedAt = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(routeId, pickupStopId, destinationStopId, route.basePriceEtb, existing.id);
-    } else {
-      await DB.prepare(`
+        `).run(routeId, pickupStopId, destinationStopId, fare.monthlyFareEtb, current?.routeId === routeId ? current.vehicleId || '' : '', route.morningDeparture, route.eveningDeparture, existing.id);
+      } else {
+        await tx.prepare(`
         INSERT INTO subscriptions (id, passengerId, routeId, pickupStopId, destinationStopId, morningSchedule, eveningSchedule, priceEtb, paymentStatus, subscriptionStatus, daysRemaining, qrToken)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'UNPAID', 'PENDING', 0, NULL)
-      `).run(subId, passengerId, routeId, pickupStopId, destinationStopId, route.morningDeparture, route.eveningDeparture, route.basePriceEtb);
-    }
+        `).run(subId, passengerId, routeId, pickupStopId, destinationStopId, route.morningDeparture, route.eveningDeparture, fare.monthlyFareEtb);
+      }
+      await saveSubscriptionTerms(tx, existing?.id || subId, fare, routeId);
+    });
 
     res.json({
       success: true,
@@ -186,10 +203,12 @@ router.post('/subscribe', authenticate, requireRole('PASSENGER'), async (req, re
         id: route.id,
         name: route.name,
         nameAm: route.nameAm,
-        priceEtb: route.basePriceEtb
+        priceEtb: fare.monthlyFareEtb,
+        serviceClass: fare.serviceClass
       }
     });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ success: false, error: err.message });
     console.error('[RoutePass] request failed:', err);
     res.status(500).json({ success: false, error: 'Internal server error.' });
   }
@@ -367,7 +386,8 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
       return res.status(404).json({ success: false, error: 'Route not found.' });
     }
 
-    const price = route.basePriceEtb || 2500.0;
+    const fare = await resolveCommuteFare({ route, passengerId, serviceClass: req.body.serviceClass });
+    const price = fare.monthlyFareEtb;
 
     // Production Verification Isolation: Independently verify payment on server (NEVER trust client-supplied flags!)
     if (PAYMENT_MODE === 'PRODUCTION') {
@@ -452,6 +472,8 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
         route.morningDeparture, route.eveningDeparture, startDate, endDate, price, signedQrToken);
     }
 
+    await saveSubscriptionTerms(DB, existingSub?.id || subId, fare, route.id);
+
     // Insert notification
     const notifId = `notif_${crypto.randomUUID().slice(0, 8)}`;
     await DB.prepare(`
@@ -498,6 +520,7 @@ router.post('/telebirr/pay', authenticate, requireRole('PASSENGER'), async (req,
       }
     });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ success: false, error: err.message });
     console.error('[RoutePass] request failed:', err);
     res.status(500).json({ success: false, error: 'Internal server error.' });
   }

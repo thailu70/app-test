@@ -5,6 +5,7 @@ const { DB } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { optionalPrincipal, commuteRoute } = require('../services/commute-scope');
 const { routeSearch } = require('../services/route-search');
+const { getRoutePricing } = require('../services/commute-pricing');
 
 const stopNameKey = value => String(value ?? '').normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase();
 function stopPoint(stop) {
@@ -67,7 +68,9 @@ router.get('/', async (req, res) => {
   try {
     const principal = await optionalPrincipal(req);
     if(principal?.role==='COMPANY') return res.status(403).json({success:false,error:'Use your company intercity route portal.'});
-    const routes = await DB.prepare(`SELECT r.* FROM routes r WHERE ${commuteRoute('r')} AND ${search.where} ORDER BY ${search.order}`).all(...search.params);
+    const rows = await DB.prepare(`SELECT r.* FROM routes r WHERE ${commuteRoute('r')} AND ${search.where} ORDER BY ${search.order}`).all(...search.params);
+    const routes = await Promise.all(rows.map(route => getRoutePricing(route)));
+    if (req.query.sort === 'fare') routes.sort((a, b) => (a.monthlyPassengerFareEtb ?? Infinity) - (b.monthlyPassengerFareEtb ?? Infinity) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
     res.json({
       success: true,
       count: routes.length,
@@ -96,7 +99,7 @@ router.get('/:id', async (req, res) => {
 
     res.json({
       success: true,
-      route,
+      route: await getRoutePricing(route),
       stops
     });
   } catch (err) {
@@ -118,7 +121,6 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
       morningDeparture = '06:30',
       eveningDeparture = '17:30',
       distanceKm = 10.0,
-      basePriceEtb = 2500.0,
       stops = []
     } = req.body;
 
@@ -142,7 +144,7 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
       morningDeparture,
       eveningDeparture,
       parseFloat(distanceKm) || 10.0,
-      parseFloat(basePriceEtb) || 2500.0
+      0
     );
 
     // Insert stops if provided
@@ -173,7 +175,7 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
     await DB.prepare(`
       INSERT INTO audit_logs (action, userId, role, details)
       VALUES ('ROUTE_CREATED', ?, 'ADMIN', ?)
-    `).run(req.user.id, `Created route: ${name} (ETB ${basePriceEtb})`);
+    `).run(req.user.id, `Created route: ${name}; fares are configured when assigning a driver.`);
 
     const createdRoute = await DB.prepare(`SELECT * FROM routes WHERE id = ?`).get(routeId);
     const createdStops = await DB.prepare(`SELECT * FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC`).all(routeId);
@@ -181,7 +183,7 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Transit route created successfully',
-      route: createdRoute,
+      route: await getRoutePricing(createdRoute),
       stops: createdStops
     });
   } catch (err) {
@@ -209,7 +211,7 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
       const stopIds = Array.isArray(req.body.stops) ? await routeStopIdentities(tx, req.params.id, req.body.stops) : null;
       await tx.prepare(`
         UPDATE routes SET name = ?, nameAm = ?, description = ?,
-          morningDeparture = ?, eveningDeparture = ?, distanceKm = ?, basePriceEtb = ?, active = ?
+          morningDeparture = ?, eveningDeparture = ?, distanceKm = ?, active = ?
         WHERE id = ?
       `).run(
         name,
@@ -218,7 +220,6 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
         String(req.body.morningDeparture ?? current.morningDeparture ?? '06:30'),
         String(req.body.eveningDeparture ?? current.eveningDeparture ?? '17:30'),
         Number(req.body.distanceKm ?? current.distanceKm ?? 10),
-        Number(req.body.basePriceEtb ?? current.basePriceEtb ?? 2500),
         req.body.active === undefined ? current.active : (req.body.active ? true : false),
         req.params.id
       );
@@ -253,7 +254,7 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
     if(principal?.role==='COMPANY') return res.status(403).json({success:false,error:'Use your company route portal.'});
     const route = await DB.prepare(`SELECT * FROM routes WHERE id = ? AND ${commuteRoute('')}`).get(req.params.id);
     const stops = await DB.prepare(`SELECT * FROM route_stops WHERE routeId = ? ORDER BY stopOrder ASC`).all(req.params.id);
-    res.json({ success: true, route, stops });
+    res.json({ success: true, route: await getRoutePricing(route), stops });
   } catch (err) {
     if (err.status === 400) return res.status(400).json({ success: false, error: err.message });
     console.error('[RoutePass] route update failed:', err);

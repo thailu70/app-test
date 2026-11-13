@@ -10,6 +10,8 @@ const { getOnboardingReadiness, markOnboardingReviewed, setDriverSuspension, inv
 const { assertDailyDriverEligible } = require('../services/operational-onboarding');
 const { isAccountClosed } = require('../services/account-deletion');
 const { paymentTestsEnabled } = require('../services/payment-policy');
+const { initCommutePricingSchema, assignmentTerms, getRoutePricing, getRouteOffers,
+  getSubscriptionTerms, saveSubscriptionTerms } = require('../services/commute-pricing');
 
 // Call only after locking the selected vehicle: account closure uses this order.
 async function lockCommuteDriver(tx, id) {
@@ -188,6 +190,8 @@ router.delete('/drivers/:id', async (req, res) => {
  */
 router.patch('/drivers/:id/route', async (req, res) => {
   try {
+    const terms = assignmentTerms(req.body);
+    await initCommutePricingSchema();
     const routeId = String(req.body.routeId || '').trim();
     if (!routeId) return res.status(400).json({ success: false, error: 'An active route is required.' });
 
@@ -196,7 +200,7 @@ router.patch('/drivers/:id/route', async (req, res) => {
     if (driver.status !== 'ACTIVE') return res.status(409).json({ success: false, error: 'Approve this driver before assigning a route.' });
     const route = await DB.prepare(`SELECT * FROM routes WHERE id = ? AND active = TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'`).get(routeId);
     if (!route) return res.status(404).json({ success: false, error: 'Active route not found.' });
-    const vehicle = await DB.prepare(`SELECT * FROM vehicles WHERE driverId = ? LIMIT 1`).get(driver.id);
+    const vehicle = await DB.prepare(`SELECT * FROM vehicles WHERE driverId = ? ORDER BY id LIMIT 1`).get(driver.id);
     if (!vehicle) return res.status(409).json({ success: false, error: 'This driver has not registered an owned vehicle yet.' });
 
     await DB.transaction(async (tx) => {
@@ -205,22 +209,36 @@ router.patch('/drivers/:id/route', async (req, res) => {
       await lockCommuteDriver(tx, driver.id);
       const currentRoute = await tx.prepare("SELECT id FROM routes WHERE id=? AND active=TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'" + (tx.isPostgres ? ' FOR SHARE' : '')).get(route.id);
       if (!currentRoute) throw Object.assign(new Error('The selected route is no longer active.'), { status: 409 });
+      const passengers = await tx.prepare("SELECT * FROM subscriptions WHERE vehicleId=? AND paymentStatus='PAID' AND subscriptionStatus IN ('ACTIVE','EXPIRING')" + (tx.isPostgres ? ' FOR UPDATE' : '')).all(currentVehicle.id);
+      for (const passenger of passengers) {
+        if (require('../services/subscription-days').remainingSubscriptionDays(passenger) <= 0) continue;
+        const purchased = await getSubscriptionTerms(passenger.id, tx);
+        if (passenger.routeId !== route.id || (purchased?.serviceClass || 'ECONOMY') !== terms.serviceClass) {
+          throw Object.assign(new Error('Reassign this vehicle\'s active paid passengers before changing its route or service class. Their purchased service must remain available.'), { status: 409 });
+        }
+      }
       await tx.prepare(`
         UPDATE vehicles
         SET assignedRouteId = ?, status = 'IN_SERVICE', updatedAt = CURRENT_TIMESTAMP
         WHERE id = ? AND driverId = ?
       `).run(route.id, vehicle.id, driver.id);
+      await tx.prepare(`INSERT INTO commute_route_terms(vehicle_id,route_id,driver_id,service_class,monthly_fare_etb)
+        VALUES(?,?,?,?,?) ON CONFLICT(vehicle_id) DO UPDATE SET route_id=excluded.route_id,driver_id=excluded.driver_id,
+          service_class=excluded.service_class,monthly_fare_etb=excluded.monthly_fare_etb,updated_at=CURRENT_TIMESTAMP`)
+        .run(vehicle.id, route.id, driver.id, terms.serviceClass, terms.monthlyFareEtb);
       await tx.prepare('UPDATE users SET appliedRouteId = ?, appliedRouteName = ? WHERE id = ? AND role = \'DRIVER\'')
         .run(route.id, route.name, driver.id);
       await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
-        .run('DRIVER_ROUTE_ASSIGNED', req.user.id, 'ADMIN', `Assigned route ${route.name} to driver ${driver.id} and owner vehicle ${vehicle.plateNumber}`);
+        .run('DRIVER_ROUTE_ASSIGNED', req.user.id, 'ADMIN', JSON.stringify({ routeId: route.id, driverId: driver.id,
+          vehicleId: vehicle.id, serviceClass: terms.serviceClass, monthlyFareEtb: terms.monthlyFareEtb, basis: 'PER_PASSENGER_PER_MONTH' }));
     });
 
     res.json({
       success: true,
       driver: { id: driver.id, fullName: driver.fullName, phone: driver.phone, licenseNumber: driver.licenseNumber },
       vehicle: { id: vehicle.id, plateNumber: vehicle.plateNumber, model: vehicle.model },
-      route: { id: route.id, name: route.name, nameAm: route.nameAm }
+      route: { id: route.id, name: route.name, nameAm: route.nameAm },
+      assignment: { routeId: route.id, vehicleId: vehicle.id, ...terms, basis: 'PER_PASSENGER_PER_MONTH' }
     });
   } catch (err) {
     console.error('[Admin] driver route assignment failed:', err);
@@ -236,7 +254,7 @@ router.patch('/drivers/:id/route', async (req, res) => {
 router.get('/routes', async (req, res) => {
   try {
     const routes = await DB.prepare(`SELECT * FROM routes WHERE COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE' ORDER BY active DESC, name ASC`).all();
-    res.json({ success: true, routes });
+    res.json({ success: true, routes: await Promise.all(routes.map(route => getRoutePricing(route))) });
   } catch (err) {
     console.error('[Admin] route list failed:', err);
     res.status(500).json({ success: false, error: 'Could not load routes.' });
@@ -249,6 +267,7 @@ router.get('/routes', async (req, res) => {
  */
 router.get('/drivers', async (req, res) => {
   try {
+    await initCommutePricingSchema();
     const drivers = await DB.prepare(`
       SELECT id, fullName, phone, email, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName, createdAt
       FROM users
@@ -256,7 +275,17 @@ router.get('/drivers', async (req, res) => {
       ORDER BY createdAt DESC
     `).all();
 
-    res.json({ success: true, drivers });
+    const assignments = await DB.prepare(`SELECT t.* FROM commute_route_terms t
+      JOIN vehicles v ON v.id=t.vehicle_id AND v.driverId=t.driver_id AND v.assignedRouteId=t.route_id
+      WHERE COALESCE(v.companyId,'')='' ORDER BY v.id`).all();
+    const byDriver = new Map();
+    for (const assignment of assignments) if (!byDriver.has(assignment.driver_id)) byDriver.set(assignment.driver_id, assignment);
+    res.json({ success: true, drivers: drivers.map(driver => {
+      const assignment = byDriver.get(driver.id);
+      return { ...driver, assignmentServiceClass: assignment?.service_class || null,
+        assignmentMonthlyFareEtb: assignment ? Number(assignment.monthly_fare_etb) : null,
+        assignmentRouteId: assignment?.route_id || null };
+    }) });
   } catch (err) {
     console.error('[RoutePass] request failed:', err);
     res.status(500).json({ success: false, error: 'Internal server error.' });
@@ -419,6 +448,7 @@ router.post('/subscriptions/:id/recharge', async (req, res) => {
  */
 router.patch('/subscriptions/:id/assignment', async (req, res) => {
   try {
+    await initCommutePricingSchema();
     const vehicleId = String(req.body.vehicleId || '').trim();
     const sub = await DB.prepare(`SELECT * FROM subscriptions WHERE id = ?`).get(req.params.id);
     if (!sub) return res.status(404).json({ success: false, error: 'Subscription not found.' });
@@ -446,9 +476,17 @@ router.patch('/subscriptions/:id/assignment', async (req, res) => {
       await lockCommuteDriver(tx, currentVehicle.driverId);
       const passenger = await tx.prepare("SELECT id,status FROM users WHERE id=? AND role='PASSENGER' AND COALESCE(companyId,'')=''" + (tx.isPostgres ? ' FOR UPDATE' : '')).get(sub.passengerId);
       if (!passenger || passenger.status !== 'ACTIVE' || await isAccountClosed(sub.passengerId, 'PASSENGER', tx)) throw Object.assign(new Error('The passenger is no longer active.'), { status: 409 });
-      const currentSub = await tx.prepare('SELECT id,passengerId,routeId FROM subscriptions WHERE id=?' + (tx.isPostgres ? ' FOR UPDATE' : '')).get(sub.id);
+      const currentSub = await tx.prepare('SELECT * FROM subscriptions WHERE id=?' + (tx.isPostgres ? ' FOR UPDATE' : '')).get(sub.id);
       if (!currentSub || currentSub.passengerId !== sub.passengerId || currentSub.routeId !== currentVehicle.assignedRouteId) throw Object.assign(new Error('The subscription route changed. Refresh the assignment.'), { status: 409 });
-      await tx.prepare('UPDATE subscriptions SET vehicleId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?').run(currentVehicle.id, sub.id);
+      const fare = (await getRouteOffers(currentSub.routeId, tx)).find(offer => offer.vehicleId === currentVehicle.id);
+      if (!fare) throw Object.assign(new Error('Set this driver assignment\'s service class and monthly fare before assigning a passenger.'), { status: 409 });
+      const selected = await getSubscriptionTerms(currentSub.id, tx);
+      if (currentSub.paymentStatus === 'PAID' && (Number(currentSub.priceEtb) !== fare.monthlyFareEtb || (selected?.serviceClass || 'ECONOMY') !== fare.serviceClass)) {
+        throw Object.assign(new Error('This vehicle\'s fare or service class differs from the paid pass. Existing paid passes cannot be repriced through vehicle assignment.'), { status: 409 });
+      }
+      await tx.prepare('UPDATE subscriptions SET vehicleId = ?, priceEtb = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
+        .run(currentVehicle.id, currentSub.paymentStatus === 'PAID' ? currentSub.priceEtb : fare.monthlyFareEtb, sub.id);
+      await saveSubscriptionTerms(tx, currentSub.id, fare, currentSub.routeId);
       await tx.prepare('INSERT INTO audit_logs (action, userId, role, details) VALUES (?, ?, ?, ?)')
         .run('SUBSCRIPTION_VEHICLE_ASSIGNED', req.user.id, 'ADMIN', `Assigned owner vehicle ${vehicle.plateNumber} to subscription ${sub.id}`);
     });

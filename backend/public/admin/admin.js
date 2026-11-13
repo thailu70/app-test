@@ -198,7 +198,7 @@
     const data = asArray(await api("/api/admin/drivers"), "drivers");
     state.cache.drivers = data;
     const routes = (state.cache.routes || []).filter(r => r.active !== false && r.active !== 0);
-    return pageHeader("Driver approval & routes", "Review new driver registrations, approve eligible drivers, then assign their operating route. Drivers retain ownership of their vehicles.",
+    return pageHeader("Driver approval & routes", "Approve eligible drivers, then assign their route, service class and monthly fare per passenger. Drivers retain ownership of their vehicles.",
       '<button class="btn btn-secondary" data-go="routes">Manage routes</button>') +
       section("Registered drivers", data.length + " account(s)",
         table([
@@ -214,7 +214,14 @@
             if (status === "SUSPENDED") return pill(status);
             return pill(status);
           }},
-          { label: "Assigned route", keys: ["appliedRouteName", "applied_route_name"] },
+          { label: "Current assignment", render: r => {
+            const serviceClass = { ECONOMY: 'Economy', DELUXE: 'Deluxe', VIP: 'VIP' }[r.assignmentServiceClass];
+            const fare = Number(r.assignmentMonthlyFareEtb);
+            return '<strong>' + esc(value(r, "appliedRouteName", "applied_route_name")) + '</strong>' +
+              (serviceClass && Number.isFinite(fare) && fare > 0
+                ? '<div class="assignment-summary">' + esc(serviceClass) + '<br>' + esc(money(fare)) + '<br><span class="muted">per passenger / month</span></div>'
+                : '<div class="muted">Fare and service class not set</div>');
+          }},
           { label: "Route action", render: r => {
             const id = esc(value(r, "id"));
             if (String(r.status || "").toUpperCase() !== "ACTIVE") return '<span class="muted">Approve driver first</span>';
@@ -222,7 +229,15 @@
             const options = '<option value="">Choose route…</option>' + routes.map(route =>
               '<option value="' + esc(route.id) + '" ' + (route.id === selected ? "selected" : "") + '>' + esc(value(route, "name")) + '</option>'
             ).join("");
-            return '<div class="inline-actions"><select data-route-for="' + id + '" aria-label="Route for ' + esc(value(r, "fullName")) + '" style="min-width:170px;padding:7px;border:1px solid #d5deea;border-radius:8px">' + options + '</select><button class="btn btn-primary" data-assign-route="' + id + '">Assign</button></div>';
+            const classes = '<option value="">Choose service class…</option>' + [['ECONOMY', 'Economy'], ['DELUXE', 'Deluxe'], ['VIP', 'VIP']].map(([key, text]) =>
+              '<option value="' + key + '" ' + (r.assignmentServiceClass === key ? 'selected' : '') + '>' + text + '</option>').join('');
+            const fare = Number(r.assignmentMonthlyFareEtb);
+            const monthlyFare = Number.isFinite(fare) && fare > 0 ? String(fare) : '';
+            return '<div class="driver-route-assignment">' +
+              '<label for="driver-route-' + id + '">Route</label><select id="driver-route-' + id + '" data-route-for="' + id + '">' + options + '</select>' +
+              '<label for="driver-class-' + id + '">Service class</label><select id="driver-class-' + id + '" data-service-class-for="' + id + '">' + classes + '</select>' +
+              '<label for="driver-fare-' + id + '">Monthly fare per passenger (ETB)</label><input id="driver-fare-' + id + '" data-monthly-fare-for="' + id + '" type="number" min="0.01" max="1000000" step="0.01" inputmode="decimal" value="' + esc(monthlyFare) + '" placeholder="Enter monthly fare">' +
+              '<button class="btn btn-primary" data-assign-route="' + id + '">Save assignment</button></div>';
           }},
           { label: "Account actions", render: r => {
             const id = esc(value(r, "id")), status = String(r.status || "").toUpperCase();
@@ -237,8 +252,8 @@
     const result = await api("/api/admin/routes");
     const routes = asArray(result, "routes");
     state.cache.routes = routes;
-    return pageHeader("Manage routes", "Create a route, update its timetable and tariff, or deactivate it without deleting history.") +
-      section("Create or edit a route", "Route changes are reviewed here before saving. New routes are active by default.",
+    return pageHeader("Manage routes", "Create a route, update its locations and timetable, or deactivate it without deleting history.") +
+      section("Create or edit a route", "Set locations and schedules here. Set the fare and service class when assigning a driver to the route.",
         '<form id="create-route-form" class="form-card"><div class="driver-form-grid">' +
         '<div class="field"><label for="route-name">Route name (English) *</label><input id="route-name" name="name" required maxlength="120" placeholder="Bole - Merkato Express"></div>' +
         '<div class="field"><label for="route-name-am">Route name (Amharic) *</label><input id="route-name-am" name="nameAm" required maxlength="120" placeholder="ቦሌ - መርካቶ"></div>' +
@@ -246,7 +261,6 @@
         '<div class="field"><label for="route-distance">Distance (km)</label><input id="route-distance" name="distanceKm" type="number" min="0.1" step="0.1" value="10"></div>' +
         '<div class="field"><label for="route-morning">Morning departure</label><input id="route-morning" name="morningDeparture" type="time" value="06:30" required></div>' +
         '<div class="field"><label for="route-evening">Evening departure</label><input id="route-evening" name="eveningDeparture" type="time" value="17:30" required></div>' +
-        '<div class="field"><label for="route-price">Monthly tariff (ETB)</label><input id="route-price" name="basePriceEtb" type="number" min="0" step="1" value="2500" required></div>' +
         '</div><div class="field" style="margin-top:14px"><strong>Route locations</strong><span class="hint">Search saved locations or choose a point on the map. Add any stops in travel order.</span><div id="route-location-editor"></div></div>' +
         '<input name="routeId" type="hidden"><div class="form-actions"><button class="btn btn-primary" type="submit">Create route</button><button class="btn btn-secondary" id="route-cancel" type="button" hidden>Cancel edit</button></div><p id="route-form-message" class="form-message" hidden role="status"></p></form>') +
       section("Existing routes", routes.length + " route(s)",
@@ -255,7 +269,6 @@
           { label: "Morning", keys: ["morningDeparture", "morning_departure"] },
           { label: "Evening", keys: ["eveningDeparture", "evening_departure"] },
           { label: "Distance", render: r => esc(value(r, "distanceKm", "distance_km")) + " km" },
-          { label: "Monthly tariff", render: r => esc(money(value(r, "basePriceEtb", "base_price_etb"))) },
           { label: "Status", render: r => pill(value(r, "active") === false || value(r, "active") === 0 ? "INACTIVE" : "ACTIVE") },
           { label: "Actions", render: r => '<div class="inline-actions"><button class="btn btn-secondary" data-edit-route="' + esc(r.id) + '">Edit</button><button class="btn btn-secondary" data-geofence-route="' + esc(r.id) + '">Departure area</button><button class="btn btn-secondary" data-toggle-route="' + esc(r.id) + '">' + (r.active === false || r.active === 0 ? "Activate" : "Deactivate") + '</button></div>' }
         ], routes));
@@ -546,7 +559,6 @@
       return;
     }
     data.distanceKm = Number(data.distanceKm);
-    data.basePriceEtb = Number(data.basePriceEtb);
     button.disabled = true;
     message.hidden = true;
     try {
@@ -602,12 +614,19 @@
     const driverId = button.dataset.assignRoute;
     const select = $$("[data-route-for]").find(item => item.dataset.routeFor === driverId);
     if (!select?.value) return toast("Choose an active route first.", true);
+    const service = $$("[data-service-class-for]").find(item => item.dataset.serviceClassFor === driverId);
+    if (!['ECONOMY', 'DELUXE', 'VIP'].includes(service?.value)) return toast("Choose Economy, Deluxe or VIP for this assignment.", true);
+    const fare = $$("[data-monthly-fare-for]").find(item => item.dataset.monthlyFareFor === driverId);
+    const monthlyFareEtb = Number(fare?.value);
+    if (!fare?.value.trim() || !Number.isFinite(monthlyFareEtb) || monthlyFareEtb <= 0 || monthlyFareEtb > 1000000 || Math.abs(monthlyFareEtb * 100 - Math.round(monthlyFareEtb * 100)) > 0.000001) {
+      return toast("Enter a monthly fare per passenger greater than ETB 0 and up to ETB 1,000,000, with at most two decimal places.", true);
+    }
     button.disabled = true;
     try {
       await api("/api/admin/drivers/" + encodeURIComponent(driverId) + "/route", {
-        method: "PATCH", body: JSON.stringify({ routeId: select.value })
+        method: "PATCH", body: JSON.stringify({ routeId: select.value, serviceClass: service.value, monthlyFareEtb })
       });
-      toast("Route assigned. The driver retains ownership of the vehicle.");
+      toast("Route, service class and monthly fare saved for this driver.");
       await renderView();
     } catch (error) { toast(error.message, true); button.disabled = false; }
   }
@@ -696,7 +715,7 @@
     for (const [name, keys] of Object.entries({
       name: ["name"], nameAm: ["nameAm", "name_am"], description: ["description"],
       distanceKm: ["distanceKm", "distance_km"], morningDeparture: ["morningDeparture", "morning_departure"],
-      eveningDeparture: ["eveningDeparture", "evening_departure"], basePriceEtb: ["basePriceEtb", "base_price_etb"]
+      eveningDeparture: ["eveningDeparture", "evening_departure"]
     })) {
       const field = form.elements.namedItem(name);
       if (field) field.value = value(route, ...keys) === "—" ? "" : value(route, ...keys);

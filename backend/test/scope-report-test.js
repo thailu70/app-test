@@ -134,7 +134,7 @@ test('mounted application isolates commute/company operations, reports and assig
     for (const suffix of ['a', 'b']) {
       for (const [method, endpoint, body] of [
         ['PATCH', `/api/admin/drivers/scope_driver_${suffix}/approval`, { status: 'SUSPENDED' }],
-        ['PATCH', `/api/admin/drivers/scope_driver_${suffix}/route`, { routeId: 'scope_commute' }],
+        ['PATCH', `/api/admin/drivers/scope_driver_${suffix}/route`, { routeId: 'scope_commute', serviceClass: 'ECONOMY', monthlyFareEtb: 2500 }],
         ['PUT', `/api/routes/scope_route_${suffix}`, { name: 'Compromised', nameAm: 'Compromised' }],
         ['PUT', `/api/admin/routes/scope_route_${suffix}/departure-settings`, { latitude: 9, longitude: 38.7, radiusMeters: 200 }],
         ['PATCH', `/api/vehicles/scope_vehicle_${suffix}/type`, { vehicleType: 'MINIVAN_8' }],

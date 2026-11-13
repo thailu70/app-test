@@ -49,6 +49,15 @@ function vehicleMonthlyPrice(route, type) {
   return { mode: fixed ? 'FIXED' : 'PROPOSED', amountEtb: amount, currency: 'ETB', basis: 'PER_VEHICLE', source: fixed ? 'ROUTE_PASSENGER_FARE_X_CAPACITY' : null,
     passengerCapacity: capacity, passengerMonthlyFareEtb: fixed ? fare : null };
 }
+async function assignmentMonthlyPrice(route, type, db = DB) {
+  if (!route) return vehicleMonthlyPrice(null, type);
+  const offers = await require('./commute-pricing').getRouteOffers(route.id, db);
+  const matching = offers.filter(offer => !offer.vehicleType || offer.vehicleType === type.code);
+  const fares = [...new Set(matching.map(offer => offer.monthlyFareEtb))];
+  // Different service classes can have different fares for the same vehicle type.
+  // Keep driver proposals editable when there is no unique configured amount.
+  return vehicleMonthlyPrice(fares.length === 1 ? { passengerMonthlyFareEtb: fares[0] } : null, type);
+}
 async function commuteQuote(input, db = DB) {
   const departure = endpoint(input.proposedDeparture ?? input.departure, 'departure'), destination = endpoint(input.proposedDestination ?? input.destination, 'destination');
   if (key(departure) === key(destination)) fail(400, 'Choose two distinct departure and destination places.');
@@ -56,6 +65,6 @@ async function commuteQuote(input, db = DB) {
   if (!type) fail(400, 'Choose an active vehicle type.');
   const matches = (await commuteEndpoints(db)).filter(route => route.departureAliases.some(label => key(label) === key(departure)) && route.destinationAliases.some(label => key(label) === key(destination)));
   const route = matches.length === 1 ? matches[0] : null;
-  return { routeMatch: { status: route ? 'EXACT' : matches.length ? 'AMBIGUOUS' : 'NONE', routeId: route?.id || null, routeName: route?.name || null }, price: vehicleMonthlyPrice(route, type) };
+  return { routeMatch: { status: route ? 'EXACT' : matches.length ? 'AMBIGUOUS' : 'NONE', routeId: route?.id || null, routeName: route?.name || null }, price: await assignmentMonthlyPrice(route, type, db) };
 }
-module.exports = { commuteSuggestions, commuteQuote, commuteEndpoints, vehicleMonthlyPrice, CommuteQuoteError };
+module.exports = { commuteSuggestions, commuteQuote, commuteEndpoints, vehicleMonthlyPrice, assignmentMonthlyPrice, CommuteQuoteError };

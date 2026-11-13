@@ -21,6 +21,7 @@ import com.example.core.localization.AppLanguage
 import com.example.data.api.TransportCompanyDto
 import com.example.data.api.VehicleTypeOption
 import com.example.data.entity.RouteEntity
+import com.example.data.entity.monthlyFareForClass
 import com.example.data.repository.DriverApplicationRepository
 import com.example.ui.screens.passenger.*
 
@@ -93,7 +94,8 @@ internal fun AuthRegistrationDetails(
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(route.name, color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             Text("${route.morningDeparture} · ${route.eveningDeparture}", color = CommuteInk, fontSize = 12.sp)
-                            if (!driver) Text("ETB ${route.basePriceEtb.toInt()} / month · Economy", color = CommuteTeal, fontSize = 12.sp)
+                            if (!driver) Text(route.monthlyFareForClass(draft.tier)?.let { "From ETB ${it.toInt()} / month · ${draft.tier}" }
+                                ?: "${draft.tier} · Not available", color = CommuteTeal, fontSize = 12.sp)
                         }
                         if (selected) Icon(Icons.Default.CheckCircle, t("Selected route", "የተመረጠ መስመር", "Karaa filatame"), tint = CommuteTeal)
                     }

@@ -28,7 +28,8 @@ data class RegisterRequest(
     val vehicleType: String? = null,
     val appliedRouteId: String? = null,
     val appliedRouteName: String? = null,
-    val otpVerificationToken: String? = null
+    val otpVerificationToken: String? = null,
+    val serviceClass: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -79,7 +80,9 @@ data class RouteDto(
     val distanceKm: Double? = 12.0,
     val basePriceEtb: Double? = 2500.0,
     val active: Boolean? = true,
-    val stops: List<RouteStopDto>? = null
+    val stops: List<RouteStopDto>? = null,
+    val serviceFares: Map<String, Double?>? = null,
+    val monthlyPassengerFareEtb: Double? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -135,7 +138,9 @@ data class SubscriptionDto(
     val pickupStopName: String? = null,
     val pickupStopNameAm: String? = null,
     val destinationStopName: String? = null,
-    val destinationStopNameAm: String? = null
+    val destinationStopNameAm: String? = null,
+    val serviceClass: String? = null,
+    val renewalPriceEtb: Double? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -154,7 +159,8 @@ data class SubscriptionStatusResponse(
 data class SubscribeRequest(
     val routeId: String,
     val pickupStopId: String? = null,
-    val destinationStopId: String? = null
+    val destinationStopId: String? = null,
+    val serviceClass: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -174,7 +180,8 @@ data class SubscribeResponse(
 data class TelebirrPayRequest(
     val routeId: String? = null,
     val phone: String? = null,
-    val idempotencyKey: String? = null
+    val idempotencyKey: String? = null,
+    val serviceClass: String? = null
 )
 
 @JsonClass(generateAdapter = true)

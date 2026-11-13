@@ -1,6 +1,7 @@
 package com.example.data.entity
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "users")
@@ -29,7 +30,11 @@ data class RouteEntity(
     val eveningDeparture: String,
     val distanceKm: Double,
     val basePriceEtb: Double,
-    val active: Boolean = true
+    val active: Boolean = true,
+    val economyMonthlyFareEtb: Double? = null,
+    val deluxeMonthlyFareEtb: Double? = null,
+    val vipMonthlyFareEtb: Double? = null,
+    @ColumnInfo(defaultValue = "0") val serviceFaresConfigured: Boolean = false
 )
 
 @Entity(tableName = "route_stops")
@@ -85,7 +90,9 @@ data class SubscriptionEntity(
     val subscriptionStatus: String, // "ACTIVE", "EXPIRING", "EXPIRED", "CANCELLED"
     val vehicleId: String,
     val qrToken: String,
-    val daysRemaining: Int = 26
+    val daysRemaining: Int = 26,
+    @ColumnInfo(defaultValue = "'ECONOMY'") val serviceClass: String = "ECONOMY",
+    val renewalPriceEtb: Double? = null
 )
 
 @Entity(tableName = "payment_transactions")

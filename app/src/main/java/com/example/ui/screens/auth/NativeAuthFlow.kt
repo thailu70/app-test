@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.core.localization.AppLanguage
 import com.example.data.api.*
+import com.example.data.entity.commuterServiceClass
 import com.example.ui.screens.passenger.*
 import com.example.ui.viewmodel.AppRole
 import com.example.ui.viewmodel.MainViewModel
@@ -203,7 +204,8 @@ internal fun NativeAuthFlow(
                 driver -> "Driver service preference: Daily Commuter | Route: ${draft.selectedRouteName} | Tier: ${draft.tier}"
                 draft.isCustomCommute -> "Requested commuter route | Pickup: ${draft.pickup} | Destination: ${draft.destination} | Journey: ${draft.journey} | Tier: ${draft.tier}"
                 else -> draft.selectedRouteName
-            }
+            },
+            serviceClass = if (!driver) commuterServiceClass(draft.tier) else null
         )
     }
     if (driver && applicationState.application != null) {

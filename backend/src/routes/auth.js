@@ -10,6 +10,7 @@ const { sendSms } = require('../services/afro-sms');
 const { accountPhonePolicy } = require('../services/account-phone-policy');
 const { createOnboardingService, OnboardingError, isOperationallyEligible } = require('../services/onboarding');
 const { loadCredentialSnapshot } = require('../services/account-sessions');
+const { resolveCommuteFare, saveSubscriptionTerms } = require('../services/commute-pricing');
 const sha256 = value => crypto.createHash('sha256').update(String(value)).digest('hex');
 const normalizePhone = value => String(value || '').trim();
 
@@ -146,9 +147,16 @@ router.post('/register', authLimiter, async (req, res) => {
     }
 
     // Check if phone is already registered
+    let initialFare = null;
     if (normalizedRole === 'PASSENGER' && appliedRouteId) {
-      const commuteRoute = await DB.prepare("SELECT id FROM routes WHERE id=? AND active=TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'").get(appliedRouteId);
+      const commuteRoute = await DB.prepare("SELECT * FROM routes WHERE id=? AND active=TRUE AND COALESCE(companyId,'')='' AND COALESCE(routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'").get(appliedRouteId);
       if (!commuteRoute) return res.status(400).json({success:false,error:'Choose an active daily commute route. Intercity tickets do not require registration.'});
+      try {
+        initialFare = await resolveCommuteFare({ route: commuteRoute, serviceClass: req.body.serviceClass });
+      } catch (error) {
+        if (error.status !== 409 || req.body.serviceClass) throw error;
+        // An unpriced route may still receive registrations, with no charge or active pass.
+      }
     }
     const existing = await DB.prepare('SELECT id FROM users WHERE phone = ?').get(phone.trim());
     const phoneAvailable = !normalizedPhone || await require('../services/onboarding').phoneAvailable(normalizedPhone, null);
@@ -220,12 +228,15 @@ router.post('/register', authLimiter, async (req, res) => {
         appliedRouteId,
         route?.morningDeparture || '06:30',
         route?.eveningDeparture || '17:30',
-        route?.basePriceEtb || 2500.0
+        initialFare?.monthlyFareEtb || 0
       );
+      if (initialFare) await saveSubscriptionTerms(DB, subId, initialFare, appliedRouteId);
 
       initialSub = {
         id: subId,
         routeId: appliedRouteId,
+        serviceClass: initialFare?.serviceClass || 'ECONOMY',
+        priceEtb: initialFare?.monthlyFareEtb || 0,
         status: 'PENDING',
         paymentStatus: 'UNPAID',
         daysRemaining: 0,

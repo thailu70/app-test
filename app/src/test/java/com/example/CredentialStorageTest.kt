@@ -8,6 +8,7 @@ import com.example.data.api.*
 import com.example.data.database.TransportDatabase
 import com.example.data.entity.RouteEntity
 import com.example.data.entity.UserEntity
+import com.example.data.entity.SubscriptionEntity
 import com.example.data.repository.TransportRepository
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -29,16 +30,29 @@ class CredentialStorageTest {
         try {
             database.transportDao().insertUser(UserEntity("existing-user", "PASSENGER", "Cached name", "0912000000", ""))
             database.transportDao().insertRoute(RouteEntity("existing-route", "Actual route", "", "", "07:00", "17:00", 12.0, 2500.0))
+            database.transportDao().insertSubscription(SubscriptionEntity("existing-pass", "existing-user", "existing-route", "pickup", "destination",
+                "07:00", "17:00", "2026-11-01", "2026-12-01", 2500.0, "PAID", "ACTIVE", "existing-vehicle", "existing-token", 12))
             database.close()
             SQLiteDatabase.openDatabase(context.getDatabasePath(name).absolutePath, null, SQLiteDatabase.OPEN_READWRITE).use { old ->
                 old.execSQL("ALTER TABLE users ADD COLUMN password TEXT NOT NULL DEFAULT ''")
                 old.execSQL("UPDATE users SET password='old-plaintext-secret'")
+                for (column in listOf("economyMonthlyFareEtb", "deluxeMonthlyFareEtb", "vipMonthlyFareEtb", "serviceFaresConfigured")) {
+                    old.execSQL("ALTER TABLE routes DROP COLUMN $column")
+                }
+                old.execSQL("ALTER TABLE subscriptions DROP COLUMN serviceClass")
+                old.execSQL("ALTER TABLE subscriptions DROP COLUMN renewalPriceEtb")
                 old.version = 4
             }
             database = Room.databaseBuilder(context, TransportDatabase::class.java, name)
-                .addMigrations(TransportDatabase.MIGRATION_4_5).allowMainThreadQueries().build()
+                .addMigrations(TransportDatabase.MIGRATION_4_5, TransportDatabase.MIGRATION_5_6).allowMainThreadQueries().build()
             assertEquals("Cached name", database.transportDao().getUserById("existing-user")!!.fullName)
             assertEquals("Actual route", database.transportDao().getRouteById("existing-route")!!.name)
+            val retainedPass = database.transportDao().getSubscriptionForPassengerSync("existing-user")!!
+            assertEquals("existing-token", retainedPass.qrToken)
+            assertEquals(2500.0, retainedPass.priceEtb, 0.0)
+            assertEquals("PAID", retainedPass.paymentStatus)
+            assertEquals("ECONOMY", retainedPass.serviceClass)
+            assertNull(retainedPass.renewalPriceEtb)
             database.openHelper.readableDatabase.query("PRAGMA table_info(users)").use { columns ->
                 val names = mutableListOf<String>()
                 while (columns.moveToNext()) names += columns.getString(columns.getColumnIndexOrThrow("name"))

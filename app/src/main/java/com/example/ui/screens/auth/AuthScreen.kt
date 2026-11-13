@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.localization.AppLanguage
 import com.example.data.entity.RouteEntity
+import com.example.data.entity.monthlyFareForClass
 import com.example.data.api.ApiClient
 import com.example.data.api.TransportCompanyDto
 import com.example.ui.theme.*
@@ -769,7 +770,7 @@ fun AuthScreen(
                                                     Text("Tier: $selectedServiceTier", style = MaterialTheme.typography.bodyMedium, color = Slate700)
                                                     if (chosenRoute != null) {
                                                         Text("Morning ${chosenRoute.morningDeparture} • Evening ${chosenRoute.eveningDeparture}", style = MaterialTheme.typography.bodySmall, color = Slate600)
-                                                        Text("Monthly fare from ETB ${chosenRoute.basePriceEtb.toInt()}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = TransportGreenDark)
+                                                        Text(chosenRoute.monthlyFareForClass(selectedServiceTier)?.let { "Monthly fare from ETB ${it.toInt()}" } ?: "$selectedServiceTier · Not available", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = TransportGreenDark)
                                                     } else {
                                                         Text("Fare and schedule confirmed when your route is reviewed", style = MaterialTheme.typography.bodySmall, color = Slate600)
                                                     }
@@ -832,7 +833,7 @@ fun AuthScreen(
 
                                                     Column(horizontalAlignment = Alignment.End) {
                                                         Text(
-                                                            text = "ETB ${route.basePriceEtb.toInt()}",
+                                                            text = route.monthlyFareForClass(selectedServiceTier)?.let { "From ETB ${it.toInt()}" } ?: "Not available",
                                                             style = MaterialTheme.typography.bodyMedium,
                                                             fontWeight = FontWeight.ExtraBold,
                                                             color = TransportGreenPrimary
@@ -1020,7 +1021,8 @@ fun AuthScreen(
                                                 else -> selectedRouteName
                                             },
                                             adminSecret = adminSecret,
-                                            otpVerificationToken = otpVerificationToken
+                                            otpVerificationToken = otpVerificationToken,
+                                            serviceClass = if (portal == AppRole.PASSENGER) selectedServiceTier.uppercase(java.util.Locale.ROOT) else null
                                         )
                                     }
                                 } else {

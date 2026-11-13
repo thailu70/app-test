@@ -75,6 +75,17 @@ class CommuterBrowseTest {
         assertEquals(1, openedRoutes)
     }
 
+    @Test fun `route cards display configured assignment fares for all three service classes`() {
+        val route = RouteEntity("priced-route", "Bole - CMC", "", "", "06:30", "17:30", 12.0, 0.0,
+            economyMonthlyFareEtb = 2600.0, deluxeMonthlyFareEtb = 4400.0, vipMonthlyFareEtb = 6700.0,
+            serviceFaresConfigured = true)
+        compose.setContent { MyApplicationTheme { CommuterRouteCard(route = route, onClick = {}) } }
+        listOf("Economy", "Deluxe", "VIP", "ETB 2,600", "ETB 4,400", "ETB 6,700").forEach {
+            compose.onNodeWithText(it).assertExists()
+        }
+        compose.onAllNodesWithText("Not available", useUnmergedTree = true).assertCountEquals(0)
+    }
+
     private fun capture() {
         compose.waitForIdle()
         compose.runOnIdle {
