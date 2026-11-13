@@ -28,6 +28,7 @@ class DriverApplicationRepository(private val api: RoutePassApiService) {
     private fun authorization(): String = "Bearer " + (token ?: error("Sign in to your driver application again."))
 
     private suspend fun action(message: String? = null, newSession: Boolean = false,
+        responseMessage: ((DriverApplicationResponse) -> String)? = null,
         block: suspend () -> Response<DriverApplicationResponse>) = gate.withLock {
         val operation = generation
         mutable.value = mutable.value.copy(busy = true, error = null, message = null)
@@ -38,7 +39,7 @@ class DriverApplicationRepository(private val api: RoutePassApiService) {
             if (newSession) require(!result.token.isNullOrBlank()) { "Sign-in could not be completed. Please try again." }
             if (operation == generation) {
                 if (newSession) token = result.token
-                mutable.value = DriverApplicationState(result.copy(token = null), message = message)
+                mutable.value = DriverApplicationState(result.copy(token = null), message = responseMessage?.invoke(result) ?: message)
             }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) {
@@ -74,7 +75,13 @@ class DriverApplicationRepository(private val api: RoutePassApiService) {
         require(mime in setOf("image/jpeg", "image/png", "application/pdf") && (kind != "PHOTO" || mime != "application/pdf")) { "Choose a JPEG or PNG photo, or a PDF for other documents." }
         api.uploadDriverApplicationDocument(authorization(), kind, bytes.toRequestBody(mime.toMediaType()))
     }
-    suspend fun submit() = action("Your application was sent for review.") { api.submitDriverApplication(authorization()) }
+    suspend fun submit() = action(responseMessage = { result ->
+        when {
+            result.approved -> "Your application is approved. Sign in to the driver portal."
+            result.onboarding?.reviewStatus == "SUBMITTED" && !result.onboarding?.submittedAt.isNullOrBlank() -> "Your application was sent for review."
+            else -> "Your route or monthly fee was updated. Review the saved details and submit again."
+        }
+    }) { api.submitDriverApplication(authorization()) }
 
     suspend fun suggestions(field: String, query: String, departure: String = ""): List<CommutePlace> {
         val response = api.driverCommuteSuggestions(field, query.trim(), departure.trim())

@@ -74,6 +74,7 @@
     correctionsBody:['Read the review note, correct your details or documents, then submit again. Your accepted route is retained.','የግምገማ ማስታወሻውን ያንብቡ፣ መረጃዎን ወይም ሰነዶችዎን ያስተካክሉና እንደገና ያስገቡ። የተቀበለው መስመር ይቀጥላል።','Yaada ilaalchaa dubbisi, odeeffannoo yookaan sanadoota sirreessiitii irra deebiʼii ergi. Daandiin fudhatame ni tura.'],
     dailyStepReview:['Complete your application','ማመልከቻዎን ያጠናቅቁ','Iyyata kee xumuri']
   });
+  words.submissionTermsChanged=['Your route or monthly fee was updated. Review the saved details and submit again.','መስመርዎ ወይም ወርሃዊ ክፍያዎ ተቀይሯል። የተቀመጠውን መረጃ ይገምግሙና እንደገና ይላኩ።','Daandiin yookaan kaffaltiin jiʼaa keessan haaromfameera. Odeeffannoo kuufame ilaalaatii irra deebiʼaa ergaa.'];
   const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
   Object.assign(words, {
     joinLabel:['PASSO DRIVER REGISTRATION','የፓሶ ሹፌር ምዝገባ','GALMEE KONKOLAACHISAA PASSO'],
@@ -141,6 +142,10 @@
   function onboardingAccess(onboarding) {
     const locked=onboarding?.canVerifyAndUpload!==true;
     return {locked,canSubmit:!locked&&(onboarding?.reviewReady??onboarding?.ready)===true&&!['SUBMITTED','APPROVED'].includes(onboarding.reviewStatus)};
+  }
+  function submissionMessageKey(onboarding) {
+    if(onboarding?.reviewStatus==='APPROVED')return 'APPROVED';
+    return onboarding?.reviewStatus==='SUBMITTED'&&onboarding.submittedAt?'SUBMITTED':'submissionTermsChanged';
   }
   function applyOnboardingAccess(sections,onboarding) {
     const {locked}=onboardingAccess(onboarding);
@@ -381,7 +386,13 @@
     }
     async function run(button,selector,operation,successKey) {
       const current=revision;busy(button,true);message(selector,'');
-      try { const result=await operation();if(current!==revision)return;if(result.account&&result.onboarding){snapshot=result;renderDashboard(false);}else await refresh(false);if(current!==revision)return;message(selector,successKey?t(successKey):result.message||''); }
+      try {
+        const result=await operation();if(current!==revision)return;
+        if(result.account&&result.onboarding){snapshot=result;renderDashboard(false);}else await refresh(false);
+        if(current!==revision)return;
+        const key=typeof successKey==='function'?successKey(result):successKey;
+        message(selector,key?t(key):result.message||'');
+      }
       catch(error){if(current===revision)message(selector,errorMessage(error),true);}
       finally{if(current===revision){busy(button,false);if(snapshot)renderDashboard(false);}}
     }
@@ -464,9 +475,9 @@
         else {const blob=await api('/documents/'+kind,{blob:true});if(current!==revision)return;const url=window.URL.createObjectURL(blob),link=doc.createElement('a');link.href=url;link.download='Passo-'+kind.toLowerCase()+'.'+(blob.type==='application/pdf'?'pdf':blob.type==='image/png'?'png':'jpg');doc.body.append(link);link.click();link.remove();setTimeout(()=>window.URL.revokeObjectURL(url),1000);}
       }catch(error){if(current===revision){status.textContent=error.server||error.network?errorMessage(error):error.message;status.classList.add('error');}}finally{if(current===revision)busy(button,false);}
     });
-    $('#submitReview').addEventListener('click',()=>{if(!onboardingAccess(snapshot?.onboarding).canSubmit)return;run($('#submitReview'),'#reviewMessage',()=>api('/submit',{method:'POST',body:{}}),'SUBMITTED');});
+    $('#submitReview').addEventListener('click',()=>{if(!onboardingAccess(snapshot?.onboarding).canSubmit)return;run($('#submitReview'),'#reviewMessage',()=>api('/submit',{method:'POST',body:{}}),result=>submissionMessageKey(result.onboarding));});
     translatePage();loadOptions('types');
     if(token){busy($('#accountSubmit'),true);message('#accountMessage',t('wait'));refresh().catch(error=>{if(token)message('#accountMessage',errorMessage(error),true);}).finally(()=>busy($('#accountSubmit'),false));}
   }
-  return {mount,translate,words,escape,uploadProblem,accountPayload,isDailyDriverAccount,initialMode,routePreferencePayload,registrationFields,applyRegistrationFields,onboardingAccess,applyOnboardingAccess,validMonthlyFee,quoteAccess,createCommuteQuoteController,createApiClient,createRecoveryClient};
+  return {mount,translate,words,escape,uploadProblem,accountPayload,isDailyDriverAccount,initialMode,routePreferencePayload,registrationFields,applyRegistrationFields,onboardingAccess,submissionMessageKey,applyOnboardingAccess,validMonthlyFee,quoteAccess,createCommuteQuoteController,createApiClient,createRecoveryClient};
 });

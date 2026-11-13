@@ -141,6 +141,23 @@ test('document uploads are immediately available while incomplete or restricted 
   for(const value of [0.01,'45000.25',1000000])assert.equal(portal.validMonthlyFee(value),true,String(value));
 });
 
+test('submission messages reflect saved review state when route terms change', () => {
+  const profile={emergencyContactName:'Emergency Person',emergencyContactPhone:'+251912000222',vehicleColor:'Green'};
+  const documents=[{kind:'LICENSE',uploadedAt:'2026-11-13T10:00:00Z'}];
+  const updated={reviewStatus:'DRAFT',submittedAt:null,canVerifyAndUpload:true,reviewReady:true,
+    profile,documents,routePreference:{departure:'Bole',destination:'CMC',proposedMonthlyFeeEtb:24000}};
+  const before=structuredClone(updated);
+  const key=portal.submissionMessageKey(updated);
+  assert.equal(key,'submissionTermsChanged');
+  assert.match(portal.translate(key,'en'),/Review the saved details and submit again/);
+  for(const language of ['en','am','om'])assert.notEqual(portal.translate(key,language),key);
+  assert.deepEqual(updated,before,'Choosing feedback must retain all saved application data.');
+  assert.equal(portal.onboardingAccess(updated).canSubmit,true,'The refreshed application can be reviewed and resubmitted.');
+  assert.equal(portal.submissionMessageKey({...updated,reviewStatus:'SUBMITTED',submittedAt:'2026-11-13T10:05:00Z'}),'SUBMITTED');
+  assert.equal(portal.submissionMessageKey({...updated,reviewStatus:'SUBMITTED'}),'submissionTermsChanged','Only a recorded submission receives success feedback.');
+  assert.equal(portal.submissionMessageKey({...updated,reviewStatus:'APPROVED'}),'APPROVED');
+});
+
 test('driver review can proceed without OTP only when server review readiness permits it', () => {
   const accepted={acceptanceRequired:true,canVerifyAndUpload:true,reviewStatus:'DRAFT',phoneVerified:false,
     phoneVerificationRequiredForApproval:false,phoneVerificationRequiredForAllocation:false,ready:false,reviewReady:true};

@@ -78,6 +78,39 @@ class DriverApplicationTest {
         assertNull(applications.state.value.application)
     }
 
+    @Test fun `a refreshed fee retains saved details and documents until the driver submits again`() = runBlocking {
+        val profile = DriverApplicationProfile("Emergency Person", "+251912000222", "Green")
+        val documents = listOf(DriverApplicationDocument("LICENSE", "2026-11-13T10:00:00Z"))
+        var current = snapshot(DriverApplicationProgress(canVerifyAndUpload = true, reviewStatus = "DRAFT", reviewReady = true,
+            profile = profile, documents = documents,
+            routePreference = DriverRoutePreference(departure = "Bole", destination = "CMC", proposedMonthlyFeeEtb = 20000.0)))
+        var submissions = 0
+        val applications = DriverApplicationRepository(fake { method, _ ->
+            if (method == "submitDriverApplication") submissions++
+            Response.success(current)
+        })
+        applications.login("0912000111", "fixture-password")
+        current = current.copy(onboarding = current.onboarding!!.copy(
+            routePreference = current.onboarding!!.routePreference.copy(proposedMonthlyFeeEtb = 24000.0)), token = null)
+        applications.submit()
+        assertNull(applications.state.value.error)
+        assertTrue(applications.state.value.message!!.contains("Review the saved details and submit again"))
+        val saved = applications.state.value.application!!
+        assertEquals("DRAFT", saved.onboarding!!.reviewStatus)
+        assertEquals(24000.0, saved.onboarding!!.routePreference.proposedMonthlyFeeEtb!!, 0.01)
+        assertEquals(profile, saved.onboarding!!.profile)
+        assertEquals(documents, saved.onboarding!!.documents)
+        assertTrue(saved.editable)
+        assertFalse(saved.approved)
+
+        current = current.copy(onboarding = current.onboarding!!.copy(
+            reviewStatus = "SUBMITTED", submittedAt = "2026-11-13T10:05:00Z"))
+        applications.submit()
+        assertEquals(2, submissions)
+        assertEquals("Your application was sent for review.", applications.state.value.message)
+        assertFalse(applications.state.value.application!!.editable)
+    }
+
     @Test fun `corrections retain document access and request headers explicitly use scoped authorization`() = runBlocking {
         val current = snapshot(DriverApplicationProgress(canVerifyAndUpload = true, acceptanceStatus = "ACCEPTED", reviewStatus = "CORRECTIONS_REQUESTED", reviewNote = "Clearer licence needed"))
         var uploads = 0
