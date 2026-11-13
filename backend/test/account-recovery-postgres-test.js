@@ -27,7 +27,7 @@ const { createApplicationNotificationService } = require('../src/services/applic
   assert.equal(credentials.passwordHash, account.passwordHash); assert.equal(Number(credentials.credential_session_version), 1);
   let clock = Date.now(), providerAvailable = false;
   const notifications = createApplicationNotificationService({ now: () => clock, sendSms: async () => ({ sent: providerAvailable }) });
-  await assert.rejects(() => DB.transaction(async tx => { await notifications.queue(tx, { accountId: 'ci_recovery_driver', role: 'DRIVER', decision: 'ACCEPT', eventKey: 'ci_recovery_rollback' }); throw Error('rollback'); }), /rollback/);
+  await assert.rejects(() => DB.transaction(async tx => { await notifications.queue(tx, { accountId: 'ci_recovery_driver', role: 'DRIVER', decision: 'CORRECTIONS', eventKey: 'ci_recovery_rollback' }); throw Error('rollback'); }), /rollback/);
   assert.equal(Boolean(await DB.prepare("SELECT id FROM application_notification_outbox WHERE event_key='ci_recovery_rollback'").get()), false);
   await DB.transaction(tx => notifications.queue(tx, { accountId: 'ci_recovery_driver', role: 'DRIVER', decision: 'CORRECTIONS', eventKey: 'ci_recovery_correction' }));
   assert.ok((await notifications.flush()).failed >= 1);
