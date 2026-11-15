@@ -421,12 +421,13 @@ router.post('/driver/departures/:id/arrival', ...driverGuard, asyncRoute(async (
   const { evaluateDeparture } = require('../services/departure-rules');
   const result = await write(async tx => {
     const scheduled = await departure(tx, req.params.id); own(scheduled, req.user);
-    // The driver gate also covers legacy duplicate vehicle assignments. It does
-    // not lock the user row, whose lock order in assignment updates is different.
+    // Keep the legacy driver gate while taking the shared vehicle then driver
+    // locks used by taxi, shared rides, assignment updates and account closure.
     if (tx.isPostgres) await tx.prepare('SELECT pg_advisory_xact_lock(hashtext(?))').get('routepass:intercity-driver:' + req.user.id);
     // Assignment changes also lock this vehicle. Always lock it before the
     // departure so arrival cannot start using a reassigned vehicle snapshot.
     const vehicle = await tx.prepare('SELECT id, driverId AS assigned_driver_id, assignedRouteId AS assigned_route_id, companyId AS owner_company_id FROM vehicles WHERE id=?' + (tx.isPostgres ? ' FOR UPDATE' : '')).get(scheduled.vehicle_id);
+    await require('../services/rides').assertNoRideJob(req.user.id, scheduled.vehicle_id, tx);
     const d = await departure(tx, req.params.id, true); own(d, req.user);
     if (d.status !== 'SCHEDULED') throw fail(409, 'Departure is already active or complete.');
     if (d.vehicle_id !== scheduled.vehicle_id) throw fail(409, 'The departure assignment changed. Refresh before confirming arrival.');
@@ -434,7 +435,7 @@ router.post('/driver/departures/:id/arrival', ...driverGuard, asyncRoute(async (
     if (!vehicle || vehicle.assigned_driver_id !== d.driver_id || vehicle.assigned_route_id !== d.route_id || vehicle.owner_company_id !== d.company_id || !driver || driver.status !== 'ACTIVE' || driver.owner_company_id !== d.company_id) {
       throw fail(409, 'The current driver, vehicle and route assignment must match this departure. Ask your company to update the assignment.');
     }
-    const competing = await tx.prepare("SELECT id FROM intercity_departures WHERE status='BOARDING' AND id<>? AND (driver_id=? OR vehicle_id=?) LIMIT 1").get(d.id, d.driver_id, d.vehicle_id);
+    const competing = await tx.prepare("SELECT id FROM intercity_departures WHERE status IN ('BOARDING','IN_TRANSIT') AND id<>? AND (driver_id=? OR vehicle_id=?) LIMIT 1").get(d.id, d.driver_id, d.vehicle_id);
     if (competing) throw fail(409, 'Complete the current departure before opening boarding for another journey.');
     const validation = evaluateDeparture({ latitude: Number(d.latitude), longitude: Number(d.longitude), radiusMeters: await effectiveBoardingRadius(tx, Number(d.radius_m) || 300), departureAt: d.departure_at, location: req.body.location || req.body });
     if (!validation.allowed) throw Object.assign(fail(403, validation.message), { validation });

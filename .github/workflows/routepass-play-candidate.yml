@@ -58,6 +58,8 @@ jobs:
           --tests com.example.PlayStorePreviewTest
           --tests com.example.TaxiFlowTest
           --tests com.example.TaxiLayoutTest
+          --tests com.example.TaxiStatesLayoutTest
+          --tests com.example.RidePushTest
           --tests com.example.MobilityFlowTest
           --tests com.example.MobilityLayoutTest --tests com.example.CargoRequestUiTest --tests com.example.MobilityDriverLayoutTest --tests com.example.MobilityLocationPickerTest --tests com.example.MobilityRoadMapTest --tests com.example.AppLocationPromptTest --tests com.example.MobilityPushTest --tests com.example.MobilityNotificationNavigationTest
       - name: Assemble unsigned production bundle and APK for local signing

@@ -27,13 +27,20 @@ import com.example.data.api.*
 import com.example.ui.screens.intercity.freshMobilityLocation
 import com.example.ui.screens.passenger.*
 import com.example.ui.viewmodel.MainViewModel
+import com.example.smoothPortalMotion
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /** Approved taxi and shared-seat work is available alongside the driver's existing services. */
 @Composable fun TaxiDriverScreen(main: MainViewModel, onExit: () -> Unit) {
     val user by main.currentUser.collectAsState()
-    val model = taxiViewModel(true, true); val state by model.state.collectAsState()
+    val model = taxiViewModel(true, true)
+    TaxiDriverContent(user?.id.orEmpty(), model, onExit)
+}
+
+@Composable internal fun TaxiDriverContent(userId: String, model: TaxiViewModel, onExit: () -> Unit,
+    trackingEnabled: Boolean = true, mapTiles: Boolean = true, mapApi: MobilityApi? = null) {
+    val state by model.state.collectAsState()
     val context = LocalContext.current; val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf("calls") }
     var vehicleId by remember { mutableStateOf("") }
@@ -45,7 +52,7 @@ import kotlinx.coroutines.launch
     LaunchedEffect(pushFocus, model) {
         pushFocus?.takeIf { it.scope == "DRIVER" }?.let {
             page = "calls"
-            when { it.eventType == "NEW_REQUEST" -> model.refresh(); it.kind == "SHARED" -> model.chooseTrip(it.requestId); else -> model.openRide(it.requestId) }
+            when { it.eventType == "NEW_REQUEST" -> model.refresh(); it.kind == "SHARED" -> model.openNotifiedTrip(it.requestId, true); else -> model.openNotifiedTrip(it.requestId, false) }
             com.example.core.notifications.RideNotificationNavigation.consumeFocus()
         }
     }
@@ -70,28 +77,33 @@ import kotlinx.coroutines.launch
         }
     }
     LaunchedEffect(state.dashboard?.vehicles) { if (state.dashboard?.vehicles?.none { it.id == vehicleId } != false) vehicleId = state.dashboard?.vehicles?.firstOrNull()?.id.orEmpty() }
-    val tripToTrack = state.selectedTrip?.takeIf { sharedActive(it.status) && it.driverId == user?.id }
+    val tripToTrack = state.selectedTrip?.takeIf { sharedActive(it.status) && it.driverId == userId }
         ?: state.myTrips.firstOrNull { sharedActive(it.status) }
     val activeRide = state.ride?.takeIf { taxiActive(it.status) }
     val target = when {
-        activeRide != null -> TaxiTrackingTarget(user?.id.orEmpty(), activeRide.vehicleId.orEmpty(), activeRide.id, sequence = activeRide.lastSequence, uploadSeconds = state.settings.gpsUploadSeconds)
-        tripToTrack != null -> TaxiTrackingTarget(user?.id.orEmpty(), tripToTrack.vehicleId.orEmpty(), tripToTrack.id, shared = true, uploadSeconds = state.settings.gpsUploadSeconds)
-        state.dashboard?.online == true && vehicleId.isNotBlank() -> TaxiTrackingTarget(user?.id.orEmpty(), vehicleId, uploadSeconds = state.settings.gpsUploadSeconds)
+        activeRide != null -> TaxiTrackingTarget(userId, activeRide.vehicleId.orEmpty(), activeRide.id, sequence = activeRide.lastSequence, uploadSeconds = state.settings.gpsUploadSeconds)
+        tripToTrack != null -> TaxiTrackingTarget(userId, tripToTrack.vehicleId.orEmpty(), tripToTrack.id, shared = true, uploadSeconds = state.settings.gpsUploadSeconds)
+        state.dashboard?.online == true && vehicleId.isNotBlank() -> TaxiTrackingTarget(userId, vehicleId, uploadSeconds = state.settings.gpsUploadSeconds)
         else -> null
     }
     LaunchedEffect(target) {
+        if (!trackingEnabled) return@LaunchedEffect
         if (target != null && target.driverId.isNotBlank() && target.vehicleId.isNotBlank()) TaxiTracking.start(context, target)
-        else if (TaxiTracking.session?.target?.driverId == user?.id) TaxiTracking.stop()
+        else if (TaxiTracking.session?.target?.driverId == userId) TaxiTracking.stop()
     }
     BackHandler { when { state.selectedTrip != null -> model.closeTrip(); page != "calls" -> { page = "calls"; requested = null }; else -> onExit() } }
     Column(Modifier.fillMaxSize().background(CommuteCream)) {
         TaxiHeader(onBack = onExit, onDailyCommute = onExit)
         TaxiNotice(notice ?: state.message) { notice = null; model.clearMessage() }
         if (state.busy || locating) LinearProgressIndicator(Modifier.fillMaxWidth(), color = CommuteTeal)
-        Box(Modifier.weight(1f)) {
+        if (target != null && trackingEnabled) Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(trackingStatus, Modifier.weight(1f), color = Color(0xFF627385), fontSize = 12.sp)
+            if (TaxiTracking.session == null) TextButton(onClick = { if (allowed()) TaxiTracking.start(context, target) }) { Text("Resume sharing") }
+        }
+        Box(Modifier.weight(1f).smoothPortalMotion("$page:${state.ride?.status}:${state.selectedTrip?.status}")) {
             when {
                 state.selectedTrip != null -> SharedDriverTrip(model, state, ::withFix)
-                state.ride != null -> DriverCurrentRide(model, state, ::withFix)
+                state.ride != null -> DriverCurrentRide(model, state, ::withFix, mapTiles, mapApi)
                 page in setOf("street", "offer") -> TaxiTripForm(state, true, page == "street", model, { page = "calls"; requested = null }, acceptRequest = requested) { input ->
                     if (allowed()) when { page == "street" -> withFix { model.street(input, it) }; requested != null -> model.acceptShared(requested!!.id, input.vehicleId.orEmpty(), input.seats ?: 1, input.farePerSeatEtb ?: 0.0); else -> model.offer(input) }
                 }
@@ -105,6 +117,7 @@ import kotlinx.coroutines.launch
                     }
                     val dashboard = state.dashboard
                     if (dashboard != null) {
+                        Text("Your approximate location is visible while online. Live trip location is shared with your passenger.", color = Color(0xFF627385), fontSize = 12.sp)
                         Surface(color = CommuteMint, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                             Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.AccountBalanceWallet, null, tint = CommuteTeal)
@@ -119,8 +132,7 @@ import kotlinx.coroutines.launch
                                 vehicleMenu = false
                             }) } }
                         }
-                        if (dashboard.online || target != null) Text(trackingStatus, color = Color(0xFF627385), fontSize = 12.sp)
-                        if (target != null && TaxiTracking.session == null) TextButton(onClick = { if (allowed()) TaxiTracking.start(context, target) }) { Text("Resume location sharing") }
+                        com.example.core.notifications.MobilityNotificationOptIn(driver = true, taxi = true)
                         if (page == "credit") {
                             Text("Driver credit", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
                             Text("Contact info@passo.live to top up. Only verified payments are credited. Passo reserves the disclosed service fee and settles it once the journey is completed.", color = CommuteInk, fontSize = 14.sp)
@@ -161,7 +173,8 @@ import kotlinx.coroutines.launch
     }
 }
 
-@Composable private fun DriverCurrentRide(model: TaxiViewModel, state: TaxiUiState, withFix: ((Map<String, Any>) -> Unit) -> Unit) {
+@Composable internal fun DriverCurrentRide(model: TaxiViewModel, state: TaxiUiState, withFix: ((Map<String, Any>) -> Unit) -> Unit,
+    mapTiles: Boolean = true, mapApi: MobilityApi? = null) {
     val ride = state.ride ?: return; val context = LocalContext.current
     var pin by remember(ride.id) { mutableStateOf("") }
     var confirmComplete by remember { mutableStateOf(false) }
@@ -170,7 +183,7 @@ import kotlinx.coroutines.launch
         confirmButton = { TextButton(onClick = { confirmComplete = false; withFix(model::complete) }) { Text("Complete ride") } }, dismissButton = { TextButton(onClick = { confirmComplete = false }) { Text("Keep driving") } })
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TaxiMap(ride.originLatitude to ride.originLongitude, ride.destinationLatitude to ride.destinationLongitude, ride.location,
-            if (ride.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 240, pickupLabel = ride.origin, destinationLabel = ride.destination)
+            if (ride.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 240, pickupLabel = ride.origin, destinationLabel = ride.destination, tileDownloadsEnabled = mapTiles, providedApi = mapApi)
         Text(when (ride.status) { "ACCEPTED" -> "Go to pickup"; "AT_PICKUP" -> "Ready to board"; "IN_PROGRESS" -> "Trip in progress"; "COMPLETED" -> "Trip completed"; else -> "Ride cancelled" }, color = CommuteInk, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
         ride.passengerName?.let { Text(it, color = CommuteInk, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
         TaxiRouteRow("Pickup", ride.origin, true); TaxiRouteRow("Destination", ride.destination, false)
@@ -202,6 +215,10 @@ import kotlinx.coroutines.launch
 @Composable private fun SharedDriverTrip(model: TaxiViewModel, state: TaxiUiState, withFix: ((Map<String, Any>) -> Unit) -> Unit) {
     val trip = state.selectedTrip ?: return
     var boarding by remember { mutableStateOf<SharedRideBooking?>(null) }; var pin by remember { mutableStateOf("") }
+    var missing by remember { mutableStateOf<SharedRideBooking?>(null) }
+    missing?.let { booking -> AlertDialog(onDismissRequest = { missing = null }, title = { Text("Mark this passenger as a no-show?") },
+        text = { Text("Do this only after the departure waiting allowance has ended and the passenger has not boarded. Their seat booking will be cancelled.") },
+        confirmButton = { TextButton(onClick = { missing = null; model.sharedAction("NO_SHOW", bookingId = booking.id) }) { Text("Confirm no-show") } }, dismissButton = { TextButton(onClick = { missing = null }) { Text("Keep waiting") } }) }
     boarding?.let { booking -> AlertDialog(onDismissRequest = { boarding = null }, title = { Text("Board ${booking.passengerName ?: "passenger"}") },
         text = { OutlinedTextField(pin, { pin = it.filter(Char::isDigit).take(8) }, label = { Text("Passenger boarding PIN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword)) },
         confirmButton = { TextButton(onClick = { model.sharedAction("BOARD", bookingId = booking.id, pin = pin); boarding = null; pin = "" }, enabled = pin.length >= 4 && !state.busy) { Text("Confirm boarding") } }, dismissButton = { TextButton(onClick = { boarding = null }) { Text("Cancel") } }) }
@@ -227,7 +244,7 @@ import kotlinx.coroutines.launch
                     Text("Seats ${booking.seatNumbers.joinToString()} · ${booking.status} · ${taxiMoney(booking.totalEtb)}", color = Color(0xFF627385), fontSize = 13.sp)
                     if (trip.status == "BOARDING" && booking.status == "CONFIRMED") {
                         OutlinedButton(onClick = { boarding = booking; pin = "" }, enabled = !state.busy) { Text("Board with passenger PIN") }
-                        TextButton(onClick = { model.sharedAction("NO_SHOW", bookingId = booking.id) }, enabled = !state.busy) { Text("Mark no-show after waiting allowance") }
+                        TextButton(onClick = { missing = booking }, enabled = !state.busy) { Text("Mark no-show after waiting allowance") }
                     }
                 }
             }

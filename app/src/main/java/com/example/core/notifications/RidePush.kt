@@ -6,6 +6,11 @@ import com.example.data.api.MobilityPushApi
 import com.example.data.api.MobilityPushInput
 import kotlinx.coroutines.*
 
+internal fun canConfirmRidePush(owner: String, role: String, activeOwner: String?, activeRole: String?,
+    bearer: String, currentBearer: String?, currentSession: Boolean, permitted: Boolean): Boolean =
+    owner == activeOwner && role == activeRole && role in setOf("DRIVER", "PASSENGER") &&
+        bearer == currentBearer && currentSession && permitted
+
 /** Account-bound taxi/shared notifications, independent of guest cargo capabilities. */
 internal object RidePush {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -33,7 +38,7 @@ internal object RidePush {
         val result = api.registerRides(MobilityPushInput(token))
         if (result.isSuccessful && result.body()?.success == true) synchronized(lock) {
             MobilityPushStore(context).confirmRides(owner, role) {
-                activeOwner == owner && activeRole == role && ApiClient.isCurrent(session) && ApiClient.getAuthToken() == bearer && MobilityPush.allowed(context)
+                canConfirmRidePush(owner, role, activeOwner, activeRole, bearer, ApiClient.getAuthToken(), ApiClient.isCurrent(session), MobilityPush.allowed(context))
             }
         }
     }

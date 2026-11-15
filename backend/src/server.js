@@ -156,6 +156,7 @@ app.use('/api/profiles', require('./routes/profiles'));
 app.use('/api/intercity', require('./routes/intercity'));
 app.use('/api/mobility', require('./routes/mobility-geo'));
 app.use('/api/mobility', require('./routes/mobility'));
+app.use('/api/rides', require('./routes/rides'));
 app.use('/api/commute', require('./routes/commute-passenger'));
 app.use('/api/fleet', require('./routes/fleet-tracking'));
 app.use('/shared', express.static(path.join(__dirname, '..', 'public', 'shared'), { maxAge: 0, etag: false }));
@@ -634,6 +635,7 @@ async function initializeFeatureSchemas() {
   await require('./services/intercity-schema').initIntercitySchema();
   await require('./services/onboarding').initOnboardingSchema();
   await require('./services/mobility-schema').initMobilitySchema();
+  await require('./services/rides-schema').initRidesSchema();
   await require('./services/mobility-push').initPushSchema(DB);
   await require('./services/account-recovery').initAccountRecoverySchema();
   await require('./services/application-notifications').initApplicationNotificationSchema();
@@ -652,6 +654,7 @@ async function startServer({ beforeListen, startWorkers = true } = {}) {
     stopApplicationNotifications = require('./services/application-notifications').startApplicationNotificationWorker();
     stopMobilityNotifications = require('./services/mobility').startMobilityWorker();
     stopMobilityPush = require('./services/mobility-push').startMobilityPushWorker();
+    stopRides = require('./services/rides').startRidesWorker();
   }
   resourcePressure.start();
   server.listen(PORT, HOST, () => {
@@ -673,12 +676,14 @@ if (process.env.NODE_ENV !== 'test' && require.main === module) {
 let stopApplicationNotifications = () => {};
 let stopMobilityNotifications = () => {};
 let stopMobilityPush = () => {};
+let stopRides = () => {};
 function gracefulShutdown(signal) {
   console.log(`[Server] Received ${signal}. Shutting down gracefully...`);
   resourcePressure.stop();
   stopApplicationNotifications();
   stopMobilityNotifications();
   stopMobilityPush();
+  stopRides();
   server.close(() => {
     console.log('[Server] HTTP and WebSocket listeners closed.');
     process.exit(0);

@@ -10,7 +10,7 @@ class AccountDeletionError extends Error {
 }
 const RETAINED = Object.freeze([
   'Payment, refund and transaction records needed for accounting, fraud prevention and disputes.',
-  'Historical journey, boarding and safety records needed to resolve transport or safety disputes.',
+  'Historical journey, taxi meter, shared-seat booking, boarding and safety records needed to verify fares or resolve transport and safety disputes.',
   'Existing support complaints and security audit records needed to resolve outstanding issues.',
   'A non-login account identifier and deletion receipt that prevent deleted credentials from being restored.',
   'Copies in protected backups until those backups are replaced; restored systems must reapply deletion records.'
@@ -19,6 +19,7 @@ const CONSEQUENCES = Object.freeze([
   'This permanently closes your account, signs you out and prevents its reuse.',
   'Your sign-in phone, password, email, profile details, emergency contacts and uploaded documents are removed from the live account.',
   'Current subscriptions and boarding passes are cancelled. Deletion does not automatically issue a refund; contact support about unused paid travel.',
+  'Cancel or resolve outstanding taxi and shared-ride commitments before closing your account. Live ride tracking, notification device tokens and terminal boarding PINs are removed; the listed historical fare and journey evidence may be retained.',
   'Historical financial, safety and support records may be retained for the reasons listed below. Guest intercity tickets are separate from an app account; contact the privacy team to request their removal.'
 ]);
 const tasks = new WeakMap();
@@ -67,12 +68,19 @@ async function blockersFor(db, id, role, at = Date.now()) {
     if (await db.prepare("SELECT id FROM trips WHERE driverId=? AND status='IN_PROGRESS' LIMIT 1").get(id)) blockers.push({ code: 'ACTIVE_TRIP', message: 'Complete the active trip before closing your account.' });
     if (await hasTable(db, 'intercity_departures') && await db.prepare("SELECT id FROM intercity_departures WHERE driver_id=? AND (status='BOARDING' OR (status='SCHEDULED' AND departure_at>=?)) LIMIT 1").get(id, departureCutoff)) blockers.push({ code: 'COMMITTED_DEPARTURE', message: 'Ask your company or administrator to reassign or cancel your scheduled journeys first.' });
     if (await hasTable(db, 'mobility_trips') && await db.prepare("SELECT id FROM mobility_trips WHERE driver_id=? AND status IN ('APPROVED','BOARDING') LIMIT 1").get(id)) blockers.push({ code: 'GROUP_TRAVEL_COMMITMENT', message: 'Ask the administrator to resolve your approved group trips before closing your account.' });
-    if (await hasTable(db, 'mobility_requests') && await db.prepare("SELECT id FROM mobility_requests WHERE driver_id=? AND status='ASSIGNED' LIMIT 1").get(id)) blockers.push({ code: 'ASSIGNED_TRANSPORT_REQUEST', message: 'Ask the administrator to reassign or close your group travel and cargo requests before closing your account.' });
+    if (await hasTable(db, 'mobility_requests') && await db.prepare("SELECT id FROM mobility_requests WHERE driver_id=? AND status IN ('ASSIGNED','AT_PICKUP','LOADED','IN_TRANSIT','AT_DESTINATION','AWAITING_CONFIRMATION','DISPUTED') LIMIT 1").get(id)) blockers.push({ code: 'ASSIGNED_TRANSPORT_REQUEST', message: 'Ask the administrator to reassign or close your group travel and cargo requests before closing your account.' });
     const assignedPasses = await db.prepare(`SELECT s.* FROM subscriptions s JOIN vehicles v ON v.id=s.vehicleId JOIN users p ON p.id=s.passengerId
       WHERE v.driverId=? AND s.subscriptionStatus='ACTIVE' AND s.paymentStatus='PAID' AND p.status='ACTIVE'
       AND NOT EXISTS (SELECT 1 FROM subscriptions newer WHERE newer.passengerId=s.passengerId AND
         (newer.updatedAt>s.updatedAt OR (newer.updatedAt=s.updatedAt AND newer.id>s.id)))`).all(id);
     if (assignedPasses.some(pass => require('./subscription-days').remainingSubscriptionDays(pass) > 0)) blockers.push({ code: 'ASSIGNED_PASSENGERS', message: 'Ask your administrator to reassign your active passengers before closing your account.' });
+    if (await hasTable(db, 'mobility_wallets') && await db.prepare('SELECT driver_id FROM mobility_wallets WHERE driver_id=? AND held_cents>0').get(id)) blockers.push({ code: 'RESERVED_DRIVER_CREDIT', message: 'Ask Passo to resolve transport jobs with reserved driver credit before closing your account. Closing does not settle or forfeit credit.' });
+  }
+  if (role === 'DRIVER' || role === 'PASSENGER') {
+    const ownerField = role === 'DRIVER' ? 'driver_id' : 'passenger_id';
+    if (await hasTable(db, 'ride_jobs') && await db.prepare(`SELECT id FROM ride_jobs WHERE ${ownerField}=? AND status IN ('REQUESTED','ACCEPTED','AT_PICKUP','IN_PROGRESS') LIMIT 1`).get(id)) blockers.push({ code: 'TAXI_RIDE_COMMITMENT', message: 'Cancel the pending taxi request or safely complete or resolve the active ride with Passo before closing your account.' });
+    if (await hasTable(db, 'ride_shared_trips') && await db.prepare(`SELECT id FROM ride_shared_trips WHERE ${ownerField}=? AND status IN ('REQUESTED','OPEN','BOARDING','IN_PROGRESS') LIMIT 1`).get(id)) blockers.push({ code: 'SHARED_RIDE_COMMITMENT', message: 'Cancel your pending shared-route request or offer, or ask Passo to resolve committed shared passengers before closing your account.' });
+    if (role === 'PASSENGER' && await hasTable(db, 'ride_shared_trips') && await hasTable(db, 'ride_shared_bookings') && await db.prepare("SELECT b.id FROM ride_shared_bookings b JOIN ride_shared_trips r ON r.id=b.trip_id WHERE b.passenger_id=? AND b.status IN ('CONFIRMED','BOARDED') AND r.status IN ('REQUESTED','OPEN','BOARDING','IN_PROGRESS') LIMIT 1").get(id)) blockers.push({ code: 'SHARED_SEAT_COMMITMENT', message: 'Cancel your confirmed shared seats before boarding opens, or ask Passo to resolve the active journey before closing your account.' });
   }
   if (role === 'COMPANY') {
     if (await db.prepare("SELECT id FROM users WHERE companyId=? AND role='DRIVER' AND status IN ('ACTIVE','PENDING') LIMIT 1").get(id)) blockers.push({ code: 'COMPANY_DRIVERS', message: 'Arrange the transfer or release of company drivers with an administrator first.' });
@@ -121,6 +129,35 @@ function createAccountDeletionService({ db = DB, uploadRoot = process.env.UPLOAD
     await db.prepare('UPDATE account_deletion_requests SET status=?,completed_at=? WHERE id=?').run(status, status === 'PENDING_CLEANUP' ? null : new Date(now()).toISOString(), requestId);
     return status;
   }
+  async function cleanRideAccess(tx, id, role) {
+    if (!['DRIVER','PASSENGER'].includes(role)) return;
+    // Remove device credentials and pending deliveries together. Guest request
+    // tokens use request IDs, so an app-account closure must not erase them.
+    if (await hasTable(tx, 'mobility_push_tokens')) {
+      const scopes = role === 'DRIVER' ? "('DRIVER','RIDE_DRIVER')" : "('RIDE_PASSENGER')";
+      if (await hasTable(tx, 'mobility_push_outbox')) await tx.prepare(`DELETE FROM mobility_push_outbox WHERE token_id IN (SELECT id FROM mobility_push_tokens WHERE owner_id=? AND scope IN ${scopes})`).run(id);
+      await tx.prepare(`DELETE FROM mobility_push_tokens WHERE owner_id=? AND scope IN ${scopes}`).run(id);
+    }
+    if (role === 'DRIVER') {
+      for (const table of ['ride_availability','ride_driver_eligibility','ride_vehicle_eligibility','ride_shared_locations']) {
+        if (await hasTable(tx, table)) await tx.prepare(`DELETE FROM ${table} WHERE driver_id=?`).run(id);
+      }
+    }
+    const ownerField = role === 'DRIVER' ? 'driver_id' : 'passenger_id';
+    if (await hasTable(tx, 'ride_jobs')) {
+      if (await hasTable(tx, 'ride_pin_attempts')) await tx.prepare(`DELETE FROM ride_pin_attempts WHERE actor_id=? OR ride_id IN (SELECT id FROM ride_jobs WHERE ${ownerField}=? AND status IN ('COMPLETED','CANCELLED'))`).run(id, id);
+      // Keep historical meter samples, route/fare snapshots and financial
+      // references for the disclosed purposes; remove reusable PINs/live pins.
+      await tx.prepare(`UPDATE ride_jobs SET pin_hash=NULL,pin_cipher=NULL,last_latitude=NULL,last_longitude=NULL,last_accuracy=NULL,last_point_at=NULL,waiting_since=NULL,waiting_kind=NULL,stop_requested=0 WHERE ${ownerField}=? AND status IN ('COMPLETED','CANCELLED')`).run(id);
+    }
+    if (await hasTable(tx, 'ride_shared_trips') && await hasTable(tx, 'ride_shared_bookings')) {
+      const owns = role === 'DRIVER' ? 'trip_id IN (SELECT id FROM ride_shared_trips WHERE driver_id=?)' : 'passenger_id=?';
+      const terminal = "(status IN ('COMPLETED','CANCELLED','NO_SHOW') OR trip_id IN (SELECT id FROM ride_shared_trips WHERE status IN ('COMPLETED','CANCELLED')))";
+      if (await hasTable(tx, 'ride_pin_attempts')) await tx.prepare(`DELETE FROM ride_pin_attempts WHERE ride_id IN (SELECT id FROM ride_shared_bookings WHERE ${owns} AND ${terminal})`).run(id);
+      await tx.prepare(`UPDATE ride_shared_bookings SET pin_hash=?,pin_cipher='' WHERE ${owns} AND ${terminal}`).run(crypto.randomBytes(32).toString('hex'), id);
+      if (await hasTable(tx, 'ride_shared_locations')) await tx.prepare(`DELETE FROM ride_shared_locations WHERE trip_id IN (SELECT id FROM ride_shared_trips WHERE ${ownerField}=? AND status IN ('COMPLETED','CANCELLED'))`).run(id);
+    }
+  }
   async function erase(id, role, input) {
     await initAccountDeletionSchema(db);
     if (input?.confirmation !== 'DELETE' || typeof input?.password !== 'string' || !input.password || input.password.length > 256) throw new AccountDeletionError(400, 'Enter your current password and confirm DELETE.');
@@ -167,6 +204,7 @@ function createAccountDeletionService({ db = DB, uploadRoot = process.env.UPLOAD
         await tx.prepare("UPDATE vehicles SET driverId=NULL,driverName='',assignedRouteId=NULL,currentLat=NULL,currentLng=NULL,currentOccupancy=0,status='OFF_DUTY',updatedAt=CURRENT_TIMESTAMP WHERE driverId=?").run(id);
       }
       if (await hasTable(tx, 'company_route_assignments')) await tx.prepare("UPDATE company_route_assignments SET status='INACTIVE' WHERE " + (role === 'COMPANY' ? 'company_id' : 'driver_id') + '=?').run(id);
+      await cleanRideAccess(tx, id, role);
     });
     let status = 'PENDING_CLEANUP';
     try { status = await cleanFiles(requestId); } catch (_) { /* The persisted queue is retried on startup; closure still stands. */ }

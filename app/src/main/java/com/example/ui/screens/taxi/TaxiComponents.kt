@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.view.ViewGroup
 import androidx.compose.animation.core.*
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -15,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -36,6 +38,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
 import com.example.data.api.*
 import com.example.ui.components.MobilityRoadMap
+import com.example.ui.components.replaceRoadOverlays
 import com.example.ui.screens.intercity.MobilityLocationPicker
 import com.example.ui.screens.passenger.*
 import kotlinx.coroutines.delay
@@ -47,12 +50,23 @@ import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
 
+internal data class TaxiPendingIntent(val scope: com.example.core.environment.ApiSessionScope,
+    val route: TaxiRouteInput? = null, val sharedId: String? = null, val sharedStart: Boolean = false)
+/** Process-only sign-in return context; no location draft or bearer is written to disk. */
+internal object TaxiPendingNavigation {
+    private var pending: TaxiPendingIntent? = null
+    fun route(value: TaxiRouteInput) { pending = TaxiPendingIntent(ApiClient.sessionScope(), route = value) }
+    fun shared(id: String? = null, start: Boolean = false) { pending = TaxiPendingIntent(ApiClient.sessionScope(), sharedId = id, sharedStart = start) }
+    fun peek(): TaxiPendingIntent? = pending?.takeIf { ApiClient.isCurrent(it.scope) }
+    fun take(): TaxiPendingIntent? = pending.also { pending = null }?.takeIf { ApiClient.isCurrent(it.scope) }
+    fun clear() { pending = null }
+}
+
 internal fun taxiMoney(value: Double) = "ETB " + NumberFormat.getNumberInstance(Locale.US).apply { maximumFractionDigits = 2 }.format(value)
 internal fun taxiDuration(value: Int) = "%02d:%02d".format(Locale.US, value / 60, value % 60)
 internal fun taxiTime(value: String): String = runCatching {
-    val date = java.time.Instant.parse(value)
-    java.time.format.DateTimeFormatter.ofPattern("EEE, d MMM · h:mm a", Locale.ENGLISH)
-        .withZone(java.time.ZoneId.of("Africa/Addis_Ababa")).format(date)
+    val date = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC"); isLenient = false }.parse(value) ?: error("Invalid trip date")
+    SimpleDateFormat("EEE, d MMM · h:mm a", Locale.ENGLISH).apply { timeZone = TimeZone.getTimeZone("Africa/Addis_Ababa") }.format(date)
 }.getOrDefault(value)
 internal fun taxiActive(status: String) = status in setOf("ACCEPTED", "AT_PICKUP", "IN_PROGRESS")
 internal fun sharedActive(status: String) = status in setOf("BOARDING", "IN_PROGRESS")
@@ -117,11 +131,14 @@ internal fun sharedActive(status: String) = status in setOf("BOARDING", "IN_PROG
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
         (tiers.ifEmpty { fallback }).forEach { tier ->
             val active = tier.id == selected
+            val surface by animateColorAsState(if (active) CommuteMint else Color.White, tween(180), label = "Vehicle tier surface")
+            val border by animateColorAsState(if (active) CommuteTeal else Color(0xFFD9DFDE), tween(180), label = "Vehicle tier border")
+            val scale by animateFloatAsState(if (active) 1.04f else 1f, tween(180), label = "Vehicle selection")
             Surface(onClick = { onSelect(tier.id) }, enabled = enabled, modifier = Modifier.weight(1f).testTag("taxi_tier_${tier.id}"),
-                color = if (active) CommuteMint else Color.White, border = BorderStroke(if (active) 2.dp else 1.dp, if (active) CommuteTeal else Color(0xFFD9DFDE)), shape = RoundedCornerShape(17.dp)) {
+                color = surface, border = BorderStroke(if (active) 2.dp else 1.dp, border), shape = RoundedCornerShape(17.dp)) {
                 Column(Modifier.padding(horizontal = 4.dp, vertical = 7.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Image(painterResource(when (tier.id) { "COMFORT" -> R.drawable.taxi_comfort; "MINI_VAN" -> R.drawable.taxi_minivan; else -> R.drawable.taxi_economy }), null,
-                        Modifier.fillMaxWidth().height(60.dp), contentScale = ContentScale.Fit)
+                        Modifier.fillMaxWidth().height(60.dp).graphicsLayer { scaleX = scale; scaleY = scale }, contentScale = ContentScale.Fit)
                     Text(tier.name, color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
                 }
             }
@@ -132,29 +149,41 @@ internal fun sharedActive(status: String) = status in setOf("BOARDING", "IN_PROG
 /** A real native base map, not the mockup image. No unassigned driver positions are invented. */
 @Composable internal fun TaxiMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Double>?,
     driver: MobilityLocation? = null, stage: String = "ASSIGNED", height: Int = 255,
-    pickupLabel: String = "Pickup", destinationLabel: String = "Destination", modifier: Modifier = Modifier, tileDownloadsEnabled: Boolean = true) {
+    pickupLabel: String = "Pickup", destinationLabel: String = "Destination", modifier: Modifier = Modifier, tileDownloadsEnabled: Boolean = true, providedApi: MobilityApi? = null,
+    nearbyCars: List<TaxiNearbyCar> = emptyList()) {
+    val nearby = nearbyCars.map { it.latitude to it.longitude }
     if (pickup != null && destination != null) {
         MobilityRoadMap(pickup, destination, driver, stage, pickupLabel, destinationLabel,
-            modifier, mapHeight = height, trackingActive = driver != null, tileDownloadsEnabled = tileDownloadsEnabled)
+            modifier, mapHeight = height, trackingActive = driver != null, tileDownloadsEnabled = tileDownloadsEnabled, driverIcon = R.drawable.taxi_car_top, providedApi = providedApi,
+            nearbyPoints = nearby, statusMessage = if (nearby.isNotEmpty()) "Nearby cars · approximate" else null)
     } else {
         val context = LocalContext.current; val owner = LocalLifecycleOwner.current
         val map = remember(context) { Configuration.getInstance().userAgentValue = context.packageName
             MapView(context).apply { setTileSource(TileSourceFactory.MAPNIK); setUseDataConnection(tileDownloadsEnabled); setMultiTouchControls(true); setBuiltInZoomControls(false); controller.setZoom(13.0); controller.setCenter(GeoPoint(pickup?.first ?: 9.0108, pickup?.second ?: 38.7613)) } }
+        var centered by remember(map) { mutableStateOf(false) }
         DisposableEffect(map, owner) {
             val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_START) map.onResume(); if (event == Lifecycle.Event.ON_STOP) map.onPause() }
             owner.lifecycle.addObserver(observer); map.onResume()
             onDispose { owner.lifecycle.removeObserver(observer); map.onPause(); map.onDetach() }
         }
-        Box(modifier.fillMaxWidth().height(height.dp).clip(RoundedCornerShape(18.dp))) {
-            AndroidView(factory = { (map.parent as? ViewGroup)?.removeView(map); map }, Modifier.fillMaxSize())
+        Box(modifier.fillMaxWidth().height(height.dp).clipToBounds()) {
+            AndroidView(factory = { (map.parent as? ViewGroup)?.removeView(map); map }, Modifier.fillMaxSize(), update = {
+                replaceRoadOverlays(map, emptyList(), emptyList(), null, null, null, false, false, pickupLabel, destinationLabel, R.drawable.taxi_car_top, nearby)
+                if (!centered && pickup != null) { map.controller.setCenter(GeoPoint(pickup.first, pickup.second)); centered = true }
+                map.invalidate()
+            })
+            if (nearby.isNotEmpty()) Text("Nearby cars · approximate", Modifier.align(Alignment.TopStart).background(Color.White.copy(alpha = .93f)).padding(7.dp), color = CommuteInk, fontSize = 11.sp)
             Text("© OpenStreetMap contributors", Modifier.align(Alignment.BottomStart).background(Color.White.copy(alpha = .9f)).padding(4.dp), color = CommuteInk, fontSize = 10.sp)
         }
     }
 }
 
-@Composable internal fun TaxiConnectionPulse() {
-    val transition = rememberInfiniteTransition(label = "Nearby driver connection")
-    val phase by transition.animateFloat(0.8f, 1.3f, infiniteRepeatable(tween(1500, easing = LinearEasing), RepeatMode.Restart), label = "Pickup pulse")
+@Composable internal fun TaxiConnectionPulse(animated: Boolean = true) {
+    val phase = if (animated) {
+        val transition = rememberInfiniteTransition(label = "Nearby driver connection")
+        val value by transition.animateFloat(0.8f, 1.3f, infiniteRepeatable(tween(1500, easing = LinearEasing), RepeatMode.Restart), label = "Pickup pulse")
+        value
+    } else 1f
     Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(55.dp), contentAlignment = Alignment.Center) {
             Surface(Modifier.size(40.dp).graphicsLayer { scaleX = phase; scaleY = phase; alpha = (1.4f - phase).coerceIn(.1f, .6f) }, shape = CircleShape, color = CommuteTeal) {}

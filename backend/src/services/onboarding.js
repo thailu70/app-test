@@ -11,9 +11,15 @@ const { loadCredentialSnapshot } = require('./account-sessions');
 
 const REQUIRED = Object.freeze({ DRIVER: ['LICENSE', 'VEHICLE_REGISTRATION', 'INSURANCE', 'PHOTO'], COMPANY: ['BUSINESS_LICENSE', 'REGISTRATION', 'REPRESENTATIVE_ID'] });
 const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
-const INDEPENDENT_SERVICES = new Set(['DAILY_COMMUTE', 'GROUP_TRAVEL', 'CARGO']);
+const INDEPENDENT_SERVICES = new Set(['TAXI', 'DAILY_COMMUTE', 'GROUP_TRAVEL', 'CARGO']);
 const serviceType = record => record.service_type || 'DAILY_COMMUTE';
 const monthlyPreference = record => serviceType(record) === 'DAILY_COMMUTE';
+async function getDriverServiceType(id, db = DB) {
+  const record=await enrollment(id,'DRIVER',db);
+  if(record)return serviceType(record);
+  const account=await loadAccount(id,'DRIVER',db);
+  return companyId(account||{})?'INTERCITY':'DAILY_COMMUTE';
+}
 class OnboardingError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const fail = (status, message) => { throw new OnboardingError(status, message); };
 function normalizePhone(value) {
@@ -150,6 +156,7 @@ function feeProposal(amount, basis = 'PER_VEHICLE') {
 }
 function completePreference(record) {
   if (record.acceptance_grandfathered === true || record.acceptance_grandfathered === 1) return true;
+  if(serviceType(record)==='TAXI')return Boolean(record.quote_vehicle_type&&Number.isInteger(Number(record.quote_passenger_capacity))&&Number(record.quote_passenger_capacity)>=1);
   if (monthlyPreference(record)) {
     try { feeProposal(record.proposed_monthly_fee_etb, record.proposed_monthly_fee_basis); } catch (_) { return false; }
   } else if (INDEPENDENT_SERVICES.has(serviceType(record)) && (!record.quote_vehicle_type || !Number.isInteger(Number(record.quote_passenger_capacity)) || Number(record.quote_passenger_capacity) < 1)) return false;
@@ -158,7 +165,7 @@ function completePreference(record) {
 function applicationDetails(account, record) {
   const initialMissing = [];
   if (independentDriver(account, record) && !completePreference(record)) {
-    if (!['EXISTING','PROPOSED'].includes(record.route_choice) || (record.route_choice === 'EXISTING' ? !record.route_id : !(record.proposed_departure && record.proposed_destination))) initialMissing.push('ROUTE_PREFERENCE');
+    if (serviceType(record)!=='TAXI'&&(!['EXISTING','PROPOSED'].includes(record.route_choice) || (record.route_choice === 'EXISTING' ? !record.route_id : !(record.proposed_departure && record.proposed_destination)))) initialMissing.push('ROUTE_PREFERENCE');
     if (monthlyPreference(record)) {
       try { feeProposal(record.proposed_monthly_fee_etb, record.proposed_monthly_fee_basis); } catch (_) { initialMissing.push('PROPOSED_MONTHLY_FEE'); }
     } else if (!record.quote_vehicle_type || !Number.isInteger(Number(record.quote_passenger_capacity)) || Number(record.quote_passenger_capacity) < 1) initialMissing.push('VEHICLE_TYPE');
@@ -183,6 +190,7 @@ async function validatePreference(input, db = DB) {
     if (db.isPostgres) await db.prepare('SELECT code FROM vehicle_types WHERE code=? FOR SHARE').get(String(input.vehicleType || '').toUpperCase());
     const type = await require('./master-data').getVehicleType(String(input.vehicleType || '').toUpperCase(), db);
     if (!type) fail(400, 'Choose an active vehicle type.');
+    if(service==='TAXI')return {mode:'NOT_APPLICABLE',routeId:'',routeName:'',departure:'',destination:'',proposedMonthlyFeeEtb:null,proposedMonthlyFeeBasis:'',feeLocked:false,feeSource:'NOT_APPLICABLE',vehicleType:type.code,passengerCapacity:type.capacity,passengerMonthlyFareEtb:null};
     const departure = text(input.proposedDeparture, 'preferred departure', 120), destination = text(input.proposedDestination, 'preferred destination', 120);
     const canonical = value => value.normalize('NFKC').replace(/\s+/gu, ' ').toLowerCase();
     if (canonical(departure) === canonical(destination)) fail(400, 'Choose different departure and destination places.');
@@ -283,7 +291,7 @@ async function markOnboardingReviewed(id, role, decision, reviewer, note = '', d
   }
   await db.prepare('UPDATE onboarding_accounts SET review_status=?,reviewed_by=?,reviewed_at=?,review_note=?,submitted_at=?,updated_at=? WHERE account_id=? AND role=?')
     .run(decision, reviewer, new Date().toISOString(), text(String(note), 'review note', 500, false), decision === 'REJECTED' ? null : record.submitted_at, new Date().toISOString(), id, role);
-  if (decision === 'APPROVED' && role === 'DRIVER' && !companyId(account) && ['GROUP_TRAVEL','CARGO'].includes(record.service_type)) {
+  if (decision === 'APPROVED' && role === 'DRIVER' && !companyId(account) && ['TAXI','GROUP_TRAVEL','CARGO'].includes(record.service_type)) {
     // Final document approval makes the applicant's registered vehicle usable;
     // a vehicle deliberately placed in maintenance is never silently restored.
     await db.prepare("UPDATE vehicles SET status='IN_SERVICE',updatedAt=CURRENT_TIMESTAMP WHERE driverId=? AND status='OFF_DUTY'").run(id);
@@ -402,7 +410,7 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
     const vehicle = role === 'DRIVER' ? await db.prepare('SELECT model,vehicleType,capacityLimit FROM vehicles WHERE driverId=? ORDER BY id LIMIT 1').get(id) : null;
     return { account: { id, role, fullName: role === 'COMPANY' ? account.representative_name || account.name : account.fullName,
       phone: account.phone, companyName: role === 'COMPANY' ? account.name : account.companyName || '', companyId: companyId(account), status: account.status, serviceType: serviceType(record),
-      ...(role === 'DRIVER' ? { licenseNumber: account.licenseNumber || '', assignedVehiclePlate: account.assignedVehiclePlate || '', vehicleModel: vehicle?.model || '', vehicleType: vehicle?.vehicleType || '', vehicleCapacity: vehicle?.capacityLimit || null } : {}) },
+      ...(role === 'DRIVER' ? { driverServiceType:serviceType(record),licenseNumber: account.licenseNumber || '', assignedVehiclePlate: account.assignedVehiclePlate || '', vehicleModel: vehicle?.model || '', vehicleType: vehicle?.vehicleType || '', vehicleCapacity: vehicle?.capacityLimit || null } : {}) },
     onboarding: { ...await getOnboardingReadiness(id, role, db, { requireSubmission: false }), requiredDocuments: REQUIRED[role],
       profile: { emergencyContactName: profile.emergency_contact_name || '', emergencyContactPhone: profile.emergency_contact_phone || '', vehicleColor: profile.vehicle_color || '', address: record.company_address || '', registrationNumber: record.company_registration_number || '' },
       documents: saved.map(doc => ({ kind: doc.kind, contentType: doc.content_type, size: doc.byte_size, uploadedAt: doc.uploaded_at, url: '/api/onboarding/documents/' + doc.kind })) } };
@@ -417,7 +425,7 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
     if (role === 'COMPANY') name = text(input.companyName, 'company name', 100);
     else {
       text(input.licenseNumber, 'driving licence number', 50);
-      if (![...INDEPENDENT_SERVICES, 'INTERCITY'].includes(service)) fail(400, 'Choose Daily Commute, Group Travel, Cargo or a company Intercity service.');
+      if (![...INDEPENDENT_SERVICES, 'INTERCITY'].includes(service)) fail(400, 'Choose Meter Taxi, Daily Commute, Group Travel, Cargo or a company Intercity service.');
       if (service === 'INTERCITY') {
         company = await db.prepare("SELECT id,name FROM transport_companies WHERE id=? AND status='ACTIVE'").get(String(input.companyId || ''));
         if (!company || !(await isOperationallyEligible(company.id, 'COMPANY', db))) fail(400, 'Choose an approved transport company.');
@@ -687,4 +695,4 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
 }
 module.exports = { createOnboardingService, initOnboardingSchema, getOnboardingReadiness, isOperationallyEligible,
   markOnboardingReviewed, requestOnboardingCorrections, setDriverSuspension, enrollPendingDriver,
-  invalidateOnboarding, normalizePhone, phoneAvailable, findAccountByPhone, OnboardingError, REQUIRED, MAX_DOCUMENT_BYTES };
+  invalidateOnboarding, normalizePhone, phoneAvailable, findAccountByPhone, getDriverServiceType, OnboardingError, REQUIRED, MAX_DOCUMENT_BYTES };

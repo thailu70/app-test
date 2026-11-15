@@ -24,7 +24,7 @@ async function dailyDriverEligible(driverId, db = DB) {
   }
   // Older daily/company accounts keep their existing scope. Explicit mobility
   // registrations cannot acquire a commute assignment through legacy endpoints.
-  return !['GROUP_TRAVEL','CARGO'].includes(enrollment?.service_type);
+  return !['TAXI','GROUP_TRAVEL','CARGO'].includes(enrollment?.service_type);
 }
 
 async function assertDailyDriverEligible(driverId, db = DB) {

@@ -82,6 +82,7 @@ async function harness(t, options = {}) {
 
 test('public transport admission uses an explicit method and path allowlist', () => {
   const allowed = [
+    ['GET', '/rides/catalog'], ['GET', '/rides/nearby'], ['GET', '/rides/shared/trips'], ['GET', '/rides/shared/trips/shared_a'], ['POST', '/rides/estimate'],
     ['GET', '/mobility/catalog'], ['HEAD', '/mobility/catalog'],
     ['GET', '/mobility/locations'], ['GET', '/mobility/route'],
     ['GET', '/mobility/trips'], ['GET', '/mobility/trips/trip_a/seats'],
@@ -101,6 +102,7 @@ test('public transport admission uses an explicit method and path allowlist', ()
     assert.equal(isPublicTransportRequest({ method, path }), true, method + ' ' + path);
   }
   const excluded = [
+    ['GET', '/rides/admin/settings'], ['POST', '/rides/requests'], ['POST', '/rides/driver/street'], ['PUT', '/rides/catalog'],
     ['POST', '/auth/login'], ['POST', '/auth/request-otp'], ['GET', '/admin/system/resources'],
     ['GET', '/mobility/admin/requests'], ['POST', '/mobility/admin/requests/id/assign'],
     ['GET', '/mobility/driver/opportunities'], ['POST', '/mobility/driver/requests/id/quotes'],

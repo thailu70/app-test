@@ -13,7 +13,7 @@ data class MobilityPushPayload(val requestId: String, val eventType: String, val
         private val keys = setOf("requestId", "eventType", "scope", "kind")
         private val events = setOf("NEW_REQUEST", "SELECTED", "QUOTES", "STATUS_ASSIGNED", "STATUS_AT_PICKUP", "STATUS_LOADED",
             "STATUS_IN_TRANSIT", "STATUS_AT_DESTINATION", "STATUS_AWAITING_CONFIRMATION", "STATUS_COMPLETED", "STATUS_DISPUTED", "STATUS_CANCELLED",
-            "STATUS_ACCEPTED", "STATUS_IN_PROGRESS", "STATUS_OPEN", "STATUS_BOARDING", "STATUS_CONFIRMED")
+            "STATUS_ACCEPTED", "STATUS_IN_PROGRESS", "STATUS_OPEN", "STATUS_BOARDING", "STATUS_CONFIRMED", "STATUS_BOARDED", "BOOKING_UPDATED")
         fun parse(data: Map<String, String>): MobilityPushPayload? {
             if (data.keys != keys) return null
             val id = data["requestId"] ?: return null
@@ -37,6 +37,7 @@ internal fun mobilityPushAllowed(environment: AppEnvironment, notificationsGrant
     environment == AppEnvironment.PRODUCTION && notificationsGranted && firebaseConfigured
 
 internal fun MobilityPushPayload.notificationCopy(): Pair<String, String> = when (eventType) {
+    "BOOKING_UPDATED", "STATUS_BOARDED" -> "Shared ride booking updated" to "A shared ride booking has changed. Open Passo to view the latest boarding details."
     "NEW_REQUEST" -> "New transport request" to "A transport request is available near your last known location. Open Passo to review it and refresh your location."
     "QUOTES" -> "Driver offers received" to "Drivers have quoted for your request. Open Passo to compare offers."
     "SELECTED", "STATUS_ASSIGNED", "STATUS_ACCEPTED", "STATUS_CONFIRMED" -> "Transport booking updated" to "Your transport booking has an update. Open Passo for the details."

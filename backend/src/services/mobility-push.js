@@ -66,7 +66,7 @@ function createFcmTransport({ accountFile, fetchImpl = globalThis.fetch, now = D
     return { sent: false, invalidToken: ['UNREGISTERED', 'SENDER_ID_MISMATCH'].includes(code), permanent: response.status === 400 && code !== 'UNAVAILABLE' };
   } };
 }
-function createMobilityPushService({ db = DB, service, env = process.env, now = Date.now, provider, fetchImpl,
+function createMobilityPushService({ db = DB, service, ridesService, env = process.env, now = Date.now, provider, fetchImpl,
   customerBatchSize = 200, deliveryBatchSize = 20,
   driverIsEligible = driverId => require('./operational-onboarding').driverEligible(driverId, db),
   isReview = () => Boolean(getReviewRuntime()) || env.REVIEW_ENVIRONMENT === 'true' } = {}) {
@@ -77,6 +77,8 @@ function createMobilityPushService({ db = DB, service, env = process.env, now = 
   const deliveryLimit = Math.min(100, Math.max(1, Math.floor(Number(deliveryBatchSize)) || 20));
   let transport = provider, configurationError = false, working = false, driverCursor = '', customerCursor = '';
   const instant = () => new Date(now()).toISOString();
+  const rideEvents = require('./ride-push-events').createRidePushEvents({ db, now, enqueue,
+    rides: () => ridesService || require('./rides').getRidesService() });
   function health() {
     if (isReview()) return { enabled: false, reason: 'REVIEW_DISABLED' };
     if (!transport && !env.FCM_SERVICE_ACCOUNT_FILE) return { enabled: false, reason: 'NOT_CONFIGURED' };
@@ -93,7 +95,7 @@ function createMobilityPushService({ db = DB, service, env = process.env, now = 
     const decipher = crypto.createDecipheriv('aes-256-gcm', encryptionKey, iv); decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(bytes), decipher.final()]).toString('utf8');
   }
-  async function init() { await mobility().init(); await initPushSchema(db); }
+  async function init() { await mobility().init(); await initPushSchema(db); await require('./account-deletion').initAccountDeletionSchema(db); }
   async function requestSnapshot(requestId) {
     const row = await db.prepare('SELECT id,status,kind,driver_id,assigned_at FROM mobility_requests WHERE id=?').get(requestId);
     if (!row) return null;
@@ -109,7 +111,13 @@ function createMobilityPushService({ db = DB, service, env = process.env, now = 
       gpsAt = instant();
     }
     await db.transaction(async tx => {
+      if (scope === 'DRIVER' || scope.startsWith('RIDE_')) {
+        const role = scope.replace(/^RIDE_/, '');
+        const user = await tx.prepare("SELECT id FROM users WHERE id=? AND role=? AND status='ACTIVE'" + (tx.isPostgres ? ' FOR UPDATE' : '')).get(owner, role);
+        if (!user || await require('./account-deletion').isAccountClosed(owner, role, tx)) throw new MobilityPushError('Account unavailable.', 403);
+      }
       if (scope === 'DRIVER') await tx.prepare("DELETE FROM mobility_push_tokens WHERE token_hash=? AND scope='DRIVER' AND owner_id<>?").run(tokenHash, owner);
+      if (scope.startsWith('RIDE_')) await tx.prepare("DELETE FROM mobility_push_tokens WHERE token_hash=? AND scope IN ('RIDE_DRIVER','RIDE_PASSENGER') AND (owner_id<>? OR scope<>?)").run(tokenHash, owner, scope);
       await tx.prepare(`INSERT INTO mobility_push_tokens(id,token_hash,token_encrypted,scope,owner_id,latitude,longitude,gps_at,snapshot,registered_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(id) DO UPDATE SET token_encrypted=excluded.token_encrypted,latitude=COALESCE(excluded.latitude,mobility_push_tokens.latitude),longitude=COALESCE(excluded.longitude,mobility_push_tokens.longitude),gps_at=COALESCE(excluded.gps_at,mobility_push_tokens.gps_at),updated_at=excluded.updated_at`).run(id, tokenHash, encrypt(token), scope, owner, latitude, longitude, gpsAt, snapshot, instant(), instant());
       // A device should not accumulate unlimited old token registrations for one account/booking.
@@ -127,6 +135,12 @@ function createMobilityPushService({ db = DB, service, env = process.env, now = 
     await init(); await mobility().request(requestId, secret);
     return register('REQUEST', requestId, input, JSON.stringify(await requestSnapshot(requestId)));
   }
+  async function registerRideAccount(user, input) {
+    await init();
+    if (!['DRIVER', 'PASSENGER'].includes(user.role) || !await db.prepare("SELECT id FROM users WHERE id=? AND role=? AND status='ACTIVE'").get(user.id, user.role)) throw new MobilityPushError('Account unavailable.', 403);
+    return register('RIDE_' + user.role, user.id, input, await rideEvents.snapshot(user.role, user.id));
+  }
+  async function unregisterRideAccount(user, input) { await init(); return unregister('RIDE_' + user.role, user.id, input); }
   async function unregister(scope, owner, input) {
     const token = tokenValue(input.token);
     await db.prepare('DELETE FROM mobility_push_tokens WHERE scope=? AND owner_id=? AND token_hash=?').run(scope, owner, hash(token));
@@ -137,7 +151,7 @@ function createMobilityPushService({ db = DB, service, env = process.env, now = 
   async function enqueue(token, requestId, event, kind, revision) {
     const key = hash(token.id + '\0' + requestId + '\0' + event + '\0' + revision);
     await db.prepare("INSERT INTO mobility_push_outbox(id,event_key,token_id,request_id,event_type,kind,scope,next_attempt_at,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(event_key) DO NOTHING")
-      .run(crypto.randomUUID(), key, token.id, requestId, event, kind, token.scope, instant(), new Date(now() + 12 * 3600000).toISOString(), instant());
+      .run(crypto.randomUUID(), key, token.id, requestId, event, kind, token.scope.replace(/^RIDE_/, ''), instant(), new Date(now() + 12 * 3600000).toISOString(), instant());
   }
   async function collect() {
     const earliest = new Date(now() - 30 * 86400000).toISOString();
@@ -179,13 +193,16 @@ function createMobilityPushService({ db = DB, service, env = process.env, now = 
     if (working || !health().enabled) return { sent: 0, ...health() };
     working = true; let sent = 0;
     try {
-      await init(); await collect();
+      await init(); await collect(); await rideEvents.collect();
       await db.prepare("UPDATE mobility_push_outbox SET status='EXPIRED' WHERE status='PENDING' AND expires_at<=?").run(instant());
       const queue = await db.prepare("SELECT * FROM mobility_push_outbox WHERE status='PENDING' AND next_attempt_at<=? AND (lease_until IS NULL OR lease_until<?) ORDER BY created_at,id LIMIT ?").all(instant(), instant(), deliveryLimit);
       for (const job of queue) {
         const token = await db.prepare('SELECT * FROM mobility_push_tokens WHERE id=?').get(job.token_id);
         if (!token) { await db.prepare("UPDATE mobility_push_outbox SET status='REVOKED' WHERE id=?").run(job.id); continue; }
-        const current = await requestSnapshot(job.request_id);
+        const rideJob = ['TAXI', 'SHARED'].includes(job.kind);
+        if (rideJob && !await rideEvents.valid(job, token)) { await db.prepare("UPDATE mobility_push_outbox SET status='EXPIRED' WHERE id=?").run(job.id); continue; }
+        const current = rideJob ? null : await requestSnapshot(job.request_id);
+        if (!rideJob) {
         if (!current || job.scope === 'REQUEST' && (job.event_type === 'QUOTES' ? current.status !== 'REQUESTED' || current.quotes === 0 : job.event_type !== 'STATUS_' + current.status)
           || job.scope === 'DRIVER' && (!await db.prepare("SELECT id FROM users WHERE id=? AND role='DRIVER' AND status='ACTIVE'").get(token.owner_id) || !await driverIsEligible(token.owner_id))
           || job.event_type === 'SELECTED' && (current.driver !== token.owner_id || !['ASSIGNED','AT_PICKUP','LOADED','IN_TRANSIT','AT_DESTINATION'].includes(current.status))) {
@@ -199,6 +216,7 @@ function createMobilityPushService({ db = DB, service, env = process.env, now = 
           let feed; try { feed = await mobility().marketplace.opportunities(token.owner_id, { latitude: Number(token.latitude), longitude: Number(token.longitude) }); } catch (_) { await postpone(); continue; }
           if (feed.busy) { await postpone(); continue; }
           if (!(feed.requests || []).some(r => r.id === job.request_id && r.nearby && !r.myQuote)) { await db.prepare("UPDATE mobility_push_outbox SET status='EXPIRED' WHERE id=?").run(job.id); continue; }
+        }
         }
         const lease = crypto.randomUUID();
         const acquired = await db.prepare("UPDATE mobility_push_outbox SET lease_token=?,lease_until=? WHERE id=? AND status='PENDING' AND (lease_until IS NULL OR lease_until<?)").run(lease, new Date(now() + 30000).toISOString(), job.id, instant());
@@ -216,7 +234,7 @@ function createMobilityPushService({ db = DB, service, env = process.env, now = 
       return { sent, ...health() };
     } finally { working = false; }
   }
-  return { init, health, registerDriver, registerRequest, unregisterDriver, unregisterRequest, flush };
+  return { init, health, registerDriver, registerRequest, registerRideAccount, unregisterRideAccount, unregisterDriver, unregisterRequest, flush };
 }
 let singleton;
 function getMobilityPushService() { return singleton ||= createMobilityPushService(); }

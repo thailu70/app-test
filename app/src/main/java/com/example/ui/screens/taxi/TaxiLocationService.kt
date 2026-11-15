@@ -59,7 +59,7 @@ internal object TaxiTracking {
     } == true
     fun start(context: Context, target: TaxiTrackingTarget): Boolean {
         val token = ApiClient.getAuthToken()?.takeIf(String::isNotBlank) ?: return false
-        if (!taxiLocationPermission(context) || !NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+        if (!taxiLocationPermission(context) || !taxiNotificationsVisible(context)) {
             report("Allow location and notifications before going online or starting a trip."); return false
         }
         val next = TaxiTrackingSession(target, token, ApiClient.sessionScope())
@@ -84,6 +84,14 @@ internal object TaxiTracking {
 
 internal fun taxiLocationPermission(context: Context): Boolean =
     ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+internal fun taxiNotificationsVisible(context: Context): Boolean {
+    if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
+    if (Build.VERSION.SDK_INT >= 26) {
+        val channel = (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).getNotificationChannel("taxi_location")
+        if (channel?.importance == NotificationManager.IMPORTANCE_NONE) return false
+    }
+    return true
+}
 
 internal fun Location.taxiBody(): Map<String, Any> = mapOf("latitude" to latitude, "longitude" to longitude,
     "accuracyMeters" to accuracy.toDouble(), "timestamp" to taxiTimestamp(time))
@@ -180,6 +188,7 @@ class TaxiLocationService : Service() {
                 var checkedAt = 0L
                 while (isActive && TaxiTracking.current(session)) {
                     if (!taxiLocationPermission(this@TaxiLocationService)) error("Location permission ended.")
+                    check(taxiNotificationsVisible(this@TaxiLocationService)) { "Enable taxi location notifications before resuming this trip." }
                     val now = SystemClock.elapsedRealtime()
                     if (now - checkedAt >= 20_000) {
                         val response = try { api.dashboard() } catch (e: CancellationException) { throw e } catch (_: Exception) { null }

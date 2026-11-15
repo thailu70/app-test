@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#006b63">
-  <meta name="description" content="Register your vehicle with Passo for daily commute, group travel or cargo transport. Submit your preferred route for administrator review.">
+  <meta name="description" content="Register your vehicle with Passo for Meter Taxi, daily commute, group travel or cargo transport. Upload documents for administrator review.">
   <meta name="referrer" content="no-referrer">
   <title>Driver registration · Passo</title>
   <link rel="icon" href="/join/assets/passo-wordmark.png" type="image/png">
@@ -49,8 +49,7 @@
         <p id="adultNotice" class="data-use-note" data-i18n="adultOnlyNotice">Passo is for adults aged 18 and over. An adult may arrange transport for a child; children must not create or use Passo accounts.</p>
         <div class="auth-tabs" role="group" aria-label="Account access"><button type="button" id="registerTab" aria-pressed="true" data-i18n="signUp">Create account</button><button type="button" id="loginTab" aria-pressed="false" data-i18n="signIn">Sign in</button></div>
         <form id="accountForm" class="form-stack">
-          <input id="serviceType" name="serviceType" type="hidden" value="DAILY_COMMUTE">
-          <fieldset class="driver-service-picker" data-registration><legend data-i18n="serviceType">How would you like to drive?</legend><div class="driver-service-buttons" role="group" aria-label="Driver service"><button type="button" data-service="DAILY_COMMUTE" aria-pressed="true"><svg><use href="#icon-bus"/></svg><span data-i18n="dailyService">Daily commute</span></button><button type="button" data-service="GROUP_TRAVEL" aria-pressed="false"><svg><use href="#icon-group"/></svg><span data-i18n="groupService">Group travel</span></button><button type="button" data-service="CARGO" aria-pressed="false"><svg><use href="#icon-cargo"/></svg><span data-i18n="cargoService">Cargo transport</span></button></div></fieldset>
+          <div class="driver-service-picker" data-registration><label for="serviceType" data-i18n="serviceType">How would you like to drive?</label><select id="serviceType" name="serviceType" required><option value="DAILY_COMMUTE" data-i18n="dailyService" selected>Daily commute</option><option value="TAXI" data-i18n="taxiService">Meter Taxi</option><option value="GROUP_TRAVEL" data-i18n="groupService">Group travel</option><option value="CARGO" data-i18n="cargoService">Cargo transport</option></select></div>
           <div data-registration><label id="fullNameLabel" for="fullName" data-i18n="fullName">Full name</label><input id="fullName" name="fullName" autocomplete="name" maxlength="100" minlength="2" required></div>
           <div class="field-pair"><div><label for="phone" data-i18n="phone">Mobile phone number</label><input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="username" placeholder="09… / +251…" maxlength="30" required></div><div><label for="password" data-i18n="password">Password</label><div class="password-field"><input id="password" name="password" type="password" autocomplete="new-password" minlength="10" maxlength="200" required><button id="showPassword" class="password-toggle" type="button" aria-pressed="false" data-i18n="show">Show</button></div></div></div>
           <p id="passwordHelp" class="field-hint" data-registration data-i18n="passwordHelp">Use at least 10 characters.</p>

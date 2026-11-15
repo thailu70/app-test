@@ -32,6 +32,13 @@ const rounded = value => Math.round(Number(value) * 100) / 100;
 const km = (a,b,c,d) => { const r=v=>v*Math.PI/180; const h=Math.sin(r(c-a)/2)**2+Math.cos(r(a))*Math.cos(r(c))*Math.sin(r(d-b)/2)**2;return 6371*2*Math.atan2(Math.sqrt(h),Math.sqrt(1-h)); };
 function createMarketplace({ db, now, fail, money, text, coordinates, vehicleDriver, serviceType, getRequest, requestView, sendSms }) {
   const instant=()=>new Date(now()).toISOString(), lock=tx=>tx.isPostgres?' FOR UPDATE':'';
+  async function assertNoRideAssignment(driverId, vehicleId, tx) {
+    try { await require('./rides').assertNoRideJob(driverId, vehicleId, tx); }
+    catch (error) {
+      if (error.status === 409 && error.code === 'DRIVER_BUSY') fail(error.status, error.message, error.code);
+      throw error;
+    }
+  }
   const defaults={cargoCommissionPercent:0,groupCommissionPercent:0,cargoRateEtbPerKgKm:0,minimumCargoFareEtb:0,notificationRadiusKm:30};
   async function settings() { const row=await db.prepare("SELECT value FROM mobility_market_settings WHERE id='pricing'").get();return {settings:{...defaults,...(row?JSON.parse(row.value):{})}}; }
   async function updateSettings(actor,input) {
@@ -109,6 +116,7 @@ function createMarketplace({ db, now, fail, money, text, coordinates, vehicleDri
     if(eta!=null&&(!Number.isInteger(eta)||eta<1||eta>10080))fail(400,'Enter a valid pickup estimate in minutes.');
     const result=await db.transaction(async tx=>{
       const before=await getRequest(key,null,tx,true);await vehicleDriver(input.vehicleId,driverId,before.kind,tx,true);
+      await assertNoRideAssignment(driverId,input.vehicleId,tx);
       const r=await tx.prepare('SELECT * FROM mobility_requests WHERE id=?'+lock(tx)).get(key);if(r.status!=='REQUESTED'||await busy(driverId,tx))fail(409,'This request or driver is no longer available.');
       if(r.travel_date<new Date(now()+3*3600000).toISOString().slice(0,10))fail(409,'This transport request has expired.');
       const {vehicle}=await vehicleDriver(input.vehicleId,driverId,r.kind,tx);if(vehicle.vehicleType!==r.vehicle_type||r.kind==='GROUP'&&Number(vehicle.capacityLimit)<Number(r.people))fail(400,'Use a matching vehicle with enough capacity.');
@@ -125,6 +133,7 @@ function createMarketplace({ db, now, fail, money, text, coordinates, vehicleDri
     await db.transaction(async tx=>{
       let q=await tx.prepare('SELECT * FROM mobility_quotes WHERE id=? AND request_id=?').get(input.quoteId,key);if(!q)fail(404,'Quote unavailable.');
       await vehicleDriver(q.vehicle_id,q.driver_id,(await getRequest(key,capability,tx)).kind,tx,true);
+      await assertNoRideAssignment(q.driver_id,q.vehicle_id,tx);
       const r=await tx.prepare('SELECT * FROM mobility_requests WHERE id=?'+lock(tx)).get(key);
       q=await tx.prepare('SELECT * FROM mobility_quotes WHERE id=? AND request_id=?').get(input.quoteId,key);
       const m=await tx.prepare('SELECT * FROM mobility_request_market WHERE request_id=?').get(key);

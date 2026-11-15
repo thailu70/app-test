@@ -1,0 +1,3 @@
+Car top view icon source: https://www.svgrepo.com/svg/118529/car-top-view
+Source license: CC0 (SVG Repo).
+Converted from the supplied SVG path into an Android VectorDrawable, tinted Passo teal.

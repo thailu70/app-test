@@ -7,7 +7,7 @@ import retrofit2.http.*
 @JsonClass(generateAdapter = true)
 data class TaxiSettings(val enabled: Boolean = false, val sharedEnabled: Boolean = false,
     val baseFareEtb: Double = 0.0, val perKmEtb: Double = 0.0, val minimumFareEtb: Double = 0.0,
-    val waitingPerMinuteEtb: Double = 0.0, val pickupGraceMinutes: Int = 0, val stopGraceMinutes: Int = 0,
+    val waitingPerMinuteEtb: Double = 0.0, val pickupGraceMinutes: Double = 0.0, val stopGraceMinutes: Double = 0.0,
     val fixedCommissionEtb: Double = 0.0, val sharedFixedCommissionEtb: Double = 0.0,
     val pollingSeconds: Int = 8, val gpsUploadSeconds: Int = 5)
 @JsonClass(generateAdapter = true)
@@ -21,7 +21,8 @@ data class TaxiRouteInput(val origin: String, val destination: String, val origi
     val tier: String = "ECONOMY", val idempotencyKey: String = "", val vehicleId: String? = null,
     val passengerConsent: Boolean? = null, val departureAt: String? = null,
     val seats: Int? = null, val farePerSeatEtb: Double? = null,
-    val latitude: Double? = null, val longitude: Double? = null, val accuracyMeters: Double? = null, val timestamp: String? = null)
+    val latitude: Double? = null, val longitude: Double? = null, val accuracyMeters: Double? = null, val timestamp: String? = null,
+    val expectedFareEtb: Double? = null, val expectedCommissionEtb: Double? = null)
 @JsonClass(generateAdapter = true)
 data class TaxiEstimate(val distanceKm: Double = 0.0, val durationMinutes: Double = 0.0,
     val estimatedFareEtb: Double = 0.0, val tier: String = "ECONOMY", val routeGeometry: MobilityRoadGeometry? = null)
@@ -68,10 +69,15 @@ data class TaxiGpsPoint(val sequence: Long, val latitude: Double, val longitude:
     val accuracyMeters: Double, val timestamp: String, val mock: Boolean = false)
 @JsonClass(generateAdapter = true)
 data class TaxiGpsBatch(val points: List<TaxiGpsPoint>)
+@JsonClass(generateAdapter = true)
+data class TaxiNearbyCar(val latitude: Double, val longitude: Double, val tier: String = "ECONOMY")
+@JsonClass(generateAdapter = true)
+data class TaxiNearbyResponse(val success: Boolean, val vehicles: List<TaxiNearbyCar> = emptyList(), val approximate: Boolean = true, val error: String? = null)
 
 /** Taxi operations are isolated from the existing guest cargo and charter APIs. */
 interface TaxiApi {
     @GET("api/rides/catalog") suspend fun catalog(): Response<TaxiResponse>
+    @GET("api/rides/nearby") suspend fun nearby(@Query("latitude") latitude: Double, @Query("longitude") longitude: Double, @Query("tier") tier: String): Response<TaxiNearbyResponse>
     @POST("api/rides/estimate") suspend fun estimate(@Body input: TaxiRouteInput): Response<TaxiResponse>
     @GET("api/rides/me") suspend fun me(): Response<TaxiResponse>
     @POST("api/rides/requests") suspend fun request(@Body input: TaxiRouteInput): Response<TaxiResponse>
@@ -90,6 +96,7 @@ interface TaxiApi {
     @POST("api/rides/driver/trips/{id}/cancel") suspend fun driverCancel(@Path("id") id: String, @Body input: Map<String, String>): Response<TaxiResponse>
     @GET("api/rides/shared/trips") suspend fun shared(@Query("origin") origin: String? = null, @Query("destination") destination: String? = null): Response<TaxiResponse>
     @GET("api/rides/shared/trips/{id}") suspend fun sharedTrip(@Path("id") id: String): Response<TaxiResponse>
+    @POST("api/rides/shared/trips/{id}/cancel") suspend fun cancelSharedRequest(@Path("id") id: String, @Body input: Map<String, String> = emptyMap()): Response<TaxiResponse>
     @POST("api/rides/shared/requests") suspend fun sharedRequest(@Body input: TaxiRouteInput): Response<TaxiResponse>
     @POST("api/rides/driver/shared/trips") suspend fun offer(@Body input: TaxiRouteInput): Response<TaxiResponse>
     @POST("api/rides/driver/shared/trips/{id}/accept") suspend fun acceptShared(@Path("id") id: String, @Body input: Map<String, @JvmSuppressWildcards Any>): Response<TaxiResponse>

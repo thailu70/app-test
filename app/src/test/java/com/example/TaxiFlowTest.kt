@@ -11,6 +11,8 @@ import org.junit.*
 import org.junit.Assert.*
 import retrofit2.Response
 import java.lang.reflect.Proxy
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody.Companion.toResponseBody
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TaxiFlowTest {
@@ -57,5 +59,26 @@ class TaxiFlowTest {
         assertNull(result.ride!!.fareEtb); assertNull(result.ride.boardingPin)
         assertNull(result.trip!!.farePerSeatEtb)
         assertEquals(0L, result.ride.lastSequence)
+    }
+    @Test fun `admin tariff change requires a new displayed estimate instead of silently accepting the new price`() = runTest(dispatcher) {
+        val vm = TaxiViewModel(fake { name, _ -> when (name) {
+            "estimate" -> Response.success(TaxiResponse(true, estimate = TaxiEstimate(8.0, 22.0, 325.0)))
+            "request" -> Response.error<TaxiResponse>(409, """{"success":false,"code":"ESTIMATE_CHANGED","error":"The fare changed. Refresh the estimate."}""".toResponseBody("application/json".toMediaType()))
+            else -> initial(name)
+        } }, true, false)
+        advanceUntilIdle(); vm.estimate(route); advanceUntilIdle(); vm.request(route); advanceUntilIdle()
+        assertNull(vm.state.value.ride); assertNull(vm.state.value.estimate)
+        assertTrue(vm.state.value.message!!.contains("Refresh"))
+    }
+    @Test fun `nearby cars use only real valid approximate server entries and refresh on tier selection`() = runTest(dispatcher) {
+        val queries = mutableListOf<String>()
+        val vm = TaxiViewModel(fake { name, args -> if (name == "nearby") { queries += args[2] as String
+            Response.success(TaxiNearbyResponse(true, listOf(TaxiNearbyCar(9.0, 38.7), TaxiNearbyCar(Double.NaN, 38.7))))
+        } else initial(name) }, false, false)
+        advanceUntilIdle(); vm.nearby(9.0 to 38.7, "ECONOMY"); advanceUntilIdle()
+        assertEquals(listOf(TaxiNearbyCar(9.0, 38.7)), vm.state.value.nearbyCars)
+        vm.nearby(9.0 to 38.7, "COMFORT"); advanceUntilIdle()
+        assertEquals(listOf("ECONOMY", "COMFORT"), queries)
+        vm.nearby(null, "COMFORT"); assertTrue(vm.state.value.nearbyCars.isEmpty())
     }
 }

@@ -18,7 +18,7 @@ test('recruitment portal translates every labelled control and ships local visua
   assert.ok(html.includes('href="/" aria-label="Passo home"'));
   assert.ok(html.includes('href="/privacy/"'));assert.ok(html.includes('href="/delete-account/"'));
   assert.doesNotMatch(html,/href="\/(?:company|travel)\/|data-role=|data-company-profile|name="companyId"|name="companyName"/,'Public recruitment remains independent driver registration.');
-  for(const service of ['DAILY_COMMUTE','GROUP_TRAVEL','CARGO'])assert.match(html,new RegExp('data-service="'+service+'"'));
+  for(const service of ['DAILY_COMMUTE','TAXI','GROUP_TRAVEL','CARGO'])assert.match(html,new RegExp('<option value="'+service+'"'));
 });
 
 test('document restrictions match the actual private upload contract', () => {
@@ -70,8 +70,9 @@ test('public forms always send daily commute driver ownership fields despite sta
   assert.equal(html.includes('PER_PASSENGER'),false,'The user requested a whole-vehicle monthly fee, with no unit selector.');
   assert.equal(html.includes('name="proposedMonthlyFeeBasis"'),false);
   assert.equal(html.includes('name="routeChoice"'),false);assert.equal(html.includes('name="appliedRouteId"'),false);
-  assert.equal(html.includes('<select id="serviceType"'),false);
-  assert.ok(html.includes('name="serviceType" type="hidden" value="DAILY_COMMUTE"'));
+  assert.ok(html.includes('<select id="serviceType"'));
+  assert.match(html,/<option value="DAILY_COMMUTE"[^>]*selected/);
+  assert.doesNotMatch(html,/name="serviceType" type="hidden"/);
   assert.doesNotMatch(html,/data-role=|INTERCITY|Transport company/);
 });
 
@@ -88,6 +89,21 @@ test('group and cargo applications carry their service and preferred route witho
     assert.equal(controls.find(c=>c.name==='proposedDeparture').required,true);
     assert.equal(controls.find(c=>c.name==='adultConfirmation').required,true);
   }
+});
+
+test('Meter Taxi registration keeps licence and vehicle details without sending stale routes or monthly fees',()=>{
+  const values={serviceType:'TAXI',fullName:'Taxi Driver',phone:'0912345678',password:'Fixture password',licenseNumber:'LIC',assignedVehiclePlate:'AA-1',vehicleModel:'Sedan',vehicleType:'SEDAN_4',emergencyContactName:'Contact',emergencyContactPhone:'0912345679',vehicleColor:'Teal',proposedDeparture:'Stale departure',proposedDestination:'Stale destination',proposedMonthlyFeeEtb:'9999'};
+  const payload=portal.accountPayload('DRIVER','register',values,fixedQuote(35000));
+  assert.equal(payload.serviceType,'TAXI');assert.equal(payload.licenseNumber,'LIC');assert.equal(payload.assignedVehiclePlate,'AA-1');assert.equal(payload.vehicleType,'SEDAN_4');
+  for(const key of ['proposedDeparture','proposedDestination','proposedMonthlyFeeEtb','proposedMonthlyFeeBasis'])assert.equal(Object.hasOwn(payload,key),false,key);
+  assert.equal(portal.isDailyDriverAccount({role:'DRIVER',serviceType:'TAXI',companyId:''}),true,'Saved taxi applications remain accessible for document upload');
+  const controls=Object.entries(values).map(([name,value])=>({name,value,required:true,disabled:false}));
+  portal.applyDriverServiceSelection(controls,'TAXI');portal.applyRegistrationFields(controls,'DRIVER','register','TAXI');
+  for(const name of ['proposedDeparture','proposedDestination','proposedMonthlyFeeEtb']){const control=controls.find(c=>c.name===name);assert.equal(control.value,'');assert.equal(control.disabled,true);assert.equal(control.required,false);}
+  for(const name of ['licenseNumber','assignedVehiclePlate','vehicleModel','vehicleType','emergencyContactName','emergencyContactPhone','vehicleColor'])assert.equal(controls.find(c=>c.name===name).required,true,name);
+  portal.applyDriverServiceSelection(controls,'DAILY_COMMUTE');portal.applyRegistrationFields(controls,'DRIVER','register','DAILY_COMMUTE');
+  for(const name of ['proposedDeparture','proposedDestination','proposedMonthlyFeeEtb']){const control=controls.find(c=>c.name===name);assert.equal(control.required,true);assert.equal(control.value,'','Switching back never reuses a stale route or price');}
+  for(const language of ['en','am','om'])for(const key of ['taxiService','taxiRegistrationIntro','taxiStepAccountBody'])assert.notEqual(portal.translate(key,language),key);
 });
 
 test('daily-driver controls cannot be switched to a different role or service and login disables registration fields', () => {

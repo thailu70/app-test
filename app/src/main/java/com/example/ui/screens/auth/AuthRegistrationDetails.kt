@@ -31,11 +31,12 @@ internal fun AuthRegistrationDetails(
     companyError: String?, language: AppLanguage, enabled: Boolean,
     vehicleTypes: List<VehicleTypeOption> = VehicleTypeOption.DEFAULTS,
     vehicleTypesLoading: Boolean = false, vehicleTypesError: String? = null,
-    applications: DriverApplicationRepository? = null
+    applications: DriverApplicationRepository? = null, taxiPassenger: Boolean = false
 ) {
     fun t(en: String, am: String, om: String) = authText(language, en, am, om)
     Column(Modifier.fillMaxWidth().testTag("auth_details"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(if (driver) t("Driver details", "የሹፌር ዝርዝር", "Odeeffannoo konkolaachisaa")
+            else if (taxiPassenger) t("Your passenger account", "የተሳፋሪ መለያዎ", "Herrega imaltuu kee")
             else if (draft.isCustomCommute) t("Request your daily route", "የዕለት መስመርዎን ይጠይቁ", "Karaa guyyaa kee gaafadhu")
             else t("Choose your daily route", "የዕለት መስመርዎን ይምረጡ", "Karaa guyyaa kee filadhu"),
             color = CommuteInk, fontSize = 26.sp, fontWeight = FontWeight.Bold)
@@ -44,9 +45,9 @@ internal fun AuthRegistrationDetails(
             AuthField(draft.license, { draft.license = it }, t("Commercial driving licence number", "የንግድ መንጃ ፈቃድ ቁጥር", "Lakkoofsa eeyyama konkolaachisummaa"),
                 Modifier.fillMaxWidth().testTag("auth_driver_license_input"), enabled = enabled, language = language, leadingIcon = Icons.Default.Badge)
             Text(t("Service type", "የአገልግሎት ዓይነት", "Gosa tajaajilaa"), color = CommuteInk, fontWeight = FontWeight.SemiBold)
-            AuthChoiceChips(listOf("Daily Commuter" to t("Daily commute", "የዕለት ጉዞ", "Imala guyyaa"), "Intercity" to t("Intercity", "የከተማ መካከል", "Magaalotaa"),
+            AuthChoiceDropdown(draft.service, t("Service type", "የአገልግሎት ዓይነት", "Gosa tajaajilaa"), listOf("Meter Taxi" to t("Meter Taxi", "ሜትር ታክሲ", "Taaksii meetiraa"), "Daily Commuter" to t("Daily commute", "የዕለት ጉዞ", "Imala guyyaa"), "Intercity" to t("Intercity", "የከተማ መካከል", "Magaalotaa"),
                 "Group Travel" to t("Group travel", "የቡድን ጉዞ", "Imala garee"), "Cargo" to t("Cargo", "ጭነት", "Fe'umsa")),
-                draft.service, enabled, { draft.service = it }, "auth_service")
+                { draft.service = it }, enabled, "auth_service")
             if (draft.service == "Intercity") {
                 AuthChoiceDropdown(draft.company, t("Transport company", "የትራንስፖርት ኩባንያ", "Dhaabbata geejjibaa"), companies.map { it.id to it.name }, { draft.company = it }, enabled, "auth_driver_company")
                 companyError?.let { Text(it, color = Color(0xFFAC2F2F), fontSize = 12.sp) }
@@ -63,7 +64,9 @@ internal fun AuthRegistrationDetails(
                 else if (vehicleTypes.isEmpty()) Text(t("No vehicle types are currently available. Contact your administrator.", "አሁን የተሽከርካሪ ዓይነቶች የሉም። አስተዳዳሪዎን ያነጋግሩ።", "Gosti konkolaataa hin jiru. Bulchaa kee qunnami."), color = Color(0xFFAC2F2F), fontSize = 12.sp)
                 vehicleTypesError?.let { Text(it, color = Color(0xFFAC2F2F), fontSize = 12.sp) }
                 if (draft.service == "Daily Commuter" && applications != null) DriverRouteProposalFields(draft, applications, language, enabled)
-                else {
+                else if (draft.service == "Meter Taxi") {
+                    Text(t("Upload your driver and vehicle documents next. After administrator approval, your Meter Taxi portal opens for nearby calls and shared rides.", "ቀጥሎ የአሽከርካሪ እና የተሽከርካሪ ሰነዶችዎን ይላኩ። አስተዳዳሪው ከፈቀደ በኋላ የሜትር ታክሲ ፖርታልዎ ይከፈታል።", "Sanadoota konkolaachisaa fi konkolaataa kee itti aansii olkaa'i. Hayyama bulchaa booda poortaaliin taaksii meetiraa kee bana."), color = CommuteInk, fontSize = 13.sp)
+                } else {
                     AuthRouteLocationField(draft, true, t("Preferred departure", "የሚመርጡት መነሻ", "Ka'umsa filatame"), "auth_driver_preferred_origin", enabled, language)
                     AuthRouteLocationField(draft, false, t("Preferred destination", "የሚመርጡት መድረሻ", "Ga'umsa filatame"), "auth_driver_preferred_destination", enabled, language)
                     Text(if (draft.service == "Cargo") t("After approval, assigned cargo requests appear in your driver portal.", "ከተፈቀደ በኋላ የተመደቡ ጭነቶች በፖርታልዎ ይታያሉ።", "Hayyama booda gaaffileen fe'umsaa poortaalii kee irratti mul'atu.")
@@ -79,7 +82,7 @@ internal fun AuthRegistrationDetails(
             AuthField(draft.emergencyContactPhone, { draft.emergencyContactPhone = it.take(24) }, t("Emergency contact phone", "የአደጋ ጊዜ ተጠሪ ስልክ", "Bilbila nama yeroo balaa"),
                 Modifier.fillMaxWidth().testTag("auth_driver_contact_phone_input"), phone = true, enabled = enabled, language = language)
         }
-        if (!driver && !draft.isCustomCommute) {
+        if (!driver && !taxiPassenger && !draft.isCustomCommute) {
             if (routes.isEmpty()) Text(t("No active daily routes are available. Return to daily routes to request a new route.", "ንቁ የዕለት መስመሮች የሉም። አዲስ መስመር ለመጠየቅ ወደ መስመሮች ይመለሱ።", "Karaaleen guyyaa hojii irra jiran hin jiran. Karaa haaraa gaafachuuf deebi'i."),
                 color = CommuteInk, fontSize = 13.sp)
             routes.forEach { route ->
@@ -102,17 +105,17 @@ internal fun AuthRegistrationDetails(
                 }
             }
         }
-        if (!driver && draft.isCustomCommute) {
+        if (!driver && !taxiPassenger && draft.isCustomCommute) {
             AuthRouteLocationField(draft, true, t("Pickup location", "የመነሻ ቦታ", "Bakka ka'umsaa"), "auth_passenger_pickup_input", enabled, language)
             AuthRouteLocationField(draft, false, t("Destination", "መድረሻ", "Bakka ga'umsaa"), "auth_passenger_destination_input", enabled, language)
             AuthChoiceChips(listOf("One way" to t("One way", "አንድ መንገድ", "Karaa tokko"), "Two way" to t("Two way", "ደርሶ መልስ", "Deebii waliin")),
                 draft.journey, enabled, { draft.journey = it }, "auth_journey")
         }
-        if (!driver) {
+        if (!driver && !taxiPassenger) {
             Text(t("Preferred tier", "የሚመርጡት ደረጃ", "Sadarkaa filatame"), color = CommuteInk, fontWeight = FontWeight.SemiBold)
             AuthChoiceChips(listOf("Economy" to "Economy", "Deluxe" to "Deluxe", "VIP" to "VIP"), draft.tier, enabled, { draft.tier = it }, "auth_tier")
         }
-        if (!driver) Text(t("Registration does not confirm a paid pass. Your route offer and payment remain separate.", "ምዝገባ የተከፈለ ፓስ አያረጋግጥም። የመስመር ቅናሽ እና ክፍያ በተለየ ይቀጥላሉ።", "Galmeen paasiin kaffalameera jechuu miti. Yaadni karaa fi kaffaltiin addaatti itti fufa."), fontSize = 12.sp, color = CommuteInk)
+        if (!driver) Text(if (taxiPassenger) t("Create your account to request taxi rides and book shared seats. You can choose a Daily Commute pass later.", "የታክሲ ጉዞ ለመጠየቅ እና የጋራ መቀመጫ ለመያዝ መለያዎን ይፍጠሩ። የዕለት ጉዞ ፓስ በኋላ መምረጥ ይችላሉ።", "Taaksii gaafachuu fi teessoo waliinii qabachuuf herrega uumi. Paasii imala guyyaa boodarra filachuu dandeessa.") else t("Registration does not confirm a paid pass. Your route offer and payment remain separate.", "ምዝገባ የተከፈለ ፓስ አያረጋግጥም። የመስመር ቅናሽ እና ክፍያ በተለየ ይቀጥላሉ።", "Galmeen paasiin kaffalameera jechuu miti. Yaadni karaa fi kaffaltiin addaatti itti fufa."), fontSize = 12.sp, color = CommuteInk)
         Row(Modifier.fillMaxWidth().toggleable(value = draft.adultConfirmed, enabled = enabled, role = Role.Checkbox,
             onValueChange = { draft.adultConfirmed = it }).testTag("auth_adult_confirmation").padding(vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
@@ -153,7 +156,7 @@ private fun AuthChoiceDropdown(value: String, label: String, options: List<Pair<
             Icon(Icons.Default.ArrowDropDown, "Choose", tint = CommuteTeal)
         }
         DropdownMenu(open, { open = false }) {
-            options.forEach { (key, text) -> DropdownMenuItem(text = { Text(text) }, onClick = { onSelect(key); open = false }) }
+            options.forEach { (key, text) -> DropdownMenuItem(text = { Text(text) }, onClick = { onSelect(key); open = false }, modifier = Modifier.testTag("${tag}_$key")) }
         }
     }
 }

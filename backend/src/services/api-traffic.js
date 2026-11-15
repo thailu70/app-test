@@ -11,9 +11,19 @@ function resourceStatusRequest(req) {
   return ['GET', 'HEAD'].includes(req.method) && req.path === '/admin/system/resources';
 }
 
+function rideContinuityRequest(req) {
+  const path = req.path.replace(/\/$/, '');
+  if (['GET', 'HEAD'].includes(req.method)) return /^\/rides\/(?:me|driver\/dashboard|requests\/[^/]+|shared\/trips\/[^/]+)$/.test(path);
+  return req.method === 'POST' && (
+    /^\/rides\/driver\/trips\/[^/]+\/(?:arrive|start|locations|wait|complete|cancel)$/.test(path) ||
+    /^\/rides\/requests\/[^/]+\/(?:cancel|stop-wait)$/.test(path) ||
+    /^\/rides\/driver\/shared\/trips\/[^/]+\/(?:actions|location)$/.test(path) ||
+    /^\/rides\/shared\/bookings\/[^/]+\/cancel$/.test(path));
+}
+
 /** Signed-in app traffic follows server capacity; anonymous traffic retains its IP cap. */
 function createApiTrafficMiddleware({ resourceMonitor, resolvePrincipal, anonymousLimit = 1000, windowMs = 15 * 60 * 1000,
-  publicTransportLimit = 6000, publicTransportWindowMs = 60000 }) {
+  publicTransportLimit = 6000, publicTransportWindowMs = 60000, rideContinuityLimit = 300 }) {
   async function verifiedPrincipal(req) {
     const authorization = req.headers.authorization;
     if (typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) return null;
@@ -49,14 +59,33 @@ function createApiTrafficMiddleware({ resourceMonitor, resolvePrincipal, anonymo
     message: { success: false, error: 'This transport service is receiving many requests. Please wait briefly and try again.' }
   });
 
-  return function apiTraffic(req, res, next) {
+  // A bounded lane keeps an existing journey's location, boarding, cancellation
+  // and settlement reachable during load shedding. It never admits a new ride,
+  // a driver acceptance, a street start, a seat booking or a settings mutation.
+  // Authentication here only chooses the budget; the router still checks role
+  // and trip ownership. Forged bearer strings cannot enter this lane.
+  const continuityIdentities = new WeakMap();
+  const continuityLimiter = rateLimit({
+    windowMs: 60000, max: rideContinuityLimit, standardHeaders: true, legacyHeaders: false,
+    keyGenerator: req => 'ride-account:' + continuityIdentities.get(req),
+    message: { success: false, error: 'Please pause briefly before refreshing this journey again.' }
+  });
+
+  return async function apiTraffic(req, res, next) {
     if (healthRequest(req)) return healthLimiter(req, res, next);
     // The route still requires an active ADMIN. Cached monitoring stays reachable under load.
     if (resourceStatusRequest(req)) return statusLimiter(req, res, next);
+    if (rideContinuityRequest(req)) {
+      const principal = await verifiedPrincipal(req);
+      if (principal && ['DRIVER', 'PASSENGER'].includes(principal.role)) {
+        continuityIdentities.set(req, principal.id);
+        return continuityLimiter(req, res, next);
+      }
+    }
     resourceMonitor.middleware(req, res, () => isPublicTransportRequest(req)
       ? publicTransportLimiter(req, res, next)
       : anonymousLimiter(req, res, next));
   };
 }
 
-module.exports = { createApiTrafficMiddleware };
+module.exports = { createApiTrafficMiddleware, rideContinuityRequest };

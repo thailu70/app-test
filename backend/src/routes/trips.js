@@ -140,6 +140,9 @@ router.post('/start', authenticate, requireRole('DRIVER'), operationalAccount, a
       if (!currentVehicle || currentVehicle.driverId !== driverId || currentVehicle.assignedRouteId !== routeId || currentVehicle.companyId) {
         return { status: 'ASSIGNMENT_CHANGED' };
       }
+      // Rides use the same vehicle then driver lock order, so a taxi/shared
+      // acceptance cannot race this legacy commute departure into two jobs.
+      await require('../services/rides').assertNoRideJob(driverId, currentVehicle.id, tx);
       const existingTrip = await tx.prepare("SELECT id FROM trips WHERE vehicleId = ? AND status = 'IN_PROGRESS' LIMIT 1").get(currentVehicle.id);
       if (existingTrip) return { status: 'TRIP_ALREADY_ACTIVE' };
       const currentRoute = await tx.prepare("SELECT * FROM routes WHERE id = ? AND active = TRUE AND COALESCE(routeType, 'DAILY_COMMUTE') = 'DAILY_COMMUTE' AND COALESCE(companyId, '') = ''").get(routeId);
@@ -207,6 +210,7 @@ router.post('/start', authenticate, requireRole('DRIVER'), operationalAccount, a
       }
     });
   } catch (err) {
+    if (err.code === 'DRIVER_BUSY' && err.status === 409) return res.status(409).json({ success: false, code: err.code, error: err.message });
     console.error('[RoutePass] request failed:', err);
     res.status(500).json({ success: false, error: 'Internal server error.' });
   }

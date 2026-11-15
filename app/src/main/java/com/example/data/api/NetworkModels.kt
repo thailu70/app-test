@@ -29,7 +29,8 @@ data class RegisterRequest(
     val appliedRouteId: String? = null,
     val appliedRouteName: String? = null,
     val otpVerificationToken: String? = null,
-    val serviceClass: String? = null
+    val serviceClass: String? = null,
+    val serviceType: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -52,7 +53,8 @@ data class UserDto(
     val companyName: String? = "",
     val assignedVehiclePlate: String? = "",
     val appliedRouteId: String? = "",
-    val appliedRouteName: String? = ""
+    val appliedRouteName: String? = "",
+    val driverServiceType: String? = null
 )
 
 @JsonClass(generateAdapter = true)

@@ -44,8 +44,9 @@ class CredentialStorageTest {
                 old.version = 4
             }
             database = Room.databaseBuilder(context, TransportDatabase::class.java, name)
-                .addMigrations(TransportDatabase.MIGRATION_4_5, TransportDatabase.MIGRATION_5_6).allowMainThreadQueries().build()
+                .addMigrations(TransportDatabase.MIGRATION_4_5, TransportDatabase.MIGRATION_5_6, TransportDatabase.MIGRATION_6_7).allowMainThreadQueries().build()
             assertEquals("Cached name", database.transportDao().getUserById("existing-user")!!.fullName)
+            assertEquals("", database.transportDao().getUserById("existing-user")!!.driverServiceType)
             assertEquals("Actual route", database.transportDao().getRouteById("existing-route")!!.name)
             val retainedPass = database.transportDao().getSubscriptionForPassengerSync("existing-user")!!
             assertEquals("existing-token", retainedPass.qrToken)

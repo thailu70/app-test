@@ -26,6 +26,7 @@ async function harness(t, options = {}) {
   app.use('/api/', createApiTrafficMiddleware({
     anonymousLimit: options.anonymousLimit ?? 2,
     publicTransportLimit: options.publicTransportLimit ?? 4,
+    rideContinuityLimit: options.rideContinuityLimit ?? 300,
     windowMs: 900000,
     resourceMonitor: options.resourceMonitor || available,
     resolvePrincipal: async token => {
@@ -40,6 +41,12 @@ async function harness(t, options = {}) {
   app.get('/api/mobility/catalog', (_req, res) => res.json({ success: true }));
   app.get('/api/mobility/admin/requests', authenticate, (req, res) => res.json({ id: req.user.id }));
   app.get('/api/protected', authenticate, (req, res) => res.json({ id: req.user.id, role: req.user.role }));
+  app.get('/api/rides/me', authenticate, (req, res) => res.json({ id: req.user.id }));
+  app.post('/api/rides/driver/trips/:id/locations', authenticate, (req, res) => res.json({ id: req.user.id }));
+  app.post('/api/rides/driver/trips/:id/complete', authenticate, (req, res) => res.json({ id: req.user.id }));
+  app.post('/api/rides/requests', authenticate, (_req, res) => res.json({ success: true }));
+  app.post('/api/rides/driver/requests/:id/accept', authenticate, (_req, res) => res.json({ success: true }));
+  app.post('/api/rides/driver/street', authenticate, (_req, res) => res.json({ success: true }));
   if (options.authRoutes) {
     app.use('/api/auth', require('../src/routes/auth'));
     app.use('/api/companies', require('../src/routes/company-portal'));
@@ -190,5 +197,22 @@ test('capacity admission preserves active-account validation and route-specific 
     const limitedCompany = await api.request('/api/companies/login', { token: driverA, method: 'POST', body: {} });
     assert.equal(limitedCompany.status, 429);
     assert.equal(limitedCompany.headers.get('ratelimit-limit'), '8');
+  });
+  await t.test('overload preserves a bounded verified-account continuity lane but blocks new work and forged credentials', async t => {
+    const resourceMonitor = { middleware: (_req, res) => res.status(503).json({ success: false, code: 'SERVER_BUSY' }) };
+    const api = await harness(t, { resourceMonitor, rideContinuityLimit: 3 });
+    for (const endpoint of ['/api/rides/requests', '/api/rides/driver/requests/call/accept', '/api/rides/driver/street']) {
+      assert.equal((await api.request(endpoint, { token: driverA, method: 'POST', body: {} })).status, 503, endpoint);
+    }
+    assert.equal((await api.request('/api/rides/me', { token: 'forged' })).status, 503);
+    assert.equal((await api.request('/api/rides/driver/trips/ride/complete', { method: 'POST', token: signToken({ id: 'capacity_driver_a', role: 'ADMIN' }) })).status, 503);
+    assert.equal((await api.request('/api/rides/me', { token: driverA })).status, 200);
+    assert.equal((await api.request('/api/rides/driver/trips/ride/locations', { token: driverA, method: 'POST', body: {} })).status, 200);
+    assert.equal((await api.request('/api/rides/driver/trips/ride/complete', { token: driverA, method: 'POST', body: {} })).status, 200);
+    const limited = await api.request('/api/rides/me', { token: driverA });
+    assert.equal(limited.status, 429); assert.ok(Number(limited.headers.get('retry-after')) > 0);
+    await DB.prepare("UPDATE users SET status='INACTIVE' WHERE id=?").run('capacity_driver_a');
+    assert.equal((await api.request('/api/rides/me', { token: driverA })).status, 503, 'Deactivation revokes the continuity budget');
+    await DB.prepare("UPDATE users SET status='ACTIVE' WHERE id=?").run('capacity_driver_a');
   });
 });

@@ -8,7 +8,7 @@ const { DB } = require('../db');
 const { signToken, authenticate } = require('../middleware/auth');
 const { sendSms } = require('../services/afro-sms');
 const { accountPhonePolicy } = require('../services/account-phone-policy');
-const { createOnboardingService, OnboardingError, isOperationallyEligible } = require('../services/onboarding');
+const { createOnboardingService, OnboardingError, isOperationallyEligible, getDriverServiceType } = require('../services/onboarding');
 const { loadCredentialSnapshot } = require('../services/account-sessions');
 const { resolveCommuteFare, saveSubscriptionTerms } = require('../services/commute-pricing');
 const sha256 = value => crypto.createHash('sha256').update(String(value)).digest('hex');
@@ -365,7 +365,8 @@ router.post('/login', authLimiter, async (req, res) => {
         companyName: user.companyName,
         assignedVehiclePlate: user.assignedVehiclePlate,
         appliedRouteId: user.appliedRouteId,
-        appliedRouteName: user.appliedRouteName
+        appliedRouteName: user.appliedRouteName,
+        driverServiceType: user.role==='DRIVER' ? await getDriverServiceType(user.id) : null
       }
     });
   } catch (err) {
@@ -398,7 +399,8 @@ router.get('/me', authenticate, async (req, res) => {
         companyName: user.companyName,
         assignedVehiclePlate: user.assignedVehiclePlate,
         appliedRouteId: user.appliedRouteId,
-        appliedRouteName: user.appliedRouteName
+        appliedRouteName: user.appliedRouteName,
+        driverServiceType: user.role==='DRIVER' ? await getDriverServiceType(user.id) : null
       }
     });
   } catch (err) {

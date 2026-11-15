@@ -7,9 +7,11 @@ const rateLimit = require('express-rate-limit');
 function isPublicTransportRequest(req) {
   const path = req.path.replace(/\/$/, '');
   if (['GET', 'HEAD'].includes(req.method)) {
+    if (/^\/rides\/(?:catalog|nearby|shared\/trips(?:\/[^/]+)?)$/.test(path)) return true;
     return /^\/mobility\/(?:catalog|locations|route|track|trips(?:\/[^/]+\/seats)?|requests\/[^/]+(?:\/(?:photo|quotes|location))?|bookings\/[^/]+|drivers\/[^/]+\/reviews|tickets\/[^/]+)$/.test(path);
   }
   if (req.method === 'POST') {
+    if (path === '/rides/estimate') return true;
     return /^\/mobility\/(?:requests|trips\/[^/]+\/bookings|bookings\/[^/]+\/(?:checkout|reconcile)|requests\/[^/]+\/(?:push-token|submit|select|confirm|cancel|review))$/.test(path);
   }
   return (req.method === 'PUT' && /^\/mobility\/requests\/[^/]+\/photo$/.test(path)) ||

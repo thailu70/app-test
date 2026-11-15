@@ -9,6 +9,7 @@
   let masterDataCleanup = null;
   let applicationsCleanup = null;
   let mobilityCleanup = null;
+  let ridesCleanup = null;
   let routeEditor = null;
   let departureAreaController = null;
   let routeEditRequest = 0;
@@ -19,6 +20,7 @@
     drivers: ["Drivers & routes", "Review driver-owned vehicles and assign approved operating routes."],
     applications: ["Applications", "Review new driver and company applications from the public registration portal."],
     mobility: ["Group travel & cargo", "Review proposed group trips and assign drivers to private travel and cargo requests."],
+    rides: ["Taxi & shared rides", "Configure taxi fares, approve drivers and vehicles, and support shared seat journeys."],
     gps: ["Driver GPS", "Live and last reported GPS locations for daily commute drivers."],
     companies: ["Company access", "Invite transport companies and issue one-time registration codes."],
     routes: ["Manage routes", "Create, edit, activate and deactivate RoutePass transit routes."],
@@ -101,6 +103,8 @@
     applicationsCleanup = null;
     mobilityCleanup?.();
     mobilityCleanup = null;
+    ridesCleanup?.();
+    ridesCleanup = null;
     renderRevision++;
     sessionStorage.removeItem(TOKEN_KEY);
     state.token = "";
@@ -447,6 +451,8 @@
     applicationsCleanup = null;
     mobilityCleanup?.();
     mobilityCleanup = null;
+    ridesCleanup?.();
+    ridesCleanup = null;
     const title = labels[state.view] || labels.overview;
     $("#page-title").textContent = title[0];
     $$(".nav-item").forEach(button => button.classList.toggle("active", button.dataset.view === state.view));
@@ -459,6 +465,7 @@
         case "drivers": html = await renderDrivers(); break;
         case "applications": html = pageHeader("Driver & company applications", "Registration is open. Driver phone verification is optional for now; required documents and approval still apply.") + window.PassoApplications.markup(); break;
         case "mobility": html = pageHeader("Group travel & cargo", "Approve driver-proposed group trips, or assign an approved driver and vehicle to customer requests.") + window.PassoMobilityAdmin.markup(); break;
+        case "rides": html = pageHeader("Taxi & shared rides", "Set fares before enabling new bookings. Shared fees apply once per vehicle trip.") + window.PassoRidesAdmin.markup(); break;
         case "companies": html = await renderCompanyAccess(); break;
         case "routes": html = await renderRoutes(); break;
         case "vehicles": html = await renderVehicles(); break;
@@ -473,6 +480,12 @@
       }
       if (revision !== renderRevision) return;
       $("#page-content").innerHTML = html;
+      if (view === "rides" && window.PassoRidesAdmin) {
+        ridesCleanup = window.PassoRidesAdmin.mount({
+          container: $("#rides-admin-panel"), api,
+          isActive: () => state.view === "rides" && Boolean(state.token) && revision === renderRevision
+        });
+      }
       if (view === "mobility" && window.PassoMobilityAdmin) {
         mobilityCleanup = window.PassoMobilityAdmin.mount({
           container: $("#mobility-admin-panel"), api, token: state.token,

@@ -217,6 +217,9 @@ fun MainTransportApp(viewModel: MainViewModel) {
     var closureNotice by remember { mutableStateOf<String?>(null) }
     var showDailyCommute by rememberSaveable { mutableStateOf(false) }
     var showTaxiDriver by remember(currentUser?.id) { mutableStateOf(false) }
+    LaunchedEffect(currentUser?.id, currentUser?.driverServiceType) {
+        if (currentRole == AppRole.DRIVER && currentUser?.driverServiceType == "TAXI") showTaxiDriver = true
+    }
     LaunchedEffect(isAuthenticated, currentRole) {
         if (!isAuthenticated || currentRole != AppRole.DRIVER) com.example.ui.screens.taxi.TaxiTracking.stop()
     }
@@ -327,7 +330,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
         } else {
         if (requestedAuthPortal != AppRole.ADMIN) {
             AuthScreen(viewModel, Modifier.fillMaxSize(), requestedAuthPortal, requestedRegisterFirst,
-                requestedRouteId, requestedRouteName, requestedServiceTier, onExit = { returnFromAuthentication() })
+                requestedRouteId, requestedRouteName, requestedServiceTier, initialTaxi = authReturnsToTaxi, onExit = { returnFromAuthentication() })
         } else Scaffold(
             modifier = Modifier.fillMaxSize(),
             contentWindowInsets = WindowInsets.safeDrawing,

@@ -15,11 +15,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.api.*
+import com.example.R
 import com.example.ui.screens.intercity.freshMobilityLocation
 import com.example.ui.screens.intercity.mobilityDepartureIso
 import com.example.ui.screens.passenger.*
@@ -28,17 +31,17 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-@Composable internal fun SharedPassengerContent(model: TaxiViewModel, state: TaxiUiState, authenticated: Boolean, onSignIn: () -> Unit) {
-    var creating by remember { mutableStateOf(false) }
+@Composable internal fun SharedPassengerContent(model: TaxiViewModel, state: TaxiUiState, authenticated: Boolean, onSignIn: () -> Unit, onBack: () -> Unit = {}, initialCreate: Boolean = false) {
+    var creating by remember { mutableStateOf(initialCreate) }
     val trip = state.selectedTrip
     Column(Modifier.fillMaxSize()) {
-        TaxiHeader("Group Ride", onBack = { if (trip != null) model.closeTrip() else creating = false })
+        TaxiHeader("Group Ride", onBack = { when { trip != null -> model.closeTrip(); creating -> creating = false; else -> onBack() } })
         when {
             trip != null -> SharedTripDetail(model, state, authenticated, onSignIn)
             creating -> TaxiTripForm(state, driver = false, street = false, model = model, onClose = { creating = false }) { input -> if (authenticated) model.sharedRequest(input) else onSignIn() }
             else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                 Text("Share the route. Pay per seat.", color = CommuteInk, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
-                TaxiPrimary("Start a group ride", !state.busy && state.settings.sharedEnabled, "shared_start_request") { if (authenticated) creating = true else onSignIn() }
+                TaxiPrimary("Start a group ride", !state.busy && state.settings.sharedEnabled, "shared_start_request") { if (authenticated) creating = true else { TaxiPendingNavigation.shared(start = true); onSignIn() } }
                 if (!state.settings.sharedEnabled) Text("Shared rides are being prepared. Published trips will appear here when available.", color = Color(0xFF627385))
                 Text("Find a seat", color = CommuteInk, fontWeight = FontWeight.ExtraBold, fontSize = 23.sp)
                 if (state.trips.isEmpty()) Text("No shared trips are available yet. You can request your route and let an eligible driver respond.", color = Color(0xFF627385))
@@ -61,14 +64,18 @@ import java.util.*
     }
 }
 
-@Composable internal fun SharedTripDetail(model: TaxiViewModel, state: TaxiUiState, authenticated: Boolean, onSignIn: () -> Unit) {
+@Composable internal fun SharedTripDetail(model: TaxiViewModel, state: TaxiUiState, authenticated: Boolean, onSignIn: () -> Unit, mapTiles: Boolean = true, mapApi: MobilityApi? = null) {
     val trip = state.selectedTrip ?: return
     val booking = state.selectedBooking
     var selected by remember(trip.id, state.occupiedSeats) { mutableStateOf<List<Int>>(emptyList()) }
+    var cancelRequest by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    if (cancelRequest) AlertDialog(onDismissRequest = { cancelRequest = false }, title = { Text("Cancel this group request?") },
+        text = { Text("You can cancel your requested route before any passenger booking is active.") },
+        confirmButton = { TextButton(onClick = { cancelRequest = false; model.cancelSharedRequest() }) { Text("Cancel request") } }, dismissButton = { TextButton(onClick = { cancelRequest = false }) { Text("Keep request") } })
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
         TaxiMap(trip.originLatitude to trip.originLongitude, trip.destinationLatitude to trip.destinationLongitude, trip.location,
-            if (trip.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 210, pickupLabel = trip.origin, destinationLabel = trip.destination)
+            if (trip.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 210, pickupLabel = trip.origin, destinationLabel = trip.destination, tileDownloadsEnabled = mapTiles, providedApi = mapApi)
         Text("${trip.origin} → ${trip.destination}", color = CommuteInk, fontSize = 23.sp, fontWeight = FontWeight.ExtraBold)
         Text(taxiTime(trip.departureAt), color = CommuteTeal)
         if (trip.status == "REQUESTED") {
@@ -102,9 +109,11 @@ import java.util.*
                     repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
                 if (selected.isNotEmpty()) Text("Total: ${taxiMoney((trip.farePerSeatEtb ?: 0.0) * selected.size)} for ${selected.size} seat(s)", color = CommuteInk, fontWeight = FontWeight.Bold)
-                TaxiPrimary(if (authenticated) "Book ${selected.size} seat(s)" else "Sign in to book", !state.busy && selected.isNotEmpty(), "shared_book_seats") { if (authenticated) model.book(selected.sorted()) else onSignIn() }
+                TaxiPrimary(if (authenticated) "Book ${selected.size} seat(s)" else "Sign in to book", !state.busy && selected.isNotEmpty(), "shared_book_seats") { if (authenticated) model.book(selected.sorted()) else { TaxiPendingNavigation.shared(trip.id); onSignIn() } }
             } else Text(trip.status.replace('_', ' '), color = CommuteTeal, fontWeight = FontWeight.Bold)
         }
+        if (authenticated && trip.status in setOf("REQUESTED", "OPEN") && state.myTrips.any { it.id == trip.id && it.initiatorRole == "PASSENGER" })
+            TextButton(onClick = { cancelRequest = true }, enabled = !state.busy) { Text("Cancel my group request") }
     }
 }
 
@@ -148,7 +157,14 @@ import java.util.*
         TaxiRouteRow("Pickup", origin.ifBlank { "Choose pickup" }, true, !state.busy && acceptRequest == null) { if (acceptRequest == null) picker = "pickup" }
         TaxiRouteRow("Destination", destination.ifBlank { "Where to?" }, false, !state.busy && acceptRequest == null) { if (acceptRequest == null) picker = "destination" }
         if (driver) Box {
-            OutlinedButton(onClick = { vehicleMenu = true }, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.DirectionsCar, null); Spacer(Modifier.width(8.dp)); Text(vehicle?.let { "${it.model} · ${it.plateNumber}" } ?: "Choose approved vehicle"); Icon(Icons.Default.ArrowDropDown, null) }
+            Surface(onClick = { vehicleMenu = true }, enabled = !state.busy, modifier = Modifier.fillMaxWidth(), color = CommuteMint, shape = RoundedCornerShape(18.dp)) {
+                Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Image(painterResource(when (vehicle?.tier) { "MINI_VAN" -> R.drawable.taxi_minivan; "COMFORT" -> R.drawable.taxi_comfort; else -> R.drawable.taxi_economy }), null, Modifier.width(100.dp).height(65.dp), contentScale = ContentScale.Fit)
+                    Column(Modifier.weight(1f).padding(horizontal = 8.dp)) { Text(vehicle?.model ?: "Choose approved vehicle", color = CommuteInk, fontWeight = FontWeight.Bold, maxLines = 2)
+                        vehicle?.let { Text(it.plateNumber, color = CommuteTeal, fontSize = 12.sp); Text("${it.capacityLimit} approved passenger seats", color = Color(0xFF627385), fontSize = 12.sp) } }
+                    Icon(Icons.Default.ArrowDropDown, "Choose vehicle", tint = CommuteTeal)
+                }
+            }
             DropdownMenu(vehicleMenu, { vehicleMenu = false }) { vehicles.forEach { item -> DropdownMenuItem(text = { Text("${item.model} · ${item.plateNumber} · ${item.capacityLimit} seats") }, onClick = { vehicleId = item.id; vehicleMenu = false; count = count.coerceAtMost(item.capacityLimit.coerceAtLeast(1)); model.clearEstimate(); consent = false }) } }
         }
         if (!street) {
@@ -161,6 +177,7 @@ import java.util.*
             }
             if (driver) OutlinedTextField(fare, { fare = it.take(12) }, label = { Text("Proposed fare per seat · ETB") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, enabled = !state.busy, modifier = Modifier.fillMaxWidth().testTag("shared_fare"))
             Text(if (driver) "Confirmed passengers keep their booked fare, even if other seats remain empty." else "A driver will propose a per-seat fare. You must confirm that fare before booking.", color = Color(0xFF627385), fontSize = 13.sp)
+            if (driver) Text("Passo fee: ${taxiMoney(state.settings.sharedFixedCommissionEtb)} per vehicle journey. Reserved when the first passenger books; settled once after completion.", color = CommuteTeal, fontSize = 13.sp)
             TaxiPrimary(if (acceptRequest != null) "Offer route and fare" else if (driver) "Publish group ride" else "Request group ride",
                 !state.busy && state.settings.sharedEnabled && base != null && departure != null && count in 1..capacity && (!driver || (vehicle != null && base.farePerSeatEtb != null)), "shared_submit") { base?.let(onSubmit) }
         } else {

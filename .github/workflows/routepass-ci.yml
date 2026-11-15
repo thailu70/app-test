@@ -72,6 +72,9 @@ jobs:
       - name: Check admin portal JavaScript syntax
         run: node --test test/public-transport-traffic-test.js test/mobility-marketplace-test.js test/mobility-geo-test.js test/mobility-push-test.js
         working-directory: backend
+      - name: Verify taxi fares, shared seats, notifications and cross-service safety
+        run: node --test test/rides-test.js test/taxi-registration-test.js test/rides-push-test.js test/cross-service-rides-test.js test/account-deletion-rides-test.js test/admin-rides-ui-test.js
+        working-directory: backend
       - name: Check marketplace admin portal JavaScript syntax
         run: node --check public/admin/admin.js && node --check public/admin/resources.js && node --check public/admin/master-data.js && node --check public/admin/mobility.js
         working-directory: backend
@@ -146,6 +149,7 @@ jobs:
           ASSIGNMENT_TEST_POSTGRES=true node --test test/assignment-closure-test.js
           MOBILITY_TEST_POSTGRES=true node --test --test-concurrency=1 test/mobility-test.js test/mobility-security-test.js
           MOBILITY_TEST_POSTGRES=true node --test --test-concurrency=1 test/mobility-marketplace-test.js test/mobility-push-test.js
+          MOBILITY_TEST_POSTGRES=true node --test --test-concurrency=1 test/rides-test.js test/taxi-registration-test.js test/rides-push-test.js test/cross-service-rides-test.js test/account-deletion-rides-test.js
         working-directory: backend
 
   review-backend:

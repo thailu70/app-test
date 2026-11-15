@@ -17,7 +17,8 @@ data class UserEntity(
     val companyName: String = "",
     val assignedVehiclePlate: String = "",
     val appliedRouteId: String = "",
-    val appliedRouteName: String = ""
+    val appliedRouteName: String = "",
+    @ColumnInfo(defaultValue = "''") val driverServiceType: String = ""
 )
 
 @Entity(tableName = "routes")

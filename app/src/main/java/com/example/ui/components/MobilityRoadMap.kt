@@ -74,7 +74,8 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
     driverLocation: MobilityLocation? = null, stage: String = "ASSIGNED",
     pickupLabel: String = "Pickup / loading", destinationLabel: String = "Destination",
     modifier: Modifier = Modifier, mapHeight: Int = 260, providedApi: MobilityApi? = null,
-    tileDownloadsEnabled: Boolean = true, trackingActive: Boolean = true, statusMessage: String? = null) {
+    tileDownloadsEnabled: Boolean = true, trackingActive: Boolean = true, statusMessage: String? = null, driverIcon: Int? = null,
+    nearbyPoints: List<Pair<Double, Double>> = emptyList()) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val api = remember(providedApi) { providedApi ?: ApiClient.createFeatureService(MobilityApi::class.java) }
@@ -160,7 +161,7 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
                     addView(map, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
                 } }, modifier = Modifier.matchParentSize().clipToBounds(), update = {
                     replaceRoadOverlays(map, plannedPoints, movingPoints, from, to, driverLocation, fresh,
-                        roadToDestination(stage), pickupLabel, destinationLabel)
+                        roadToDestination(stage), pickupLabel, destinationLabel, driverIcon, nearbyPoints)
                     if (!framed || (!fittedMoving && movingPoints.isNotEmpty())) map.post {
                         fitMap(); framed = true; fittedMoving = movingPoints.isNotEmpty(); map.invalidate()
                     }
@@ -193,7 +194,8 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
 
 internal fun replaceRoadOverlays(map: MapView, planned: List<Pair<Double, Double>>, moving: List<Pair<Double, Double>>,
     pickup: Pair<Double, Double>?, destination: Pair<Double, Double>?, driver: MobilityLocation?, fresh: Boolean,
-    inTransit: Boolean, pickupLabel: String, destinationLabel: String) {
+    inTransit: Boolean, pickupLabel: String, destinationLabel: String, driverIcon: Int? = null,
+    nearbyPoints: List<Pair<Double, Double>> = emptyList()) {
     map.overlays.clear()
     fun line(points: List<Pair<Double, Double>>, color: Int, dashed: Boolean) {
         if (points.size < 2) return
@@ -214,10 +216,17 @@ internal fun replaceRoadOverlays(map: MapView, planned: List<Pair<Double, Double
             paint.color = android.graphics.Color.WHITE; paint.textAlign = Paint.Align.CENTER; paint.textSize = size * 0.44f; paint.isFakeBoldText = true
             canvas.drawText(letter, size / 2f, size / 2f - (paint.ascent() + paint.descent()) / 2, paint)
             icon = BitmapDrawable(map.resources, bitmap)
+            if (letter == "D" && driverIcon != null) {
+                androidx.core.content.ContextCompat.getDrawable(map.context, driverIcon)?.mutate()?.let { source ->
+                    val car = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+                    source.setBounds(0, 0, size, size); source.draw(Canvas(car)); icon = BitmapDrawable(map.resources, car)
+                }
+            }
         })
     }
     marker(pickup, pickupLabel, "P", 0xFF00685C.toInt())
     marker(destination, destinationLabel, "F", 0xFF092C3E.toInt())
+    nearbyPoints.take(40).forEach { marker(it, "Nearby car · approximate", "D", 0xFF00695F.toInt()) }
     driver?.let { marker(it.latitude to it.longitude, if (fresh) "Driver · live" else "Driver · last known", "D", if (fresh) 0xFF1977E6.toInt() else 0xFF71808A.toInt()) }
     map.contentDescription = "Road journey map. $pickupLabel to $destinationLabel. ${if (fresh) "Live driver" else "No fresh driver location"}"
 }

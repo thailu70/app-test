@@ -533,7 +533,8 @@ class MainViewModel(
         appliedRouteId: String = "",
         appliedRouteName: String = "",
         otpVerificationToken: String = "",
-        serviceClass: String? = null
+        serviceClass: String? = null,
+        serviceType: String? = null
     ) {
         if (!_authBusy.compareAndSet(false, true)) return
         viewModelScope.launch {
@@ -545,7 +546,7 @@ class MainViewModel(
                 _authError.value = "Full Name and Phone Number are required."
                 return@launch
             }
-            if (role == AppRole.PASSENGER && appliedRouteId.isBlank() &&
+            if (role == AppRole.PASSENGER && serviceType != "TAXI" && appliedRouteId.isBlank() &&
                 !isCompleteCustomCommuterRequest(appliedRouteId, appliedRouteName)) {
                 _authError.value = "Please select the route you want to subscribe to."
                 return@launch
@@ -583,7 +584,8 @@ class MainViewModel(
                     appliedRouteId = appliedRouteId,
                     appliedRouteName = appliedRouteName,
                     otpVerificationToken = otpVerificationToken,
-                    serviceClass = serviceClass
+                    serviceClass = serviceClass,
+                    serviceType = serviceType
                 )
                 if (role == AppRole.DRIVER) {
                     _registrationMessage.value = "Thank you for registering. We will review your licence and vehicle, authorize your account, assign your route, and connect appropriate passenger subscriptions to your vehicle. We will contact you when it is ready. You can sign in after approval."

@@ -70,7 +70,7 @@ internal fun authText(language: AppLanguage, en: String, am: String, om: String)
 @Composable
 internal fun NativeAuthFlow(
     model: MainViewModel, role: AppRole, initialRegister: Boolean, routeId: String?, routeName: String?,
-    tier: String?, onExit: () -> Unit, modifier: Modifier = Modifier
+    tier: String?, onExit: () -> Unit, modifier: Modifier = Modifier, taxiPassenger: Boolean = false
 ) {
     val language by model.currentLanguage.collectAsState()
     val routes by model.allRoutes.collectAsState()
@@ -157,9 +157,9 @@ internal fun NativeAuthFlow(
     fun submit() {
         val problem = identityProblem() ?: when {
             !draft.adultConfirmed -> t("Confirm that you are 18 or older to create an account.", "መለያ ለመፍጠር ዕድሜዎ 18 ወይም ከዚያ በላይ መሆኑን ያረጋግጡ።", "Herrega uumuuf umriin kee 18 yookaan isaa ol ta'uu mirkaneessi.")
-            !driver && draft.isCustomCommute && draft.pickup.isBlank() -> "Enter your pickup location."
-            !driver && draft.isCustomCommute && draft.destination.isBlank() -> "Enter your destination."
-            !driver && !draft.isCustomCommute && routes.none { it.id == draft.selectedRoute && it.active } -> "Choose an active daily route to create your account."
+            !driver && !taxiPassenger && draft.isCustomCommute && draft.pickup.isBlank() -> "Enter your pickup location."
+            !driver && !taxiPassenger && draft.isCustomCommute && draft.destination.isBlank() -> "Enter your destination."
+            !driver && !taxiPassenger && !draft.isCustomCommute && routes.none { it.id == draft.selectedRoute && it.active } -> "Choose an active daily route to create your account."
             driver && draft.license.isBlank() -> "Enter your commercial driving licence number."
             driver && draft.emergencyContactName.trim().length < 2 -> "Enter your emergency contact name."
             driver && canonicalAccountPhone(draft.emergencyContactPhone) == null -> "Enter a valid emergency contact phone number."
@@ -168,7 +168,7 @@ internal fun NativeAuthFlow(
             driver && draft.service != "Intercity" && (draft.plate.isBlank() || draft.vehicleModel.isBlank()) -> "Enter your vehicle plate and model."
             driver && draft.service != "Intercity" && vehicleTypesLoading -> "Wait for vehicle types to finish loading."
             driver && draft.service != "Intercity" && vehicleTypes.none { it.code == draft.vehicleType } -> "Choose an available vehicle type."
-            driver && draft.service != "Intercity" && (draft.pickup.trim().length < 2 || draft.destination.trim().length < 2) -> "Enter your departure and destination."
+            driver && draft.service !in setOf("Intercity", "Meter Taxi") && (draft.pickup.trim().length < 2 || draft.destination.trim().length < 2) -> "Enter your departure and destination."
             driver && draft.service == "Daily Commuter" && (draft.quoteLoading || draft.quotedKey != driverQuoteKey(draft)) -> "Check the monthly vehicle fee before submitting."
             driver && draft.service == "Daily Commuter" && driverMonthlyFee(draft) == null -> "Enter a valid monthly fee for the whole vehicle, up to ETB 1,000,000."
             else -> null
@@ -180,12 +180,12 @@ internal fun NativeAuthFlow(
             scope.launch { model.driverApplications.register(DriverApplicationInput(
                 fullName = draft.name.trim(), phone = draft.phone.trim(), password = draft.password,
                 licenseNumber = draft.license.trim(), serviceType = when (draft.service) {
-                    "Intercity" -> "INTERCITY"; "Group Travel" -> "GROUP_TRAVEL"; "Cargo" -> "CARGO"; else -> "DAILY_COMMUTE"
+                    "Meter Taxi" -> "TAXI"; "Intercity" -> "INTERCITY"; "Group Travel" -> "GROUP_TRAVEL"; "Cargo" -> "CARGO"; else -> "DAILY_COMMUTE"
                 },
                 companyId = draft.company.takeIf { intercity }, assignedVehiclePlate = draft.plate.trim().takeUnless { intercity },
                 vehicleModel = draft.vehicleModel.trim().takeUnless { intercity }, vehicleType = draft.vehicleType.takeUnless { intercity },
-                routeChoice = "PROPOSED".takeUnless { intercity }, proposedDeparture = draft.pickup.trim().takeUnless { intercity },
-                proposedDestination = draft.destination.trim().takeUnless { intercity }, proposedMonthlyFeeEtb = if (draft.service == "Daily Commuter") driverMonthlyFee(draft) else null,
+                routeChoice = "PROPOSED".takeUnless { intercity || draft.service == "Meter Taxi" }, proposedDeparture = draft.pickup.trim().takeUnless { intercity || draft.service == "Meter Taxi" },
+                proposedDestination = draft.destination.trim().takeUnless { intercity || draft.service == "Meter Taxi" }, proposedMonthlyFeeEtb = if (draft.service == "Daily Commuter") driverMonthlyFee(draft) else null,
                 proposedMonthlyFeeBasis = "PER_VEHICLE".takeIf { draft.service == "Daily Commuter" },
                 emergencyContactName = draft.emergencyContactName.trim(), emergencyContactPhone = draft.emergencyContactPhone.trim(),
                 vehicleColor = draft.vehicleColor.trim()
@@ -197,15 +197,17 @@ internal fun NativeAuthFlow(
             fullName = draft.name.trim(), phone = draft.phone.trim(), email = "", password = draft.password, role = role,
             licenseNumber = draft.license.trim(), companyName = if (intercity) draft.company else "",
             assignedVehiclePlate = if (intercity) "" else draft.plate.trim(), vehicleModel = if (intercity) "" else draft.vehicleModel.trim(),
-            vehicleType = draft.vehicleType, appliedRouteId = if (intercity || proposed || (!driver && draft.isCustomCommute)) "" else draft.selectedRoute,
+            vehicleType = draft.vehicleType, appliedRouteId = if (taxiPassenger || intercity || proposed || (!driver && draft.isCustomCommute)) "" else draft.selectedRoute,
             appliedRouteName = when {
+                taxiPassenger -> ""
                 intercity -> "Driver service preference: City Travel | Transport company: " + draft.company + " | Tier: " + draft.tier
                 proposed -> "Driver service preference: Daily Commuter | Proposed route | Pickup: ${draft.pickup} | Destination: ${draft.destination} | Departure: ${draft.departure} | Journey: ${draft.journey} | Tier: ${draft.tier}"
                 driver -> "Driver service preference: Daily Commuter | Route: ${draft.selectedRouteName} | Tier: ${draft.tier}"
                 draft.isCustomCommute -> "Requested commuter route | Pickup: ${draft.pickup} | Destination: ${draft.destination} | Journey: ${draft.journey} | Tier: ${draft.tier}"
                 else -> draft.selectedRouteName
             },
-            serviceClass = if (!driver) commuterServiceClass(draft.tier) else null
+            serviceClass = if (!driver && !taxiPassenger) commuterServiceClass(draft.tier) else null,
+            serviceType = if (!driver && taxiPassenger) "TAXI" else null
         )
     }
     if (driver && applicationState.application != null) {
@@ -248,7 +250,7 @@ internal fun NativeAuthFlow(
                     }
                     if (register && step == 1) {
                         AuthRegistrationDetails(draft, driver, routes.filter { it.active }, companies, companyError, language, !busy,
-                            vehicleTypes, vehicleTypesLoading, vehicleTypesError, model.driverApplications)
+                            vehicleTypes, vehicleTypesLoading, vehicleTypesError, model.driverApplications, taxiPassenger = taxiPassenger)
                     }
                     (message ?: authError?.takeIf { waitingForAuth })?.let { Text(it, color = androidx.compose.ui.graphics.Color(0xFFAC2F2F), fontSize = 12.sp, modifier = Modifier.testTag("auth_error")) }
                     if (driver && waitingForAuth) applicationState.error?.let { Text(it, color = androidx.compose.ui.graphics.Color(0xFFAC2F2F), fontSize = 12.sp, modifier = Modifier.testTag("auth_application_error")) }

@@ -15,6 +15,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -23,6 +25,7 @@ import com.example.data.api.*
 import com.example.ui.screens.intercity.freshMobilityLocation
 import com.example.ui.screens.passenger.*
 import com.example.ui.viewmodel.MainViewModel
+import com.example.smoothPortalMotion
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -39,13 +42,16 @@ import kotlinx.coroutines.launch
     onDailyCommute: () -> Unit, onSignIn: () -> Unit, onBack: () -> Unit, onPrivacy: () -> Unit = {},
     onProfile: () -> Unit = {}, onSignOut: () -> Unit = {}, mapTiles: Boolean = true) {
     val state by model.state.collectAsState()
+    val pending = remember(authenticated) { if (authenticated) TaxiPendingNavigation.take() else TaxiPendingNavigation.peek() }
     val context = LocalContext.current; val scope = rememberCoroutineScope()
-    var page by remember { mutableStateOf("home") }
-    var pickup by remember { mutableStateOf<Pair<Double, Double>?>(null) }
-    var destination by remember { mutableStateOf<Pair<Double, Double>?>(null) }
-    var pickupName by remember { mutableStateOf("Pickup location") }
-    var destinationName by remember { mutableStateOf("") }
-    var tier by remember { mutableStateOf("ECONOMY") }
+    var page by remember { mutableStateOf(if (pending?.sharedId != null || pending?.sharedStart == true) "shared" else "home") }
+    var startShared by remember { mutableStateOf(authenticated && pending?.sharedStart == true) }
+    var pickup by remember { mutableStateOf(pending?.route?.let { it.originLatitude to it.originLongitude }) }
+    var destination by remember { mutableStateOf(pending?.route?.let { it.destinationLatitude to it.destinationLongitude }) }
+    var pickupName by remember { mutableStateOf(pending?.route?.origin ?: "Pickup location") }
+    var destinationName by remember { mutableStateOf(pending?.route?.destination.orEmpty()) }
+    var tier by remember { mutableStateOf(pending?.route?.tier ?: "ECONOMY") }
+    LaunchedEffect(pending, model) { pending?.route?.let(model::estimate); pending?.sharedId?.let(model::chooseTrip) }
     var picker by remember { mutableStateOf<String?>(null) }
     var localNotice by remember { mutableStateOf<String?>(null) }
     var locating by remember { mutableStateOf(false) }
@@ -53,8 +59,8 @@ import kotlinx.coroutines.launch
     val pushFocus by com.example.core.notifications.RideNotificationNavigation.focus.collectAsState()
     LaunchedEffect(pushFocus, model) {
         pushFocus?.takeIf { it.scope == "PASSENGER" }?.let {
-            if (it.kind == "SHARED") { page = "shared"; model.chooseTrip(it.requestId) }
-            else { page = "home"; model.openRide(it.requestId) }
+            if (it.kind == "SHARED") { page = "shared"; model.openNotifiedTrip(it.requestId, true) }
+            else { page = "home"; model.openNotifiedTrip(it.requestId, false) }
             com.example.core.notifications.RideNotificationNavigation.consumeFocus()
         }
     }
@@ -74,6 +80,10 @@ import kotlinx.coroutines.launch
         val from = pickup ?: return null; val to = destination ?: return null
         return TaxiRouteInput(pickupName, destinationName, from.first, from.second, to.first, to.second, tier)
     }
+    LaunchedEffect(mapTiles) { if (mapTiles && pickup == null && taxiLocationPermission(context)) locatePickup() }
+    val nearbyPoint = state.ride?.takeIf { it.status == "REQUESTED" }?.let { it.originLatitude to it.originLongitude }
+        ?: pickup.takeIf { state.ride == null }
+    LaunchedEffect(nearbyPoint, tier, state.ride?.tier) { model.nearby(nearbyPoint, state.ride?.tier ?: tier) }
     picker?.let { type -> TaxiLocationDialog(type == "destination", if (type == "destination") destination else pickup,
         if (type == "destination") destinationName else pickupName, { picker = null }) { name, point ->
         if (type == "destination") { destination = point; destinationName = name; if (pickup == null) locatePickup() }
@@ -89,18 +99,31 @@ import kotlinx.coroutines.launch
     }, confirmButton = { TextButton(onClick = { more = false }) { Text("Close") } })
     BackHandler { if (state.selectedTrip != null) model.closeTrip() else if (page != "home") page = "home" else onBack() }
     Column(Modifier.fillMaxSize().background(CommuteCream)) {
-        TaxiHeader(onDailyCommute = onDailyCommute, onBack = if (!authenticated) onBack else null)
+        TaxiHeader(onDailyCommute = { TaxiPendingNavigation.clear(); onDailyCommute() }, onBack = if (!authenticated) ({ TaxiPendingNavigation.clear(); onBack() }) else null)
         TaxiNotice(localNotice ?: state.message) { localNotice = null; model.clearMessage() }
         if (state.busy || locating) LinearProgressIndicator(Modifier.fillMaxWidth(), color = CommuteTeal)
-        Box(Modifier.weight(1f)) {
+        Box(Modifier.weight(1f).smoothPortalMotion("$page:${state.ride?.status}:${state.selectedTrip?.id}")) {
             when {
-                page == "shared" -> SharedPassengerContent(model, state, authenticated, onSignIn)
+                page == "shared" -> { SharedPassengerContent(model, state, authenticated, onSignIn, { page = "home" }, startShared)
+                    LaunchedEffect(Unit) { startShared = false }
+                }
+                page == "payments" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+                    Text("Ride fares", color = CommuteInk, fontWeight = FontWeight.ExtraBold, fontSize = 25.sp)
+                    Text("Taxi and Group Ride fares are paid directly to your driver. Passo has not collected these amounts.", color = Color(0xFF627385), fontSize = 14.sp)
+                    state.rides.filter { it.status == "COMPLETED" }.forEach { ride -> Text("${ride.origin} → ${ride.destination}\n${taxiMoney(ride.fareEtb ?: 0.0)}", color = CommuteInk, fontSize = 15.sp); HorizontalDivider() }
+                    TextButton(onClick = onDailyCommute) { Text("Open Daily Commute for pass payments") }
+                }
                 page == "trips" -> TaxiPassengerHistory(model, state, authenticated, onSignIn, { page = "home" }) { page = "shared" }
-                state.ride != null -> PassengerCurrentRide(state.ride!!, state.busy, model)
-                else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                    TaxiMap(pickup, destination, height = if (state.estimate == null) 300 else 210,
-                        pickupLabel = pickupName, destinationLabel = destinationName, modifier = Modifier.padding(horizontal = 10.dp), tileDownloadsEnabled = mapTiles)
-                    Surface(shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp), color = Color.White, modifier = Modifier.fillMaxWidth()) {
+                state.ride != null -> PassengerCurrentRide(state.ride!!, state.busy, model, nearbyCars = state.nearbyCars)
+                else -> BoxWithConstraints(Modifier.fillMaxSize()) {
+                    var sheetPixels by remember { mutableIntStateOf(0) }
+                    val density = LocalDensity.current
+                    val sheetDp = with(density) { sheetPixels.toDp().value }.takeIf { it > 0 } ?: 260f
+                    val mapHeight = if (destination == null && state.estimate == null) (maxHeight.value - sheetDp).coerceAtLeast(160f).toInt() else 210
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    TaxiMap(pickup, destination, height = mapHeight,
+                        pickupLabel = pickupName, destinationLabel = destinationName, tileDownloadsEnabled = mapTiles, nearbyCars = state.nearbyCars)
+                    Surface(shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp), color = Color.White, modifier = Modifier.fillMaxWidth().onSizeChanged { sheetPixels = it.height }) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Surface(onClick = { picker = "destination" }, shape = RoundedCornerShape(19.dp), color = CommuteMint, modifier = Modifier.fillMaxWidth().testTag("taxi_where_to")) {
                                 Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Search, null, tint = CommuteTeal)
@@ -116,7 +139,7 @@ import kotlinx.coroutines.launch
                                     Text("${"%.1f".format(estimate.distanceKm)} km · about ${estimate.durationMinutes.toInt()} min", color = Color(0xFF627385), fontSize = 13.sp)
                                     Text("Final fare follows the meter. Pay the driver directly.", fontSize = 12.sp, color = Color(0xFF627385))
                                     TaxiPrimary(if (authenticated) "Request ${state.tiers.find { it.id == tier }?.name ?: tier.replace('_', ' ')}" else "Sign in to request", !state.busy && state.settings.enabled, "taxi_request") {
-                                        if (!authenticated) onSignIn() else route()?.let(model::request)
+                                        if (!authenticated) { route()?.let(TaxiPendingNavigation::route); onSignIn() } else route()?.let(model::request)
                                     }
                                 } ?: TaxiPrimary("Show estimated fare", !state.busy && !locating && route() != null && state.settings.enabled, "taxi_estimate") { route()?.let(model::estimate) }
                             }
@@ -125,26 +148,28 @@ import kotlinx.coroutines.launch
                             TextButton(onClick = { page = "shared" }, Modifier.align(Alignment.CenterHorizontally).testTag("taxi_group_ride")) { Icon(Icons.Default.Groups, null); Spacer(Modifier.width(8.dp)); Text("Group Ride · pay per seat", fontWeight = FontWeight.Bold) }
                         }
                     }
+                    }
                 }
             }
         }
         NavigationBar(containerColor = Color.White) {
             listOf("Home" to Icons.Default.Home, "Trips" to Icons.Default.ReceiptLong, "Payments" to Icons.Default.CreditCard, "More" to Icons.Default.MoreHoriz).forEachIndexed { index, item ->
-                NavigationBarItem(selected = (index == 0 && page == "home") || (index == 1 && page in setOf("trips", "shared")), onClick = {
-                    when (index) { 0 -> { model.closeTrip(); page = "home" }; 1 -> page = "trips"; 2 -> onDailyCommute(); else -> more = true }
+                NavigationBarItem(selected = (index == 0 && page == "home") || (index == 1 && page in setOf("trips", "shared")) || (index == 2 && page == "payments"), onClick = {
+                    when (index) { 0 -> { model.closeTrip(); page = "home" }; 1 -> page = "trips"; 2 -> page = "payments"; else -> more = true }
                 }, icon = { Icon(item.second, item.first) }, label = { Text(item.first, fontSize = 11.sp) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = CommuteTeal, indicatorColor = CommuteMint))
             }
         }
     }
 }
 
-@Composable private fun PassengerCurrentRide(ride: TaxiRide, busy: Boolean, model: TaxiViewModel) {
+@Composable internal fun PassengerCurrentRide(ride: TaxiRide, busy: Boolean, model: TaxiViewModel, mapTiles: Boolean = true, mapApi: MobilityApi? = null, nearbyCars: List<TaxiNearbyCar> = emptyList()) {
     val context = LocalContext.current
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
         TaxiMap(ride.originLatitude to ride.originLongitude, ride.destinationLatitude to ride.destinationLongitude, ride.location,
-            if (ride.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 265, pickupLabel = ride.origin, destinationLabel = ride.destination)
+            if (ride.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 265, pickupLabel = ride.origin, destinationLabel = ride.destination, tileDownloadsEnabled = mapTiles, providedApi = mapApi,
+            nearbyCars = if (ride.status == "REQUESTED") nearbyCars else emptyList())
         Surface(shape = RoundedCornerShape(24.dp), color = Color.White) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (ride.status == "REQUESTED") TaxiConnectionPulse() else Text(when (ride.status) {
+            if (ride.status == "REQUESTED") TaxiConnectionPulse(animated = mapTiles) else Text(when (ride.status) {
                 "ACCEPTED" -> "Your driver is on the way"; "AT_PICKUP" -> "Your driver has arrived"; "IN_PROGRESS" -> "Your trip is in progress"; "COMPLETED" -> "You have arrived"; else -> "Ride cancelled"
             }, color = CommuteInk, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp)
             TaxiRouteRow("Pickup", ride.origin, true); TaxiRouteRow("Destination", ride.destination, false)

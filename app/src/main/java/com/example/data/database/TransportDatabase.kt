@@ -26,13 +26,18 @@ import kotlinx.coroutines.CoroutineScope
         AuditLogEntity::class,
         NotificationEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class TransportDatabase : RoomDatabase() {
     abstract fun transportDao(): TransportDao
 
     companion object {
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE users ADD COLUMN driverServiceType TEXT NOT NULL DEFAULT ''")
+            }
+        }
         /** Copy non-secret fields only; existing routes, passes and other cached data survive. */
         val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -66,7 +71,7 @@ abstract class TransportDatabase : RoomDatabase() {
                     TransportDatabase::class.java,
                     environment.storageName("transport_navigator_database")
                 )
-                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .addCallback(object : Callback() {
                         override fun onOpen(db: SupportSQLiteDatabase) {
                             super.onOpen(db)

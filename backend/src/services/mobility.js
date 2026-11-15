@@ -59,6 +59,13 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
     if (!await getVehicleType(vehicle.vehicleType, tx)) fail(409, 'The assigned vehicle type is unavailable.');
     return { vehicle, driver };
   }
+  async function assertNoRideAssignment(driverId, vehicleId, tx) {
+    try { await require('./rides').assertNoRideJob(driverId, vehicleId, tx); }
+    catch (error) {
+      if (error.status === 409 && error.code === 'DRIVER_BUSY') fail(error.status, error.message, error.code);
+      throw error;
+    }
+  }
   async function eligible(trip, tx = db) {
     try { const { vehicle } = await vehicleDriver(trip.vehicle_id, trip.driver_id, 'GROUP', tx); return Number(trip.seats) <= Number(vehicle.capacityLimit); }
     catch (error) { if (error instanceof MobilityError) return false; throw error; }
@@ -374,6 +381,7 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
     const row = await write(async tx => {
       const before = await getRequest(key, null, tx, true);
       const { vehicle } = await vehicleDriver(input.vehicleId, input.driverId, before.kind, tx, true);
+      await assertNoRideAssignment(input.driverId, vehicle.id, tx);
       const current = await tx.prepare('SELECT * FROM mobility_requests WHERE id=?' + lock(tx)).get(key);
       const selected=await tx.prepare('SELECT selected_quote_id FROM mobility_request_market WHERE request_id=?').get(key);
       if(selected?.selected_quote_id)fail(409,'Customer-selected bookings must be managed through marketplace resolution.');
@@ -442,6 +450,7 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
       const before = await getTrip(key, tx);
       if (before.driver_id !== driverId) fail(404, 'Trip unavailable.');
       await vehicleDriver(before.vehicle_id, driverId, 'GROUP', tx, true);
+      await assertNoRideAssignment(driverId, before.vehicle_id, tx);
       const trip = await ownedTrip(driverId, key, tx, true);
       if (!['APPROVED','BOARDING'].includes(trip.status)) fail(409, 'Only approved trips can start boarding.');
       await checkLocation(trip, input, tx);

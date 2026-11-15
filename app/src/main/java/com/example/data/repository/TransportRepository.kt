@@ -100,7 +100,8 @@ class TransportRepository(
                     companyName = userDto.companyName ?: "",
                     assignedVehiclePlate = userDto.assignedVehiclePlate ?: "",
                     appliedRouteId = userDto.appliedRouteId ?: "",
-                    appliedRouteName = userDto.appliedRouteName ?: ""
+                    appliedRouteName = userDto.appliedRouteName ?: "",
+                    driverServiceType = userDto.driverServiceType.orEmpty()
                 )
                 dao.insertUser(user)
                 logAction("ONLINE_LOGIN", user.id, user.role, "Logged into VPS Backend (${user.phone})")
@@ -143,7 +144,8 @@ class TransportRepository(
         appliedRouteId: String = "",
         appliedRouteName: String = "",
         otpVerificationToken: String = "",
-        serviceClass: String? = null
+        serviceClass: String? = null,
+        serviceType: String? = null
     ): UserEntity {
         val normalizedRole = role.trim().uppercase()
         val cleanPhone = phone.trim()
@@ -163,7 +165,8 @@ class TransportRepository(
             appliedRouteId = appliedRouteId.ifBlank { null },
             appliedRouteName = appliedRouteName.ifBlank { null },
             otpVerificationToken = otpVerificationToken.ifBlank { null },
-            serviceClass = serviceClass?.let(::commuterServiceClass)
+            serviceClass = serviceClass?.let(::commuterServiceClass),
+            serviceType = serviceType
         )
 
         val response = try {
@@ -194,7 +197,8 @@ class TransportRepository(
                 companyName = userDto.companyName ?: "",
                 assignedVehiclePlate = userDto.assignedVehiclePlate ?: "",
                 appliedRouteId = userDto.appliedRouteId ?: "",
-                appliedRouteName = userDto.appliedRouteName ?: ""
+                appliedRouteName = userDto.appliedRouteName ?: "",
+                driverServiceType = userDto.driverServiceType.orEmpty()
             )
             dao.insertUser(user)
 

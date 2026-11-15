@@ -139,7 +139,7 @@ class AuthLayoutTest {
         ApiClient.setAuthToken(null)
     }
 
-    private fun show(role: AppRole, signup: Boolean = false, customRoute: Boolean = false, fontScale: Float = 1f) {
+    private fun show(role: AppRole, signup: Boolean = false, customRoute: Boolean = false, fontScale: Float = 1f, taxi: Boolean = false) {
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
@@ -147,7 +147,7 @@ class AuthLayoutTest {
                     AuthScreen(model, initialPortal = role, initialRegisterMode = signup,
                         initialRouteId = if (role == AppRole.PASSENGER && !customRoute) "route-auth-test" else null,
                         initialRouteName = if (customRoute) "Requested commuter route" else if (role == AppRole.PASSENGER) "Bole → CMC" else null,
-                        initialServiceTier = "Economy")
+                        initialServiceTier = "Economy", initialTaxi = taxi)
                 }
             }
         }
@@ -166,6 +166,50 @@ class AuthLayoutTest {
         }
         val directory = File("build/auth-previews").apply { mkdirs() }
         File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
+    @Test fun taxiPassengerCreatesAccountWithoutChoosingDailyRouteOrSubscription() {
+        show(AppRole.PASSENGER, signup = true, taxi = true)
+        compose.onNodeWithTag("auth_full_name_input").performTextInput("Fixture Taxi Passenger")
+        compose.onNodeWithTag("auth_phone_input").performTextInput("0912345678")
+        compose.onNodeWithTag("auth_password_input").performTextInput("valid-test-password")
+        compose.onNodeWithTag("auth_confirm_password_input").performTextInput("valid-test-password")
+        compose.onNodeWithTag("auth_submit_button").performClick()
+        compose.onNodeWithText("Your passenger account").assertExists()
+        compose.onNodeWithTag("auth_route_route-auth-test").assertDoesNotExist()
+        compose.onNodeWithTag("auth_tier_Economy").assertDoesNotExist()
+        confirmAdultForRegistration("auth_passenger_submit")
+        compose.onNodeWithTag("auth_passenger_submit").performScrollTo().performClick()
+        compose.waitUntil(5_000) { registrations.isNotEmpty() }
+        val request = registrations.single()
+        assertEquals("TAXI", request.serviceType)
+        assertNull(request.appliedRouteId); assertNull(request.appliedRouteName); assertNull(request.serviceClass)
+    }
+
+    @Test fun meterTaxiDriverDropdownSkipsCommuteProposalAndPreservesVehicleApprovalDetails() {
+        show(AppRole.DRIVER, signup = true)
+        compose.onNodeWithTag("auth_full_name_input").performTextInput("Fixture Taxi Driver")
+        compose.onNodeWithTag("auth_phone_input").performTextInput("0912345678")
+        compose.onNodeWithTag("auth_password_input").performTextInput("valid-test-password")
+        compose.onNodeWithTag("auth_confirm_password_input").performTextInput("valid-test-password")
+        compose.onNodeWithTag("auth_submit_button").performClick()
+        compose.onNodeWithTag("auth_service").performScrollTo().performClick()
+        compose.onNodeWithTag("auth_service_Meter Taxi").performClick()
+        compose.onNodeWithTag("auth_driver_pickup_input").assertDoesNotExist()
+        compose.onNodeWithTag("auth_driver_preferred_origin").assertDoesNotExist()
+        compose.onNodeWithTag("auth_driver_license_input").performScrollTo().performTextInput("LIC-TAXI-QA")
+        compose.onNodeWithTag("auth_driver_vehicle_plate_input").performScrollTo().performTextInput("QA-TAXI")
+        compose.onNodeWithTag("auth_driver_vehicle_model_input").performScrollTo().performTextInput("Fixture Sedan")
+        compose.onNodeWithTag("auth_driver_vehicle_color_input").performScrollTo().performTextInput("Teal")
+        compose.onNodeWithTag("auth_driver_contact_name_input").performScrollTo().performTextInput("Fixture Emergency Contact")
+        compose.onNodeWithTag("auth_driver_contact_phone_input").performScrollTo().performTextInput("0912000222")
+        confirmAdultForRegistration("auth_driver_submit")
+        compose.onNodeWithTag("auth_driver_submit").performScrollTo().performClick()
+        compose.waitUntil(5_000) { driverApplications.isNotEmpty() }
+        val request = driverApplications.single()
+        assertEquals("TAXI", request.serviceType); assertEquals("LIC-TAXI-QA", request.licenseNumber)
+        assertEquals("QA-TAXI", request.assignedVehiclePlate); assertEquals("Fixture Sedan", request.vehicleModel)
+        assertNull(request.proposedDeparture); assertNull(request.proposedDestination); assertNull(request.proposedMonthlyFeeEtb)
     }
 
     private fun assertPrimaryInsideViewport() {
