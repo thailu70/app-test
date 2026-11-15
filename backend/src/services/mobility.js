@@ -167,6 +167,13 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
     if (!row || typeof capability !== 'string' || capability.length > 200 || !crypto.timingSafeEqual(Buffer.from(row.secret_hash), Buffer.from(hash(capability)))) fail(404, 'Use the private booking on the device that made it.');
     return row;
   }
+  // Reuse the exact business authorization checks for quota identity without
+  // exposing customer data, reconciling payments or mutating request state.
+  async function trafficIdentity(kind, key, capability) {
+    if (!['booking', 'request'].includes(kind)) fail(400, 'Invalid transport quota scope.');
+    const row = kind === 'booking' ? await getBooking(key, capability) : await getRequest(key, capability);
+    return kind + ':' + row.id;
+  }
   function ticketToken(traveler, trip) {
     return jwt.sign({ kind: 'GROUP_TICKET', travelerId: traveler.id, tripId: trip.id }, JWT_SECRET, { audience: 'passo-group-boarding', issuer: 'routepass', expiresIn: Math.max(3600, Math.ceil((Date.parse(trip.departure_at) + 48 * 3600000 - now()) / 1000)) });
   }
@@ -545,7 +552,7 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
     }
     return { expired: rows.length };
   }
-  return { catalog, trips, createTrip, reviewTrip, seats, createBooking, booking, checkout, webhook, createRequest, request, uploadPhoto, photo, submitRequest, requests, options, assignRequest, requestStatus, dashboard, roster, startBoarding, board, completeTrip, ticket, flushSms, cleanDrafts, marketplace, init: async () => {await initMobilitySchema(db);await marketplace.init();} };
+  return { catalog, trips, createTrip, reviewTrip, seats, createBooking, booking, trafficIdentity, checkout, webhook, createRequest, request, uploadPhoto, photo, submitRequest, requests, options, assignRequest, requestStatus, dashboard, roster, startBoarding, board, completeTrip, ticket, flushSms, cleanDrafts, marketplace, init: async () => {await initMobilitySchema(db);await marketplace.init();} };
 }
 let defaultService;
 const getMobilityService = () => defaultService ||= createMobilityService();

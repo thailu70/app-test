@@ -100,6 +100,14 @@ test('group approval, multi-person paid tickets, cargo privacy and admin assignm
   await t.test('private group and photo-backed cargo requests have capability privacy and service-specific admin assignment', async()=>{
     const group=await service.createRequest({...requestBase,kind:'GROUP',people:5});assert.equal(group.request.status,'REQUESTED');
     const cargo=await service.createRequest({...requestBase,kind:'CARGO',cargoDetails:'Boxed household furniture',originLatitude:9,originLongitude:38,destinationLatitude:8.5,destinationLongitude:39});assert.equal(cargo.request.status,'DRAFT');
+    assert.equal(await service.trafficIdentity('request',cargo.request.id,cargo.requestSecret),'request:'+cargo.request.id);
+    assert.equal(await service.trafficIdentity('request',group.request.id,group.requestSecret),'request:'+group.request.id);
+    assert.equal(await service.trafficIdentity('booking',held.booking.id,held.bookingSecret),'booking:'+held.booking.id);
+    await assert.rejects(service.trafficIdentity('request',cargo.request.id,group.requestSecret),e=>e.status===404);
+    await assert.rejects(service.trafficIdentity('booking',held.booking.id,cargo.requestSecret),e=>e.status===404);
+    await assert.rejects(service.trafficIdentity('request',cargo.request.id,'forged'.repeat(12)),e=>e.status===404);
+    await assert.rejects(service.trafficIdentity('account',cargo.request.id,cargo.requestSecret),e=>e.status===400);
+    assert.equal((await service.request(cargo.request.id,cargo.requestSecret)).request.status,'DRAFT','Identifying traffic cannot submit or alter cargo state.');
     assert.equal((await service.requests('CARGO')).requests.length,0);
     await assert.rejects(service.submitRequest(cargo.request.id,cargo.requestSecret),e=>e.status===409);
     await assert.rejects(service.request(group.request.id,'wrong'),e=>e.status===404);
@@ -137,6 +145,12 @@ test('group approval, multi-person paid tickets, cargo privacy and admin assignm
     assert.equal(guest.status,201,'Group transport requests do not require an account, login or OTP.');
     const cargoResponse=await fetch(base+'/requests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...requestBase,kind:'CARGO',cargoDetails:'Guest cargo without registration'})});
     assert.equal(cargoResponse.status,201);const cargo=await cargoResponse.json();
+    const statusResponse=await fetch(base+'/requests/'+cargo.request.id,{headers:{'X-Request-Secret':cargo.requestSecret}});
+    assert.equal(statusResponse.status,200);
+    assert.match(statusResponse.headers.get('ratelimit-policy'),/w=900/,'The installed APK header selects the validated private-request quota.');
+    const bookingResponse=await fetch(base+'/bookings/'+held.booking.id,{headers:{'X-Booking-Secret':held.bookingSecret}});
+    assert.equal(bookingResponse.status,200);
+    assert.match(bookingResponse.headers.get('ratelimit-policy'),/w=900/,'Existing booking headers receive their own private quota.');
     const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6QmcAAAAASUVORK5CYII=','base64');
     assert.equal((await fetch(base+'/requests/'+cargo.request.id+'/photo',{method:'PUT',headers:{'Content-Type':'image/png','X-Request-Secret':cargo.requestSecret},body:png})).status,200);
     assert.equal((await fetch(base+'/requests/'+cargo.request.id+'/submit',{method:'POST',headers:{'X-Request-Secret':cargo.requestSecret}})).status,200,'Cargo photo submission uses private request access without user registration.');

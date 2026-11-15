@@ -1,24 +1,22 @@
 'use strict';
 const express = require('express');
-const rateLimit = require('express-rate-limit');
+const { createMobilityTrafficLimits } = require('../services/public-transport-traffic');
 const QRCode = require('qrcode');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { operationalAccount } = require('../services/operational-onboarding');
 const { getMobilityService, MobilityError } = require('../services/mobility');
 const { createMobilityPushService, MobilityPushError } = require('../services/mobility-push');
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
-function createMobilityRouter({ service = getMobilityService(), pushService, rateLimitMax = 60 } = {}) {
+function createMobilityRouter({ service = getMobilityService(), pushService, rateLimitMax = 60,
+  draftLimitMax = 120, photoLimitMax = 120 } = {}) {
   const router = express.Router();
   const push = pushService || createMobilityPushService({ service });
   const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-  const readLimit = rateLimit({ windowMs: 15 * 60000, limit: rateLimitMax * 5, standardHeaders: true, legacyHeaders: false });
-  const writeLimit = rateLimit({ windowMs: 15 * 60000, limit: rateLimitMax, standardHeaders: true, legacyHeaders: false });
-  const draftLimit = rateLimit({ windowMs: 60 * 60000, limit: 10, standardHeaders: true, legacyHeaders: false,
-    message: { success:false,error:'You have sent several transport requests. Please wait before creating another.' } });
-  const photoLimit = rateLimit({ windowMs: 60 * 60000, limit: 20, standardHeaders: true, legacyHeaders: false,
-    message: { success:false,error:'Please wait before uploading another cargo photo.' } });
+  const { identify, readLimit, writeLimit, draftLimit, photoLimit } = createMobilityTrafficLimits({
+    service, rateLimitMax, draftLimitMax, photoLimitMax });
   router.use((_req, res, next) => { res.set('Cache-Control', 'private, no-store'); res.set('Referrer-Policy', 'no-referrer'); next(); });
   router.use(asyncRoute(async (_req, _res, next) => { await service.init(); next(); }));
+  router.use(['/requests/:id', '/bookings/:id'], identify);
   const respond = (res, result, status = 200) => res.status(status).json({ success: true, ...result });
   const bookingSecret = req => req.get('X-Booking-Secret');
   const requestSecret = req => req.get('X-Request-Secret');

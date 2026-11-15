@@ -25,6 +25,7 @@ async function harness(t, options = {}) {
   const app = express();
   app.use('/api/', createApiTrafficMiddleware({
     anonymousLimit: options.anonymousLimit ?? 2,
+    publicTransportLimit: options.publicTransportLimit ?? 4,
     windowMs: 900000,
     resourceMonitor: options.resourceMonitor || available,
     resolvePrincipal: async token => {
@@ -36,6 +37,8 @@ async function harness(t, options = {}) {
   app.get('/api/health', (_req, res) => res.json({ status: 'HEALTHY' }));
   app.get('/api/ready', (_req, res) => res.json({ status: 'READY' }));
   app.get('/api/public', (_req, res) => res.json({ success: true }));
+  app.get('/api/mobility/catalog', (_req, res) => res.json({ success: true }));
+  app.get('/api/mobility/admin/requests', authenticate, (req, res) => res.json({ id: req.user.id }));
   app.get('/api/protected', authenticate, (req, res) => res.json({ id: req.user.id, role: req.user.role }));
   if (options.authRoutes) {
     app.use('/api/auth', require('../src/routes/auth'));
@@ -112,6 +115,19 @@ test('capacity admission preserves active-account validation and route-specific 
     assert.equal((await api.request('/api/public', { token: driverA })).status, 429);
   });
 
+  await t.test('public transport uses its own bounded NAT allowance without opening admin or auth paths', async t => {
+    const api = await harness(t, { anonymousLimit: 1, publicTransportLimit: 3 });
+    assert.equal((await api.request('/api/public')).status, 200);
+    assert.equal((await api.request('/api/public')).status, 429);
+    for (let i = 0; i < 3; i++) assert.equal((await api.request('/api/mobility/catalog')).status, 200);
+    const limited = await api.request('/api/mobility/catalog');
+    assert.equal(limited.status, 429);
+    assert.equal(limited.data.success, false);
+    assert.ok(Number(limited.headers.get('retry-after')) > 0);
+    assert.equal((await api.request('/api/mobility/admin/requests')).status, 429);
+    assert.equal((await api.request('/api/protected', { token: driverA })).status, 200);
+  });
+
   await t.test('real sampled CPU and RAM gates reject work before auth lookups and recover with hysteresis', async t => {
     let total = 1000, idle = 900, time = 0, availableMemory = 800;
     const monitor = createResourcePressureMonitor({
@@ -137,6 +153,10 @@ test('capacity admission preserves active-account validation and route-specific 
     assert.equal(busy.headers.get('retry-after'), '10');
     assert.equal(busy.headers.get('cache-control'), 'no-store');
     assert.equal(api.lookups(), beforeBusyLookups, 'Over-capacity requests must not query account state');
+    const busyTransport = await api.request('/api/mobility/catalog');
+    assert.equal(busyTransport.status, 503);
+    assert.equal(busyTransport.data.code, 'SERVER_BUSY');
+    assert.equal(busyTransport.headers.get('retry-after'), '10');
     for (const endpoint of ['/api/health', '/api/ready', '/api/health?probe=1']) {
       assert.equal((await api.request(endpoint, { token: 'invalid' })).status, 200);
       assert.equal((await api.request(endpoint, { method: 'HEAD' })).status, 200);
@@ -148,6 +168,7 @@ test('capacity admission preserves active-account validation and route-specific 
     assert.equal((await api.request('/api/protected', { token: driverA })).status, 503);
     sample(85, 85);
     assert.equal((await api.request('/api/protected', { token: driverA })).status, 200);
+    assert.equal((await api.request('/api/mobility/catalog')).status, 200);
     sample(10, 90);
     assert.equal((await api.request('/api/public')).status, 503);
     sample(10, 85);
