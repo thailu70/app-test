@@ -42,6 +42,9 @@ test("Meter Taxi registration uploads documents before final approval and remain
     }),
     rides = createRidesService();
   await rides.init();
+  const initialSettings = JSON.parse(
+    JSON.stringify((await rides.catalog()).settings),
+  );
   const app = express();
   app.use(express.json());
   app.use(
@@ -264,9 +267,9 @@ test("Meter Taxi registration uploads documents before final approval and remain
       assert.equal(after.body.eligible, true);
       assert.equal(after.body.vehicles[0].id, vehicleId);
       assert.equal(after.body.online, false);
-      assert.equal(
-        (await request("/api/rides/catalog")).body.settings.enabled,
-        false,
+      assert.deepEqual(
+        (await request("/api/rides/catalog")).body.settings,
+        initialSettings,
         "Real tariffs remain under administrator control.",
       );
     },

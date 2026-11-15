@@ -624,9 +624,9 @@ function createRidesService({
     }
     const assigned = await tx
       .prepare(
-        "SELECT r.* FROM vehicles v JOIN routes r ON r.id=v.assignedRouteId WHERE (v.id=? OR v.driverId=?) AND r.active=? AND COALESCE(r.routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'",
+        "SELECT r.* FROM vehicles v JOIN routes r ON r.id=v.assignedRouteId WHERE (v.id=? OR v.driverId=?) AND r.active=TRUE AND COALESCE(r.routeType,'DAILY_COMMUTE')='DAILY_COMMUTE'",
       )
-      .all(vehicleId, driverId, true);
+      .all(vehicleId, driverId);
     for (const duty of assigned) {
       // A journey can cross midnight, and drivers can have another assigned
       // vehicle. Include every local day touched by this proposed journey.

@@ -181,6 +181,10 @@ import kotlinx.coroutines.launch
     if (confirmComplete) AlertDialog(onDismissRequest = { confirmComplete = false }, title = { Text("Complete this ride?") },
         text = { Text("Complete only after arriving at the destination. The server confirms your GPS location, final fare and Passo fee once.") },
         confirmButton = { TextButton(onClick = { confirmComplete = false; withFix(model::complete) }) { Text("Complete ride") } }, dismissButton = { TextButton(onClick = { confirmComplete = false }) { Text("Keep driving") } })
+    if (ride.status == "IN_PROGRESS") {
+        DriverActiveMeter(ride, state.busy, model, mapTiles, mapApi, onComplete = { confirmComplete = true })
+        return
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TaxiMap(ride.originLatitude to ride.originLongitude, ride.destinationLatitude to ride.destinationLongitude, ride.location,
             if (ride.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 240, pickupLabel = ride.origin, destinationLabel = ride.destination, tileDownloadsEnabled = mapTiles, providedApi = mapApi)
@@ -209,6 +213,64 @@ import kotlinx.coroutines.launch
             "COMPLETED", "CANCELLED" -> TaxiPrimary("Back to calls", !state.busy) { model.dismissRide() }
         }
         if (ride.status in setOf("ACCEPTED", "AT_PICKUP")) TextButton(onClick = { model.cancelRide() }, enabled = !state.busy) { Text("Cancel ride") }
+    }
+}
+
+/** Keep the meter and safety-critical completion control in view on a compact phone. */
+@Composable private fun DriverActiveMeter(ride: TaxiRide, busy: Boolean, model: TaxiViewModel,
+    mapTiles: Boolean, mapApi: MobilityApi?, onComplete: () -> Unit) {
+    val context = LocalContext.current
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val compact = maxHeight < 620.dp
+        Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Trip in progress", Modifier.weight(1f), color = CommuteInk, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                Surface(color = CommuteMint, shape = RoundedCornerShape(20.dp)) { Text("On a job", Modifier.padding(horizontal = 10.dp, vertical = 5.dp), color = CommuteTeal, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+            }
+            TaxiMap(ride.originLatitude to ride.originLongitude, ride.destinationLatitude to ride.destinationLongitude, ride.location,
+                "IN_PROGRESS", height = if (compact) 140 else 160, pickupLabel = ride.origin, destinationLabel = ride.destination,
+                tileDownloadsEnabled = mapTiles, providedApi = mapApi)
+            Surface(Modifier.weight(1f).fillMaxWidth(), color = Color.White, shape = RoundedCornerShape(22.dp)) {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Surface(color = CommuteMint, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(horizontal = 9.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CheckCircle, null, tint = CommuteTeal, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(6.dp))
+                            Text(if (ride.source == "STREET") "Street pickup · passenger agreed" else "Passenger PIN verified", color = CommuteTeal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Text("Fare so far", color = Color(0xFF627385), fontSize = 11.sp)
+                    Text(ride.fareEtb?.let { String.format(java.util.Locale.US, "ETB %,.2f", it) } ?: "Updating meter…", color = CommuteInk,
+                        fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.testTag("taxi_meter_fare"))
+                    HorizontalDivider(color = Color(0xFFE0E7E3))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.weight(1f)) { Text("Distance", color = Color(0xFF627385), fontSize = 11.sp)
+                            Text("${"%.2f".format(java.util.Locale.US, ride.meterDistanceKm)} km", color = CommuteInk, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("taxi_meter_distance")) }
+                        Column(Modifier.weight(1f)) { Text("Billable waiting", color = Color(0xFF627385), fontSize = 11.sp)
+                            Text(taxiDuration(ride.billableWaitingSeconds), color = CommuteInk, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("taxi_meter_waiting")) }
+                    }
+                    Text("Trip duration ${taxiDuration(ride.tripDurationSeconds)} · traffic time not billed", color = Color(0xFF627385), fontSize = 11.sp)
+                    HorizontalDivider(color = Color(0xFFE0E7E3))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.LocationOn, null, tint = CommuteTeal, modifier = Modifier.size(19.dp))
+                        Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
+                            Text(ride.destination, color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(ride.passengerName ?: "Street passenger", color = Color(0xFF627385), fontSize = 12.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        }
+                        if (!ride.passengerPhone.isNullOrBlank()) IconButton(onClick = { callTaxiContact(context, ride.passengerPhone) }, modifier = Modifier.size(44.dp)) { Icon(Icons.Default.Phone, "Call passenger", tint = CommuteTeal, modifier = Modifier.size(22.dp)) }
+                    }
+                    Surface(color = CommuteMint, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        Text("Passo fee: ${taxiMoney(ride.commissionEtb)} reserved", Modifier.padding(horizontal = 8.dp, vertical = 5.dp), color = CommuteTeal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    Text("Passenger pays you directly", color = Color(0xFF627385), fontSize = 11.sp)
+                }
+            }
+            if (ride.source != "STREET") OutlinedButton(onClick = { model.wait(if (ride.waiting == "STOP") "END_STOP" else "REQUEST_STOP") }, enabled = !busy && !ride.stopWaitingRequested,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp).testTag("taxi_passenger_stop"), shape = RoundedCornerShape(16.dp)) {
+                Icon(Icons.Default.PauseCircle, null, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(7.dp))
+                Text(if (ride.waiting == "STOP") "End passenger stop" else if (ride.stopWaitingRequested) "Waiting for passenger approval" else "Request passenger stop", fontSize = 13.sp, maxLines = 2)
+            }
+            TaxiPrimary("End trip", !busy, "taxi_end_trip", onComplete)
+        }
     }
 }
 

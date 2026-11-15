@@ -136,14 +136,14 @@ test('ride account closure preserves commitments and removes live credentials wi
     assert.ok(disclosure.retainedCategories.some(x=>x.includes('taxi meter')));
     await closed(driver,'DRIVER');
     for (const id of [driverToken,legacyToken]) {
-      assert.equal(await DB.prepare('SELECT id FROM mobility_push_tokens WHERE id=?').get(id),undefined);
-      assert.equal(await DB.prepare('SELECT id FROM mobility_push_outbox WHERE token_id=?').get(id),undefined);
+      assert.ok(!await DB.prepare('SELECT id FROM mobility_push_tokens WHERE id=?').get(id));
+      assert.ok(!await DB.prepare('SELECT id FROM mobility_push_outbox WHERE token_id=?').get(id));
     }
     assert.ok(await DB.prepare('SELECT id FROM mobility_push_tokens WHERE id=?').get(passengerToken));
-    assert.equal(await DB.prepare('SELECT driver_id FROM ride_availability WHERE driver_id=?').get(driver),undefined);
-    assert.equal(await DB.prepare('SELECT trip_id FROM ride_shared_locations WHERE trip_id=?').get(trip),undefined);
-    assert.equal(await DB.prepare('SELECT driver_id FROM ride_driver_eligibility WHERE driver_id=?').get(driver),undefined);
-    assert.equal(await DB.prepare('SELECT vehicle_id FROM ride_vehicle_eligibility WHERE driver_id=?').get(driver),undefined);
+    assert.ok(!await DB.prepare('SELECT driver_id FROM ride_availability WHERE driver_id=?').get(driver));
+    assert.ok(!await DB.prepare('SELECT trip_id FROM ride_shared_locations WHERE trip_id=?').get(trip));
+    assert.ok(!await DB.prepare('SELECT driver_id FROM ride_driver_eligibility WHERE driver_id=?').get(driver));
+    assert.ok(!await DB.prepare('SELECT vehicle_id FROM ride_vehicle_eligibility WHERE driver_id=?').get(driver));
     const history = await DB.prepare('SELECT * FROM ride_jobs WHERE id=?').get(terminal);
     assert.equal(history.status,'COMPLETED'); assert.equal(history.pin_cipher,null); assert.equal(history.last_latitude,null);
     assert.match(history.route_json,/Recorded pickup/);
@@ -151,8 +151,8 @@ test('ride account closure preserves commitments and removes live credentials wi
     assert.equal((await DB.prepare('SELECT pin_cipher FROM ride_shared_bookings WHERE id=?').get(seat)).pin_cipher,'');
     assert.equal(Number((await DB.prepare('SELECT balance_cents FROM mobility_wallets WHERE driver_id=?').get(driver)).balance_cents),10000,'Account closure cannot forfeit available verified credit.');
     await closed(passenger,'PASSENGER');
-    assert.equal(await DB.prepare('SELECT id FROM mobility_push_tokens WHERE id=?').get(passengerToken),undefined);
-    assert.equal(await DB.prepare('SELECT id FROM mobility_push_outbox WHERE token_id=?').get(passengerToken),undefined);
+    assert.ok(!await DB.prepare('SELECT id FROM mobility_push_tokens WHERE id=?').get(passengerToken));
+    assert.ok(!await DB.prepare('SELECT id FROM mobility_push_outbox WHERE token_id=?').get(passengerToken));
     assert.ok(await DB.prepare('SELECT id FROM mobility_push_tokens WHERE id=?').get(otherToken),'Other accounts keep their notification credentials.');
     assert.equal((await DB.prepare('SELECT status FROM users WHERE id=?').get(outsider)).status,'ACTIVE');
   });

@@ -6,7 +6,10 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.example.data.api.*
@@ -29,6 +32,7 @@ import java.lang.reflect.Proxy
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class TaxiStatesLayoutTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    private var previewSuffix = ""
     private val vehicle = TaxiVehicle("vehicle-fixture", "Fixture sedan", "QA-TEST", 4, "ECONOMY")
     private val ride = TaxiRide("ride-fixture", "passenger-fixture", "driver-fixture", vehicle.id,
         origin = "Bole Medhanialem", destination = "Meskel Square", originLatitude = 9.0, originLongitude = 38.78,
@@ -61,7 +65,7 @@ class TaxiStatesLayoutTest {
         compose.runOnIdle { val view = compose.activity.window.decorView; val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888); view.draw(Canvas(bitmap))
             val directory = File("build/taxi-previews").apply { mkdirs() }
             val width = (view.width / view.resources.displayMetrics.density).toInt()
-            File(directory, "$name-$width.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            File(directory, "$name-$width$previewSuffix.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
     }
     private fun passenger(status: String) {
@@ -75,15 +79,28 @@ class TaxiStatesLayoutTest {
         if (status == "REQUESTED") compose.onNodeWithText("Nearby cars · approximate").assertExists()
         else { compose.onNodeWithText("1234").performScrollTo().assertIsDisplayed(); capture("passenger-accepted-boarding") }
     }
-    private fun driver(meter: Boolean) {
-        compose.setContent { MyApplicationTheme { val vm = remember { TaxiViewModel(api(if (meter) ride.copy(status = "IN_PROGRESS", boardingPin = null,
+    private fun driver(meter: Boolean, fontScale: Float = 1f) {
+        if (fontScale > 1f) previewSuffix = "-large-text"
+        compose.setContent { val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) { MyApplicationTheme { val vm = remember { TaxiViewModel(api(if (meter) ride.copy(status = "IN_PROGRESS", boardingPin = null,
             fareEtb = 187.5, meterDistanceKm = 3.2, tripDurationSeconds = 522) else null, if (meter) emptyList() else listOf(ride)), true, true) }
             TaxiDriverContent("driver-fixture", vm, {}, trackingEnabled = false, mapTiles = false, mapApi = remember { roads() })
-        } }
+        } } }
         compose.waitUntil(10_000) { compose.onAllNodesWithText(if (meter) "Trip in progress" else "Nearby taxi calls").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText(if (meter) "Trip in progress" else "Nearby taxi calls").assertIsDisplayed()
+        if (meter) {
+            compose.onNodeWithTag("taxi_meter_fare").assertIsDisplayed()
+            compose.onNodeWithTag("taxi_meter_distance").assertIsDisplayed()
+            compose.onNodeWithTag("taxi_meter_waiting").assertIsDisplayed()
+            compose.onNodeWithTag("taxi_passenger_stop").assertIsDisplayed()
+            compose.onNodeWithTag("taxi_end_trip").assertIsDisplayed().assertIsEnabled()
+        }
         capture(if (meter) "driver-meter" else "driver-calls")
-        if (meter) compose.onNodeWithTag("taxi_end_trip").performScrollTo().assertIsEnabled()
+        if (meter) {
+            compose.onNodeWithTag("taxi_end_trip").performClick()
+            compose.onNodeWithText("Complete this ride?").assertIsDisplayed()
+            compose.onNodeWithText("Keep driving").performClick()
+        }
         else compose.onNodeWithTag("taxi_accept_ride-fixture").performScrollTo().assertIsEnabled()
         capture(if (meter) "driver-meter-action" else "driver-calls-action")
     }
@@ -108,5 +125,6 @@ class TaxiStatesLayoutTest {
     @Test @Config(qualifiers = "w320dp-h740dp-xhdpi") fun accepted320() = passenger("ACCEPTED")
     @Test @Config(qualifiers = "w320dp-h740dp-xhdpi") fun driverCalls320() = driver(false)
     @Test @Config(qualifiers = "w320dp-h740dp-xhdpi") fun driverMeter320() = driver(true)
+    @Test @Config(qualifiers = "w320dp-h740dp-xhdpi") fun driverMeter320LargeText() = driver(true, 1.2f)
     @Test @Config(qualifiers = "w320dp-h740dp-xhdpi") fun sharedSeats320() = shared()
 }

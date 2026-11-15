@@ -231,7 +231,19 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
           service.accept(d, ride.id, { vehicleId: d.id + "vehicle" }),
         ),
       );
-      assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+      assert.equal(
+        results.filter((r) => r.status === "fulfilled").length,
+        1,
+        JSON.stringify(
+          results
+            .filter((r) => r.status === "rejected")
+            .map((r) => ({
+              message: r.reason?.message,
+              code: r.reason?.code,
+              stack: r.reason?.stack,
+            })),
+        ),
+      );
       assert.equal(
         results.find((r) => r.status === "rejected").reason.status,
         409,
@@ -885,7 +897,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
         at = new Date(clock).toISOString();
       await DB.prepare(
         "INSERT INTO routes(id,name,nameAm,morningDeparture,eveningDeparture,active) VALUES('ride-duty-route','Fixture Duty','Fixture Duty','06:30','17:30',?)",
-      ).run(true);
+      ).run(DB.isPostgres ? true : 1);
       await DB.prepare(
         "INSERT INTO vehicles(id,plateNumber,model,vehicleType,capacityLimit,driverId,assignedRouteId,status) VALUES('ride-duty-vehicle','FIXTURE-DUTY','Fixture duty','MINIVAN_8',7,?,'ride-duty-route','IN_SERVICE')",
       ).run(driver.id);
@@ -934,7 +946,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
     async () => {
       const closed = { id: "ride-closed-passenger", role: "PASSENGER" };
       await DB.prepare(
-        "INSERT INTO users(id,role,fullName,phone,passwordHash,status) VALUES(?,'PASSENGER','Closed fixture','+251900004444','unused','DELETED')",
+        "INSERT INTO users(id,role,fullName,phone,passwordHash,status) VALUES(?,'PASSENGER','Closed fixture','+251900004444','unused','SUSPENDED')",
       ).run(closed.id);
       await assert.rejects(
         service.createRequest(closed, {
@@ -982,7 +994,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
         0,
       );
       await service.sharedActions(drivers[0], offered.id, { action: "CANCEL" });
-      await DB.prepare("UPDATE users SET status='DELETED' WHERE id=?").run(
+      await DB.prepare("UPDATE users SET status='SUSPENDED' WHERE id=?").run(
         drivers[1].id,
       );
       await assert.rejects(
@@ -1088,7 +1100,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
         v = driver.id + "vehicle";
       await DB.prepare(
         "INSERT INTO routes(id,name,nameAm,morningDeparture,eveningDeparture,active) VALUES('ride-actual-duty','Fixture actual duty','Fixture actual duty','06:25','23:59',?)",
-      ).run(true);
+      ).run(DB.isPostgres ? true : 1);
       await DB.prepare(
         "UPDATE vehicles SET assignedRouteId='ride-actual-duty' WHERE id=?",
       ).run(v);
@@ -1279,8 +1291,11 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       await service.cleanup();
       assert.equal(
         Number(
-          (await DB.prepare("SELECT COUNT(*) AS count FROM ride_samples").get())
-            .count,
+          (
+            await DB.prepare(
+              "SELECT COUNT(*) AS count FROM ride_samples s JOIN ride_jobs r ON r.id=s.ride_id WHERE r.idempotency_owner IN ('ride-passenger','ride-driver','ride-driver-2')",
+            ).get()
+          ).count,
         ),
         0,
       );
@@ -1324,7 +1339,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
         (await service.nearby({ ...query, tier: "COMFORT" })).vehicles.length,
         0,
       );
-      await DB.prepare("UPDATE users SET status='INACTIVE' WHERE id=?").run(
+      await DB.prepare("UPDATE users SET status='SUSPENDED' WHERE id=?").run(
         driver.id,
       );
       assert.equal((await service.nearby(query)).vehicles.length, 0);

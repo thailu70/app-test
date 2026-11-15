@@ -31,7 +31,7 @@ test('legacy commute and mobility starts respect active taxi and shared ride ass
     await DB.prepare("INSERT INTO user_profiles(user_id,emergency_contact_name,emergency_contact_phone,vehicle_color,updated_at) VALUES(?,'Contact','+251900881003','white',?)").run(driver, instant);
     for (const kind of ['LICENSE','VEHICLE_REGISTRATION','INSURANCE','PHOTO']) await DB.prepare("INSERT INTO user_profile_documents(user_id,kind,storage_name,content_type,byte_size,uploaded_at) VALUES(?,?,'fixture','image/jpeg',20,?)").run(driver, kind, instant);
     for (const suffix of ['a','b']) await DB.prepare("INSERT INTO vehicles(id,plateNumber,model,vehicleType,capacityLimit,driverId,assignedRouteId,status,currentOccupancy) VALUES(?,?,?,'MINIVAN_8',8,?,?,'IN_SERVICE',2)")
-      .run(driver + '_' + suffix, driver + '_' + suffix, 'Fixture van', driver, type === 'DAILY_COMMUTE' ? 'cross_route' : '');
+      .run(driver + '_' + suffix, driver + '_' + suffix, 'Fixture van', driver, type === 'DAILY_COMMUTE' ? 'cross_route' : null);
   }
   const service = createMobilityService({ sendSms: async () => ({ sent: false }) }); await service.init();
   const guestInput = { kind: 'GROUP', people: 3, origin: 'Addis Ababa', destination: 'Adama', travelDate: new Date(Date.now()+86400000).toISOString().slice(0,10), vehicleType: 'MINIVAN_8', customerName: 'Guest fixture', customerPhone: '+251900881004', adultConfirmed: true };
