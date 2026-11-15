@@ -34,6 +34,10 @@ test('legacy commute and mobility starts respect active taxi and shared ride ass
       .run(driver + '_' + suffix, driver + '_' + suffix, 'Fixture van', driver, type === 'DAILY_COMMUTE' ? 'cross_route' : null);
   }
   const service = createMobilityService({ sendSms: async () => ({ sent: false }) }); await service.init();
+  // Existing PostgreSQL suites may configure a nonzero marketplace fee. Give
+  // this synthetic driver credit so the test isolates job exclusivity rather
+  // than depending on the global default commission being zero.
+  await DB.prepare('INSERT INTO mobility_wallets(driver_id,balance_cents,held_cents) VALUES(?,1000000,0) ON CONFLICT(driver_id) DO UPDATE SET balance_cents=1000000,held_cents=0').run('cross_group');
   const guestInput = { kind: 'GROUP', people: 3, origin: 'Addis Ababa', destination: 'Adama', travelDate: new Date(Date.now()+86400000).toISOString().slice(0,10), vehicleType: 'MINIVAN_8', customerName: 'Guest fixture', customerPhone: '+251900881004', adultConfirmed: true };
   let serial = 0;
   async function taxi(driver, vehicle, status = 'ACCEPTED') {
