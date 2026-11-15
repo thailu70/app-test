@@ -132,6 +132,8 @@ test('capacity admission preserves active-account validation and route-specific 
     assert.equal(limited.data.success, false);
     assert.ok(Number(limited.headers.get('retry-after')) > 0);
     assert.equal((await api.request('/api/mobility/admin/requests')).status, 429);
+    assert.equal((await api.request('/api/mobility/catalog', { token: driverA })).status, 200,
+      'Verified users never share the public NAT allowance; route authorization and account limits remain separate');
     assert.equal((await api.request('/api/protected', { token: driverA })).status, 200);
   });
 

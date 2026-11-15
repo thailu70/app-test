@@ -55,6 +55,7 @@ function createApiTrafficMiddleware({ resourceMonitor, resolvePrincipal, anonymo
   // retain a generous short-window IP backstop before any database work.
   const publicTransportLimiter = rateLimit({
     windowMs: publicTransportWindowMs, max: publicTransportLimit,
+    skip: async req => Boolean(await verifiedPrincipal(req)),
     standardHeaders: true, legacyHeaders: false,
     message: { success: false, error: 'This transport service is receiving many requests. Please wait briefly and try again.' }
   });

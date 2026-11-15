@@ -1,83 +1,67 @@
 # Taxi and shared ride design QA — 2026-11-15
 
-## Current result — iteration 2
+## Result
 
-The original home-map P1 is **resolved**. The revised landing map fills the available height and the destination/vehicle/Group Ride sheet is anchored above navigation, eliminating the large unused ivory gap.
+The reviewed native screens have no remaining actionable P0/P1/P2 visual findings. The home-map spacing P1 and active-meter hierarchy P2 are resolved in post-fix captures. This is a native UI/layout pass within the deterministic test scope; it does not certify physical-device GPS, online routing or real phone notification delivery.
 
-**One P2 remains:** `DriverCurrentRide` IN_PROGRESS shows its fare partially below navigation at 320 × 740 dp, while waiting/stop/End trip controls require scrolling at both tested widths. The approved reference keeps those core meter values and controls together. The actual action capture proves End trip is reachable, so this is a hierarchy/layout defect rather than a broken action. Compact the active map to approximately 140–160 dp, replace the full pickup/destination stack with a compact destination/contact row, and keep the primary controls above navigation. Root and Android worker were notified; a revised capture must be inspected before passing.
+## Source and implementation evidence
 
-Final candidate evidence: run **43732141139**, commit `bfddf41cca6c8bc08de836d66159abad01e0ad89`. Artifact **14168299311**, 17,939,056 bytes, verified SHA-256 `f5a07a0fe8cf837401f09f5f21739f8c2a8613202e01a58c68972e4fe913cf2d`. Captures/XML are in `../play-release/1.1.32/final-validation/`.
+- Selected visual sources: C:/Users/abc/.codex/generated_images/01a14bb0-8c94-7111-8ea5-bb6697be3f36/.
+- Home: exec-74189b4b-771d-4dff-a5f3-7f274caf5ada.png.
+- Requesting: exec-bccc53d5-9eb9-4fe4-9eaa-4e5759a32c16.png.
+- Accepted passenger: exec-8c5a0215-b49d-4a11-ba1c-15e7349df1fb.png.
+- Driver calls: exec-e3f65fc8-fbb5-4f0f-b012-48c8b7b7d18a.png.
+- Driver meter: exec-1a798cff-3a94-454e-8dd3-45c98b73de58.png.
+- Passenger Group Ride: exec-34483ca1-fb24-480a-aded-b604da5fa7d9.png.
+- Latest implementation: GitHub run 43735694830, app commit 9e09f7e930f1092a241664937b6022cb48c34fb6.
+- Latest validation artifact: 14170701243; 18,239,106 bytes; verified SHA-256 d6cb45f6cde8a3901a96eb9e60f187ca8afdc5f1d195de7ba421cdd97ecb284b.
+- Post-fix captures and XML: ../play-release/1.1.32/meter-postfix/.
+- Post-fix combined source/native evidence: ../play-release/1.1.32/meter-postfix/meter-postfix-comparison.png.
+- Focused large-text evidence: ../play-release/1.1.32/meter-postfix/driver-meter-320-large-text.png.
+- Other combined full-view evidence: ../play-release/1.1.32/final-validation/home-comparison.png, requesting-comparison.png, accepted-comparison.png, driver-calls-comparison.png and shared-comparison.png.
 
-Combined source/native comparisons were opened together: `home-comparison.png`, `requesting-comparison.png`, `accepted-comparison.png`, `driver-calls-comparison.png`, `driver-meter-comparison.png`, and `shared-comparison.png` in that directory. The approved references are the generated home, requesting, accepted, driver-call, driver-meter and passenger-group images listed in the conversation. Native frames are 786 × 1704 pixels (393 × 852 dp, 2×) or 640 × 1480 pixels (320 × 740 dp, 2×). The reference and larger native frame are normalized to 390 × 844 for comparison; narrow frames remain 320 × 740 for responsive inspection. Original captures remain unchanged.
+## Viewports and matching
 
-Required fidelity surfaces, iteration 2:
+Native captures are 786 × 1704 pixels for 393 × 852 dp at xhdpi (2×), and 640 × 1480 pixels for 320 × 740 dp at xhdpi. The additional meter capture uses the 320 × 740 dp viewport with font scale 1.2. The source home image is 852 × 1846 pixels and the other generated sources use the same approximately 390 × 844 logical portrait direction.
 
-- **Typography:** rounded product fonts and bold route/action hierarchy remain coherent; long routes wrap without overlap. Navigation labels are smaller than the reference (P3 polish). Active meter hierarchy is the P2 above.
-- **Spacing/layout:** home gap fixed. Other captured flows scroll orderly at narrow width; the active meter needs compact persistent controls.
-- **Colors/tokens:** cream, navy, mint and teal remain consistent; occupied/disabled seats are distinguishable.
-- **Images/assets:** actual wordmark, real generated 3D tier images and sourced top-view car icons are present. No whole-screen mockup raster replaces controls.
-- **Copy/content:** destination-only entry, tiers, Daily Commute, direct payment and per-seat group wording are coherent. Fixture fares, names and PINs are synthetic. Singular `1 seat(s)` is P3 copy polish.
+In combined boards, the source and 393 dp capture are normalized to 390 × 844 for visual comparison. The narrow capture remains 320 × 740 logical pixels for responsive inspection. Original files are unchanged. Tiny source/native aspect differences are not filed as layout defects.
 
-State boundaries: the passenger status fixtures isolate the current-ride component beneath a brand header and omit the outer passenger navigation; this is not evidence of a production navigation regression. The group fixture is selected-trip seat booking, while its source shows find-seat/search, so those are different workflow states. The accepted fixture has no driver photo, which prevents portrait fidelity verification.
-
-Online OSM tile downloads are deliberately disabled (`mapTiles=false`), so gray map grids are an expected deterministic-test state. Native route overlays and sourced cars are visible over synthetic route geometry. These captures do **not** establish real GPS, live road routing, online tile availability, physical-device background location or real FCM delivery. This is a disclosed verification limit, not a claim that the production map is broken. Browser-console checks do not apply to this native Compose/Robolectric run.
-
-All six extracted XML suites passed: AuthLayout 17, CredentialStorage 3, RidePush 4, TaxiFlow 6, TaxiLayout 1 and TaxiStatesLayout 10 — **41 tests, zero failures/errors**. The 393/320 captures show enabled driver accept, End trip after scroll, occupied-seat rejection, seat selection, ETB 80 total and enabled Book 1 seat. Street-pickup and driver shared-offer form appearance is not included in this capture set.
-
-### Next check
-
-Inspect revised driver-meter captures at 393 × 852 and 320 × 740 dp against the approved meter reference. Do not pass from code or compilation alone.
-
-## Historical iteration 1 report
-
-## Evidence and normalization
-
-- Source visual truth: `C:/Users/abc/.codex/generated_images/01a14bb0-8c94-7111-8ea5-bb6697be3f36/exec-74189b4b-771d-4dff-a5f3-7f274caf5ada.png`.
-- Implementation: `../play-release/1.1.32/validation/01-passenger-home.png`, from successful GitHub run 43726686706, commit `8b131a5c72f9b88b4444807f512f840e4b1ebec7`.
-- Artifact 14167241073 was downloaded using a refreshed capability and verified against SHA-256 `d511d3b9b3dabdc2d6eee6e048c7623840230cbb02e9e2e7b9382e77987b8901`.
-- Source pixels: 852 × 1846, representing the selected approximately 390 × 844 logical design. Native capture: 786 × 1704, generated by Robolectric at 393 × 852 dp, xhdpi (2×). Both were resampled to 390 × 844 for comparison only; original files are unchanged. The sub-1% aspect difference does not explain the finding below.
-- Full-view comparison: `../play-release/1.1.32/validation/home-comparison.png`.
-- Focused control comparison: `../play-release/1.1.32/validation/home-controls-comparison.png`.
-- State: passenger destination-first landing screen, no pickup or destination selected. The test selects Comfort before capture; selection-highlight differences from the Economy-selected source are therefore intentional.
-
-## Findings
-
-- **[P1] Map-to-sheet proportions and unused vertical space differ materially.**
-  - Source: the map is the dominant region, approximately 510 logical pixels tall; the destination and vehicle sheet sits directly above persistent bottom navigation.
-  - Implementation: map height is approximately 300 logical pixels. The content leaves approximately 140 logical pixels of empty ivory space between the Group Ride entry and bottom navigation.
-  - Impact: the app looks sparse and disconnected rather than matching the chosen map-first composition. Above-the-fold proportions materially differ.
-  - Fix: use the available screen height for the map, anchor the destination/vehicle/Group Ride sheet immediately above navigation, and retain the Group Ride addition within that sheet. Do not stretch a mockup image or invent map imagery.
-  - Owner notified: `/root/taxi_android` and `/root`.
-
-- **[P2 verification gap] Online map presentation is not evidenced by this native capture.**
-  - The native test deliberately uses `mapTiles=false`; OSM consequently appears as a gray grid. This is a known capture-state limitation, not proof of a production map failure.
-  - The static visual comparison cannot establish online road-tile appearance or road-route drawing. Obtain a device/emulator capture with actual permitted map data, or explicitly report that device/network verification remains outstanding. Do not replace the native map with the generated reference raster.
-
-## Required fidelity surfaces
-
-- **Fonts and typography:** rounded brand typography, bold destination heading and readable vehicle labels are coherent with the selected direction. Navigation labels are smaller than the reference; consider a modest increase as follow-up polish after layout correction. No clipping is visible in this 393 × 852 state.
-- **Spacing and layout rhythm:** blocked by the P1 above. Vehicle tile spacing and destination padding are orderly. The added Group Ride link is authorized and is not itself design drift.
-- **Colors and tokens:** cream, navy, mint and teal match the established Passo palette. The selected border is darker than the generated reference but remains consistent with the actual product tokens.
-- **Image quality and assets:** the Passo wordmark is a real supplied image; all three tiers use real generated 3D vehicle assets. They are sharp and correctly contained. The implementation does not substitute the whole mockup for interactive controls. Online map imagery remains a verification gap.
-- **Copy and content:** “Where to?”, Economy, Comfort, Mini-Van and Daily Commute match the agreed choices. “Group Ride · pay per seat” correctly expresses the latest shared-seat requirement. The landing screen has no visible current-location field as requested.
+The landing test selects Comfort while its source selects Economy; that highlight difference is intentional. Passenger status fixtures render the actual current-ride component beneath the brand header and omit its outer passenger navigation; that fixture boundary is not evidence of a production navigation defect. The group capture is selected-trip seat booking while its source shows find-seat/search, so palette, fare clarity, route hierarchy and controls were compared without pretending those are identical workflow states.
 
 ## Comparison history
 
-1. **Iteration 1 — blocked:** source and native capture were opened together in the full-view composite and focused control composite. Found P1 region proportions/unused space and the map capture limitation. No post-fix capture has been reviewed yet.
+1. **Iteration 1 — P1 found:** run 43726686706, commit 8b131a5c72f9b88b4444807f512f840e4b1ebec7. The native home used a roughly 300 dp map and left roughly 140 dp unused ivory space above bottom navigation. Evidence: ../play-release/1.1.32/validation/home-comparison.png and home-controls-comparison.png. The worker was asked to give the map the measured remaining height and anchor the destination/vehicle/Group Ride sheet above navigation.
+2. **Iteration 2 — home P1 resolved, meter P2 found:** run 43732141139, commit bfddf41cca6c8bc08de836d66159abad01e0ad89. The combined final-validation/home-comparison.png visibly confirms the home gap is gone. The expanded state set revealed that driver meter fare/actions were below the first viewport, particularly at 320 dp. Evidence: final-validation/driver-meter-comparison.png and original driver-meter-320.png. End trip worked after scrolling, but its initial hierarchy differed materially from the approved meter.
+3. **Iteration 3 — both findings resolved:** run 43735694830. The active-meter map is compact, destination/contact information is condensed, and Passenger stop plus End trip are anchored above bottom navigation. The combined meter-postfix-comparison.png shows the source with initial native 393 and 320 frames. The separate 320 dp / font-scale-1.2 capture shows ETB 187.50 fare, 3.20 km distance, 00:00 billable waiting, Passenger stop and End trip all visible without scrolling. No overlap or hidden primary control remains in these captures.
 
-## Test evidence and open states
+## Required fidelity surfaces
 
-- The successful TaxiLayoutTest checks destination entry, all three service tiers, Comfort selection, absence of a “Current location” field and the Daily Commute callback.
-- This is native Compose/Robolectric evidence, not a browser prototype; browser-console checks do not apply to this capture.
-- Passenger requesting/accepted/meter, driver call pool/street pickup/meter, shared booking and driver-offer frames are not included in the first artifact. They require actual native captures before a complete visual pass.
-- The 320 dp responsive state and increased font scale are not evidenced by this artifact.
+- **Fonts and typography:** rounded product typography, bold fares and route/action hierarchy match the selected direction. Long routes wrap cleanly at 320 dp. The enlarged-text meter retains readable key values and actions.
+- **Spacing and layout rhythm:** home fills its available height without the former gap. The active meter now keeps essential information and controls in the initial viewport. Other narrow list/detail flows scroll in an orderly way. The added Group Ride entry is authorized content and accounts for some home-sheet height difference from the earlier home-only source.
+- **Colors and tokens:** cream, navy, mint and teal remain consistent across captures. Selected, disabled and occupied-seat states remain distinguishable. Slightly darker product-token highlights are accepted rather than treated as new branding.
+- **Image quality and assets:** the real Passo wordmark, generated isolated 3D vehicle assets and sourced top-view car icons are present and sharp. No whole-screen mockup raster substitutes for interactive controls. The accepted-driver fixture has no profile photo, so a real driver's portrait is outside this visual evidence.
+- **Copy and content:** destination-only entry, Economy/Comfort/Mini-Van, Daily Commute, connecting status, direct payment and per-seat Group Ride wording reflect the agreed behavior. Test names, fares, PINs and positions are synthetic fixtures, not customer records.
+
+## Functional evidence inspected
+
+The latest extracted XML reports AuthLayoutTest 17, CredentialStorageTest 3, RidePushTest 4, TaxiFlowTest 6, TaxiLayoutTest 1 and TaxiStatesLayoutTest 11: **42 tests, zero failures and zero errors**.
+
+Native interaction coverage includes tier selection, the Daily Commute callback, absence of a current-location input, requesting and accepted states, enabled driver acceptance, occupied-seat rejection, selecting a seat with the correct total, and enabled booking at both widths. The revised meter tests assert fare, distance, waiting and End trip visibility without scrolling at 393 dp, 320 dp and enlarged text. Actual PNG inspection confirms those assertions rather than relying on build success alone.
+
+## Verification limits and follow-up polish
+
+- Online OSM tiles are deliberately disabled in deterministic tests (mapTiles=false), so gray grid backgrounds are expected. Route overlays and sourced car icons use synthetic fixtures. These captures do not prove live road routing, online tile availability, GPS/geofence behavior, background location on a physical phone or actual FCM phone delivery.
+- This is native Compose/Robolectric evidence; browser-console checks do not apply.
+- Street-pickup and driver shared-offer form appearance are not present in this capture set. Their complete visual appearance has not been verified here.
+- P3: the narrow header shortens Daily Commute to Daily, navigation labels are smaller than the generated reference, and singular seat(s) copy can be polished. These do not hide a primary action or change pricing/booking meaning.
 
 ## Implementation checklist
 
-1. Correct map weight and sheet anchoring without changing working navigation.
-2. Capture revised native passenger landing at the same viewport and compare against the same source.
-3. Inspect the remaining native flow states and a small-width capture.
-4. Verify real map tiles/route rendering on an actual network-enabled device, or disclose the remaining verification limit.
-5. Change this report to passed only after post-fix visual evidence has no actionable P0/P1/P2 differences.
+- [x] Open source and native evidence together.
+- [x] Resolve the home spacing P1 and inspect a post-fix capture.
+- [x] Resolve the active-meter P2 and inspect initial 393/320/enlarged-text captures.
+- [x] Check typography, layout, color, assets and copy.
+- [x] Verify native test results and preserve their fixture/device boundaries.
+- [ ] Perform physical-device GPS/routing/FCM acceptance separately before claiming those live behaviors are verified.
 
-final result: blocked
+final result: passed

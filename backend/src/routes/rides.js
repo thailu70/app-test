@@ -108,7 +108,8 @@ function createRidesRouter({ service = getRidesService() } = {}) {
     asyncRoute(async (req, res) => respond(res, await require('../services/mobility-push').getMobilityPushService().unregisterRideAccount(req.user, req.body || {}))));
   router.get(
     "/catalog",
-    publicLimit,
+    optionalAuth,
+    (req, res, next) => req.user ? accountReadLimit(req, res, next) : publicLimit(req, res, next),
     asyncRoute(async (_req, res) => respond(res, await service.catalog())),
   );
   router.get('/nearby',optionalAuth,(req,res,next)=>req.user?accountReadLimit(req,res,next):publicLimit(req,res,next),asyncRoute(async(req,res)=>respond(res,await service.nearby(req.query))));
@@ -125,7 +126,8 @@ function createRidesRouter({ service = getRidesService() } = {}) {
   );
   router.get(
     "/shared/trips",
-    publicLimit,
+    optionalAuth,
+    (req, res, next) => req.user ? accountReadLimit(req, res, next) : publicLimit(req, res, next),
     asyncRoute(async (req, res) =>
       respond(res, await service.sharedTrips(req.query)),
     ),
