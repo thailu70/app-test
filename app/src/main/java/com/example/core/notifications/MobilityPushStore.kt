@@ -12,12 +12,19 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-internal data class MobilityPushDevice(val token: String = "", val driverOwner: String? = null)
+internal data class MobilityPushDevice(val token: String = "", val driverOwner: String? = null,
+    val rideOwner: String? = null, val rideRole: String? = null)
 
 /** Device routing token only, encrypted under a Keystore key and excluded from cloud/device backup. */
 internal class MobilityPushStore(context: Context) {
     private val file = java.io.File(context.applicationContext.noBackupFilesDir, "mobility_push_device_v1")
     private val revoked = java.io.File(context.applicationContext.noBackupFilesDir, "mobility_push_driver_revoked_v1")
+    private val ridesRevoked = java.io.File(context.applicationContext.noBackupFilesDir, "mobility_push_rides_revoked_v1")
+    fun ridesRevoked(): Boolean = ridesRevoked.exists()
+    fun revokeRides() = synchronized(lock) { ridesRevoked.writeText("revoked"); runCatching { write(read().copy(rideOwner = null, rideRole = null)) }; Unit }
+    fun confirmRides(owner: String, role: String, permitted: () -> Boolean) = synchronized(lock) {
+        if (permitted()) { write(read().copy(rideOwner = owner, rideRole = role)); ridesRevoked.delete() }
+    }
     fun driverRevoked(): Boolean = revoked.exists()
     fun update(transform: (MobilityPushDevice) -> MobilityPushDevice) = synchronized(lock) { write(transform(read())) }
     fun revokeDriver() = synchronized(lock) {
@@ -39,18 +46,20 @@ internal class MobilityPushStore(context: Context) {
         val raw = cipher.doFinal(Base64.decode(parts[2], Base64.NO_WRAP))
         try {
             val value = JSONObject(String(raw, Charsets.UTF_8))
-            MobilityPushDevice(value.optString("token"), value.optString("driverOwner").takeIf { it.isNotBlank() })
+            MobilityPushDevice(value.optString("token"), value.optString("driverOwner").takeIf { it.isNotBlank() },
+                value.optString("rideOwner").takeIf { it.isNotBlank() }, value.optString("rideRole").takeIf { it in setOf("DRIVER", "PASSENGER") })
         } finally { raw.fill(0) }
     }
     fun write(value: MobilityPushDevice) = synchronized(lock) {
-        require(value.token.length <= 4096 && (value.driverOwner?.length ?: 0) <= 150)
+        require(value.token.length <= 4096 && (value.driverOwner?.length ?: 0) <= 150 && (value.rideOwner?.length ?: 0) <= 150)
         val store = keyStore()
         val key = (store.getEntry(ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey ?: KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
             init(KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(256).setRandomizedEncryptionRequired(true).build())
         }.generateKey()
-        val raw = JSONObject().put("token", value.token).put("driverOwner", value.driverOwner.orEmpty()).toString().toByteArray()
+        val raw = JSONObject().put("token", value.token).put("driverOwner", value.driverOwner.orEmpty())
+            .put("rideOwner", value.rideOwner.orEmpty()).put("rideRole", value.rideRole.orEmpty()).toString().toByteArray()
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key); cipher.updateAAD(AAD)
         val encrypted = try { cipher.doFinal(raw) } finally { raw.fill(0) }

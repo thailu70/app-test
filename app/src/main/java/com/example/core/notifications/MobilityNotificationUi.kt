@@ -33,12 +33,14 @@ import kotlinx.coroutines.delay
     val environment = ApiClient.environment()
     LaunchedEffect(userId, role, environment) {
         MobilityPush.setDriverSession(context, userId, role)
+        RidePush.setSession(context, userId, role)
         if (!MobilityPush.production(context)) { MobilityPush.pauseAutomaticRegistration(context); return@LaunchedEffect }
         MobilityPush.ensureChannel(context)
         while (true) {
             if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) && MobilityPush.allowed(context)) {
                 try {
                     if (userId != null && role.equals("DRIVER", true)) MobilityPush.syncDriver(context, userId)
+                    if (userId != null && role in setOf("DRIVER", "PASSENGER")) RidePush.sync(context, userId, role!!)
                     MobilityPush.syncGuestRequests(context)
                 } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { /* Retry next foreground interval. */ }
             }
@@ -48,7 +50,7 @@ import kotlinx.coroutines.delay
 }
 
 /** No OS dialog is opened until the driver/requester taps this control. */
-@Composable fun MobilityNotificationOptIn(driver: Boolean, modifier: Modifier = Modifier, language: AppLanguage = AppLanguage.ENGLISH) {
+@Composable fun MobilityNotificationOptIn(driver: Boolean, modifier: Modifier = Modifier, language: AppLanguage = AppLanguage.ENGLISH, taxi: Boolean = false) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var granted by remember { mutableStateOf(MobilityPush.notificationsGranted(context)) }
@@ -68,7 +70,7 @@ import kotlinx.coroutines.delay
     if (!MobilityPush.production(context) || !MobilityPush.configured(context) || granted) return
     fun t(en: String, am: String, om: String) = intercityText(language, en, am, om)
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Text(if (driver) t("Get requests near your last known location, even when Passo is closed. Open Passo to refresh your location.", "ፓሶ ተዘግቶም በመጨረሻ ከታወቀው አካባቢዎ አቅራቢያ ያሉ ጥያቄዎችን ያግኙ። አካባቢዎን ለማዘመን ፓሶን ይክፈቱ።", "Passo cufamee jirullee bakka kee dhuma irratti beekame naannawatti gaaffii geejjibaa argadhu. Bakka kee haaromsuuf Passo bani.") else t("Get driver quotes and arrival updates even when Passo is closed.", "ፓሶ ተዘግቶም የአሽከርካሪ ዋጋ እና የመድረሻ ማሳወቂያዎችን ያግኙ።", "Passo cufamee jirullee gatii fi odeeffannoo ga'umsaa argadhu."), color = CommuteInk, fontSize = 12.sp)
+        Text(if (taxi) t("Get ride acceptance, arrival and boarding updates even when Passo is closed.", "ፓሶ ተዘግቶም የጉዞ መቀበል፣ መድረስ እና መሳፈር ማሳወቂያዎችን ያግኙ።", "Passo cufamee jirullee beeksisa fudhatama, ga'umsaa fi yaabbannoo argadhu.") else if (driver) t("Get requests near your last known location, even when Passo is closed. Open Passo to refresh your location.", "ፓሶ ተዘግቶም በመጨረሻ ከታወቀው አካባቢዎ አቅራቢያ ያሉ ጥያቄዎችን ያግኙ። አካባቢዎን ለማዘመን ፓሶን ይክፈቱ።", "Passo cufamee jirullee bakka kee dhuma irratti beekame naannawatti gaaffii geejjibaa argadhu. Bakka kee haaromsuuf Passo bani.") else t("Get driver quotes and arrival updates even when Passo is closed.", "ፓሶ ተዘግቶም የአሽከርካሪ ዋጋ እና የመድረሻ ማሳወቂያዎችን ያግኙ።", "Passo cufamee jirullee gatii fi odeeffannoo ga'umsaa argadhu."), color = CommuteInk, fontSize = 12.sp)
         OutlinedButton(onClick = {
             MobilityPush.ensureChannel(context)
             if (Build.VERSION.SDK_INT >= 33 && !attempted) { attempted = true; permission.launch(Manifest.permission.POST_NOTIFICATIONS) }

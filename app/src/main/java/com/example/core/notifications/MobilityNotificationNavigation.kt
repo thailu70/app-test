@@ -42,6 +42,12 @@ object MobilityNotificationNavigation {
     fun acceptIntent(context: Context, intent: Intent) {
         val payload = MobilityPushPayload.fromIntent(intent) ?: return
         if (!MobilityPush.production(context)) return
+        if (payload.kind in setOf("TAXI", "SHARED")) {
+            intent.removeExtra(MobilityPushPayload.EXTRA_ID); intent.removeExtra(MobilityPushPayload.EXTRA_EVENT)
+            intent.removeExtra(MobilityPushPayload.EXTRA_SCOPE); intent.removeExtra(MobilityPushPayload.EXTRA_KIND)
+            RideNotificationNavigation.accept(payload)
+            return
+        }
         val app = context.applicationContext
         val session = ApiClient.sessionScope()
         intent.removeExtra(MobilityPushPayload.EXTRA_ID)

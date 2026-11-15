@@ -41,8 +41,17 @@ import kotlinx.coroutines.launch
     var notice by remember { mutableStateOf<String?>(null) }
     var locating by remember { mutableStateOf(false) }
     var requested by remember { mutableStateOf<SharedRideTrip?>(null) }
+    val pushFocus by com.example.core.notifications.RideNotificationNavigation.focus.collectAsState()
+    LaunchedEffect(pushFocus, model) {
+        pushFocus?.takeIf { it.scope == "DRIVER" }?.let {
+            page = "calls"
+            when { it.eventType == "NEW_REQUEST" -> model.refresh(); it.kind == "SHARED" -> model.chooseTrip(it.requestId); else -> model.openRide(it.requestId) }
+            com.example.core.notifications.RideNotificationNavigation.consumeFocus()
+        }
+    }
     val trackingStatus by TaxiTracking.status.collectAsState()
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        if (com.example.core.notifications.MobilityPush.notificationsGranted(context)) com.example.core.notifications.MobilityPush.onPermissionGranted(context)
         notice = if (taxiLocationPermission(context) && NotificationManagerCompat.from(context).areNotificationsEnabled()) "Permissions ready. Choose your action again." else "Precise location and notifications are required while you are online or on a trip."
     }
     fun allowed(): Boolean {
@@ -84,7 +93,7 @@ import kotlinx.coroutines.launch
                 state.selectedTrip != null -> SharedDriverTrip(model, state, ::withFix)
                 state.ride != null -> DriverCurrentRide(model, state, ::withFix)
                 page in setOf("street", "offer") -> TaxiTripForm(state, true, page == "street", model, { page = "calls"; requested = null }, acceptRequest = requested) { input ->
-                    if (allowed()) when { page == "street" -> model.street(input); requested != null -> model.acceptShared(requested!!.id, input.vehicleId.orEmpty(), input.seats ?: 1, input.farePerSeatEtb ?: 0.0); else -> model.offer(input) }
+                    if (allowed()) when { page == "street" -> withFix { model.street(input, it) }; requested != null -> model.acceptShared(requested!!.id, input.vehicleId.orEmpty(), input.seats ?: 1, input.farePerSeatEtb ?: 0.0); else -> model.offer(input) }
                 }
                 else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(15.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -111,6 +120,7 @@ import kotlinx.coroutines.launch
                             }) } }
                         }
                         if (dashboard.online || target != null) Text(trackingStatus, color = Color(0xFF627385), fontSize = 12.sp)
+                        if (target != null && TaxiTracking.session == null) TextButton(onClick = { if (allowed()) TaxiTracking.start(context, target) }) { Text("Resume location sharing") }
                         if (page == "credit") {
                             Text("Driver credit", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
                             Text("Contact info@passo.live to top up. Only verified payments are credited. Passo reserves the disclosed service fee and settles it once the journey is completed.", color = CommuteInk, fontSize = 14.sp)
@@ -177,7 +187,7 @@ import kotlinx.coroutines.launch
             "ACCEPTED" -> TaxiPrimary("Arrived at pickup", !state.busy, "taxi_arrive") { withFix(model::arrive) }
             "AT_PICKUP" -> {
                 OutlinedTextField(pin, { pin = it.filter(Char::isDigit).take(8) }, label = { Text("Passenger's trip PIN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), enabled = !state.busy, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("taxi_boarding_pin"))
-                TaxiPrimary("Start meter", !state.busy && pin.length >= 4, "taxi_start_meter") { model.start(pin) }
+                TaxiPrimary("Start meter", !state.busy && pin.length >= 4, "taxi_start_meter") { withFix { model.start(pin, it) } }
             }
             "IN_PROGRESS" -> {
                 if (ride.source != "STREET") OutlinedButton(onClick = { model.wait(if (ride.waiting == "STOP") "END_STOP" else "REQUEST_STOP") }, enabled = !state.busy && !ride.stopWaitingRequested, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PauseCircle, null); Spacer(Modifier.width(8.dp)); Text(if (ride.waiting == "STOP") "End passenger stop" else if (ride.stopWaitingRequested) "Waiting for passenger approval" else "Request passenger stop") }
@@ -215,7 +225,10 @@ import kotlinx.coroutines.launch
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text(booking.passengerName ?: "Passenger", color = CommuteInk, fontWeight = FontWeight.Bold)
                     Text("Seats ${booking.seatNumbers.joinToString()} · ${booking.status} · ${taxiMoney(booking.totalEtb)}", color = Color(0xFF627385), fontSize = 13.sp)
-                    if (trip.status == "BOARDING" && booking.status == "CONFIRMED") OutlinedButton(onClick = { boarding = booking; pin = "" }, enabled = !state.busy) { Text("Board with passenger PIN") }
+                    if (trip.status == "BOARDING" && booking.status == "CONFIRMED") {
+                        OutlinedButton(onClick = { boarding = booking; pin = "" }, enabled = !state.busy) { Text("Board with passenger PIN") }
+                        TextButton(onClick = { model.sharedAction("NO_SHOW", bookingId = booking.id) }, enabled = !state.busy) { Text("Mark no-show after waiting allowance") }
+                    }
                 }
             }
         }

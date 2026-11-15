@@ -81,8 +81,10 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
         mutable.update { it.copy(estimate = result.estimate ?: error("No road estimate was returned.")) }
     }
     fun request(route: TaxiRouteInput) = act {
-        val result = check(mobilityBody(api.request(route.copy(idempotencyKey = key("request:$route")))))
+        val intent = "request:$route"
+        val result = check(mobilityBody(api.request(route.copy(idempotencyKey = key(intent)))))
         mutable.update { it.copy(ride = result.ride ?: error("The request was not returned."), estimate = null) }
+        idempotency.remove(intent)
     }
     fun openRide(id: String) = act { val result = check(mobilityBody(api.ride(id))); mutable.update { it.copy(ride = result.ride) } }
     fun cancelRide(reason: String = "Cancelled in app") = act {
@@ -103,14 +105,19 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
         val result = check(mobilityBody(api.arrive(ride.id, location)))
         mutable.update { it.copy(ride = result.ride) }
     }
-    fun start(pin: String) = act {
+    fun start(pin: String, location: Map<String, Any>) = act {
         val ride = mutable.value.ride ?: return@act
+        TaxiTracking.finishMeter(ride.id, location)
         val result = check(mobilityBody(api.start(ride.id, mapOf("pin" to pin))))
         mutable.update { it.copy(ride = result.ride) }
     }
-    fun street(route: TaxiRouteInput) = act {
-        val result = check(mobilityBody(api.street(route.copy(idempotencyKey = key("street:$route"), passengerConsent = true))))
+    fun street(route: TaxiRouteInput, location: Map<String, Any>) = act {
+        val intent = "street:$route"
+        val result = check(mobilityBody(api.street(route.copy(idempotencyKey = key(intent), passengerConsent = true,
+            latitude = location["latitude"] as Double, longitude = location["longitude"] as Double,
+            accuracyMeters = location["accuracyMeters"] as Double, timestamp = location["timestamp"] as String))))
         mutable.update { it.copy(ride = result.ride, estimate = null) }; load()
+        idempotency.remove(intent)
     }
     fun wait(action: String) = act {
         val ride = mutable.value.ride ?: return@act
@@ -124,7 +131,8 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
     }
     fun complete(location: Map<String, Any>) = act {
         val ride = mutable.value.ride ?: return@act
-        val result = check(mobilityBody(api.complete(ride.id, location)))
+        val finalSequence = TaxiTracking.finishMeter(ride.id, location)
+        val result = check(mobilityBody(api.complete(ride.id, location + mapOf("finalSequence" to finalSequence))))
         mutable.update { it.copy(ride = result.ride) }
     }
     fun chooseTrip(id: String) = act { loadTrip(id) }
@@ -134,12 +142,16 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
             occupiedSeats = result.occupiedSeats) }
     }
     fun sharedRequest(route: TaxiRouteInput) = act {
-        val result = check(mobilityBody(api.sharedRequest(route.copy(idempotencyKey = key("shared-request:$route")))))
+        val intent = "shared-request:$route"
+        val result = check(mobilityBody(api.sharedRequest(route.copy(idempotencyKey = key(intent)))))
         mutable.update { it.copy(selectedTrip = result.trip, message = "Your route is available to eligible drivers. Confirm the fare before booking when a driver accepts.") }; load()
+        idempotency.remove(intent)
     }
     fun offer(route: TaxiRouteInput) = act {
-        val result = check(mobilityBody(api.offer(route.copy(idempotencyKey = key("offer:$route")))))
+        val intent = "offer:$route"
+        val result = check(mobilityBody(api.offer(route.copy(idempotencyKey = key(intent)))))
         mutable.update { it.copy(selectedTrip = result.trip) }; load()
+        idempotency.remove(intent)
     }
     fun acceptShared(id: String, vehicle: String, seats: Int, fare: Double) = act {
         val result = check(mobilityBody(api.acceptShared(id, mapOf("vehicleId" to vehicle, "seats" to seats, "farePerSeatEtb" to fare))))
@@ -147,8 +159,10 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
     }
     fun book(numbers: List<Int>) = act {
         val trip = mutable.value.selectedTrip ?: return@act
-        val result = check(mobilityBody(api.book(trip.id, mapOf("seatNumbers" to numbers, "idempotencyKey" to key("book:${trip.id}:$numbers")))))
+        val intent = "book:${trip.id}:$numbers"
+        val result = check(mobilityBody(api.book(trip.id, mapOf("seatNumbers" to numbers, "idempotencyKey" to key(intent)))))
         mutable.update { it.copy(selectedTrip = result.trip ?: trip, selectedBooking = result.booking) }; loadTrip(trip.id); load()
+        idempotency.remove(intent)
     }
     fun cancelBooking(id: String) = act { check(mobilityBody(api.cancelBooking(id))); mutable.value.selectedTrip?.let { loadTrip(it.id) }; load() }
     fun sharedAction(action: String, location: Map<String, Any> = emptyMap(), bookingId: String? = null, pin: String? = null) = act {

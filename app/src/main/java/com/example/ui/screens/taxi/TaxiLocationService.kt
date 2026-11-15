@@ -24,6 +24,8 @@ import com.example.ui.screens.intercity.mobilityBody
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -47,6 +49,7 @@ internal object TaxiTracking {
         private set
     private var app: Context? = null
     private val mutable = MutableStateFlow("Location sharing is off.")
+    internal var finisher: Pair<TaxiTrackingSession, suspend (Map<String, Any>) -> Long>? = null
     val status = mutable.asStateFlow()
     fun report(value: String) { mutable.value = value }
     fun current(value: TaxiTrackingSession) = session?.let {
@@ -63,14 +66,19 @@ internal object TaxiTracking {
         val old = session
         app = context.applicationContext
         session = next
-        if (old?.target?.tripId == target.tripId && old.target.vehicleId == target.vehicleId &&
+        if (old != null && old.target.tripId == target.tripId && old.target.vehicleId == target.vehicleId &&
             old.target.driverId == target.driverId && old.target.shared == target.shared && old.token == token) return true
         return try {
             ContextCompat.startForegroundService(context, Intent(context, TaxiLocationService::class.java)); true
         } catch (_: RuntimeException) { stop("Open the driver portal to resume location sharing."); false }
     }
     fun stop(message: String = "Location sharing is off.") {
-        session = null; report(message); app?.stopService(Intent(app, TaxiLocationService::class.java))
+        session = null; finisher = null; report(message); app?.stopService(Intent(app, TaxiLocationService::class.java))
+    }
+    suspend fun finishMeter(tripId: String, point: Map<String, Any>): Long {
+        val value = finisher ?: error("Resume trip location sharing and reconnect before completing the meter.")
+        check(current(value.first) && value.first.target.tripId == tripId && !value.first.target.shared) { "Reopen this trip before completing it." }
+        return value.second(point)
     }
 }
 
@@ -141,6 +149,7 @@ class TaxiLocationService : Service() {
     private var storeVersion = 0L
     private var queue: TaxiGpsQueue? = null
     private val pending = mutableListOf<TaxiGpsPoint>()
+    private val uploads = Mutex()
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == STOP) { TaxiTracking.stop("Location sharing paused. Reopen the driver portal before continuing."); return START_NOT_STICKY }
@@ -157,6 +166,15 @@ class TaxiLocationService : Service() {
                     queue = TaxiGpsQueue(this@TaxiLocationService, session)
                     pending.addAll(withContext(Dispatchers.IO) { queue!!.read() })
                     sequence = maxOf(sequence, pending.maxOfOrNull { it.sequence } ?: 0)
+                    val finish: suspend (Map<String, Any>) -> Long = { point -> uploads.withLock {
+                        check(TaxiTracking.current(session)) { "This trip session ended." }
+                        val final = TaxiGpsPoint(++sequence, point["latitude"] as Double, point["longitude"] as Double,
+                            point["accuracyMeters"] as Double, point["timestamp"] as String)
+                        pending.add(final); persistQueue()
+                        while (pending.any { it.sequence <= final.sequence }) uploadBatch(api, session.target.tripId, final.sequence)
+                        final.sequence
+                    } }
+                    TaxiTracking.finisher = session to finish
                 }
                 begin(session)
                 var checkedAt = 0L
@@ -164,11 +182,18 @@ class TaxiLocationService : Service() {
                     if (!taxiLocationPermission(this@TaxiLocationService)) error("Location permission ended.")
                     val now = SystemClock.elapsedRealtime()
                     if (now - checkedAt >= 20_000) {
-                        val dashboard = mobilityBody(api.dashboard()); check(dashboard.success) { dashboard.error ?: "Driver access ended." }
-                        if (session.target.tripId == null) check(dashboard.online && dashboard.ride == null) { "Availability changed. Reopen your driver portal." }
-                        else if (session.target.shared) check(dashboard.sharedTrips.any { it.id == session.target.tripId && it.status in setOf("OPEN", "BOARDING", "IN_PROGRESS") }) { "The shared trip ended." }
-                        else check(dashboard.ride?.id == session.target.tripId && dashboard.ride.status in setOf("ACCEPTED", "AT_PICKUP", "IN_PROGRESS")) { "The ride ended." }
-                        checkedAt = now
+                        val response = try { api.dashboard() } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+                        if (response?.code() in setOf(401, 403)) error("Your driver session ended.")
+                        if (response?.isSuccessful == true && response.body()?.success == true) {
+                            val dashboard = response.body()!!
+                            if (session.target.tripId == null) check(dashboard.online && dashboard.ride == null) { "Availability changed. Reopen your driver portal." }
+                            else if (session.target.shared) check(dashboard.sharedTrips.any { it.id == session.target.tripId && it.status in setOf("OPEN", "BOARDING", "IN_PROGRESS") }) { "The shared trip ended." }
+                            else check(dashboard.ride?.id == session.target.tripId && dashboard.ride.status in setOf("ACCEPTED", "AT_PICKUP", "IN_PROGRESS")) { "The ride ended." }
+                            checkedAt = now
+                        } else {
+                            check(checkedAt != 0L && now - checkedAt < 90_000) { "Reconnect and reopen the driver portal to resume this trip." }
+                            TaxiTracking.report("Connection interrupted. Trip locations are queued for retry.")
+                        }
                     }
                     val point = last?.takeIf { usableTaxiFix(it) }
                     try {
@@ -176,12 +201,7 @@ class TaxiLocationService : Service() {
                             session.target.tripId == null && point != null -> check(mobilityBody(api.availability(point.taxiBody() + mapOf("online" to true, "vehicleId" to session.target.vehicleId))).success)
                             session.target.shared && point != null -> check(mobilityBody(api.sharedLocation(session.target.tripId!!, point.taxiBody())).success)
                             session.target.tripId != null && pending.isNotEmpty() -> {
-                                val batch = pending.take(120)
-                                val result = mobilityBody(api.locations(session.target.tripId, TaxiGpsBatch(batch))); check(result.success) { result.error ?: "Location upload declined." }
-                                acceptedSequence = batch.last().sequence
-                                pending.removeAll { it.sequence <= acceptedSequence }
-                                val snapshot = pending.toList(); val store = queue; val version = ++storeVersion
-                                withContext(Dispatchers.IO) { store?.write(snapshot, version) }
+                                uploads.withLock { uploadBatch(api, session.target.tripId) }
                             }
                         }
                         TaxiTracking.report(if (point == null) "Location sharing is on. Waiting for precise GPS." else "Location sharing is on, including while the screen is locked.")
@@ -191,9 +211,25 @@ class TaxiLocationService : Service() {
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { TaxiTracking.report(e.message ?: "Open the driver portal to resume tracking.") }
-            finally { if (TaxiTracking.current(session)) { TaxiTracking.stop("Location sharing stopped. Open the driver portal to resume."); stopSelf() } }
+            finally {
+                if (TaxiTracking.current(session)) TaxiTracking.stop("Location sharing stopped. Open the driver portal to resume.")
+                // Android ignores an obsolete startId when a newer trip has replaced this one.
+                stopSelf(startId)
+            }
         }
         return START_NOT_STICKY
+    }
+    private suspend fun persistQueue() {
+        val snapshot = pending.toList(); val store = queue; val version = ++storeVersion
+        withContext(Dispatchers.IO) { store?.write(snapshot, version) }
+    }
+    private suspend fun uploadBatch(api: TaxiApi, tripId: String, through: Long = Long.MAX_VALUE) {
+        val batch = pending.filter { it.sequence <= through }.take(120)
+        if (batch.isEmpty()) return
+        val result = mobilityBody(api.locations(tripId, TaxiGpsBatch(batch)))
+        check(result.success && (result.ride?.lastSequence ?: -1) >= batch.last().sequence) { result.error ?: "Trip locations have not been acknowledged. Reconnect before completing." }
+        acceptedSequence = batch.last().sequence
+        pending.removeAll { it.sequence <= acceptedSequence }; persistQueue()
     }
     @Suppress("MissingPermission", "DEPRECATION")
     private fun begin(session: TaxiTrackingSession) {
@@ -230,7 +266,7 @@ class TaxiLocationService : Service() {
             .setContentTitle("PASSO · Taxi location sharing").setContentText("Location supports nearby calls and the trip meter. Stop sharing to pause.")
             .setOngoing(true).setOnlyAlertOnce(true).setContentIntent(open).addAction(0, "Stop sharing", stop).build()
     }
-    private fun clean() { worker?.cancel(); worker = null; listener?.let { runCatching { manager?.removeUpdates(it) } }; listener = null; last = null; pending.clear(); queue = null }
+    private fun clean() { worker?.cancel(); worker = null; listener?.let { runCatching { manager?.removeUpdates(it) } }; listener = null; last = null; pending.clear(); queue = null; TaxiTracking.finisher = null }
     override fun onDestroy() { clean(); scope.cancel(); stopForeground(STOP_FOREGROUND_REMOVE); super.onDestroy() }
     companion object { private const val STOP = "com.example.STOP_TAXI_LOCATION" }
 }

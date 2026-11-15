@@ -132,14 +132,14 @@ internal fun sharedActive(status: String) = status in setOf("BOARDING", "IN_PROG
 /** A real native base map, not the mockup image. No unassigned driver positions are invented. */
 @Composable internal fun TaxiMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Double>?,
     driver: MobilityLocation? = null, stage: String = "ASSIGNED", height: Int = 255,
-    pickupLabel: String = "Pickup", destinationLabel: String = "Destination", modifier: Modifier = Modifier) {
+    pickupLabel: String = "Pickup", destinationLabel: String = "Destination", modifier: Modifier = Modifier, tileDownloadsEnabled: Boolean = true) {
     if (pickup != null && destination != null) {
         MobilityRoadMap(pickup, destination, driver, stage, pickupLabel, destinationLabel,
-            modifier, mapHeight = height, trackingActive = driver != null)
+            modifier, mapHeight = height, trackingActive = driver != null, tileDownloadsEnabled = tileDownloadsEnabled)
     } else {
         val context = LocalContext.current; val owner = LocalLifecycleOwner.current
         val map = remember(context) { Configuration.getInstance().userAgentValue = context.packageName
-            MapView(context).apply { setTileSource(TileSourceFactory.MAPNIK); setMultiTouchControls(true); setBuiltInZoomControls(false); controller.setZoom(13.0); controller.setCenter(GeoPoint(pickup?.first ?: 9.0108, pickup?.second ?: 38.7613)) } }
+            MapView(context).apply { setTileSource(TileSourceFactory.MAPNIK); setUseDataConnection(tileDownloadsEnabled); setMultiTouchControls(true); setBuiltInZoomControls(false); controller.setZoom(13.0); controller.setCenter(GeoPoint(pickup?.first ?: 9.0108, pickup?.second ?: 38.7613)) } }
         DisposableEffect(map, owner) {
             val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_START) map.onResume(); if (event == Lifecycle.Event.ON_STOP) map.onPause() }
             owner.lifecycle.addObserver(observer); map.onResume()

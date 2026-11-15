@@ -17,7 +17,8 @@ class PassoMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         if (!MobilityPush.allowed(this)) return
         val payload = MobilityPushPayload.parse(message.data) ?: return
-        val authorised = if (payload.scope == "DRIVER") MobilityPush.driverDeliveryAllowed(this)
+        val authorised = if (payload.kind in setOf("TAXI", "SHARED")) RidePush.deliveryAllowed(this, payload.scope)
+            else if (payload.scope == "DRIVER") MobilityPush.driverDeliveryAllowed(this)
             else MobilityPush.guestDeliveryAllowed(this, payload.requestId)
         if (!authorised) return
         MobilityPush.ensureChannel(this)

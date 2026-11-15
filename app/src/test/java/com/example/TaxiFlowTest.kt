@@ -1,0 +1,61 @@
+package com.example
+
+import com.example.data.api.*
+import com.example.ui.screens.taxi.*
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.*
+import org.junit.*
+import org.junit.Assert.*
+import retrofit2.Response
+import java.lang.reflect.Proxy
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class TaxiFlowTest {
+    private val dispatcher = StandardTestDispatcher()
+    @Before fun setup() { Dispatchers.setMain(dispatcher) }
+    @After fun cleanup() { Dispatchers.resetMain() }
+    private val route = TaxiRouteInput("Fixture pickup", "Fixture destination", 9.0, 38.7, 9.05, 38.8)
+    private val ride = TaxiRide("ride-fixture", status = "REQUESTED", estimatedFareEtb = 325.0)
+    private fun fake(call: (String, Array<out Any?>) -> Any): TaxiApi = Proxy.newProxyInstance(TaxiApi::class.java.classLoader, arrayOf(TaxiApi::class.java)) { _, method, args -> call(method.name, args.orEmpty()) } as TaxiApi
+    private fun initial(name: String) = when (name) {
+        "catalog" -> Response.success(TaxiResponse(true, settings = TaxiSettings(enabled = true)))
+        "shared", "me" -> Response.success(TaxiResponse(true))
+        else -> error("Unexpected API call $name")
+    }
+    @Test fun `anonymous discovery calls only catalog and shared and estimate uses server fare`() = runTest(dispatcher) {
+        val calls = mutableListOf<String>()
+        val vm = TaxiViewModel(fake { name, _ -> calls += name; if (name == "estimate") Response.success(TaxiResponse(true, estimate = TaxiEstimate(8.0, 22.0, 325.0))) else initial(name) }, false, false)
+        advanceUntilIdle(); assertEquals(listOf("catalog", "shared"), calls)
+        vm.estimate(route); advanceUntilIdle()
+        assertEquals(325.0, vm.state.value.estimate!!.estimatedFareEtb, 0.0)
+        assertFalse(calls.contains("request"))
+    }
+    @Test fun `uncertain request retry retains key but a confirmed new booking intent gets a fresh key`() = runTest(dispatcher) {
+        val keys = mutableListOf<String>(); var fail = true
+        val vm = TaxiViewModel(fake { name, args ->
+            if (name == "request") { keys += (args[0] as TaxiRouteInput).idempotencyKey; if (fail) { fail = false; error("Connection interrupted") }; Response.success(TaxiResponse(true, ride = ride)) }
+            else initial(name)
+        }, true, false)
+        advanceUntilIdle(); vm.request(route); advanceUntilIdle(); assertNotNull(vm.state.value.message)
+        vm.request(route); advanceUntilIdle(); assertEquals(keys[0], keys[1]); assertEquals(ride, vm.state.value.ride)
+        vm.dismissRide(); vm.request(route); advanceUntilIdle(); assertNotEquals(keys[1], keys[2])
+    }
+    @Test fun `a rejected refresh preserves the previous driver roster and credit`() = runTest(dispatcher) {
+        var broken = false
+        val dashboard = TaxiResponse(true, eligible = true, online = true, calls = listOf(ride), wallet = MobilityWallet(1000.0, 20.0, 980.0))
+        val vm = TaxiViewModel(fake { name, _ -> if (name == "dashboard") { if (broken) error("Offline"); Response.success(dashboard) } else initial(name) }, true, true)
+        advanceUntilIdle(); broken = true; vm.refresh(); advanceUntilIdle()
+        assertEquals(listOf(ride), vm.state.value.dashboard!!.calls)
+        assertEquals(980.0, vm.state.value.dashboard!!.wallet.availableEtb, 0.0)
+    }
+    @Test fun `wire adapter preserves null fare requested group and never invents a boarding PIN`() {
+        val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+        val result = moshi.adapter(TaxiResponse::class.java).fromJson("""{"success":true,"ride":{"id":"r","fareEtb":null},"trip":{"id":"s","status":"REQUESTED","farePerSeatEtb":null}}""")!!
+        assertNull(result.ride!!.fareEtb); assertNull(result.ride.boardingPin)
+        assertNull(result.trip!!.farePerSeatEtb)
+        assertEquals(0L, result.ride.lastSequence)
+    }
+}

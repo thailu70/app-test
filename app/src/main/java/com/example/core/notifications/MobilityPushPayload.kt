@@ -12,14 +12,16 @@ data class MobilityPushPayload(val requestId: String, val eventType: String, val
         const val EXTRA_KIND = "passo_push_kind"
         private val keys = setOf("requestId", "eventType", "scope", "kind")
         private val events = setOf("NEW_REQUEST", "SELECTED", "QUOTES", "STATUS_ASSIGNED", "STATUS_AT_PICKUP", "STATUS_LOADED",
-            "STATUS_IN_TRANSIT", "STATUS_AT_DESTINATION", "STATUS_AWAITING_CONFIRMATION", "STATUS_COMPLETED", "STATUS_DISPUTED", "STATUS_CANCELLED")
+            "STATUS_IN_TRANSIT", "STATUS_AT_DESTINATION", "STATUS_AWAITING_CONFIRMATION", "STATUS_COMPLETED", "STATUS_DISPUTED", "STATUS_CANCELLED",
+            "STATUS_ACCEPTED", "STATUS_IN_PROGRESS", "STATUS_OPEN", "STATUS_BOARDING", "STATUS_CONFIRMED")
         fun parse(data: Map<String, String>): MobilityPushPayload? {
             if (data.keys != keys) return null
             val id = data["requestId"] ?: return null
             if (!Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,149}").matches(id)) return null
             val event = data["eventType"]?.takeIf { it in events } ?: return null
-            val scope = data["scope"]?.takeIf { it in setOf("DRIVER", "REQUEST") } ?: return null
-            val kind = data["kind"]?.takeIf { it in setOf("CARGO", "GROUP") } ?: return null
+            val scope = data["scope"]?.takeIf { it in setOf("DRIVER", "REQUEST", "PASSENGER") } ?: return null
+            val kind = data["kind"]?.takeIf { it in setOf("CARGO", "GROUP", "TAXI", "SHARED") } ?: return null
+            if ((kind in setOf("TAXI", "SHARED") && scope == "REQUEST") || (kind in setOf("CARGO", "GROUP") && scope == "PASSENGER")) return null
             return MobilityPushPayload(id, event, scope, kind)
         }
         fun fromIntent(intent: Intent): MobilityPushPayload? {
@@ -37,9 +39,9 @@ internal fun mobilityPushAllowed(environment: AppEnvironment, notificationsGrant
 internal fun MobilityPushPayload.notificationCopy(): Pair<String, String> = when (eventType) {
     "NEW_REQUEST" -> "New transport request" to "A transport request is available near your last known location. Open Passo to review it and refresh your location."
     "QUOTES" -> "Driver offers received" to "Drivers have quoted for your request. Open Passo to compare offers."
-    "SELECTED", "STATUS_ASSIGNED" -> "Transport booking updated" to "A driver has been selected. Open Passo for the booking details."
+    "SELECTED", "STATUS_ASSIGNED", "STATUS_ACCEPTED", "STATUS_CONFIRMED" -> "Transport booking updated" to "Your transport booking has an update. Open Passo for the details."
     "STATUS_AT_PICKUP" -> "Your driver has arrived" to "Your driver is at the pickup point. Open Passo for details."
-    "STATUS_LOADED", "STATUS_IN_TRANSIT" -> "Your journey has started" to "Your transport is underway. Open Passo to follow the request."
+    "STATUS_LOADED", "STATUS_IN_TRANSIT", "STATUS_IN_PROGRESS" -> "Your journey has started" to "Your transport is underway. Open Passo to follow the request."
     "STATUS_AT_DESTINATION", "STATUS_AWAITING_CONFIRMATION" -> "Delivery or journey arrived" to "Your driver has arrived. Open Passo to check and confirm completion."
     "STATUS_COMPLETED" -> "Transport service completed" to "Your service is complete. Open Passo to view details or leave a review."
     else -> "Passo request updated" to "Your transport request has an update. Open Passo to view it."

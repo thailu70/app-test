@@ -228,6 +228,10 @@ fun MainTransportApp(viewModel: MainViewModel) {
         AppRole.DRIVER -> transporterNotifs
         AppRole.ADMIN -> allNotifs
     }
+    com.example.core.notifications.RideNotificationDestination(currentUser?.id, currentUser?.role) { driver ->
+        showProfile = false; showPrivacy = false
+        if (driver) showTaxiDriver = true else showDailyCommute = false
+    }
 
     MobilityNotificationDestination(currentLang, currentUser?.id, currentUser?.role,
         onOpenDriver = { viewModel.setRole(AppRole.DRIVER) })

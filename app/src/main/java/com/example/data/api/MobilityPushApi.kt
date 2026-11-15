@@ -10,6 +10,9 @@ data class MobilityPushInput(val token: String, val latitude: Double? = null, va
 data class MobilityPushResponse(val success: Boolean, val registered: Boolean = false, val enabled: Boolean = false, val error: String? = null)
 
 interface MobilityPushApi {
+    @POST("api/rides/push-token") suspend fun registerRides(@Body input: MobilityPushInput): Response<MobilityPushResponse>
+    @HTTP(method = "DELETE", path = "api/rides/push-token", hasBody = true)
+    suspend fun removeRides(@Body input: MobilityPushInput): Response<MobilityPushResponse>
     @POST("api/mobility/driver/push-token") suspend fun registerDriver(@Body input: MobilityPushInput): Response<MobilityPushResponse>
     @HTTP(method = "DELETE", path = "api/mobility/driver/push-token", hasBody = true)
     suspend fun removeDriver(@Body input: MobilityPushInput): Response<MobilityPushResponse>

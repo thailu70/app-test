@@ -31,7 +31,14 @@ import kotlinx.coroutines.launch
     onSignIn: () -> Unit, onBack: () -> Unit, onPrivacy: () -> Unit = {},
     onProfile: () -> Unit = {}, onSignOut: () -> Unit = {}) {
     val authenticated by main.isAuthenticated.collectAsState()
-    val model = taxiViewModel(authenticated, false); val state by model.state.collectAsState()
+    val model = taxiViewModel(authenticated, false)
+    TaxiPassengerContent(authenticated, model, onDailyCommute, onSignIn, onBack, onPrivacy, onProfile, onSignOut)
+}
+
+@Composable internal fun TaxiPassengerContent(authenticated: Boolean, model: TaxiViewModel,
+    onDailyCommute: () -> Unit, onSignIn: () -> Unit, onBack: () -> Unit, onPrivacy: () -> Unit = {},
+    onProfile: () -> Unit = {}, onSignOut: () -> Unit = {}, mapTiles: Boolean = true) {
+    val state by model.state.collectAsState()
     val context = LocalContext.current; val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf("home") }
     var pickup by remember { mutableStateOf<Pair<Double, Double>?>(null) }
@@ -43,6 +50,14 @@ import kotlinx.coroutines.launch
     var localNotice by remember { mutableStateOf<String?>(null) }
     var locating by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
+    val pushFocus by com.example.core.notifications.RideNotificationNavigation.focus.collectAsState()
+    LaunchedEffect(pushFocus, model) {
+        pushFocus?.takeIf { it.scope == "PASSENGER" }?.let {
+            if (it.kind == "SHARED") { page = "shared"; model.chooseTrip(it.requestId) }
+            else { page = "home"; model.openRide(it.requestId) }
+            com.example.core.notifications.RideNotificationNavigation.consumeFocus()
+        }
+    }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         if (result[Manifest.permission.ACCESS_FINE_LOCATION] != true) localNotice = "Choose your pickup on the map, or allow precise location."
     }
@@ -84,7 +99,7 @@ import kotlinx.coroutines.launch
                 state.ride != null -> PassengerCurrentRide(state.ride!!, state.busy, model)
                 else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     TaxiMap(pickup, destination, height = if (state.estimate == null) 300 else 210,
-                        pickupLabel = pickupName, destinationLabel = destinationName, modifier = Modifier.padding(horizontal = 10.dp))
+                        pickupLabel = pickupName, destinationLabel = destinationName, modifier = Modifier.padding(horizontal = 10.dp), tileDownloadsEnabled = mapTiles)
                     Surface(shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp), color = Color.White, modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Surface(onClick = { picker = "destination" }, shape = RoundedCornerShape(19.dp), color = CommuteMint, modifier = Modifier.fillMaxWidth().testTag("taxi_where_to")) {
@@ -106,6 +121,7 @@ import kotlinx.coroutines.launch
                                 } ?: TaxiPrimary("Show estimated fare", !state.busy && !locating && route() != null && state.settings.enabled, "taxi_estimate") { route()?.let(model::estimate) }
                             }
                             if (!state.settings.enabled) Text("Taxi rides are being prepared. Daily Commute is available above.", color = Color(0xFF627385), fontSize = 13.sp)
+                            if (authenticated) com.example.core.notifications.MobilityNotificationOptIn(driver = false, taxi = true)
                             TextButton(onClick = { page = "shared" }, Modifier.align(Alignment.CenterHorizontally).testTag("taxi_group_ride")) { Icon(Icons.Default.Groups, null); Spacer(Modifier.width(8.dp)); Text("Group Ride · pay per seat", fontWeight = FontWeight.Bold) }
                         }
                     }

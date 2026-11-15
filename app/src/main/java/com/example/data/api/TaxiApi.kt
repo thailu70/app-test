@@ -20,7 +20,8 @@ data class TaxiRouteInput(val origin: String, val destination: String, val origi
     val originLongitude: Double, val destinationLatitude: Double, val destinationLongitude: Double,
     val tier: String = "ECONOMY", val idempotencyKey: String = "", val vehicleId: String? = null,
     val passengerConsent: Boolean? = null, val departureAt: String? = null,
-    val seats: Int? = null, val farePerSeatEtb: Double? = null)
+    val seats: Int? = null, val farePerSeatEtb: Double? = null,
+    val latitude: Double? = null, val longitude: Double? = null, val accuracyMeters: Double? = null, val timestamp: String? = null)
 @JsonClass(generateAdapter = true)
 data class TaxiEstimate(val distanceKm: Double = 0.0, val durationMinutes: Double = 0.0,
     val estimatedFareEtb: Double = 0.0, val tier: String = "ECONOMY", val routeGeometry: MobilityRoadGeometry? = null)

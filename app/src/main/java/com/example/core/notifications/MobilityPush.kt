@@ -59,7 +59,7 @@ object MobilityPush {
             })
     }
 
-    private suspend fun currentToken(context: Context): String? {
+    internal suspend fun currentToken(context: Context): String? {
         if (!allowed(context)) return null
         val messaging = FirebaseMessaging.getInstance()
         messaging.isAutoInitEnabled = true
@@ -81,6 +81,7 @@ object MobilityPush {
         if (!production(context) || !notificationsGranted(context) || token.isBlank()) return
         tokenInMemory = token; guestSynced.clear()
         runCatching { MobilityPushStore(context).update { it.copy(token = token) } }
+        RidePush.onPermissionGranted(context)
     }
 
     fun setDriverSession(context: Context, userId: String?, role: String?) {
@@ -114,6 +115,7 @@ object MobilityPush {
     fun beforeLogout(): Job? = applicationContext?.let { beforeLogout(it) }
 
     fun beforeLogout(context: Context): Job? {
+        RidePush.beforeLogout(context)
         initialize(context)
         val app = context.applicationContext
         val value = synchronized(driverSessionLock) {
@@ -141,6 +143,7 @@ object MobilityPush {
 
     fun onPermissionGranted(context: Context) {
         ensureChannel(context); syncGuestRequests(context)
+        RidePush.onPermissionGranted(context)
         activeDriverId?.let { owner -> scope.launch { runCatching { syncDriver(context.applicationContext, owner) } } }
     }
 
