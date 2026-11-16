@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Refresh only the OSRM road graph. Never modify files in the mounted live graph.
-set -euo pipefail
+set -Eeuo pipefail
 umask 022
 root=$(cd "$(dirname "$(readlink -f "$0")")" && pwd -P)
 data="$root/data"
@@ -13,6 +13,7 @@ for tool in docker curl python3 sha256sum md5sum realpath flock; do command -v "
 [ -d "$data" ] && [ ! -L "$data" ] && [ ! -L "$live" ] || { echo 'Unsafe/missing data directory.' >&2; exit 1; }
 [ "$(realpath -e "$data")" = "$data" ] || { echo 'Data path must not contain symlinks.' >&2; exit 1; }
 mkdir -p "$updates"
+[ ! -L "$updates" ] && [ "$(realpath -e "$updates")" = "$updates" ] || { echo 'Unsafe update metadata directory.' >&2; exit 1; }
 exec 9>"$updates/update.lock"
 flock -n 9 || { echo 'Another graph update is running.' >&2; exit 1; }
 
@@ -23,10 +24,10 @@ inspect_live() {
   image=$(docker inspect "$container" --format '{{.Image}}')
   probe_image=$(docker inspect routepass_api --format '{{.Image}}')
   docker inspect "$container" >"$run/live-container-before.json"
-  python3 - "$run/live-container-before.json" "$live" <<'PY'
+  python3 - "$run/live-container-before.json" "$live" "$action" <<'PY'
 import json,sys
 c=json.load(open(sys.argv[1]))[0]
-assert c['State']['Running'], 'Live OSRM must be running before preparing/swapping.'
+assert c['State']['Running'] or sys.argv[3]=='rollback', 'Live OSRM must be running before preparing/swapping.'
 assert c['Config']['Cmd']==['osrm-routed','--algorithm','mld','--threads','2','/data/ethiopia-latest.osrm'], 'Unexpected routing command'
 assert c['HostConfig']['ReadonlyRootfs'] and not c['HostConfig']['PortBindings'], 'Unexpected OSRM security/ports'
 assert len(c['Mounts'])==1 and c['Mounts'][0]['Source']==sys.argv[2] and c['Mounts'][0]['Destination']=='/data' and not c['Mounts'][0]['RW'], 'Unexpected live mount'
@@ -78,6 +79,27 @@ compose_osrm() {
   docker compose --project-directory "$root" -p routepass-geo -f "$root/compose.yml" \
     -f "$run/pinned-image.yml" up -d --no-deps --force-recreate --pull never osrm
 }
+recover_swap() {
+  local status=$1
+  trap - ERR INT TERM
+  set +e
+  echo "Routing swap interrupted/failed ($status); restoring the pre-operation graph." >&2
+  docker stop --time 20 "$container" >/dev/null 2>&1
+  if [ -d "$previous" ] && [ ! -L "$previous" ]; then
+    if [ -d "$live" ] && [ ! -e "$incoming" ]; then mv -T "$live" "$incoming"; fi
+    if [ ! -e "$live" ]; then mv -T "$previous" "$live"; fi
+  fi
+  if [ -d "$live" ] && [ ! -L "$live" ] && compose_osrm && probe_graph routepass_internal_net osrm "$run/recovery-routes.json"; then
+    echo "Pre-operation graph restored. All graph directories and metadata were retained." >&2
+    python3 - "$run/manifest.json" <<'PY'
+import datetime,json,sys
+p=sys.argv[1];m=json.load(open(p));m.update(status='RECOVERED_AFTER_FAILURE',recoveredAt=datetime.datetime.now(datetime.timezone.utc).isoformat());open(p,'w').write(json.dumps(m,indent=2)+'\n')
+PY
+  else
+    echo "RECOVERY NEEDS ATTENTION: live=$live previous=$previous incoming=$incoming; no graph files deleted." >&2
+  fi
+  exit "$status"
+}
 
 case "$action" in
 prepare)
@@ -103,10 +125,10 @@ prepare)
   mv -T "$stage/ethiopia-latest.osm.pbf.partial" "$stage/ethiopia-latest.osm.pbf"
   sha256sum "$stage/ethiopia-latest.osm.pbf" >"$run/source.sha256"
   for operation in extract partition customize; do
-    args=("osrm-$operation" --threads 2)
+    args=("osrm-$operation" --threads 1)
     if [ "$operation" = extract ]; then args+=(-p /opt/car.lua /data/ethiopia-latest.osm.pbf); else args+=(/data/ethiopia-latest.osrm); fi
-    echo "Preparing $operation with the existing image; maximum 3 GB RAM and 2 CPU."
-    docker run --rm --network none --memory=3g --memory-swap=3g --cpus=2 --pids-limit=128 \
+    echo "Preparing $operation with the existing image; maximum 3 GB RAM and 1 CPU."
+    docker run --rm --network none --memory=3g --memory-swap=3g --cpus=1 --pids-limit=128 \
       --read-only --tmpfs /tmp:rw,nosuid,size=64m --cap-drop ALL --security-opt no-new-privileges:true \
       --label "passo.osrm.update=$id" -v "$stage:/data" "$image" "${args[@]}" >"$run/$operation.log" 2>&1
   done
@@ -126,7 +148,7 @@ prepare)
 import datetime,json,pathlib,sys
 run,stage,url,md5,image=sys.argv[1:]
 r=pathlib.Path(run)
-manifest={'id':r.name,'status':'VALIDATED','preparedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'stagePath':stage,'sourceUrl':url,'sourceMd5':md5,'sourceSha256':(r/'source.sha256').read_text().split()[0],'imageId':image,'algorithm':'mld','profile':'/opt/car.lua','preparationMemoryBytes':3221225472,'preparationCpus':2,'candidateChecks':json.loads((r/'candidate-routes.json').read_text()),'graphChecksums':'graph.sha256','sourceHeaders':'source-headers.txt','osmTimestampLog':'extract.log'}
+manifest={'id':r.name,'status':'VALIDATED','preparedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'stagePath':stage,'sourceUrl':url,'sourceMd5':md5,'sourceSha256':(r/'source.sha256').read_text().split()[0],'imageId':image,'algorithm':'mld','profile':'/opt/car.lua','preparationMemoryBytes':3221225472,'preparationCpus':1,'candidateChecks':json.loads((r/'candidate-routes.json').read_text()),'graphChecksums':'graph.sha256','sourceHeaders':'source-headers.txt','osmTimestampLog':'extract.log'}
 (r/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
 PY
   echo "VALIDATED: $run/manifest.json"
@@ -155,39 +177,34 @@ m=json.load(open(sys.argv[1]));assert m['status']=='VALIDATED' and m['stagePath'
 PY
     (cd "$stage" && sha256sum --check "$run/graph.sha256" >/dev/null)
     [ "$(stat -c %d "$stage")" = "$(stat -c %d "$live")" ] || { echo 'Graph swap must stay on the same filesystem.' >&2; exit 1; }
-    # Only OSRM is stopped. Both directory renames are atomic; API and Photon keep running.
-    docker stop --time 20 "$container" >/dev/null
-    mv -T "$live" "$backup"
-    if ! mv -T "$stage" "$live"; then mv -T "$backup" "$live"; compose_osrm; exit 1; fi
-    if compose_osrm && probe_graph routepass_internal_net osrm "$run/live-routes.json"; then
-      docker inspect "$container" >"$run/live-container-after.json"
-      python3 - "$run/manifest.json" "$backup" <<'PY'
-import datetime,json,sys
-p=sys.argv[1];m=json.load(open(p));m.update(status='ACTIVE',activatedAt=datetime.datetime.now(datetime.timezone.utc).isoformat(),backupPath=sys.argv[2]);open(p,'w').write(json.dumps(m,indent=2)+'\n')
-PY
-      echo "ACTIVE: $run/manifest.json; previous graph preserved at $backup"
-    else
-      echo 'Live route check failed; restoring the preserved graph.' >&2
-      docker stop --time 20 "$container" >/dev/null 2>&1 || true
-      mv -T "$live" "$failed"
-      mv -T "$backup" "$live"
-      compose_osrm
-      probe_graph routepass_internal_net osrm "$run/automatic-rollback-routes.json"
-      exit 1
-    fi
+    incoming=$stage
+    previous=$backup
   else
     [ -d "$backup" ] && [ ! -L "$backup" ] && [ "$(realpath -e "$backup")" = "$backup" ] && [ ! -e "$failed" ] || { echo 'Unsafe/missing rollback paths.' >&2; exit 1; }
-    docker stop --time 20 "$container" >/dev/null
-    mv -T "$live" "$failed"
-    mv -T "$backup" "$live"
-    compose_osrm
-    probe_graph routepass_internal_net osrm "$run/rollback-routes.json"
-    python3 - "$run/manifest.json" <<'PY'
-import datetime,json,sys
-p=sys.argv[1];m=json.load(open(p));m.update(status='ROLLED_BACK',rolledBackAt=datetime.datetime.now(datetime.timezone.utc).isoformat());open(p,'w').write(json.dumps(m,indent=2)+'\n')
-PY
-    echo "ROLLED_BACK: $run/manifest.json; replaced graph retained at $failed"
+    incoming=$backup
+    previous=$failed
   fi
+  # Arm recovery BEFORE stopping OSRM: errors/signals at every rename/start phase
+  # restore the pre-operation directory, including failure of the first rename.
+  # A machine power loss/SIGKILL still requires explicit operator recovery.
+  trap 'recover_swap $?' ERR
+  trap 'recover_swap 130' INT
+  trap 'recover_swap 143' TERM
+  docker stop --time 20 "$container" >/dev/null
+  mv -T "$live" "$previous"
+  mv -T "$incoming" "$live"
+  compose_osrm
+  probe_graph routepass_internal_net osrm "$run/$action-routes.json"
+  docker inspect "$container" >"$run/live-container-after.json"
+  python3 - "$run/manifest.json" "$action" "$backup" <<'PY'
+import datetime,json,sys
+p=sys.argv[1];m=json.load(open(p));at=datetime.datetime.now(datetime.timezone.utc).isoformat()
+if sys.argv[2]=='activate':m.update(status='ACTIVE',activatedAt=at,backupPath=sys.argv[3])
+else:m.update(status='ROLLED_BACK',rolledBackAt=at)
+open(p,'w').write(json.dumps(m,indent=2)+'\n')
+PY
+  trap - ERR INT TERM
+  echo "$action SUCCEEDED: $run/manifest.json; pre-operation graph preserved at $previous"
   ;;
 *) echo "Usage: bash $0 prepare | activate ID | rollback ID" >&2; exit 2 ;;
 esac
