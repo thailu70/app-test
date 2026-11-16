@@ -17,6 +17,12 @@ class RoadVehicleMotionTest {
     private val road = listOf(9.0 to 38.7, 9.0 to 38.701, 9.001 to 38.701)
     private fun fix(seconds: Int, lat: Double = 9.0, lon: Double = 38.7001) = MobilityLocation(lat, lon,
         "2026-11-16T00:00:${"%02d".format(seconds)}Z", accuracyMeters = 10.0)
+    @Test fun `precise GPS is not snapped across a parallel road and weak fixes stay raw`() {
+        val road = listOf(9.0 to 38.7, 9.001 to 38.7)
+        assertNull(projectToRoad(9.0005 to 38.70018, road, 5.0))
+        assertNull(projectToRoad(9.0005 to 38.70002, road, 80.0))
+        assertNotNull(projectToRoad(9.0005 to 38.70002, road, 5.0))
+    }
     @Test fun `visual matching follows road only inside GPS accuracy tolerance`() {
         val projection = projectToRoad(9.00005 to 38.7004, road, 10.0)!!
         assertEquals(9.0, projection.point.first, .000001)

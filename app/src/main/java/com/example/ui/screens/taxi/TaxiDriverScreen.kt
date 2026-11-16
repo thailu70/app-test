@@ -187,7 +187,7 @@ import kotlinx.coroutines.launch
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TaxiMap(ride.originLatitude to ride.originLongitude, ride.destinationLatitude to ride.destinationLongitude, ride.location,
-            if (ride.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 240, pickupLabel = ride.origin, destinationLabel = ride.destination, tileDownloadsEnabled = mapTiles, providedApi = mapApi, routeGeometry = ride.routeGeometry, freezeVehicle = ride.distancePaused)
+            if (ride.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 240, pickupLabel = ride.origin, destinationLabel = ride.destination, tileDownloadsEnabled = mapTiles, providedApi = mapApi, routeGeometry = ride.routeGeometry, routeGeometryQuality = ride.routeGeometryQuality, freezeVehicle = ride.distancePaused)
         Text(when (ride.status) { "ACCEPTED" -> "Go to pickup"; "AT_PICKUP" -> "Ready to board"; "IN_PROGRESS" -> "Trip in progress"; "COMPLETED" -> "Trip completed"; else -> "Ride cancelled" }, color = CommuteInk, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
         ride.passengerName?.let { Text(it, color = CommuteInk, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
         TaxiRouteRow("Pickup", ride.origin, true); TaxiRouteRow("Destination", ride.destination, false)
@@ -230,7 +230,7 @@ import kotlinx.coroutines.launch
             }
             TaxiMap(ride.originLatitude to ride.originLongitude, ride.destinationLatitude to ride.destinationLongitude, ride.location,
                 "IN_PROGRESS", height = if (compact) 140 else 160, pickupLabel = ride.origin, destinationLabel = ride.destination,
-                tileDownloadsEnabled = mapTiles, providedApi = mapApi, routeGeometry = ride.routeGeometry, freezeVehicle = ride.distancePaused)
+                tileDownloadsEnabled = mapTiles, providedApi = mapApi, routeGeometry = ride.routeGeometry, routeGeometryQuality = ride.routeGeometryQuality, freezeVehicle = ride.distancePaused)
             Surface(Modifier.weight(1f).fillMaxWidth(), color = Color.White, shape = RoundedCornerShape(22.dp)) {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Surface(color = CommuteMint, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
@@ -288,7 +288,7 @@ import kotlinx.coroutines.launch
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(15.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
         TaxiHeader("Group trip", onBack = { model.closeTrip() })
         TaxiMap(trip.originLatitude to trip.originLongitude, trip.destinationLatitude to trip.destinationLongitude, trip.location,
-            if (trip.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 210, pickupLabel = trip.origin, destinationLabel = trip.destination, routeGeometry = trip.routeGeometry)
+            if (trip.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 210, pickupLabel = trip.origin, destinationLabel = trip.destination, routeGeometry = trip.routeGeometry, routeGeometryQuality = trip.routeGeometryQuality)
         Text("${trip.origin} → ${trip.destination}", color = CommuteInk, fontSize = 23.sp, fontWeight = FontWeight.Bold)
         Text("${taxiTime(trip.departureAt)} · ${trip.status.replace('_', ' ')}", color = CommuteTeal)
         Text("${trip.availableSeats} available seats · ${trip.farePerSeatEtb?.let(::taxiMoney) ?: "Fare pending"} per seat", color = CommuteInk)

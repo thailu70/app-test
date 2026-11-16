@@ -19,8 +19,14 @@ internal data class RoadProjection(val point: Pair<Double, Double>, val alongMet
 /** Visual matching only. Fare evidence always remains the original GPS sent to the server. */
 internal fun projectToRoad(point: Pair<Double, Double>, road: List<Pair<Double, Double>>,
     accuracyMeters: Double? = null): RoadProjection? {
+    // A weak GPS fix must not be forced onto a nearby parallel road.
+    if (accuracyMeters != null && (!accuracyMeters.isFinite() || accuracyMeters <= 0 || accuracyMeters > 35)) return null
+    val tolerance = (accuracyMeters ?: 12.0).coerceIn(6.0, 25.0)
+    return nearestRoadProjection(point, road)?.takeIf { it.distanceMeters <= tolerance }
+}
+
+internal fun nearestRoadProjection(point: Pair<Double, Double>, road: List<Pair<Double, Double>>): RoadProjection? {
     if (!validRoadPoint(point) || road.size < 2 || road.any { !validRoadPoint(it) }) return null
-    val tolerance = (accuracyMeters?.takeIf { it.isFinite() && it > 0 } ?: 25.0).coerceIn(25.0, 60.0)
     val metersLat = 111_195.0
     val metersLon = (metersLat * cos(Math.toRadians(point.first))).coerceAtLeast(1.0)
     var travelled = 0.0
@@ -39,7 +45,7 @@ internal fun projectToRoad(point: Pair<Double, Double>, road: List<Pair<Double, 
         }
         travelled += segment
     }
-    return closest?.takeIf { it.distanceMeters <= tolerance }
+    return closest
 }
 
 /** Include actual road corners between two received positions; never cut across their blocks. */

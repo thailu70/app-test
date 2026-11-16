@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { createGeoService } = require('../src/services/mobility-geo');
+const { createGeoService, detailedGeometry } = require('../src/services/mobility-geo');
 const db = { prepare: () => ({ all: async () => [{ stopName: 'Bole', stopNameAm: 'ቦሌ', latitude: 8.99, longitude: 38.78 }] }) };
 function response(value) { return { ok: true, text: async () => JSON.stringify(value) }; }
 test('location suggestions use private Photon and safely fall back to public saved stops', async () => {
@@ -59,6 +59,39 @@ test('road kilometres come from OSRM, validate coordinates and cache real routes
   await assert.rejects(geo.route({ ...points, originLatitude: '' }), error => error.status === 400);
   const failed = createGeoService({ fetchImpl: async () => { throw new Error('offline'); } });
   await assert.rejects(failed.route(points), error => error.status === 503);
+});
+
+test('detailed routes preserve every road bend and report road-access offsets without changing distance', async () => {
+  const curve = [[38.7, 9], [38.7001, 9.00002], [38.7002, 9.0002], [38.70025, 9.0003], [38.8, 9.1]];
+  const geo = createGeoService({ fetchImpl: async url => {
+    assert.equal(url.searchParams.get('overview'), 'full');
+    assert.equal(url.searchParams.get('radiuses'), '500;500');
+    return response({ code: 'Ok', waypoints: [{ distance: 12.4 }, { distance: 34.8 }], routes: [{ distance: 15750, duration: 1680, geometry: { type: 'LineString', coordinates: curve } }] });
+  } });
+  const result = await geo.route({ originLatitude: 9, originLongitude: 38.7, destinationLatitude: 9.1, destinationLongitude: 38.8 });
+  assert.deepEqual(result.geometry.coordinates, curve);
+  assert.equal(result.geometryQuality, 'FULL');
+  assert.equal(result.geometryToleranceMeters, 0);
+  assert.equal(result.distanceKm, 15.75);
+  assert.equal(result.durationMinutes, 28);
+  assert.equal(result.originSnapMeters, 12);
+  assert.equal(result.destinationSnapMeters, 35);
+});
+
+test('very long routes retain real corners within a stated tolerance and the existing mobile point limit', () => {
+  const count = 12000, points = [];
+  for (let i = 0; i < count; i++) points.push([38.7 + i / count * .1, 9]);
+  points.push([38.8, 9]);
+  for (let i = 1; i <= count; i++) points.push([38.8, 9 + i / count * .1]);
+  const detail = detailedGeometry({ type: 'LineString', coordinates: points });
+  assert.equal(detail.geometryQuality, 'HIGH_DETAIL');
+  assert.ok(detail.geometryToleranceMeters <= 5);
+  assert.ok(detail.geometry.coordinates.length <= 20000);
+  assert.deepEqual(detail.geometry.coordinates[0], points[0]);
+  assert.deepEqual(detail.geometry.coordinates.at(-1), points.at(-1));
+  assert.ok(detail.geometry.coordinates.some(p => p[0] === 38.8 && p[1] === 9), 'A real right-angle road turn must not become a diagonal shortcut');
+  for (const geometry of [null, { type: 'Polygon', coordinates: points }, { type: 'LineString', coordinates: [[38, 9], [NaN, 9]] }, { type: 'LineString', coordinates: [[38, 9], [38, 91]] }])
+    assert.throws(() => detailedGeometry(geometry));
 });
 
 test('road and place lookups give verified accounts separate budgets on a shared network', async t => {

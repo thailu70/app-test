@@ -115,7 +115,9 @@ data class MobilityPlace(val name: String, val latitude: Double, val longitude: 
 @JsonClass(generateAdapter = true)
 data class MobilityPlacesResponse(val success: Boolean, val places: List<MobilityPlace> = emptyList(), val searchAvailable: Boolean = true, val error: String? = null)
 @JsonClass(generateAdapter = true)
-data class MobilityRoadResponse(val success: Boolean, val distanceKm: Double? = null, val durationMinutes: Double? = null, val error: String? = null, val geometry: MobilityRoadGeometry? = null)
+data class MobilityRoadResponse(val success: Boolean, val distanceKm: Double? = null, val durationMinutes: Double? = null, val error: String? = null, val geometry: MobilityRoadGeometry? = null,
+    val geometryQuality: String? = null, val geometryToleranceMeters: Double? = null,
+    val originSnapMeters: Double? = null, val destinationSnapMeters: Double? = null)
 @JsonClass(generateAdapter = true)
 data class MobilityRoadGeometry(val type: String = "", val coordinates: List<List<Double>> = emptyList())
 

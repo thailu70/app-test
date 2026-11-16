@@ -166,13 +166,13 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
 @Composable internal fun TaxiMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Double>?,
     driver: MobilityLocation? = null, stage: String = "ASSIGNED", height: Int = 255,
     pickupLabel: String = "Pickup", destinationLabel: String = "Destination", modifier: Modifier = Modifier, tileDownloadsEnabled: Boolean = true, providedApi: MobilityApi? = null,
-    nearbyCars: List<TaxiNearbyCar> = emptyList(), routeGeometry: MobilityRoadGeometry? = null, freezeVehicle: Boolean = false) {
+    nearbyCars: List<TaxiNearbyCar> = emptyList(), routeGeometry: MobilityRoadGeometry? = null, freezeVehicle: Boolean = false, routeGeometryQuality: String? = null) {
     val nearby = nearbyCars.map { it.latitude to it.longitude }
     if (pickup != null && destination != null) {
         MobilityRoadMap(pickup, destination, driver, stage, pickupLabel, destinationLabel,
             modifier, mapHeight = height, trackingActive = driver != null, tileDownloadsEnabled = tileDownloadsEnabled, driverIcon = R.drawable.taxi_car_top, providedApi = providedApi,
             nearbyPoints = nearby, statusMessage = if (nearby.isNotEmpty()) "Nearby cars · approximate" else null,
-            providedRoute = routeGeometry, freezeVehicle = freezeVehicle)
+            providedRoute = routeGeometry, freezeVehicle = freezeVehicle, providedRouteQuality = routeGeometryQuality)
     } else {
         val context = LocalContext.current; val owner = LocalLifecycleOwner.current
         val map = remember(context) { Configuration.getInstance().userAgentValue = context.packageName

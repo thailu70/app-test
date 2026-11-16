@@ -25,7 +25,8 @@ data class TaxiRouteInput(val origin: String, val destination: String, val origi
     val expectedFareEtb: Double? = null, val expectedCommissionEtb: Double? = null)
 @JsonClass(generateAdapter = true)
 data class TaxiEstimate(val distanceKm: Double = 0.0, val durationMinutes: Double = 0.0,
-    val estimatedFareEtb: Double = 0.0, val tier: String = "ECONOMY", val routeGeometry: MobilityRoadGeometry? = null)
+    val estimatedFareEtb: Double = 0.0, val tier: String = "ECONOMY", val routeGeometry: MobilityRoadGeometry? = null,
+    val routeGeometryQuality: String? = null, val routeGeometryToleranceMeters: Double? = null)
 @JsonClass(generateAdapter = true)
 data class TaxiRide(val id: String, val passengerId: String? = null, val driverId: String? = null,
     val vehicleId: String? = null, val status: String = "REQUESTED", val source: String = "APP",
@@ -42,7 +43,8 @@ data class TaxiRide(val id: String, val passengerId: String? = null, val driverI
     val startedAt: String? = null, val completedAt: String? = null, val lastSequence: Long = 0,
     val waitingFreeRemainingSeconds: Int? = null, val waitingRateEtbPerMinute: Double? = null,
     val distancePaused: Boolean = false, val waitingFareEtb: Double? = null, val distanceFareEtb: Double? = null,
-    val waitingState: String = "", val serverTime: String? = null)
+    val waitingState: String = "", val serverTime: String? = null,
+    val routeGeometryQuality: String? = null, val routeGeometryToleranceMeters: Double? = null)
 @JsonClass(generateAdapter = true)
 data class SharedRideBooking(val id: String, val tripId: String = "", val passengerId: String? = null,
     val seats: Int = 1, val seatNumbers: List<Int> = emptyList(), val farePerSeatEtb: Double = 0.0,
@@ -57,7 +59,8 @@ data class SharedRideTrip(val id: String, val initiatorRole: String = "DRIVER", 
     val driverName: String? = null, val driverPhone: String? = null, val vehicleModel: String? = null,
     val vehiclePlate: String? = null, val vehicleType: String? = null,
     val bookings: List<SharedRideBooking> = emptyList(), val location: MobilityLocation? = null,
-    val routeGeometry: MobilityRoadGeometry? = null, val commissionEtb: Double = 0.0, val settlement: String? = null)
+    val routeGeometry: MobilityRoadGeometry? = null, val commissionEtb: Double = 0.0, val settlement: String? = null,
+    val routeGeometryQuality: String? = null, val routeGeometryToleranceMeters: Double? = null)
 @JsonClass(generateAdapter = true)
 data class TaxiResponse(val success: Boolean, val error: String? = null, val code: String? = null,
     val settings: TaxiSettings? = null, val tiers: List<TaxiTier> = emptyList(), val estimate: TaxiEstimate? = null,

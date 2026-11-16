@@ -82,6 +82,25 @@ class MobilityRoadMapTest {
         assertFalse(shouldRerouteRoad(pickup, pickup, 1_000, 90_000))
         assertTrue(shouldRerouteRoad(pickup, destination, 1_000, 31_000))
     }
+    @Test fun `credible off route movement reroutes without waiting for hundred meter displacement`() {
+        val route = listOf(9.0 to 38.7, 9.001 to 38.7)
+        val previous = 9.0 to 38.7
+        val offRoad = 9.0001 to 38.7004
+        assertTrue(roadDistanceMeters(previous, offRoad) < 100)
+        assertTrue(shouldRerouteRoad(previous, offRoad, 1_000, 31_000, route, 8.0))
+        assertFalse(shouldRerouteRoad(previous, offRoad, 1_000, 30_999, route, 8.0))
+        assertFalse(shouldRerouteRoad(previous, offRoad, 1_000, 31_000, route, 60.0))
+        assertFalse(shouldRerouteRoad(previous, 9.0001 to 38.70005, 1_000, 31_000, route, 8.0))
+    }
+    @Test fun `native line retains every detailed bend without geodesic replacement`() {
+        val detailed = (0..200).map { (9.0 + it * .00001) to (38.7 + if (it % 2 == 0) .00002 else 0.0) }
+        val map = MapView(compose.activity)
+        replaceRoadOverlays(map, detailed, emptyList(), detailed.first(), detailed.last(), null, false, false, "Pickup", "Destination")
+        val line = map.overlays.filterIsInstance<Polyline>().single()
+        assertEquals(detailed, line.actualPoints.map { it.latitude to it.longitude })
+        assertFalse(line.isGeodesic)
+        map.onDetach()
+    }
     @Test fun `loading switches to destination and terminal states stop live routing`() {
         assertFalse(roadToDestination("ASSIGNED"))
         assertFalse(roadToDestination("AT_PICKUP"))
@@ -120,9 +139,30 @@ class MobilityRoadMapTest {
             "equals" -> proxy === args?.firstOrNull(); "hashCode" -> System.identityHashCode(proxy); "toString" -> "Saved road fixture"
             else -> { calls++; error("A saved road must not be fetched again") }
         } } as MobilityApi
-        compose.setContent { MyApplicationTheme { MobilityRoadMap(pickup, destination, providedApi = api, tileDownloadsEnabled = false, providedRoute = geometry(curve)) } }
+        compose.setContent { MyApplicationTheme { MobilityRoadMap(pickup, destination, providedApi = api, tileDownloadsEnabled = false, providedRoute = geometry(curve), providedRouteQuality = "FULL") } }
         compose.waitUntil(10_000) { compose.activity.window.decorView.findViewWithTag<MapView>("mobility_road_native_map")?.overlays?.filterIsInstance<Polyline>()?.size == 1 }
         assertEquals(0, calls)
+        compose.onNodeWithTag("road_map_unavailable").assertDoesNotExist()
+    }
+    @Test fun `legacy saved route upgrades once and keeps detailed bends`() {
+        var calls = 0
+        val api = Proxy.newProxyInstance(MobilityApi::class.java.classLoader, arrayOf(MobilityApi::class.java)) { proxy, method, args -> when (method.name) {
+            "equals" -> proxy === args?.firstOrNull(); "hashCode" -> System.identityHashCode(proxy); "toString" -> "Legacy road fixture"
+            else -> { calls++; Response.success(MobilityRoadResponse(true, geometry = geometry(curve), geometryQuality = "FULL")) }
+        } } as MobilityApi
+        compose.setContent { MyApplicationTheme { MobilityRoadMap(pickup, destination, providedApi = api, tileDownloadsEnabled = false, providedRoute = geometry(listOf(pickup, destination))) } }
+        compose.waitUntil(10_000) { compose.activity.window.decorView.findViewWithTag<MapView>("mobility_road_native_map")?.overlays?.filterIsInstance<Polyline>()?.singleOrNull()?.actualPoints?.size == curve.size }
+        compose.runOnIdle { assertEquals(1, calls) }
+    }
+    @Test fun `failed legacy upgrade preserves saved route without a retry loop`() {
+        var calls = 0
+        val api = Proxy.newProxyInstance(MobilityApi::class.java.classLoader, arrayOf(MobilityApi::class.java)) { proxy, method, args -> when (method.name) {
+            "equals" -> proxy === args?.firstOrNull(); "hashCode" -> System.identityHashCode(proxy); "toString" -> "Offline legacy fixture"
+            else -> { calls++; throw IllegalStateException("Offline") }
+        } } as MobilityApi
+        compose.setContent { MyApplicationTheme { MobilityRoadMap(pickup, destination, providedApi = api, tileDownloadsEnabled = false, providedRoute = geometry(curve)) } }
+        compose.waitUntil(10_000) { compose.activity.window.decorView.findViewWithTag<MapView>("mobility_road_native_map")?.overlays?.filterIsInstance<Polyline>()?.singleOrNull()?.actualPoints?.size == curve.size }
+        compose.runOnIdle { assertEquals(1, calls) }
         compose.onNodeWithTag("road_map_unavailable").assertDoesNotExist()
     }
     @Test fun `driver already at pickup does not trigger a false zero length route error`() {
@@ -133,7 +173,7 @@ class MobilityRoadMapTest {
         } } as MobilityApi
         val live = MobilityLocation(pickup.first, pickup.second, Instant.now().toString(), accuracyMeters = 10.0)
         compose.setContent { MyApplicationTheme { MobilityRoadMap(pickup, destination, live, stage = "AT_PICKUP", providedApi = api,
-            tileDownloadsEnabled = false, providedRoute = geometry(curve), driverIcon = R.drawable.taxi_car_top) } }
+            tileDownloadsEnabled = false, providedRoute = geometry(curve), providedRouteQuality = "FULL", driverIcon = R.drawable.taxi_car_top) } }
         compose.onNodeWithText("Live driver").assertIsDisplayed()
         compose.onNodeWithTag("road_map_unavailable").assertDoesNotExist()
         assertEquals(0, calls)

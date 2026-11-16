@@ -122,7 +122,7 @@ import kotlinx.coroutines.launch
                     val mapHeight = if (destination == null && state.estimate == null) (maxHeight.value - sheetDp).coerceAtLeast(160f).toInt() else 210
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     TaxiMap(pickup, destination, height = mapHeight,
-                        pickupLabel = pickupName, destinationLabel = destinationName, tileDownloadsEnabled = mapTiles, nearbyCars = state.nearbyCars, routeGeometry = state.estimate?.routeGeometry)
+                        pickupLabel = pickupName, destinationLabel = destinationName, tileDownloadsEnabled = mapTiles, nearbyCars = state.nearbyCars, routeGeometry = state.estimate?.routeGeometry, routeGeometryQuality = state.estimate?.routeGeometryQuality)
                     Surface(shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp), color = Color.White, modifier = Modifier.fillMaxWidth().onSizeChanged { sheetPixels = it.height }) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Surface(onClick = { picker = "destination" }, shape = RoundedCornerShape(19.dp), color = CommuteMint, modifier = Modifier.fillMaxWidth().testTag("taxi_where_to")) {
@@ -168,7 +168,7 @@ import kotlinx.coroutines.launch
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
         TaxiMap(ride.originLatitude to ride.originLongitude, ride.destinationLatitude to ride.destinationLongitude, ride.location,
             if (ride.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 265, pickupLabel = ride.origin, destinationLabel = ride.destination, tileDownloadsEnabled = mapTiles, providedApi = mapApi,
-            nearbyCars = if (ride.status == "REQUESTED") nearbyCars else emptyList(), routeGeometry = ride.routeGeometry, freezeVehicle = ride.distancePaused)
+            nearbyCars = if (ride.status == "REQUESTED") nearbyCars else emptyList(), routeGeometry = ride.routeGeometry, routeGeometryQuality = ride.routeGeometryQuality, freezeVehicle = ride.distancePaused)
         Surface(shape = RoundedCornerShape(24.dp), color = Color.White) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (ride.status == "REQUESTED") TaxiConnectionPulse(animated = mapTiles) else Text(when (ride.status) {
                 "ACCEPTED" -> "Your driver is on the way"; "AT_PICKUP" -> "Your driver has arrived"; "IN_PROGRESS" -> "Your trip is in progress"; "COMPLETED" -> "You have arrived"; else -> "Ride cancelled"

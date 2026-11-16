@@ -66,8 +66,15 @@ internal fun roadDistanceMeters(a: Pair<Double, Double>, b: Pair<Double, Double>
     val h = sin(lat / 2).pow(2) + cos(Math.toRadians(a.first)) * cos(Math.toRadians(b.first)) * sin(lon / 2).pow(2)
     return 6_371_000.0 * 2 * asin(sqrt(h.coerceIn(0.0, 1.0)))
 }
-internal fun shouldRerouteRoad(previous: Pair<Double, Double>?, current: Pair<Double, Double>, lastAttempt: Long, now: Long): Boolean =
-    previous == null || (now - lastAttempt >= 30_000 && roadDistanceMeters(previous, current) >= 100)
+internal fun detailedRoadGeometry(quality: String?): Boolean = quality in setOf("FULL", "HIGH_DETAIL")
+internal fun shouldRerouteRoad(previous: Pair<Double, Double>?, current: Pair<Double, Double>, lastAttempt: Long, now: Long,
+    route: List<Pair<Double, Double>> = emptyList(), accuracyMeters: Double? = null): Boolean {
+    if (previous == null) return true
+    if (now - lastAttempt < 30_000) return false
+    if (roadDistanceMeters(previous, current) >= 100) return true
+    val accuracy = accuracyMeters?.takeIf { it.isFinite() && it > 0 && it <= 35 } ?: return false
+    return (nearestRoadProjection(current, route)?.distanceMeters ?: return false) > max(30.0, accuracy * 2)
+}
 internal fun roadApproachNeeded(point: Pair<Double, Double>, target: Pair<Double, Double>): Boolean = roadDistanceMeters(point, target) >= 15
 private class RoadRouteFailure(val retryable: Boolean) : Exception()
 
@@ -78,7 +85,8 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
     pickupLabel: String = "Pickup / loading", destinationLabel: String = "Destination",
     modifier: Modifier = Modifier, mapHeight: Int = 260, providedApi: MobilityApi? = null,
     tileDownloadsEnabled: Boolean = true, trackingActive: Boolean = true, statusMessage: String? = null, driverIcon: Int? = null,
-    nearbyPoints: List<Pair<Double, Double>> = emptyList(), providedRoute: MobilityRoadGeometry? = null, freezeVehicle: Boolean = false) {
+    nearbyPoints: List<Pair<Double, Double>> = emptyList(), providedRoute: MobilityRoadGeometry? = null, freezeVehicle: Boolean = false,
+    providedRouteQuality: String? = null) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val api = remember(providedApi) { providedApi ?: ApiClient.createFeatureService(MobilityApi::class.java) }
@@ -86,7 +94,10 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
     var resumed by remember { mutableStateOf(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val from = pickup?.takeIf(::validRoadPoint); val to = destination?.takeIf(::validRoadPoint)
-    var planned by remember(from, to, providedRoute) { mutableStateOf(providedRoute?.takeIf { roadPoints(it).isNotEmpty() }?.let { MobilityRoadResponse(true, geometry = it) }) }
+    val savedRoute = providedRoute?.takeIf { roadPoints(it).isNotEmpty() }
+    var detailedPlanned by remember(from, to) { mutableStateOf<MobilityRoadResponse?>(null) }
+    var upgradeAttempt by remember(from, to) { mutableIntStateOf(-1) }
+    val planned = detailedPlanned ?: savedRoute?.let { MobilityRoadResponse(true, geometry = it, geometryQuality = providedRouteQuality) }
     var moving by remember(from, to, stage, trackingActive) { mutableStateOf<MobilityRoadResponse?>(null) }
     var plannedError by remember(from, to, providedRoute) { mutableStateOf(false) }
     var movingError by remember(from, to, stage) { mutableStateOf(false) }
@@ -118,15 +129,24 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
             throw RoadRouteFailure(response.code() !in 400..499 || response.code() in setOf(408, 429))
         return value!!
     }
-    LaunchedEffect(from, to, api, resumed, retryRequest, providedRoute) {
-        if (resumed && from != null && to != null && planned == null) {
+    LaunchedEffect(from, to, api, resumed, retryRequest, providedRoute, providedRouteQuality) {
+        if (resumed && from != null && to != null && detailedPlanned == null && (savedRoute == null || !detailedRoadGeometry(providedRouteQuality))) {
+            // Legacy snapshots may be simplified. Upgrade their display once, retaining the saved line offline.
+            if (savedRoute != null) {
+                if (upgradeAttempt == retryRequest) return@LaunchedEffect
+                upgradeAttempt = retryRequest
+                try { detailedPlanned = route(from, to); plannedError = false }
+                catch (e: CancellationException) { upgradeAttempt = -1; throw e }
+                catch (_: Exception) { /* Keep the saved journey without repeating a background request. */ }
+                return@LaunchedEffect
+            }
             var pause = 5_000L
-            while (isActive && planned == null) {
-                try { planned = route(from, to); plannedError = false }
+            while (isActive && detailedPlanned == null) {
+                try { detailedPlanned = route(from, to); plannedError = false }
                 catch (e: CancellationException) { throw e }
                 catch (e: RoadRouteFailure) { plannedError = true; if (!e.retryable) break }
                 catch (_: Exception) { plannedError = true }
-                if (planned == null) { delay(pause); pause = (pause * 2).coerceAtMost(60_000) }
+                if (detailedPlanned == null) { delay(pause); pause = (pause * 2).coerceAtMost(60_000) }
             }
         }
     }
@@ -140,7 +160,7 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
             val location = latestLocation
             if (target != null && roadLocationFresh(location, now)) {
                 val point = location!!.latitude to location.longitude
-                if (shouldRerouteRoad(previous, point, lastAttempt, now) && now - lastAttempt >= 30_000) {
+                if (shouldRerouteRoad(previous, point, lastAttempt, now, roadPoints(moving?.geometry), location.accuracyMeters) && now - lastAttempt >= 30_000) {
                     lastAttempt = now
                     try { moving = if (roadApproachNeeded(point, target)) route(point, target) else null; previous = point; movingError = false }
                     catch (e: CancellationException) { throw e }
@@ -205,6 +225,9 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
             TextButton(onClick = { retryRequest++ }, modifier = Modifier.testTag("road_map_retry")) { Text("Retry", fontSize = 12.sp) }
         }
         else if (from == null || to == null) Text("Waiting for the assigned pickup and destination locations.", fontSize = 11.sp, color = Color(0xFF617285))
+        listOf("Pickup" to planned?.originSnapMeters, "Destination" to planned?.destinationSnapMeters).forEach { (label, meters) ->
+            if (meters != null && meters.isFinite() && meters > 75) Text("$label pin is ${meters.roundToInt()} m from the mapped road. Check the entrance.", fontSize = 11.sp, color = Color(0xFF617285))
+        }
         statusMessage?.takeIf { it.isNotBlank() }?.let { Text(it, fontSize = 11.sp, color = Color(0xFF617285)) }
     }
 }
@@ -216,7 +239,8 @@ internal fun replaceRoadOverlays(map: MapView, planned: List<Pair<Double, Double
     map.overlays.clear()
     fun line(points: List<Pair<Double, Double>>, color: Int, dashed: Boolean) {
         if (points.size < 2) return
-        map.overlays.add(Polyline(map).apply { setPoints(points.map { GeoPoint(it.first, it.second) }); outlinePaint.color = color; outlinePaint.strokeWidth = 8f
+        // Retain every road vertex; geodesic interpolation would add non-road segments.
+        map.overlays.add(Polyline(map).apply { setGeodesic(false); setPoints(points.map { GeoPoint(it.first, it.second) }); outlinePaint.color = color; outlinePaint.strokeWidth = 8f
             if (dashed) outlinePaint.pathEffect = DashPathEffect(floatArrayOf(18f, 12f), 0f) })
     }
     line(planned, if (inTransit) 0xFF9BC8BC.toInt() else 0xFF00685C.toInt(), false)
