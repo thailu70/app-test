@@ -761,10 +761,11 @@ function createRidesService({
   function liveWaiting(row, until = now()) {
     if (!row.waiting_since || !row.waiting_verified_until) return 0;
     const cfg = parse(row.tariff_json),
-      grace =
+      grace = Math.ceil(
         (row.waiting_kind === "PICKUP"
           ? cfg.pickupGraceMinutes
-          : cfg.stopGraceMinutes) * 60;
+          : cfg.stopGraceMinutes) * 60,
+      );
     return Math.max(
       0,
       Math.floor(
@@ -790,6 +791,62 @@ function createRidesService({
           t.multiplier,
       ),
     );
+  }
+  function waitingDetails(row) {
+    const tariff = parse(row.tariff_json),
+      multiplier = Number(tariff.multiplier || 1),
+      rate = Number(tariff.waitingPerMinuteEtb || 0) * multiplier;
+    const start = Date.parse(row.waiting_since),
+      verified = Date.parse(row.waiting_verified_until),
+      active = Boolean(
+        row.waiting_kind && Number.isFinite(start) && Number.isFinite(verified),
+      );
+    const grace = Math.ceil(
+      Number(
+        (row.waiting_kind === "PICKUP"
+          ? tariff.pickupGraceMinutes
+          : tariff.stopGraceMinutes) || 0,
+      ) * 60,
+    );
+    const elapsed = active
+      ? Math.max(
+          0,
+          Math.floor(
+            (Math.min(
+              now(),
+              verified,
+              start + Number(tariff.maxWaitingMinutes || 60) * 60000,
+            ) -
+              start) /
+              1000,
+          ),
+        )
+      : 0;
+    const remaining = active ? Math.max(0, grace - elapsed) : 0;
+    let state = "NONE";
+    if (Number(row.stop_requested) === 1) state = "AWAITING_PASSENGER_APPROVAL";
+    else if (active) {
+      if (now() > verified) state = "GPS_PAUSED";
+      else if (now() >= start + Number(tariff.maxWaitingMinutes || 60) * 60000)
+        state = "LIMIT_REACHED";
+      else state = remaining > 0 ? "FREE_ALLOWANCE" : "BILLABLE_WAITING";
+    }
+    return {
+      waitingFreeRemainingSeconds: remaining,
+      waitingRateEtbPerMinute: round(rate),
+      distancePaused:
+        row.status === "IN_PROGRESS" && row.waiting_kind === "STOP",
+      waitingState: state,
+      waitingFareEtb: round(
+        ((Number(row.waiting_seconds) + liveWaiting(row)) / 60) * rate,
+      ),
+      distanceFareEtb: round(
+        (Number(row.distance_m) / 1000) *
+          Number(tariff.perKmEtb || 0) *
+          multiplier,
+      ),
+      serverTime: instant(),
+    };
   }
   async function rideView(row, viewer, tx = db, pool = false) {
     const r = parse(row.route_json),
@@ -822,6 +879,7 @@ function createRidesService({
         : 0,
       waiting: row.waiting_kind,
       stopWaitingRequested: Number(row.stop_requested) === 1,
+      ...waitingDetails(row),
       lastSequence: Number(row.last_sequence),
       commissionEtb:
         row.status === "REQUESTED"
@@ -984,6 +1042,16 @@ function createRidesService({
     };
   }
   async function saveAvailability(tx, driverId, vehicleId, online, p) {
+    if (p) {
+      const previous = await tx
+        .prepare("SELECT recorded_at FROM ride_availability WHERE driver_id=?")
+        .get(driverId);
+      if (
+        previous?.recorded_at &&
+        Date.parse(previous.recorded_at) > Date.parse(p.timestamp)
+      )
+        p = null;
+    }
     await tx
       .prepare(
         "INSERT INTO ride_availability(driver_id,vehicle_id,online,latitude,longitude,accuracy_meters,recorded_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(driver_id) DO UPDATE SET vehicle_id=excluded.vehicle_id,online=excluded.online,latitude=COALESCE(excluded.latitude,ride_availability.latitude),longitude=COALESCE(excluded.longitude,ride_availability.longitude),accuracy_meters=COALESCE(excluded.accuracy_meters,ride_availability.accuracy_meters),recorded_at=COALESCE(excluded.recorded_at,ride_availability.recorded_at),updated_at=excluded.updated_at",
@@ -1412,12 +1480,44 @@ function createRidesService({
       .sort((a, b) => a.sequence - b.sequence);
     await db.transaction(async (tx) => {
       let r = await owned(key, user, tx, true);
+      let trackingPoint = null;
       if (!ACTIVE.includes(r.status)) fail(409, "This ride is not active.");
       for (const p of points) {
         if (p.sequence <= Number(r.last_sequence)) continue;
         if (Date.parse(p.timestamp) < Date.parse(r.started_at || r.accepted_at))
           continue;
-        if (r.waiting_kind && p.accuracyMeters <= 50) {
+        const dt = r.last_point_at
+          ? (Date.parse(p.timestamp) - Date.parse(r.last_point_at)) / 1000
+          : 0;
+        const displacement =
+          r.last_latitude == null
+            ? 0
+            : km(
+                Number(r.last_latitude),
+                Number(r.last_longitude),
+                p.latitude,
+                p.longitude,
+              ) * 1000;
+        const timingValid = !r.last_point_at || dt >= 0;
+        const plausible =
+          !r.last_point_at ||
+          displacement <=
+            Math.max(
+              5,
+              (p.accuracyMeters + Number(r.last_accuracy || p.accuracyMeters)) /
+                2,
+            ) ||
+          (dt > 0 && displacement / dt <= 45);
+        const waitingSampleEligible =
+          !r.waiting_since ||
+          Date.parse(p.timestamp) >= Date.parse(r.waiting_since);
+        if (
+          r.waiting_kind &&
+          p.accuracyMeters <= 50 &&
+          timingValid &&
+          plausible &&
+          waitingSampleEligible
+        ) {
           const moved =
             km(
               Number(r.waiting_latitude),
@@ -1467,18 +1567,6 @@ function createRidesService({
         let accepted = 0,
           distance = 0,
           reason = "TRACKING_ONLY";
-        const dt = r.last_point_at
-          ? (Date.parse(p.timestamp) - Date.parse(r.last_point_at)) / 1000
-          : 0;
-        const displacement =
-          r.last_latitude == null
-            ? 0
-            : km(
-                Number(r.last_latitude),
-                Number(r.last_longitude),
-                p.latitude,
-                p.longitude,
-              ) * 1000;
         if (r.status === "IN_PROGRESS" && p.accuracyMeters <= 50) {
           reason = "FIRST_POINT";
           if (r.last_point_at && dt > 0) {
@@ -1501,6 +1589,28 @@ function createRidesService({
             }
           }
         } else if (p.accuracyMeters > 50) reason = "LOW_ACCURACY";
+        if (
+          r.status !== "IN_PROGRESS" &&
+          r.last_point_at &&
+          dt > 0 &&
+          displacement / dt > 45
+        )
+          reason = "GPS_JUMP";
+        if (
+          r.status === "IN_PROGRESS" &&
+          r.waiting_kind === "STOP" &&
+          p.accuracyMeters <= 50 &&
+          timingValid &&
+          plausible &&
+          waitingSampleEligible &&
+          reason !== "GPS_GAP"
+        ) {
+          // Approved stationary stops pause distance. Accuracy-sized movement
+          // inside the stop radius is GPS drift, not a travelled segment.
+          distance = 0;
+          accepted = 0;
+          reason = "APPROVED_STOP";
+        }
         await tx
           .prepare(
             "INSERT INTO ride_samples(ride_id,sequence,latitude,longitude,accuracy_meters,recorded_at,accepted,reason,distance_m) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(ride_id,sequence) DO NOTHING",
@@ -1520,6 +1630,7 @@ function createRidesService({
           p.accuracyMeters <= 50 &&
           reason !== "GPS_JUMP" &&
           reason !== "GPS_JITTER" &&
+          reason !== "APPROVED_STOP" &&
           (!r.last_point_at || dt > 0);
         await tx
           .prepare(
@@ -1537,16 +1648,26 @@ function createRidesService({
               "UPDATE ride_jobs SET last_latitude=?,last_longitude=?,last_accuracy=?,last_point_at=? WHERE id=?",
             )
             .run(p.latitude, p.longitude, p.accuracyMeters, p.timestamp, key);
-        else if (reason === "GPS_JITTER" && dt > 0)
+        else if (["GPS_JITTER", "APPROVED_STOP"].includes(reason) && dt > 0)
           await tx
             .prepare(
               "UPDATE ride_jobs SET last_point_at=?,last_accuracy=? WHERE id=?",
             )
             .run(p.timestamp, p.accuracyMeters, key);
         r = await tx.prepare("SELECT * FROM ride_jobs WHERE id=?").get(key);
-        if (now() - Date.parse(p.timestamp) <= 120000)
-          await saveAvailability(tx, user.id, r.vehicle_id, false, p);
+        if (
+          reason !== "GPS_JUMP" &&
+          timingValid &&
+          now() - Date.parse(p.timestamp) <= 120000
+        )
+          if (
+            !trackingPoint ||
+            Date.parse(p.timestamp) >= Date.parse(trackingPoint.timestamp)
+          )
+            trackingPoint = p;
       }
+      if (trackingPoint)
+        await saveAvailability(tx, user.id, r.vehicle_id, false, trackingPoint);
     });
     return { ride: await rideView(await getRide(key, user), user) };
   }
@@ -1566,14 +1687,45 @@ function createRidesService({
           .prepare("UPDATE ride_jobs SET stop_requested=1 WHERE id=?")
           .run(key);
       } else if (input.action === "END_STOP") {
-        await tx
-          .prepare(
-            "UPDATE ride_jobs SET waiting_seconds=waiting_seconds+?,waiting_since=NULL,waiting_kind=NULL,stop_requested=0 WHERE id=?",
-          )
-          .run(liveWaiting(r), key);
+        await finishWaiting(tx, r);
       } else fail(400, "Choose request stop or end stop.");
     });
     return { ride: await rideView(await getRide(key, user), user) };
+  }
+  async function finishWaiting(tx, row) {
+    await tx
+      .prepare(
+        "UPDATE ride_jobs SET waiting_seconds=waiting_seconds+?,waiting_since=NULL,waiting_kind=NULL,waiting_verified_until=NULL,stop_requested=0 WHERE id=?",
+      )
+      .run(liveWaiting(row), row.id);
+    if (row.waiting_kind !== "STOP") return;
+    const p = await tx
+      .prepare("SELECT * FROM ride_availability WHERE driver_id=?")
+      .get(row.driver_id);
+    const valid =
+      p?.recorded_at &&
+      now() - Date.parse(p.recorded_at) <= 120000 &&
+      Number(p.accuracy_meters) <= 50 &&
+      km(
+        Number(p.latitude),
+        Number(p.longitude),
+        Number(row.waiting_latitude),
+        Number(row.waiting_longitude),
+      ) *
+        1000 <=
+        Math.max(20, Number(p.accuracy_meters) * 1.5);
+    // Known stationary fixes must not reappear as a distance charge on resume.
+    await tx
+      .prepare(
+        "UPDATE ride_jobs SET last_latitude=?,last_longitude=?,last_accuracy=?,last_point_at=? WHERE id=?",
+      )
+      .run(
+        valid ? Number(p.latitude) : row.waiting_latitude,
+        valid ? Number(p.longitude) : row.waiting_longitude,
+        valid ? Number(p.accuracy_meters) : Number(row.last_accuracy || 50),
+        instant(),
+        row.id,
+      );
   }
   async function stopWait(user, key, input) {
     if (typeof input.approved !== "boolean")
@@ -1586,11 +1738,7 @@ function createRidesService({
         !input.approved &&
         r.waiting_kind === "STOP"
       ) {
-        await tx
-          .prepare(
-            "UPDATE ride_jobs SET waiting_seconds=waiting_seconds+?,waiting_since=NULL,waiting_kind=NULL,waiting_verified_until=NULL,stop_requested=0 WHERE id=?",
-          )
-          .run(liveWaiting(r), key);
+        await finishWaiting(tx, r);
         return;
       }
       if (

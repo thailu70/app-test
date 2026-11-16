@@ -122,7 +122,7 @@ import kotlinx.coroutines.launch
                     val mapHeight = if (destination == null && state.estimate == null) (maxHeight.value - sheetDp).coerceAtLeast(160f).toInt() else 210
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     TaxiMap(pickup, destination, height = mapHeight,
-                        pickupLabel = pickupName, destinationLabel = destinationName, tileDownloadsEnabled = mapTiles, nearbyCars = state.nearbyCars)
+                        pickupLabel = pickupName, destinationLabel = destinationName, tileDownloadsEnabled = mapTiles, nearbyCars = state.nearbyCars, routeGeometry = state.estimate?.routeGeometry)
                     Surface(shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp), color = Color.White, modifier = Modifier.fillMaxWidth().onSizeChanged { sheetPixels = it.height }) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Surface(onClick = { picker = "destination" }, shape = RoundedCornerShape(19.dp), color = CommuteMint, modifier = Modifier.fillMaxWidth().testTag("taxi_where_to")) {
@@ -164,10 +164,11 @@ import kotlinx.coroutines.launch
 
 @Composable internal fun PassengerCurrentRide(ride: TaxiRide, busy: Boolean, model: TaxiViewModel, mapTiles: Boolean = true, mapApi: MobilityApi? = null, nearbyCars: List<TaxiNearbyCar> = emptyList()) {
     val context = LocalContext.current
+    val freeWaiting = taxiFreeWaitingSeconds(ride, mapTiles)
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
         TaxiMap(ride.originLatitude to ride.originLongitude, ride.destinationLatitude to ride.destinationLongitude, ride.location,
             if (ride.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 265, pickupLabel = ride.origin, destinationLabel = ride.destination, tileDownloadsEnabled = mapTiles, providedApi = mapApi,
-            nearbyCars = if (ride.status == "REQUESTED") nearbyCars else emptyList())
+            nearbyCars = if (ride.status == "REQUESTED") nearbyCars else emptyList(), routeGeometry = ride.routeGeometry, freezeVehicle = ride.distancePaused)
         Surface(shape = RoundedCornerShape(24.dp), color = Color.White) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (ride.status == "REQUESTED") TaxiConnectionPulse(animated = mapTiles) else Text(when (ride.status) {
                 "ACCEPTED" -> "Your driver is on the way"; "AT_PICKUP" -> "Your driver has arrived"; "IN_PROGRESS" -> "Your trip is in progress"; "COMPLETED" -> "You have arrived"; else -> "Ride cancelled"
@@ -191,9 +192,16 @@ import kotlinx.coroutines.launch
             if (ride.status == "IN_PROGRESS") Text("${"%.2f".format(ride.meterDistanceKm)} km · Billable waiting ${taxiDuration(ride.billableWaitingSeconds)}", color = Color(0xFF627385), fontSize = 13.sp)
             Text(if (ride.status == "COMPLETED") "Pay this fare directly to your driver. The app has not collected payment." else "Pay your driver directly. Normal traffic time is not charged as waiting.", color = Color(0xFF627385), fontSize = 12.sp)
             if (ride.stopWaitingRequested) {
-                Text("Your driver requests a passenger stop. Approve only if you requested this stop; waiting charges may apply after the allowance.", color = CommuteInk, fontSize = 13.sp)
+                Text("Your driver requests a passenger stop. Approve only if you requested it. Driven distance pauses; after the free allowance, ${ride.waitingRateEtbPerMinute?.let { "waiting costs ${taxiMoney(it)}/min" } ?: "configured waiting charges apply"}.", color = CommuteInk, fontSize = 13.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = { model.approveWait(true) }, enabled = !busy, modifier = Modifier.weight(1f)) { Text("Approve stop") }
                     OutlinedButton(onClick = { model.approveWait(false) }, enabled = !busy, modifier = Modifier.weight(1f)) { Text("Decline") } }
+            }
+            if (ride.waiting == "STOP") Surface(color = CommuteMint, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().testTag("taxi_approved_stop")) {
+                Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text("Passenger stop approved", color = CommuteTeal, fontWeight = FontWeight.Bold)
+                    Text(taxiStopSummary(ride, freeWaiting), color = CommuteInk, fontSize = 13.sp)
+                    if ((freeWaiting ?: 0) > 0) ride.waitingRateEtbPerMinute?.let { Text("After free waiting: ${taxiMoney(it)}/min. Normal traffic is not billed as a stop.", color = CommuteInk, fontSize = 12.sp) }
+                }
             }
             if (ride.status in setOf("REQUESTED", "ACCEPTED", "AT_PICKUP")) TextButton(onClick = { model.cancelRide() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Cancel ride") }
             if (ride.status in setOf("COMPLETED", "CANCELLED")) TaxiPrimary("Done", !busy) { model.dismissRide() }

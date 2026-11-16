@@ -57,6 +57,7 @@ jobs:
           --tests com.example.IntercityApiContractTest
           --tests com.example.PlayStorePreviewTest
           --tests com.example.TaxiFlowTest
+          --tests com.example.RoadVehicleMotionTest
           --tests com.example.TaxiLayoutTest
           --tests com.example.TaxiStatesLayoutTest
           --tests com.example.RidePushTest

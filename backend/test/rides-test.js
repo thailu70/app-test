@@ -687,6 +687,174 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
     },
   );
   await t.test(
+    "approved stationary stops pause GPS drift distance and disclose free allowance and snapshotted waiting charges",
+    async () => {
+      await service.updateSettings(admin.id, {
+        minimumFareEtb: 10,
+        stopGraceMinutes: 1,
+        waitingPerMinuteEtb: 2,
+      });
+      const r = await appTrip("approved-stop-jitter");
+      await service.wait(drivers[0], r.id, { action: "REQUEST_STOP" });
+      let view = (await service.get(passenger, r.id)).ride;
+      assert.equal(view.distancePaused, false);
+      assert.equal(view.waitingState, "AWAITING_PASSENGER_APPROVAL");
+      assert.equal(view.waitingFreeRemainingSeconds, 0);
+      await service.stopWait(passenger, r.id, { approved: true });
+      view = (await service.get(passenger, r.id)).ride;
+      const before = view.fareEtb;
+      assert.equal(view.distancePaused, true);
+      assert.equal(view.waitingFreeRemainingSeconds, 60);
+      assert.equal(view.waitingRateEtbPerMinute, 2);
+      assert.equal(view.waitingState, "FREE_ALLOWANCE");
+      clock += 30000;
+      await service.samples(drivers[0], r.id, {
+        points: [{ ...position(9.00012, 38.75002), sequence: 1 }],
+      });
+      view = (await service.get(passenger, r.id)).ride;
+      assert.equal(view.meterDistanceKm, 0);
+      assert.equal(view.fareEtb, before);
+      assert.equal(view.waitingFreeRemainingSeconds, 30);
+      assert.equal(view.waitingFareEtb, 0);
+      const sample = await DB.prepare(
+        "SELECT * FROM ride_samples WHERE ride_id=? AND sequence=1",
+      ).get(r.id);
+      assert.equal(
+        Number(sample.latitude),
+        9.00012,
+        "Raw GPS remains available as evidence.",
+      );
+      assert.equal(sample.reason, "APPROVED_STOP");
+      assert.equal(Number(sample.distance_m), 0);
+      await service.updateSettings(admin.id, { waitingPerMinuteEtb: 99 });
+      clock += 60000;
+      await service.samples(drivers[0], r.id, {
+        points: [{ ...position(9.00011, 38.75002), sequence: 2 }],
+      });
+      view = (await service.get(passenger, r.id)).ride;
+      assert.equal(view.distancePaused, true);
+      assert.equal(view.meterDistanceKm, 0);
+      assert.equal(view.waitingFreeRemainingSeconds, 0);
+      assert.equal(view.billableWaitingSeconds, 30);
+      assert.equal(view.waitingRateEtbPerMinute, 2);
+      assert.equal(view.waitingFareEtb, 1);
+      assert.equal(view.fareEtb, before + 1);
+      assert.equal(view.waitingState, "BILLABLE_WAITING");
+      clock += 5000;
+      await service.samples(drivers[0], r.id, {
+        points: [{ ...position(10, 39), sequence: 3 }],
+      });
+      view = (await service.get(passenger, r.id)).ride;
+      assert.equal(view.distancePaused, true);
+      assert.equal(view.waiting, "STOP");
+      assert.equal(
+        view.location.latitude,
+        9.00011,
+        "An impossible jump cannot replace the last trusted tracking point.",
+      );
+      await service.wait(drivers[0], r.id, { action: "END_STOP" });
+      const ended = (await service.get(passenger, r.id)).ride;
+      assert.equal(ended.distancePaused, false);
+      clock += 5000;
+      await service.samples(drivers[0], r.id, {
+        points: [{ ...position(9.00011, 38.75002), sequence: 4 }],
+      });
+      view = (await service.get(passenger, r.id)).ride;
+      assert.equal(
+        view.meterDistanceKm,
+        0,
+        "Known stop drift is not charged retrospectively after ending the stop.",
+      );
+      assert.equal(view.fareEtb, ended.fareEtb);
+      clock += 10000;
+      await service.samples(drivers[0], r.id, {
+        points: [{ ...position(9.001, 38.751), sequence: 5 }],
+      });
+      assert.ok((await service.get(passenger, r.id)).ride.meterDistanceKm > 0);
+      await service.resolve(admin, r.id, {
+        action: "CANCEL",
+        note: "Fixture stationary stop checked",
+      });
+      await service.updateSettings(admin.id, {
+        minimumFareEtb: 30,
+        waitingPerMinuteEtb: 2,
+      });
+    },
+  );
+  await t.test(
+    "delayed GPS from before stop approval cannot clear a stop or become stationary waiting evidence",
+    async () => {
+      const r = await appTrip("queued-before-stop"),
+        started = clock;
+      await service.wait(drivers[0], r.id, { action: "REQUEST_STOP" });
+      clock += 10000;
+      await service.stopWait(passenger, r.id, { approved: true });
+      const before = await DB.prepare("SELECT * FROM ride_jobs WHERE id=?").get(
+        r.id,
+      );
+      clock += 10000;
+      await service.samples(drivers[0], r.id, {
+        points: [
+          {
+            ...position(9.001, 38.751),
+            timestamp: new Date(started + 5000).toISOString(),
+            sequence: 1,
+          },
+        ],
+      });
+      const after = await DB.prepare("SELECT * FROM ride_jobs WHERE id=?").get(
+        r.id,
+      );
+      assert.equal(after.waiting_kind, "STOP");
+      assert.equal(after.waiting_since, before.waiting_since);
+      assert.equal(after.waiting_verified_until, before.waiting_verified_until);
+      assert.equal(
+        (await service.get(passenger, r.id)).ride.distancePaused,
+        true,
+      );
+      await service.resolve(admin, r.id, {
+        action: "CANCEL",
+        note: "Fixture queued pre-stop point checked",
+      });
+    },
+  );
+  await t.test(
+    "fractional-minute allowances produce whole billable seconds and GPS gaps pause the displayed countdown",
+    async () => {
+      await service.updateSettings(admin.id, { stopGraceMinutes: 0.025 });
+      const r = await appTrip("fractional-stop-grace");
+      await service.wait(drivers[0], r.id, { action: "REQUEST_STOP" });
+      await service.stopWait(passenger, r.id, { approved: true });
+      assert.equal(
+        (await service.get(passenger, r.id)).ride.waitingFreeRemainingSeconds,
+        2,
+      );
+      clock += 1000;
+      assert.equal(
+        (await service.get(passenger, r.id)).ride.waitingFreeRemainingSeconds,
+        1,
+      );
+      clock += 2000;
+      let view = (await service.get(passenger, r.id)).ride;
+      assert.equal(view.billableWaitingSeconds, 1);
+      assert.equal(Number.isInteger(view.billableWaitingSeconds), true);
+      clock += 10 * 60000;
+      view = (await service.get(passenger, r.id)).ride;
+      assert.equal(view.waitingState, "GPS_PAUSED");
+      assert.equal(view.billableWaitingSeconds, 118);
+      await service.stopWait(passenger, r.id, { approved: false });
+      assert.equal(
+        (await service.get(passenger, r.id)).ride.distancePaused,
+        false,
+      );
+      await service.resolve(admin, r.id, {
+        action: "CANCEL",
+        note: "Fixture fractional allowance checked",
+      });
+      await service.updateSettings(admin.id, { stopGraceMinutes: 1 });
+    },
+  );
+  await t.test(
     "future shared seats require funded credit and release/re-hold with an auditable version",
     async () => {
       const driver = drivers[0],

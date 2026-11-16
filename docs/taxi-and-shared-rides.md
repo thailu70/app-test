@@ -25,6 +25,12 @@ Passenger → Continue opens the destination-first taxi map. **Daily Commute** o
 - Location batches carry ordered sequence numbers, retry safely and ignore duplicate points, weak fixes and implausible jumps. Missing evidence blocks automatic completion until uploads recover or admin resolves the case with an audited reason.
 - Completion settles the fixed fee once. A valid cancellation releases its hold. Driver and vehicle locks prevent conflicting work across taxi, shared rides, daily commute, intercity and cargo/charter services.
 
+### Passenger stops and the meter
+
+An approved **Passenger stop** pauses distance within the existing stationary GPS radius; small GPS drift is recorded as evidence without being billed as travel. It does not end the trip. The configured free allowance counts down first, then the journey's snapshotted waiting rate applies while fresh stationary GPS supports waiting. Clear real movement resumes distance automatically; the driver or passenger may also end the stop. Delayed fixes from before approval and implausible jumps cannot end an approved stop or extend its waiting evidence. Ending a stop cannot charge previously suppressed stationary drift retrospectively. Raw GPS coordinates remain unchanged in the meter evidence.
+
+Ride responses expose `distancePaused` (approved stationary STOP only), `waitingFreeRemainingSeconds` (whole seconds under current GPS coverage), `waitingRateEtbPerMinute` (the recorded tier-adjusted rate), `waitingFareEtb`, `distanceFareEtb`, `waitingState`, and `serverTime`. Waiting states distinguish `AWAITING_PASSENGER_APPROVAL`, `FREE_ALLOWANCE`, `BILLABLE_WAITING`, `GPS_PAUSED`, `LIMIT_REACHED` and `NONE`. The UI shows the free countdown and waiting charge separately from distance rather than implying that a passenger stop freezes all charges indefinitely.
+
 ## Shared Group Ride · pay per seat
 
 A passenger can request a route, departure time and seats; an approved driver can accept and propose a per-seat fare. The requesting passenger explicitly books at that fare. Drivers may also publish a shared trip directly. Other passengers book available numbered seats on an open trip. Confirmed seat fares stay fixed when other bookings change.

@@ -11,6 +11,9 @@ import org.junit.*
 import org.junit.Assert.*
 import retrofit2.Response
 import java.lang.reflect.Proxy
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.resume
+import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
 
@@ -80,5 +83,47 @@ class TaxiFlowTest {
         vm.nearby(9.0 to 38.7, "COMFORT"); advanceUntilIdle()
         assertEquals(listOf("ECONOMY", "COMFORT"), queries)
         vm.nearby(null, "COMFORT"); assertTrue(vm.state.value.nearbyCars.isEmpty())
+    }
+    @Test fun `editing route while an estimate is in flight discards its old geometry and fare`() = runTest(dispatcher) {
+        var continuation: Continuation<Response<TaxiResponse>>? = null
+        val vm = TaxiViewModel(fake { name, args -> if (name == "estimate") {
+            @Suppress("UNCHECKED_CAST") val pending = args.last() as Continuation<Response<TaxiResponse>>
+            continuation = pending; COROUTINE_SUSPENDED
+        } else initial(name) }, false, false)
+        advanceUntilIdle(); vm.estimate(route); runCurrent(); assertTrue(vm.state.value.busy)
+        vm.clearEstimate()
+        continuation!!.resume(Response.success(TaxiResponse(true, estimate = TaxiEstimate(8.0, 22.0, 325.0,
+            routeGeometry = MobilityRoadGeometry("LineString", listOf(listOf(38.7, 9.0), listOf(38.8, 9.05)))))))
+        advanceUntilIdle(); assertNull(vm.state.value.estimate); assertFalse(vm.state.value.busy)
+    }
+    @Test fun `passenger stop flushes all pre stop GPS evidence before asking for approval`() = runTest(dispatcher) {
+        val order = mutableListOf<String>()
+        val active = ride.copy(status = "IN_PROGRESS")
+        val vm = TaxiViewModel(fake { name, _ -> when (name) {
+            "dashboard" -> Response.success(TaxiResponse(true, ride = active))
+            "wait" -> { order += "REQUEST_STOP"; Response.success(TaxiResponse(true, ride = active.copy(stopWaitingRequested = true))) }
+            else -> initial(name)
+        } }, true, true, flushMeter = { id, _ -> assertEquals(ride.id, id); order += "GPS_FLUSH"; 10L })
+        advanceUntilIdle(); vm.wait("REQUEST_STOP", mapOf("latitude" to 9.0)); advanceUntilIdle()
+        assertEquals(listOf("GPS_FLUSH", "REQUEST_STOP"), order)
+        assertTrue(vm.state.value.ride!!.stopWaitingRequested)
+    }
+    @Test fun `failed GPS flush cannot start or end a passenger stop`() = runTest(dispatcher) {
+        var calls = 0
+        val vm = TaxiViewModel(fake { name, _ -> when (name) {
+            "dashboard" -> Response.success(TaxiResponse(true, ride = ride.copy(status = "IN_PROGRESS")))
+            "wait" -> { calls++; Response.success(TaxiResponse(true)) }
+            else -> initial(name)
+        } }, true, true, flushMeter = { _, _ -> error("Reconnect to save the latest distance.") })
+        advanceUntilIdle(); vm.wait("REQUEST_STOP", mapOf("latitude" to 9.0)); advanceUntilIdle()
+        assertEquals(0, calls); assertFalse(vm.state.value.ride!!.stopWaitingRequested)
+        assertTrue(vm.state.value.message!!.contains("Reconnect"))
+    }
+    @Test fun `approved stop clearly distinguishes frozen distance free allowance and billable waiting`() {
+        val stopped = ride.copy(status = "IN_PROGRESS", waiting = "STOP", distancePaused = true,
+            waitingState = "FREE_ALLOWANCE", waitingFreeRemainingSeconds = 30, waitingRateEtbPerMinute = 2.5)
+        assertEquals("Distance paused · free waiting 00:30", taxiStopSummary(stopped))
+        assertEquals("Distance paused · waiting ETB 2.5/min", taxiStopSummary(stopped.copy(waitingFreeRemainingSeconds = 0, waitingState = "BILLABLE_WAITING")))
+        assertEquals("Waiting clock paused · fresh GPS needed", taxiStopSummary(stopped.copy(waitingState = "GPS_PAUSED")))
     }
 }

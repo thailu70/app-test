@@ -24,13 +24,15 @@ internal data class TaxiUiState(val busy: Boolean = false, val message: String? 
     val occupiedSeats: List<Int> = emptyList(), val nearbyCars: List<TaxiNearbyCar> = emptyList())
 
 /** Server fare and seat counts are authoritative. A failed refresh never empties a displayed roster. */
-internal class TaxiViewModel(private val api: TaxiApi, private val authenticated: Boolean, private val driver: Boolean) : ViewModel() {
+internal class TaxiViewModel(private val api: TaxiApi, private val authenticated: Boolean, private val driver: Boolean,
+    private val flushMeter: suspend (String, Map<String, Any>) -> Long = TaxiTracking::finishMeter) : ViewModel() {
     private val mutable = MutableStateFlow(TaxiUiState())
     val state = mutable.asStateFlow()
     private var refreshRunning = false
     private val operations = Mutex()
     private val idempotency = mutableMapOf<String, String>()
     private var nearbyQuery: Triple<Double, Double, String>? = null
+    private var estimateEpoch = 0L
     init { refresh() }
     private fun key(value: String) = idempotency.getOrPut(value) { UUID.randomUUID().toString() }
     private fun check(result: TaxiResponse): TaxiResponse {
@@ -57,7 +59,7 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
         }
     }
     fun clearMessage() { mutable.update { it.copy(message = null) } }
-    fun clearEstimate() { mutable.update { it.copy(estimate = null) } }
+    fun clearEstimate() { estimateEpoch++; mutable.update { it.copy(estimate = null) } }
     fun nearby(point: Pair<Double, Double>?, tier: String) {
         val next = point?.let { Triple(it.first, it.second, tier) }
         if (nearbyQuery == next) return
@@ -100,8 +102,9 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
         if (!driver && (mutable.value.ride == null || mutable.value.ride?.status == "REQUESTED")) nearbyQuery?.let { runCatching { loadNearby(it) } }
     }
     fun estimate(route: TaxiRouteInput) = act {
+        val epoch = estimateEpoch
         val result = check(mobilityBody(api.estimate(route)))
-        mutable.update { it.copy(estimate = result.estimate ?: error("No road estimate was returned.")) }
+        if (epoch == estimateEpoch) mutable.update { it.copy(estimate = result.estimate ?: error("No road estimate was returned.")) }
     }
     fun request(route: TaxiRouteInput) = act {
         val intent = "request:$route"
@@ -131,7 +134,7 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
     }
     fun start(pin: String, location: Map<String, Any>) = act {
         val ride = mutable.value.ride ?: return@act
-        TaxiTracking.finishMeter(ride.id, location)
+        flushMeter(ride.id, location)
         val result = check(mobilityBody(api.start(ride.id, mapOf("pin" to pin))))
         mutable.update { it.copy(ride = result.ride) }
     }
@@ -145,8 +148,12 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
         idempotency.remove(intent)
         load()
     }
-    fun wait(action: String) = act {
+    fun wait(action: String, location: Map<String, Any>? = null) = act {
         val ride = mutable.value.ride ?: return@act
+        if (action in setOf("REQUEST_STOP", "END_STOP")) {
+            check(location != null) { "Confirm a fresh GPS location before changing the passenger stop." }
+            flushMeter(ride.id, location)
+        }
         val result = check(mobilityBody(api.wait(ride.id, mapOf("action" to action))))
         mutable.update { it.copy(ride = result.ride) }
     }
@@ -157,7 +164,7 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
     }
     fun complete(location: Map<String, Any>) = act {
         val ride = mutable.value.ride ?: return@act
-        val finalSequence = TaxiTracking.finishMeter(ride.id, location)
+        val finalSequence = flushMeter(ride.id, location)
         val result = check(mobilityBody(api.complete(ride.id, location + mapOf("finalSequence" to finalSequence))))
         mutable.update { it.copy(ride = result.ride) }
     }

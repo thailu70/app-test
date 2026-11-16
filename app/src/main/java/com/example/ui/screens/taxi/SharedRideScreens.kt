@@ -75,7 +75,7 @@ import java.util.*
         confirmButton = { TextButton(onClick = { cancelRequest = false; model.cancelSharedRequest() }) { Text("Cancel request") } }, dismissButton = { TextButton(onClick = { cancelRequest = false }) { Text("Keep request") } })
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
         TaxiMap(trip.originLatitude to trip.originLongitude, trip.destinationLatitude to trip.destinationLongitude, trip.location,
-            if (trip.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 210, pickupLabel = trip.origin, destinationLabel = trip.destination, tileDownloadsEnabled = mapTiles, providedApi = mapApi)
+            if (trip.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 210, pickupLabel = trip.origin, destinationLabel = trip.destination, tileDownloadsEnabled = mapTiles, providedApi = mapApi, routeGeometry = trip.routeGeometry)
         Text("${trip.origin} → ${trip.destination}", color = CommuteInk, fontSize = 23.sp, fontWeight = FontWeight.ExtraBold)
         Text(taxiTime(trip.departureAt), color = CommuteTeal)
         if (trip.status == "REQUESTED") {
@@ -153,7 +153,7 @@ import java.util.*
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { Text(when { street -> "Start a street pickup"; acceptRequest != null -> "Offer this requested route"; driver -> "Offer a group ride"; else -> "Start a group ride" }, Modifier.weight(1f), color = CommuteInk, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold); IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Close form") } }
         Text(if (street) "Confirm the route and estimate before starting the meter. Start only while safely stopped." else "Separate passengers can join this route and pay per seat.", color = Color(0xFF627385), fontSize = 13.sp)
-        if (pickup != null && dropoff != null) TaxiMap(pickup, dropoff, height = 180, pickupLabel = origin, destinationLabel = destination)
+        if (pickup != null && dropoff != null) TaxiMap(pickup, dropoff, height = 180, pickupLabel = origin, destinationLabel = destination, routeGeometry = if (street) state.estimate?.routeGeometry else null)
         TaxiRouteRow("Pickup", origin.ifBlank { "Choose pickup" }, true, !state.busy && acceptRequest == null) { if (acceptRequest == null) picker = "pickup" }
         TaxiRouteRow("Destination", destination.ifBlank { "Where to?" }, false, !state.busy && acceptRequest == null) { if (acceptRequest == null) picker = "destination" }
         if (driver) Box {

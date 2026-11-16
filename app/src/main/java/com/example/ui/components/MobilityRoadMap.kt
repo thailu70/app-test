@@ -29,6 +29,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.data.api.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
@@ -67,6 +68,8 @@ internal fun roadDistanceMeters(a: Pair<Double, Double>, b: Pair<Double, Double>
 }
 internal fun shouldRerouteRoad(previous: Pair<Double, Double>?, current: Pair<Double, Double>, lastAttempt: Long, now: Long): Boolean =
     previous == null || (now - lastAttempt >= 30_000 && roadDistanceMeters(previous, current) >= 100)
+internal fun roadApproachNeeded(point: Pair<Double, Double>, target: Pair<Double, Double>): Boolean = roadDistanceMeters(point, target) >= 15
+private class RoadRouteFailure(val retryable: Boolean) : Exception()
 
 /** Road geometry always comes from the routing service. Missing roads never become straight lines. */
 @Composable
@@ -75,7 +78,7 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
     pickupLabel: String = "Pickup / loading", destinationLabel: String = "Destination",
     modifier: Modifier = Modifier, mapHeight: Int = 260, providedApi: MobilityApi? = null,
     tileDownloadsEnabled: Boolean = true, trackingActive: Boolean = true, statusMessage: String? = null, driverIcon: Int? = null,
-    nearbyPoints: List<Pair<Double, Double>> = emptyList()) {
+    nearbyPoints: List<Pair<Double, Double>> = emptyList(), providedRoute: MobilityRoadGeometry? = null, freezeVehicle: Boolean = false) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val api = remember(providedApi) { providedApi ?: ApiClient.createFeatureService(MobilityApi::class.java) }
@@ -83,10 +86,11 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
     var resumed by remember { mutableStateOf(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val from = pickup?.takeIf(::validRoadPoint); val to = destination?.takeIf(::validRoadPoint)
-    var planned by remember(from, to) { mutableStateOf<MobilityRoadResponse?>(null) }
+    var planned by remember(from, to, providedRoute) { mutableStateOf(providedRoute?.takeIf { roadPoints(it).isNotEmpty() }?.let { MobilityRoadResponse(true, geometry = it) }) }
     var moving by remember(from, to, stage, trackingActive) { mutableStateOf<MobilityRoadResponse?>(null) }
-    var plannedError by remember(from, to) { mutableStateOf(false) }
+    var plannedError by remember(from, to, providedRoute) { mutableStateOf(false) }
     var movingError by remember(from, to, stage) { mutableStateOf(false) }
+    var retryRequest by remember(from, to) { mutableIntStateOf(0) }
     val map = remember(context) {
         Configuration.getInstance().userAgentValue = context.packageName
         MapView(context).apply {
@@ -97,29 +101,36 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
             controller.setZoom(13.0)
         }
     }
+    val vehicleMotion = remember(map, driverIcon) { RoadVehicleMotion(map, driverIcon) }
     DisposableEffect(map, owner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START) { resumed = true; map.onResume() }
-            if (event == Lifecycle.Event.ON_STOP) { resumed = false; map.onPause() }
+            if (event == Lifecycle.Event.ON_STOP) { resumed = false; vehicleMotion.cancel(); map.onPause() }
         }
         owner.lifecycle.addObserver(observer)
         if (resumed) map.onResume()
-        onDispose { owner.lifecycle.removeObserver(observer); map.onPause(); map.onDetach() }
+        onDispose { owner.lifecycle.removeObserver(observer); vehicleMotion.cancel(); map.onPause(); map.onDetach() }
     }
     suspend fun route(a: Pair<Double, Double>, b: Pair<Double, Double>): MobilityRoadResponse {
         val response = api.road(a.first, a.second, b.first, b.second)
         val value = response.body()
-        check(response.isSuccessful && value?.success == true && roadPoints(value.geometry).isNotEmpty())
+        if (!response.isSuccessful || value?.success != true || roadPoints(value.geometry).isEmpty())
+            throw RoadRouteFailure(response.code() !in 400..499 || response.code() in setOf(408, 429))
         return value!!
     }
-    LaunchedEffect(from, to, api, resumed) {
+    LaunchedEffect(from, to, api, resumed, retryRequest, providedRoute) {
         if (resumed && from != null && to != null && planned == null) {
-            try { planned = route(from, to); plannedError = false }
-            catch (e: CancellationException) { throw e }
-            catch (_: Exception) { plannedError = true }
+            var pause = 5_000L
+            while (isActive && planned == null) {
+                try { planned = route(from, to); plannedError = false }
+                catch (e: CancellationException) { throw e }
+                catch (e: RoadRouteFailure) { plannedError = true; if (!e.retryable) break }
+                catch (_: Exception) { plannedError = true }
+                if (planned == null) { delay(pause); pause = (pause * 2).coerceAtMost(60_000) }
+            }
         }
     }
-    LaunchedEffect(from, to, stage, trackingActive, resumed, api) {
+    LaunchedEffect(from, to, stage, trackingActive, resumed, api, retryRequest) {
         if (!resumed || !trackingActive || !roadTrackingStage(stage)) return@LaunchedEffect
         val target = if (roadToDestination(stage)) to else from
         var previous: Pair<Double, Double>? = null
@@ -131,7 +142,7 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
                 val point = location!!.latitude to location.longitude
                 if (shouldRerouteRoad(previous, point, lastAttempt, now) && now - lastAttempt >= 30_000) {
                     lastAttempt = now
-                    try { moving = route(point, target); previous = point; movingError = false }
+                    try { moving = if (roadApproachNeeded(point, target)) route(point, target) else null; previous = point; movingError = false }
                     catch (e: CancellationException) { throw e }
                     catch (_: Exception) { movingError = true }
                 }
@@ -160,8 +171,10 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
                     (map.parent as? ViewGroup)?.removeView(map)
                     addView(map, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
                 } }, modifier = Modifier.matchParentSize().clipToBounds(), update = {
+                    vehicleMotion.update(driverLocation, fresh, movingPoints.ifEmpty { plannedPoints }, animate = resumed, paused = freezeVehicle)
                     replaceRoadOverlays(map, plannedPoints, movingPoints, from, to, driverLocation, fresh,
-                        roadToDestination(stage), pickupLabel, destinationLabel, driverIcon, nearbyPoints)
+                        roadToDestination(stage), pickupLabel, destinationLabel, driverIcon, nearbyPoints,
+                        stableDriverMarker = vehicleMotion.marker.takeIf { driverLocation != null })
                     if (!framed || (!fittedMoving && movingPoints.isNotEmpty())) map.post {
                         fitMap(); framed = true; fittedMoving = movingPoints.isNotEmpty(); map.invalidate()
                     }
@@ -186,7 +199,11 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
         if (estimate?.distanceKm != null && estimate.durationMinutes != null) Text(
             "${"%.1f".format(java.util.Locale.US, estimate.distanceKm)} km · about ${estimate.durationMinutes.toInt()} min ${if (roadToDestination(stage)) "to destination" else "to pickup"}",
             fontSize = 12.sp, color = Color(0xFF00685C), modifier = Modifier.testTag("road_map_estimate"))
-        if (plannedError || movingError) Text("Road route unavailable. Your selected locations are still shown.", fontSize = 11.sp, color = Color(0xFF617285), modifier = Modifier.testTag("road_map_unavailable"))
+        if ((plannedError && plannedPoints.isEmpty()) || movingError) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (plannedPoints.isNotEmpty()) "Live road route is reconnecting. Your saved journey is still shown." else "Road route unavailable. Your selected locations are still shown.",
+                fontSize = 11.sp, color = Color(0xFF617285), modifier = Modifier.weight(1f).testTag("road_map_unavailable"))
+            TextButton(onClick = { retryRequest++ }, modifier = Modifier.testTag("road_map_retry")) { Text("Retry", fontSize = 12.sp) }
+        }
         else if (from == null || to == null) Text("Waiting for the assigned pickup and destination locations.", fontSize = 11.sp, color = Color(0xFF617285))
         statusMessage?.takeIf { it.isNotBlank() }?.let { Text(it, fontSize = 11.sp, color = Color(0xFF617285)) }
     }
@@ -195,7 +212,7 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
 internal fun replaceRoadOverlays(map: MapView, planned: List<Pair<Double, Double>>, moving: List<Pair<Double, Double>>,
     pickup: Pair<Double, Double>?, destination: Pair<Double, Double>?, driver: MobilityLocation?, fresh: Boolean,
     inTransit: Boolean, pickupLabel: String, destinationLabel: String, driverIcon: Int? = null,
-    nearbyPoints: List<Pair<Double, Double>> = emptyList()) {
+    nearbyPoints: List<Pair<Double, Double>> = emptyList(), stableDriverMarker: Marker? = null) {
     map.overlays.clear()
     fun line(points: List<Pair<Double, Double>>, color: Int, dashed: Boolean) {
         if (points.size < 2) return
@@ -227,6 +244,9 @@ internal fun replaceRoadOverlays(map: MapView, planned: List<Pair<Double, Double
     marker(pickup, pickupLabel, "P", 0xFF00685C.toInt())
     marker(destination, destinationLabel, "F", 0xFF092C3E.toInt())
     nearbyPoints.take(40).forEach { marker(it, "Nearby car · approximate", "D", 0xFF00695F.toInt()) }
-    driver?.let { marker(it.latitude to it.longitude, if (fresh) "Driver · live" else "Driver · last known", "D", if (fresh) 0xFF1977E6.toInt() else 0xFF71808A.toInt()) }
+    driver?.let {
+        if (stableDriverMarker != null) map.overlays.add(stableDriverMarker)
+        else marker(it.latitude to it.longitude, if (fresh) "Driver · live" else "Driver · last known", "D", if (fresh) 0xFF1977E6.toInt() else 0xFF71808A.toInt())
+    }
     map.contentDescription = "Road journey map. $pickupLabel to $destinationLabel. ${if (fresh) "Live driver" else "No fresh driver location"}"
 }

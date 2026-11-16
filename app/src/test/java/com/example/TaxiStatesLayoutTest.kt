@@ -79,11 +79,15 @@ class TaxiStatesLayoutTest {
         if (status == "REQUESTED") compose.onNodeWithText("Nearby cars · approximate").assertExists()
         else { compose.onNodeWithText("1234").performScrollTo().assertIsDisplayed(); capture("passenger-accepted-boarding") }
     }
-    private fun driver(meter: Boolean, fontScale: Float = 1f) {
+    private fun driver(meter: Boolean, fontScale: Float = 1f, stopped: Boolean = false) {
+        if (stopped) previewSuffix = "-approved-stop"
         if (fontScale > 1f) previewSuffix = "-large-text"
         compose.setContent { val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) { MyApplicationTheme { val vm = remember { TaxiViewModel(api(if (meter) ride.copy(status = "IN_PROGRESS", boardingPin = null,
-            fareEtb = 187.5, meterDistanceKm = 3.2, tripDurationSeconds = 522) else null, if (meter) emptyList() else listOf(ride)), true, true) }
+            fareEtb = 187.5, meterDistanceKm = 3.2, tripDurationSeconds = 522,
+            waiting = if (stopped) "STOP" else null, distancePaused = stopped,
+            waitingState = if (stopped) "FREE_ALLOWANCE" else "NONE", waitingFreeRemainingSeconds = if (stopped) 30 else 0,
+            waitingRateEtbPerMinute = 2.5) else null, if (meter) emptyList() else listOf(ride)), true, true) }
             TaxiDriverContent("driver-fixture", vm, {}, trackingEnabled = false, mapTiles = false, mapApi = remember { roads() })
         } } }
         compose.waitUntil(10_000) { compose.onAllNodesWithText(if (meter) "Trip in progress" else "Nearby taxi calls").fetchSemanticsNodes().isNotEmpty() }
@@ -94,6 +98,11 @@ class TaxiStatesLayoutTest {
             compose.onNodeWithTag("taxi_meter_waiting").assertIsDisplayed()
             compose.onNodeWithTag("taxi_passenger_stop").assertIsDisplayed()
             compose.onNodeWithTag("taxi_end_trip").assertIsDisplayed().assertIsEnabled()
+            if (stopped) {
+                compose.onNodeWithText("Passenger stop approved").assertIsDisplayed()
+                compose.onNodeWithText("Fare so far · distance paused").assertIsDisplayed()
+                compose.onNodeWithTag("taxi_meter_stop_state").assertTextEquals("Distance paused · free waiting 00:30")
+            }
         }
         capture(if (meter) "driver-meter" else "driver-calls")
         if (meter) {
@@ -126,5 +135,6 @@ class TaxiStatesLayoutTest {
     @Test @Config(qualifiers = "w320dp-h740dp-xhdpi") fun driverCalls320() = driver(false)
     @Test @Config(qualifiers = "w320dp-h740dp-xhdpi") fun driverMeter320() = driver(true)
     @Test @Config(qualifiers = "w320dp-h740dp-xhdpi") fun driverMeter320LargeText() = driver(true, 1.2f)
+    @Test @Config(qualifiers = "w320dp-h740dp-xhdpi") fun driverMeter320ApprovedStop() = driver(true, stopped = true)
     @Test @Config(qualifiers = "w320dp-h740dp-xhdpi") fun sharedSeats320() = shared()
 }

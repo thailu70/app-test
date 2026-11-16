@@ -70,6 +70,22 @@ internal fun taxiTime(value: String): String = runCatching {
 }.getOrDefault(value)
 internal fun taxiActive(status: String) = status in setOf("ACCEPTED", "AT_PICKUP", "IN_PROGRESS")
 internal fun sharedActive(status: String) = status in setOf("BOARDING", "IN_PROGRESS")
+internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFreeRemainingSeconds): String = when {
+    ride.waitingState == "GPS_PAUSED" -> "Waiting clock paused · fresh GPS needed"
+    ride.waitingState == "LIMIT_REACHED" -> "Waiting limit reached · distance paused"
+    ride.distancePaused && freeSeconds != null && freeSeconds > 0 -> "Distance paused · free waiting ${taxiDuration(freeSeconds)}"
+    ride.distancePaused && ride.waitingRateEtbPerMinute != null -> "Distance paused · waiting ${taxiMoney(ride.waitingRateEtbPerMinute)}/min"
+    else -> "Passenger stop approved · waiting charges may apply"
+}
+@Composable internal fun taxiFreeWaitingSeconds(ride: TaxiRide, tick: Boolean = true): Int? {
+    var remaining by remember(ride.id, ride.serverTime, ride.waitingFreeRemainingSeconds) { mutableStateOf(ride.waitingFreeRemainingSeconds) }
+    LaunchedEffect(ride.id, ride.serverTime, ride.waitingFreeRemainingSeconds, ride.waitingState, tick) {
+        if (!tick || ride.waitingState != "FREE_ALLOWANCE") return@LaunchedEffect
+        // Interpolate this display briefly; the next server snapshot remains authoritative.
+        repeat(10) { delay(1_000); remaining = remaining?.let { (it - 1).coerceAtLeast(0) }; if (remaining == 0) return@LaunchedEffect }
+    }
+    return remaining
+}
 
 @Composable internal fun taxiViewModel(authenticated: Boolean, driver: Boolean): TaxiViewModel {
     val token = ApiClient.getAuthToken()
@@ -150,12 +166,13 @@ internal fun sharedActive(status: String) = status in setOf("BOARDING", "IN_PROG
 @Composable internal fun TaxiMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Double>?,
     driver: MobilityLocation? = null, stage: String = "ASSIGNED", height: Int = 255,
     pickupLabel: String = "Pickup", destinationLabel: String = "Destination", modifier: Modifier = Modifier, tileDownloadsEnabled: Boolean = true, providedApi: MobilityApi? = null,
-    nearbyCars: List<TaxiNearbyCar> = emptyList()) {
+    nearbyCars: List<TaxiNearbyCar> = emptyList(), routeGeometry: MobilityRoadGeometry? = null, freezeVehicle: Boolean = false) {
     val nearby = nearbyCars.map { it.latitude to it.longitude }
     if (pickup != null && destination != null) {
         MobilityRoadMap(pickup, destination, driver, stage, pickupLabel, destinationLabel,
             modifier, mapHeight = height, trackingActive = driver != null, tileDownloadsEnabled = tileDownloadsEnabled, driverIcon = R.drawable.taxi_car_top, providedApi = providedApi,
-            nearbyPoints = nearby, statusMessage = if (nearby.isNotEmpty()) "Nearby cars · approximate" else null)
+            nearbyPoints = nearby, statusMessage = if (nearby.isNotEmpty()) "Nearby cars · approximate" else null,
+            providedRoute = routeGeometry, freezeVehicle = freezeVehicle)
     } else {
         val context = LocalContext.current; val owner = LocalLifecycleOwner.current
         val map = remember(context) { Configuration.getInstance().userAgentValue = context.packageName

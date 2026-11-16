@@ -39,7 +39,10 @@ data class TaxiRide(val id: String, val passengerId: String? = null, val driverI
     val vehicleModel: String? = null, val vehiclePlate: String? = null, val vehicleType: String? = null,
     val passengerName: String? = null, val passengerPhone: String? = null, val location: MobilityLocation? = null,
     val routeGeometry: MobilityRoadGeometry? = null, val createdAt: String? = null,
-    val startedAt: String? = null, val completedAt: String? = null, val lastSequence: Long = 0)
+    val startedAt: String? = null, val completedAt: String? = null, val lastSequence: Long = 0,
+    val waitingFreeRemainingSeconds: Int? = null, val waitingRateEtbPerMinute: Double? = null,
+    val distancePaused: Boolean = false, val waitingFareEtb: Double? = null, val distanceFareEtb: Double? = null,
+    val waitingState: String = "", val serverTime: String? = null)
 @JsonClass(generateAdapter = true)
 data class SharedRideBooking(val id: String, val tripId: String = "", val passengerId: String? = null,
     val seats: Int = 1, val seatNumbers: List<Int> = emptyList(), val farePerSeatEtb: Double = 0.0,

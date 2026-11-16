@@ -182,12 +182,12 @@ import kotlinx.coroutines.launch
         text = { Text("Complete only after arriving at the destination. The server confirms your GPS location, final fare and Passo fee once.") },
         confirmButton = { TextButton(onClick = { confirmComplete = false; withFix(model::complete) }) { Text("Complete ride") } }, dismissButton = { TextButton(onClick = { confirmComplete = false }) { Text("Keep driving") } })
     if (ride.status == "IN_PROGRESS") {
-        DriverActiveMeter(ride, state.busy, model, mapTiles, mapApi, onComplete = { confirmComplete = true })
+        DriverActiveMeter(ride, state.busy, model, mapTiles, mapApi, withFix, onComplete = { confirmComplete = true })
         return
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TaxiMap(ride.originLatitude to ride.originLongitude, ride.destinationLatitude to ride.destinationLongitude, ride.location,
-            if (ride.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 240, pickupLabel = ride.origin, destinationLabel = ride.destination, tileDownloadsEnabled = mapTiles, providedApi = mapApi)
+            if (ride.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 240, pickupLabel = ride.origin, destinationLabel = ride.destination, tileDownloadsEnabled = mapTiles, providedApi = mapApi, routeGeometry = ride.routeGeometry, freezeVehicle = ride.distancePaused)
         Text(when (ride.status) { "ACCEPTED" -> "Go to pickup"; "AT_PICKUP" -> "Ready to board"; "IN_PROGRESS" -> "Trip in progress"; "COMPLETED" -> "Trip completed"; else -> "Ride cancelled" }, color = CommuteInk, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
         ride.passengerName?.let { Text(it, color = CommuteInk, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
         TaxiRouteRow("Pickup", ride.origin, true); TaxiRouteRow("Destination", ride.destination, false)
@@ -207,7 +207,7 @@ import kotlinx.coroutines.launch
                 TaxiPrimary("Start meter", !state.busy && pin.length >= 4, "taxi_start_meter") { withFix { model.start(pin, it) } }
             }
             "IN_PROGRESS" -> {
-                if (ride.source != "STREET") OutlinedButton(onClick = { model.wait(if (ride.waiting == "STOP") "END_STOP" else "REQUEST_STOP") }, enabled = !state.busy && !ride.stopWaitingRequested, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PauseCircle, null); Spacer(Modifier.width(8.dp)); Text(if (ride.waiting == "STOP") "End passenger stop" else if (ride.stopWaitingRequested) "Waiting for passenger approval" else "Request passenger stop") }
+                if (ride.source != "STREET") OutlinedButton(onClick = { withFix { model.wait(if (ride.waiting == "STOP") "END_STOP" else "REQUEST_STOP", it) } }, enabled = !state.busy && !ride.stopWaitingRequested, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PauseCircle, null); Spacer(Modifier.width(8.dp)); Text(if (ride.waiting == "STOP") "End passenger stop" else if (ride.stopWaitingRequested) "Waiting for passenger approval" else "Request passenger stop") }
                 TaxiPrimary("End trip", !state.busy, "taxi_end_trip") { confirmComplete = true }
             }
             "COMPLETED", "CANCELLED" -> TaxiPrimary("Back to calls", !state.busy) { model.dismissRide() }
@@ -218,8 +218,9 @@ import kotlinx.coroutines.launch
 
 /** Keep the meter and safety-critical completion control in view on a compact phone. */
 @Composable private fun DriverActiveMeter(ride: TaxiRide, busy: Boolean, model: TaxiViewModel,
-    mapTiles: Boolean, mapApi: MobilityApi?, onComplete: () -> Unit) {
+    mapTiles: Boolean, mapApi: MobilityApi?, withFix: ((Map<String, Any>) -> Unit) -> Unit, onComplete: () -> Unit) {
     val context = LocalContext.current
+    val freeWaiting = taxiFreeWaitingSeconds(ride, mapTiles)
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val compact = maxHeight < 620.dp
         Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -229,16 +230,16 @@ import kotlinx.coroutines.launch
             }
             TaxiMap(ride.originLatitude to ride.originLongitude, ride.destinationLatitude to ride.destinationLongitude, ride.location,
                 "IN_PROGRESS", height = if (compact) 140 else 160, pickupLabel = ride.origin, destinationLabel = ride.destination,
-                tileDownloadsEnabled = mapTiles, providedApi = mapApi)
+                tileDownloadsEnabled = mapTiles, providedApi = mapApi, routeGeometry = ride.routeGeometry, freezeVehicle = ride.distancePaused)
             Surface(Modifier.weight(1f).fillMaxWidth(), color = Color.White, shape = RoundedCornerShape(22.dp)) {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Surface(color = CommuteMint, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(horizontal = 9.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.CheckCircle, null, tint = CommuteTeal, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(6.dp))
-                            Text(if (ride.source == "STREET") "Street pickup · passenger agreed" else "Passenger PIN verified", color = CommuteTeal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text(if (ride.waiting == "STOP") "Passenger stop approved" else if (ride.source == "STREET") "Street pickup · passenger agreed" else "Passenger PIN verified", color = CommuteTeal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
-                    Text("Fare so far", color = Color(0xFF627385), fontSize = 11.sp)
+                    Text(if (ride.distancePaused) "Fare so far · distance paused" else "Fare so far", color = Color(0xFF627385), fontSize = 11.sp)
                     Text(ride.fareEtb?.let { String.format(java.util.Locale.US, "ETB %,.2f", it) } ?: "Updating meter…", color = CommuteInk,
                         fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.testTag("taxi_meter_fare"))
                     HorizontalDivider(color = Color(0xFFE0E7E3))
@@ -248,7 +249,7 @@ import kotlinx.coroutines.launch
                         Column(Modifier.weight(1f)) { Text("Billable waiting", color = Color(0xFF627385), fontSize = 11.sp)
                             Text(taxiDuration(ride.billableWaitingSeconds), color = CommuteInk, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("taxi_meter_waiting")) }
                     }
-                    Text("Trip duration ${taxiDuration(ride.tripDurationSeconds)} · traffic time not billed", color = Color(0xFF627385), fontSize = 11.sp)
+                    Text(if (ride.waiting == "STOP") taxiStopSummary(ride, freeWaiting) else "Trip duration ${taxiDuration(ride.tripDurationSeconds)} · traffic time not billed", color = Color(0xFF627385), fontSize = 11.sp, modifier = Modifier.testTag("taxi_meter_stop_state"))
                     HorizontalDivider(color = Color(0xFFE0E7E3))
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.LocationOn, null, tint = CommuteTeal, modifier = Modifier.size(19.dp))
@@ -264,7 +265,7 @@ import kotlinx.coroutines.launch
                     Text("Passenger pays you directly", color = Color(0xFF627385), fontSize = 11.sp)
                 }
             }
-            if (ride.source != "STREET") OutlinedButton(onClick = { model.wait(if (ride.waiting == "STOP") "END_STOP" else "REQUEST_STOP") }, enabled = !busy && !ride.stopWaitingRequested,
+            if (ride.source != "STREET") OutlinedButton(onClick = { withFix { model.wait(if (ride.waiting == "STOP") "END_STOP" else "REQUEST_STOP", it) } }, enabled = !busy && !ride.stopWaitingRequested,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp).testTag("taxi_passenger_stop"), shape = RoundedCornerShape(16.dp)) {
                 Icon(Icons.Default.PauseCircle, null, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(7.dp))
                 Text(if (ride.waiting == "STOP") "End passenger stop" else if (ride.stopWaitingRequested) "Waiting for passenger approval" else "Request passenger stop", fontSize = 13.sp, maxLines = 2)
@@ -287,7 +288,7 @@ import kotlinx.coroutines.launch
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(15.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
         TaxiHeader("Group trip", onBack = { model.closeTrip() })
         TaxiMap(trip.originLatitude to trip.originLongitude, trip.destinationLatitude to trip.destinationLongitude, trip.location,
-            if (trip.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 210, pickupLabel = trip.origin, destinationLabel = trip.destination)
+            if (trip.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 210, pickupLabel = trip.origin, destinationLabel = trip.destination, routeGeometry = trip.routeGeometry)
         Text("${trip.origin} → ${trip.destination}", color = CommuteInk, fontSize = 23.sp, fontWeight = FontWeight.Bold)
         Text("${taxiTime(trip.departureAt)} · ${trip.status.replace('_', ' ')}", color = CommuteTeal)
         Text("${trip.availableSeats} available seats · ${trip.farePerSeatEtb?.let(::taxiMoney) ?: "Fare pending"} per seat", color = CommuteInk)

@@ -114,4 +114,41 @@ class MobilityRoadMapTest {
             File("build/mobility-previews/08-road-journey.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
     }
+    @Test fun `saved taxi geometry renders without a duplicate route network request`() {
+        var calls = 0
+        val api = Proxy.newProxyInstance(MobilityApi::class.java.classLoader, arrayOf(MobilityApi::class.java)) { proxy, method, args -> when (method.name) {
+            "equals" -> proxy === args?.firstOrNull(); "hashCode" -> System.identityHashCode(proxy); "toString" -> "Saved road fixture"
+            else -> { calls++; error("A saved road must not be fetched again") }
+        } } as MobilityApi
+        compose.setContent { MyApplicationTheme { MobilityRoadMap(pickup, destination, providedApi = api, tileDownloadsEnabled = false, providedRoute = geometry(curve)) } }
+        compose.waitUntil(10_000) { compose.activity.window.decorView.findViewWithTag<MapView>("mobility_road_native_map")?.overlays?.filterIsInstance<Polyline>()?.size == 1 }
+        assertEquals(0, calls)
+        compose.onNodeWithTag("road_map_unavailable").assertDoesNotExist()
+    }
+    @Test fun `driver already at pickup does not trigger a false zero length route error`() {
+        var calls = 0
+        val api = Proxy.newProxyInstance(MobilityApi::class.java.classLoader, arrayOf(MobilityApi::class.java)) { proxy, method, args -> when (method.name) {
+            "equals" -> proxy === args?.firstOrNull(); "hashCode" -> System.identityHashCode(proxy); "toString" -> "At pickup fixture"
+            else -> { calls++; Response.success(MobilityRoadResponse(true, 0.0, 0.0, geometry = geometry(listOf(pickup, pickup)))) }
+        } } as MobilityApi
+        val live = MobilityLocation(pickup.first, pickup.second, Instant.now().toString(), accuracyMeters = 10.0)
+        compose.setContent { MyApplicationTheme { MobilityRoadMap(pickup, destination, live, stage = "AT_PICKUP", providedApi = api,
+            tileDownloadsEnabled = false, providedRoute = geometry(curve), driverIcon = R.drawable.taxi_car_top) } }
+        compose.onNodeWithText("Live driver").assertIsDisplayed()
+        compose.onNodeWithTag("road_map_unavailable").assertDoesNotExist()
+        assertEquals(0, calls)
+    }
+    @Test fun `failed road fetch can recover immediately with the retry action`() {
+        var available = false
+        val api = Proxy.newProxyInstance(MobilityApi::class.java.classLoader, arrayOf(MobilityApi::class.java)) { proxy, method, args -> when (method.name) {
+            "equals" -> proxy === args?.firstOrNull(); "hashCode" -> System.identityHashCode(proxy); "toString" -> "Retry road fixture"
+            else -> if (available) Response.success(MobilityRoadResponse(true, 26.0, 42.0, geometry = geometry(curve))) else throw IllegalStateException("Temporary connection failure")
+        } } as MobilityApi
+        compose.setContent { MyApplicationTheme { MobilityRoadMap(pickup, destination, providedApi = api, tileDownloadsEnabled = false) } }
+        compose.onNodeWithTag("road_map_retry").assertExists()
+        compose.runOnIdle { available = true }
+        compose.onNodeWithTag("road_map_retry").performClick()
+        compose.waitUntil(10_000) { compose.activity.window.decorView.findViewWithTag<MapView>("mobility_road_native_map")?.overlays?.filterIsInstance<Polyline>()?.size == 1 }
+        compose.onNodeWithTag("road_map_unavailable").assertDoesNotExist()
+    }
 }

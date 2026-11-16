@@ -60,3 +60,42 @@ test('road kilometres come from OSRM, validate coordinates and cache real routes
   const failed = createGeoService({ fetchImpl: async () => { throw new Error('offline'); } });
   await assert.rejects(failed.route(points), error => error.status === 503);
 });
+
+test('road and place lookups give verified accounts separate budgets on a shared network', async t => {
+  const express = require('express');
+  const { createGeoRouter } = require('../src/routes/mobility-geo');
+  let lookups = 0;
+  const app = express();
+  app.use('/api/mobility', createGeoRouter({ limit: 2,
+    service: {
+      async route() { lookups++; return { distanceKm: 3, geometry: { type: 'LineString', coordinates: [[38.78, 9], [38.79, 9.01]] } }; },
+      async locations() { lookups++; return { places: [] }; }
+    },
+    authenticateRequest(req, res, next) {
+      const token = req.get('Authorization');
+      if (!['Bearer active-driver', 'Bearer active-passenger'].includes(token))
+        return res.status(401).json({ success: false });
+      req.user = { id: token.slice(7) };
+      next();
+    }
+  }));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const base = 'http://127.0.0.1:' + server.address().port + '/api/mobility';
+  const request = (path, headers) => fetch(base + path, { headers });
+  const driver = { Authorization: 'Bearer active-driver' };
+  const passenger = { Authorization: 'Bearer active-passenger' };
+  assert.equal((await request('/route')).status, 200);
+  assert.equal((await request('/locations?q=Bole')).status, 200);
+  assert.equal((await request('/route', { 'X-Driver-Id': 'invented' })).status, 429);
+  assert.equal((await request('/route', driver)).status, 200, 'Guest traffic cannot exhaust a verified driver');
+  assert.equal((await request('/locations?q=Bole', driver)).status, 200);
+  const capped = await request('/route', driver);
+  assert.equal(capped.status, 429, 'A driver cannot bypass the combined route/search budget');
+  assert.ok(Number(capped.headers.get('retry-after')) > 0);
+  assert.equal((await request('/route', passenger)).status, 200, 'Another account on the same network has its own budget');
+  assert.equal((await request('/route', { Authorization: 'Bearer forged' })).status, 401);
+  assert.equal((await request('/route', { Authorization: 'Bearer expired' })).status, 401);
+  assert.equal(lookups, 5, 'Rejected requests never call the routing or search service');
+});
