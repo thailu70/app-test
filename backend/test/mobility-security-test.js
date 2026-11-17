@@ -15,6 +15,7 @@ const { DB } = require('../src/db');
 const { initOnboardingSchema, REQUIRED, getOnboardingReadiness } = require('../src/services/onboarding');
 const { initMasterDataSchema } = require('../src/services/master-data');
 const { createMobilityService } = require('../src/services/mobility');
+const { verifiedMobilityRequest } = require('./mobility-otp-fixture');
 
 test('mobility reservations retain capacity, expiry, operational approval and private cargo access', async t => {
   await initOnboardingSchema(); await initMasterDataSchema();
@@ -101,8 +102,8 @@ test('mobility reservations retain capacity, expiry, operational approval and pr
 
   await t.test('draft cargo photos and submitted requests require the customer capability or authorized assigned driver', async () => {
     const date = new Date(clock + 3 * 3600000).toISOString().slice(0, 10);
-    const result = await service.createRequest({ kind: 'CARGO', origin: 'Fixture warehouse', destination: 'Fixture home', travelDate: date,
-      vehicleType: 'MINIVAN_8', cargoDetails: 'Two boxed chairs', customerName: 'Cargo fixture', customerPhone: '0911234588', adultConfirmed: true });
+    const result = await service.createRequest(await verifiedMobilityRequest(DB,{ kind: 'CARGO', origin: 'Fixture warehouse', destination: 'Fixture home', travelDate: date,
+      vehicleType: 'MINIVAN_8', cargoDetails: 'Two boxed chairs', customerName: 'Cargo fixture', customerPhone: '0911234588', adultConfirmed: true }));
     const key = result.request.id, capability = result.requestSecret;
     assert.equal(result.request.status, 'DRAFT'); assert.equal((await service.requests('CARGO')).requests.some(row => row.id === key), false);
     await assert.rejects(service.request(key, 'incorrect'), error => error.status === 404);

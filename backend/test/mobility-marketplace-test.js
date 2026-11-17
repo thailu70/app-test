@@ -13,6 +13,7 @@ const { DB } = require('../src/db');
 const { initMasterDataSchema } = require('../src/services/master-data');
 const { initOnboardingSchema } = require('../src/services/onboarding');
 const { createMobilityService } = require('../src/services/mobility');
+const { verifiedMobilityRequest } = require('./mobility-otp-fixture');
 const { signToken } = require('../src/middleware/auth');
 test('marketplace customer selection, private feed, commission and completion are atomic', async t => {
   await initMasterDataSchema(); await initOnboardingSchema();
@@ -29,8 +30,9 @@ test('marketplace customer selection, private feed, commission and completion ar
   }
   let clock = Date.now(), order = 0;
   const service=createMobilityService({now:()=>clock,sendSms:async()=>({sent:false})});await service.init();
+  const createVerifiedRequest = async input => service.createRequest(await verifiedMobilityRequest(DB,input));
   const base={kind:'GROUP',people:4,origin:'Addis Ababa',destination:'Adama',travelDate:new Date(clock+86400000).toISOString().slice(0,10),travelTime:'10:30',vehicleType:'MINIVAN_8',customerName:'Private customer',customerPhone:'0911000301',adultConfirmed:true};
-  const guest=await service.createRequest(base),key=guest.request.id,cap=guest.requestSecret;
+  const guest=await createVerifiedRequest(base),key=guest.request.id,cap=guest.requestSecret;
   await service.marketplace.updateSettings('usr_adm_root',{groupCommissionPercent:5});
   const feed=await service.marketplace.opportunities('marketplace-group');assert.equal(feed.requests.length,1);assert.equal(JSON.stringify(feed).includes('Private customer'),false);assert.equal(JSON.stringify(feed).includes('+251911000301'),false);
   const q=(await service.marketplace.quote('marketplace-group',key,{vehicleId:'marketplace-groupvehicle',priceEtb:10000,etaMinutes:20,note:'Whole vehicle'})).quote;
@@ -50,7 +52,7 @@ test('marketplace customer selection, private feed, commission and completion ar
   assert.equal((await service.marketplace.credits('marketplace-group')).wallet.balanceEtb,1000);
   await service.marketplace.confirm(key,cap,{action:'CONFIRM'});await service.marketplace.confirm(key,cap,{action:'CONFIRM'});
   assert.deepEqual((await service.marketplace.credits('marketplace-group')).wallet,{balanceEtb:500,heldEtb:0,availableEtb:500});
-  const reduced=await service.createRequest({...base,destination:'Bahir Dar'}),reducedQuote=(await service.marketplace.quote('marketplace-group',reduced.request.id,{vehicleId:'marketplace-groupvehicle',priceEtb:1000})).quote;
+  const reduced=await createVerifiedRequest({...base,destination:'Bahir Dar'}),reducedQuote=(await service.marketplace.quote('marketplace-group',reduced.request.id,{vehicleId:'marketplace-groupvehicle',priceEtb:1000})).quote;
   await DB.prepare('UPDATE vehicles SET capacityLimit=2 WHERE id=?').run('marketplace-groupvehicle');
   await assert.rejects(service.marketplace.select(reduced.request.id,reduced.requestSecret,{quoteId:reducedQuote.id}),e=>e.status===409);
   assert.equal((await service.marketplace.credits('marketplace-group')).wallet.heldEtb,0,'Incompatible vehicle never reserves credit.');
@@ -63,7 +65,7 @@ test('marketplace customer selection, private feed, commission and completion ar
   await service.marketplace.moderate('usr_adm_root',review.id,{status:'VISIBLE',reason:'Verified service review'});
   assert.equal((await service.marketplace.reviews('marketplace-group')).ratingAverage,5);
   await assert.rejects(service.marketplace.review(key,cap,{rating:5}),e=>e.status===409);
-  const other=await service.createRequest({...base,travelDate:new Date(clock+86400000).toISOString().slice(0,10),destination:'Hawassa'}),otherQuote=(await service.marketplace.quote('marketplace-group',other.request.id,{vehicleId:'marketplace-groupvehicle',priceEtb:1000})).quote;
+  const other=await createVerifiedRequest({...base,travelDate:new Date(clock+86400000).toISOString().slice(0,10),destination:'Hawassa'}),otherQuote=(await service.marketplace.quote('marketplace-group',other.request.id,{vehicleId:'marketplace-groupvehicle',priceEtb:1000})).quote;
   await service.marketplace.select(other.request.id,other.requestSecret,{quoteId:otherQuote.id});
   await service.marketplace.cancel(other.request.id,other.requestSecret);await service.marketplace.cancel(other.request.id,other.requestSecret);
   assert.deepEqual((await service.marketplace.credits('marketplace-group')).wallet,{balanceEtb:500,heldEtb:0,availableEtb:500});

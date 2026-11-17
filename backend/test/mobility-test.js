@@ -14,6 +14,7 @@ const { initMasterDataSchema } = require('../src/services/master-data');
 const { initOnboardingSchema } = require('../src/services/onboarding');
 const { createMobilityService } = require('../src/services/mobility');
 const { signToken } = require('../src/middleware/auth');
+const { verifiedMobilityRequest } = require('./mobility-otp-fixture');
 test('group approval, multi-person paid tickets, cargo privacy and admin assignment', async t => {
   await initMasterDataSchema(); await initOnboardingSchema();
   await require('../src/services/mobility-schema').initMobilitySchema();
@@ -34,6 +35,7 @@ test('group approval, multi-person paid tickets, cargo privacy and admin assignm
     queryOrderStatus:async key=>({merchantOrderId:key,currency:'ETB',amount:providerOrders.get(key).amount,paid:providerOrders.get(key).paid,failed:false,transactionId:'paid-'+key}),
     parseNotification:body=>body,verifyNotification:()=>false };
   const service = createMobilityService({now:()=>clock,provider,sendSms:async(phone,message)=>{sent.push({phone,message});return {sent:true};}}); await service.init();
+  const createVerifiedRequest = async input => service.createRequest(await verifiedMobilityRequest(DB,input));
   const input = {vehicleId:'groupvehicle',origin:'Addis Ababa',destination:'Hawassa',departureAt:new Date(clock+30*60000).toISOString(),latitude:9,longitude:38,seats:8,fareEtb:500};
   let trip, held;
   await t.test('only approved group drivers propose, and only admin-approved future trips are discoverable', async()=>{
@@ -98,8 +100,8 @@ test('group approval, multi-person paid tickets, cargo privacy and admin assignm
     await assert.rejects(service.reviewTrip('usr_adm_root',trip.id,{decision:'CANCEL'}),e=>e.status===409);
   });
   await t.test('private group and photo-backed cargo requests have capability privacy and service-specific admin assignment', async()=>{
-    const group=await service.createRequest({...requestBase,kind:'GROUP',people:5});assert.equal(group.request.status,'REQUESTED');
-    const cargo=await service.createRequest({...requestBase,kind:'CARGO',cargoDetails:'Boxed household furniture',originLatitude:9,originLongitude:38,destinationLatitude:8.5,destinationLongitude:39});assert.equal(cargo.request.status,'DRAFT');
+    const group=await createVerifiedRequest({...requestBase,kind:'GROUP',people:5});assert.equal(group.request.status,'REQUESTED');
+    const cargo=await createVerifiedRequest({...requestBase,kind:'CARGO',cargoDetails:'Boxed household furniture',originLatitude:9,originLongitude:38,destinationLatitude:8.5,destinationLongitude:39});assert.equal(cargo.request.status,'DRAFT');
     assert.equal(await service.trafficIdentity('request',cargo.request.id,cargo.requestSecret),'request:'+cargo.request.id);
     assert.equal(await service.trafficIdentity('request',group.request.id,group.requestSecret),'request:'+group.request.id);
     assert.equal(await service.trafficIdentity('booking',held.booking.id,held.bookingSecret),'booking:'+held.booking.id);
@@ -127,7 +129,7 @@ test('group approval, multi-person paid tickets, cargo privacy and admin assignm
     await service.assignRequest('usr_adm_root',group.request.id,{driverId:'group',vehicleId:'groupvehicle'});
     await service.requestStatus('usr_adm_root',cargo.request.id,{status:'COMPLETED'});
     await assert.rejects(service.assignRequest('usr_adm_root',cargo.request.id,{driverId:'cargo',vehicleId:'cargovehicle'}),e=>e.status===409);
-    const noCapacity=await service.createRequest({...requestBase,kind:'GROUP',people:10});
+    const noCapacity=await createVerifiedRequest({...requestBase,kind:'GROUP',people:10});
     await assert.rejects(service.assignRequest('usr_adm_root',noCapacity.request.id,{driverId:'group',vehicleId:'groupvehicle'}),e=>e.status===400);
   });
   await t.test('HTTP role guards isolate admin reviews and driver data; missing capabilities do not disclose customers',async()=>{
@@ -141,9 +143,13 @@ test('group approval, multi-person paid tickets, cargo privacy and admin assignm
     assert.equal((await fetch(base+'/admin/requests',{headers:{Authorization:auth('ADMIN')}})).status,200);
     assert.equal((await fetch(base+'/bookings/'+held.booking.id)).status,404);
     const publicTrips=await(await fetch(base+'/trips')).json();assert.equal(publicTrips.success,true);
-    const guest=await fetch(base+'/requests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...requestBase,kind:'GROUP',people:3})});
-    assert.equal(guest.status,201,'Group transport requests do not require an account, login or OTP.');
-    const cargoResponse=await fetch(base+'/requests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...requestBase,kind:'CARGO',cargoDetails:'Guest cargo without registration'})});
+    const guestInput={...requestBase,kind:'GROUP',people:3};
+    const missingOtp=await fetch(base+'/requests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(guestInput)});
+    assert.equal(missingOtp.status,400,'Unverified public requests are rejected.');
+    const guest=await fetch(base+'/requests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(await verifiedMobilityRequest(DB,guestInput))});
+    assert.equal(guest.status,201,'Group transport requests need no account or login after phone verification.');
+    const cargoInput={...requestBase,kind:'CARGO',cargoDetails:'Guest cargo without registration'};
+    const cargoResponse=await fetch(base+'/requests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(await verifiedMobilityRequest(DB,cargoInput))});
     assert.equal(cargoResponse.status,201);const cargo=await cargoResponse.json();
     const statusResponse=await fetch(base+'/requests/'+cargo.request.id,{headers:{'X-Request-Secret':cargo.requestSecret}});
     assert.equal(statusResponse.status,200);
@@ -156,7 +162,7 @@ test('group approval, multi-person paid tickets, cargo privacy and admin assignm
     assert.equal((await fetch(base+'/requests/'+cargo.request.id+'/submit',{method:'POST',headers:{'X-Request-Secret':cargo.requestSecret}})).status,200,'Cargo photo submission uses private request access without user registration.');
   });
   await t.test('abandoned cargo photo drafts expire privately without changing submitted requests',async()=>{
-    const draft=await service.createRequest({...requestBase,kind:'CARGO',cargoDetails:'Unsubmitted draft package'});
+    const draft=await createVerifiedRequest({...requestBase,kind:'CARGO',cargoDetails:'Unsubmitted draft package'});
     const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6QmcAAAAASUVORK5CYII=','base64');
     await service.uploadPhoto(draft.request.id,draft.requestSecret,png,'image/png');
     clock+=8*86400000;assert.equal((await service.cleanDrafts()).expired,1);
