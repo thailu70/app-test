@@ -119,7 +119,7 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
             if (title == null) Image(painterResource(R.drawable.auth_passo_wordmark), "PASSO", Modifier.width(126.dp).height(42.dp), contentScale = ContentScale.Fit)
             else Text(title, color = CommuteInk, fontWeight = FontWeight.ExtraBold, fontSize = 23.sp, modifier = Modifier.weight(1f), maxLines = 2)
             if (title == null) Spacer(Modifier.weight(1f))
-            if (onDailyCommute != null) OutlinedButton(onClick = onDailyCommute, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 5.dp), border = BorderStroke(1.dp, CommuteTeal)) {
+            if (onDailyCommute != null) OutlinedButton(onClick = onDailyCommute, modifier = Modifier.testTag("taxi_daily_commute"), contentPadding = PaddingValues(horizontal = 7.dp, vertical = 5.dp), border = BorderStroke(1.dp, CommuteTeal)) {
                 Icon(Icons.Default.DirectionsBus, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Daily", fontSize = 11.sp, maxLines = 1)
             }
             if (onSignIn != null) TextButton(onClick = onSignIn, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 6.dp), modifier = Modifier.testTag("taxi_sign_in")) {
@@ -280,3 +280,4 @@ private fun taxiFareForTier(distanceKm: Double, settings: TaxiSettings, tier: Ta
 internal fun callTaxiContact(context: android.content.Context, number: String?) {
     number?.takeIf { Regex("[+0-9 ()-]{5,25}").matches(it) }?.let { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", it, null))) }
 }
+

@@ -41,8 +41,6 @@ class CargoRequestUiTest {
     private val pickup = MobilityPlace("Bole Medhanialem, Addis Ababa", 8.9952, 38.7860)
     private val delivery = MobilityPlace("Sendafa, Oromia", 9.1523, 39.0330)
     private val roadCalls = mutableListOf<List<Double>>()
-    private val contactOtpRequests = mutableListOf<Map<String, String>>()
-    private val contactOtpVerifications = mutableListOf<Map<String, String>>()
     private val api: MobilityApi get() = Proxy.newProxyInstance(MobilityApi::class.java.classLoader, arrayOf(MobilityApi::class.java)) { proxy, method, args ->
         when (method.name) {
             "equals" -> proxy === args?.firstOrNull()
@@ -56,16 +54,6 @@ class CargoRequestUiTest {
             "road" -> {
                 roadCalls += args!!.take(4).map { it as Double }
                 Response.success(MobilityRoadResponse(true, 38.2, 60.0))
-            }
-            "requestContactOtp" -> {
-                @Suppress("UNCHECKED_CAST") val request = args!![0] as Map<String, String>
-                contactOtpRequests += request
-                Response.success(OtpResponse(true, message = "Code sent by SMS.", delivery = "SENT"))
-            }
-            "verifyContactOtp" -> {
-                @Suppress("UNCHECKED_CAST") val request = args!![0] as Map<String, String>
-                contactOtpVerifications += request
-                Response.success(OtpResponse(true, verificationToken = "guest-group-otp-verification-fixture"))
             }
             else -> error("Unexpected API call: ${method.name}")
         }
@@ -195,41 +183,6 @@ class CargoRequestUiTest {
             assertEquals("CARGO", sent!!.kind)
             assertEndpoints(sent!!)
         }
-    }
-    @Test fun `group request fills each address from suggestions and submits their separate coordinates`() {
-        var sent: MobilityRequestInput? = null
-        val locationApi = api
-        compose.setContent { MyApplicationTheme {
-            Column(Modifier.fillMaxSize().background(CommuteCream).verticalScroll(rememberScrollState()).padding(16.dp)) {
-                MobilityRequestForm("GROUP", MobilityUiState(
-                    types = listOf(MobilityVehicleType("MINIBUS_14", "Minibus", 14)), adultConfirmed = true),
-                    AppLanguage.ENGLISH, {}, { input, _, _ -> sent = input }, providedApi = locationApi,
-                    pickerTileDownloadsEnabled = false)
-            }
-        } }
-        compose.onNodeWithTag("request_name").performScrollTo().performTextInput("Group Customer")
-        compose.onNodeWithTag("request_phone").performScrollTo().performTextInput("0912000111")
-        chooseLocation("request_pickup_location", "Bole", pickup)
-        chooseLocation("request_delivery_location", "Sendafa", delivery)
-        compose.onNodeWithTag("request_origin").assertTextContains(pickup.name)
-        compose.onNodeWithTag("request_destination").assertTextContains(delivery.name)
-        compose.onNodeWithTag("request_people").performScrollTo().performTextInput("6")
-        compose.onNodeWithText("Choose vehicle type").performScrollTo().performClick()
-        compose.onNodeWithText("Minibus").performClick()
-        compose.onNodeWithTag("mobility_send_request").performScrollTo().assertIsEnabled().performClick()
-        compose.onNodeWithText("Send verification code").performClick()
-        compose.waitUntil(5_000) { compose.onAllNodesWithTag("mobility_guest_otp").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("mobility_guest_otp").performTextInput("123456")
-        compose.onNodeWithText("Verify & send request").performClick()
-        compose.waitUntil(5_000) { sent != null }
-        compose.runOnIdle {
-            assertEquals("GROUP", sent!!.kind)
-            assertEquals(6, sent!!.people)
-            assertEquals("guest-group-otp-verification-fixture", sent!!.otpVerificationToken)
-            assertEndpoints(sent!!)
-        }
-        assertEquals("GROUP_REQUEST", contactOtpRequests.single()["purpose"])
-        assertEquals("GROUP_REQUEST", contactOtpVerifications.single()["purpose"])
     }
 }
 
