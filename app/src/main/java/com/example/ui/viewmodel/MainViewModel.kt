@@ -245,6 +245,8 @@ class MainViewModel(
         }
     }
 
+    private val _driverTrip = MutableStateFlow(DriverTripState())
+
     init {
         val savedSession = runCatching { repository.cachedSession() }.getOrNull()
         savedSession?.let { (user, token) ->
@@ -349,7 +351,6 @@ class MainViewModel(
         }
 
     // Driver Trip State
-    private val _driverTrip = MutableStateFlow(DriverTripState())
     val driverTrip: StateFlow<DriverTripState> = _driverTrip.asStateFlow()
 
     val routeStops: StateFlow<List<RouteStopEntity>> = _driverTrip

@@ -126,7 +126,11 @@ class TransportRepository(
             val response = apiService.login(LoginRequest(phone = cleanPhone, password = password, role = normalizedRole))
             if (response.isSuccessful && response.body()?.success == true) {
                 val body = response.body()!!
-                val token = body.token
+                val token = body.token?.takeIf(String::isNotBlank)
+                if (token == null) {
+                    lastAuthError = "Unable to sign in. Please try again."
+                    return null
+                }
                 currentCoroutineContext().ensureActive()
                 ApiClient.setAuthToken(token, environmentScope)
 
@@ -265,7 +269,8 @@ class TransportRepository(
         if (response.isSuccessful && response.body()?.success == true) {
             val body = response.body()!!
             currentCoroutineContext().ensureActive()
-            ApiClient.setAuthToken(body.token, environmentScope)
+            val token = body.token?.takeIf(String::isNotBlank)
+            ApiClient.setAuthToken(token, environmentScope)
 
             val userDto = body.user!!
             val initials = userDto.fullName.split(" ")
@@ -288,7 +293,7 @@ class TransportRepository(
                 driverServiceType = userDto.driverServiceType.orEmpty()
             )
             dao.insertUser(user)
-            sessionStore?.save(body.token, user)
+            token?.let { sessionStore?.save(it, user) }
 
             // Caches pending subscription if returned by backend
             body.subscription?.let { subDto ->
