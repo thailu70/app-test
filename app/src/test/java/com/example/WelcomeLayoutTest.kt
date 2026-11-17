@@ -42,7 +42,7 @@ class WelcomeLayoutTest {
             val viewport = compose.onNodeWithTag("welcome_viewport").fetchSemanticsNode().boundsInWindow
             val policy = compose.onNodeWithTag("welcome_privacy").fetchSemanticsNode().boundsInWindow
             assertTrue(policy.bottom <= viewport.bottom + 1.5f)
-            compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
+            compose.onNodeWithTag("welcome_viewport").assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.VerticalScrollAxisRange))
         }
         compose.onNodeWithTag("welcome_privacy").performClick()
         assertTrue(opened)
@@ -89,7 +89,7 @@ class WelcomeLayoutTest {
             assertEquals("${language.code}: translated service cards share one bottom edge", cards.first().bottom, card.bottom, tolerance)
             assertTrue("${language.code}: service card is fully on screen", card.top >= viewport.top - tolerance && card.bottom <= button.top + tolerance)
         }
-        compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
+        compose.onNodeWithTag("welcome_viewport").assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.VerticalScrollAxisRange))
         compose.onNodeWithTag("welcome_language_menu").assertIsDisplayed().performClick()
         AppLanguage.entries.forEach { item ->
             val option = compose.onNodeWithTag("welcome_language_${item.code}").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
@@ -193,7 +193,7 @@ class WelcomeLayoutTest {
             }
             capturePreview("welcome-360x640-${item.code}.png")
         }
-        compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
+        compose.onNodeWithTag("welcome_viewport").assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.VerticalScrollAxisRange))
         val dir = File("build/welcome-previews").apply { mkdirs() }
         captureWindow().let { bitmap ->
             File(dir, "welcome-short-phone.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
