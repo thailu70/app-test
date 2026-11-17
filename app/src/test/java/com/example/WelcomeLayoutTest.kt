@@ -89,6 +89,7 @@ class WelcomeLayoutTest {
             assertEquals("${language.code}: translated service cards share one bottom edge", cards.first().bottom, card.bottom, tolerance)
             assertTrue("${language.code}: service card is fully on screen", card.top >= viewport.top - tolerance && card.bottom <= button.top + tolerance)
         }
+        compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
         compose.onNodeWithTag("welcome_language_menu").assertIsDisplayed().performClick()
         AppLanguage.entries.forEach { item ->
             val option = compose.onNodeWithTag("welcome_language_${item.code}").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
@@ -96,7 +97,6 @@ class WelcomeLayoutTest {
         }
         compose.onNodeWithTag("welcome_language_${language.code}").performClick()
         compose.waitForIdle()
-        compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
     }
 
     private fun capturePreview(name: String) {
@@ -181,7 +181,7 @@ class WelcomeLayoutTest {
             }
         }
         AppLanguage.entries.forEach { item ->
-            compose.onNodeWithTag("welcome_language_${item.code}").assertIsDisplayed().performClick()
+            chooseLanguage(item)
             assertPortraitUsesSafeViewport(item)
             WelcomeService.entries.forEach { service ->
                 compose.onNodeWithTag("welcome_service_${service.name}").assertIsDisplayed().performClick()
