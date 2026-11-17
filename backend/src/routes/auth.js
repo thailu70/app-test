@@ -17,6 +17,7 @@ const normalizePhone = value => String(value || '').trim();
 function resolveAdminSecret() {
   const configured = process.env.ADMIN_REGISTRATION_SECRET;
   if (typeof configured === 'string' && configured.trim().length > 0) return configured.trim();
+  if (process.env.NODE_ENV !== 'production') return crypto.randomBytes(32).toString('hex');
   throw new Error('ADMIN_REGISTRATION_SECRET must be configured before the server starts.');
 }
 
