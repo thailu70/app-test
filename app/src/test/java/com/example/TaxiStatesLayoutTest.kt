@@ -90,8 +90,8 @@ class TaxiStatesLayoutTest {
             waitingRateEtbPerMinute = 2.5) else null, if (meter) emptyList() else listOf(ride)), true, true) }
             TaxiDriverContent("driver-fixture", vm, {}, trackingEnabled = false, mapTiles = false, mapApi = remember { roads() })
         } } }
-        compose.waitUntil(10_000) { compose.onAllNodesWithText(if (meter) "Trip in progress" else "Nearby taxi calls").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText(if (meter) "Trip in progress" else "Nearby taxi calls").assertIsDisplayed()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText(if (meter) "Trip in progress" else "Nearby requests").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText(if (meter) "Trip in progress" else "Nearby requests").assertIsDisplayed()
         if (meter) {
             compose.onNodeWithTag("taxi_meter_fare").assertIsDisplayed()
             compose.onNodeWithTag("taxi_meter_distance").assertIsDisplayed()

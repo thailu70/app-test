@@ -73,10 +73,12 @@ class PlayStorePreviewTest {
         }
         compose.onNodeWithTag("welcome_continue").assertIsDisplayed()
         compose.onNodeWithTag("welcome_privacy").assertIsDisplayed()
-        compose.onNodeWithTag("welcome_language_en").assertIsDisplayed()
-        listOf("PASSENGER", "DRIVER", "INTERCITY").forEach {
+        compose.onNodeWithTag("welcome_language_menu").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("welcome_language_en").assertIsDisplayed().performClick()
+        listOf("PASSENGER", "DRIVER").forEach {
             compose.onNodeWithTag("welcome_service_$it").assertIsDisplayed()
         }
+        compose.onNodeWithTag("welcome_service_INTERCITY").assertDoesNotExist()
         capture("01-welcome")
     }
 
