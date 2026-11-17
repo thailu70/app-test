@@ -16,6 +16,7 @@ const { initMasterDataSchema } = require('../src/services/master-data');
 const { initOnboardingSchema } = require('../src/services/onboarding');
 const { initRidesSchema, assertNoRideJob } = require('../src/services/rides');
 const { createMobilityService } = require('../src/services/mobility');
+const { verifiedMobilityRequest } = require('./mobility-otp-fixture');
 
 test('legacy commute and mobility starts respect active taxi and shared ride assignments', async t => {
   await initMasterDataSchema(); await initOnboardingSchema(); await require('../src/services/ops-schema').initOpsSchema(DB); await initRidesSchema();
@@ -34,6 +35,7 @@ test('legacy commute and mobility starts respect active taxi and shared ride ass
       .run(driver + '_' + suffix, driver + '_' + suffix, 'Fixture van', driver, type === 'DAILY_COMMUTE' ? 'cross_route' : null);
   }
   const service = createMobilityService({ sendSms: async () => ({ sent: false }) }); await service.init();
+  const createVerifiedRequest = async input => service.createRequest(await verifiedMobilityRequest(DB,input));
   // Existing PostgreSQL suites may configure a nonzero marketplace fee. Give
   // this synthetic driver credit so the test isolates job exclusivity rather
   // than depending on the global default commission being zero.
@@ -88,7 +90,7 @@ test('legacy commute and mobility starts respect active taxi and shared ride ass
   });
 
   await t.test('marketplace quotes and selections cannot assign a driver already on taxi or shared work', async () => {
-    const request = await service.createRequest(guestInput);
+    const request = await createVerifiedRequest(guestInput);
     const ride = await taxi('cross_group','cross_group_b');
     await assert.rejects(service.marketplace.quote('cross_group',request.request.id,{vehicleId:'cross_group_a',priceEtb:1000}),busy);
     assert.equal(Number((await DB.prepare('SELECT COUNT(*) AS count FROM mobility_quotes WHERE request_id=?').get(request.request.id)).count),0);
@@ -105,7 +107,7 @@ test('legacy commute and mobility starts respect active taxi and shared ride ass
   });
 
   await t.test('admin assignment fails atomically while a taxi job is active', async () => {
-    const request = await service.createRequest({...guestInput,destination:'Hawassa'});
+    const request = await createVerifiedRequest({...guestInput,destination:'Hawassa'});
     const ride = await taxi('cross_group','cross_group_a','AT_PICKUP');
     const before = Number((await DB.prepare('SELECT COUNT(*) AS count FROM mobility_sms_outbox').get()).count);
     await assert.rejects(service.assignRequest('cross_admin',request.request.id,{driverId:'cross_group',vehicleId:'cross_group_a',quoteEtb:1000}),busy);
