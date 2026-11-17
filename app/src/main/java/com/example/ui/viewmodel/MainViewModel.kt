@@ -169,6 +169,9 @@ class MainViewModel(
     private val _isAuthenticated = MutableStateFlow(false)
     val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
 
+    private val _sessionReady = MutableStateFlow(false)
+    val sessionReady: StateFlow<Boolean> = _sessionReady.asStateFlow()
+
     private val _currentRole = MutableStateFlow(AppRole.PASSENGER)
     val currentRole: StateFlow<AppRole> = _currentRole.asStateFlow()
 
@@ -184,6 +187,22 @@ class MainViewModel(
     fun clearRegistrationMessage() { _registrationMessage.value = null }
     suspend fun requestAccountRecovery(role: AppRole, phone: String) = repository.requestAccountRecovery(role.name, phone)
     suspend fun resetAccountPassword(role: AppRole, phone: String, code: String, password: String) = repository.resetAccountPassword(role.name, phone, code, password)
+
+    fun requestDailyCommuteSubscription(routeId: String, serviceClass: String, onResult: (Boolean, String?) -> Unit) {
+        if (_currentRole.value != AppRole.PASSENGER || currentPassengerId.isBlank()) {
+            onResult(false, "Sign in as a passenger to choose a daily route.")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val passengerId = currentPassengerId
+                val message = repository.requestPassengerSubscription(routeId, serviceClass)
+                refreshPassengerSubscription(passengerId)
+                onResult(true, message)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { onResult(false, failure.message ?: "Could not select this daily route. Please try again.") }
+        }
+    }
 
     private val _networkStatus = MutableStateFlow(NetworkStatus.ONLINE)
     val networkStatus: StateFlow<NetworkStatus> = _networkStatus.asStateFlow()
@@ -227,6 +246,31 @@ class MainViewModel(
     }
 
     init {
+        val savedSession = runCatching { repository.cachedSession() }.getOrNull()
+        savedSession?.let { (user, token) ->
+            val role = runCatching { AppRole.valueOf(user.role.uppercase()) }.getOrNull()
+            if (role != null) {
+                _currentUser.value = user
+                _currentRole.value = role
+                _isAuthenticated.value = true
+                if (role == AppRole.PASSENGER) startPassengerSubscriptionRefresh(user.id)
+                if (role == AppRole.DRIVER) _driverTrip.value = DriverTripState(
+                    routeId = user.appliedRouteId, routeName = user.appliedRouteName, vehiclePlate = user.assignedVehiclePlate)
+                LiveTrackingWebSocket.connect()
+                viewModelScope.launch {
+                    repository.refreshSession(token)?.let { refreshed ->
+                        if (_currentUser.value?.id == refreshed.id) _currentUser.value = refreshed
+                    }
+                    if (role == AppRole.DRIVER) runCatching { repository.fetchTrackedVehicle() }.getOrNull()?.let { vehicle ->
+                        if (_currentUser.value?.id == user.id) _driverTrip.update { it.copy(vehicleId = vehicle.id,
+                            vehiclePlate = vehicle.plateNumber, vehicleType = vehicle.vehicleType, vehicleCapacity = vehicle.capacityLimit,
+                            totalPassengers = vehicle.capacityLimit, departureTime = vehicle.morningDeparture ?: "06:30",
+                            routeId = vehicle.assignedRouteId.orEmpty(), routeName = vehicle.routeName.orEmpty()) }
+                    }
+                }
+            } else repository.clearStoredSession()
+        }
+        _sessionReady.value = true
         refreshPublicRoutes()
         viewModelScope.launch {
             try {
@@ -518,6 +562,56 @@ class MainViewModel(
         }
     }
 
+    fun requestLoginOtp(phone: String, onResult: (String?, String?) -> Unit) {
+        viewModelScope.launch {
+            try { onResult(repository.requestLoginOtp(phone), null) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { onResult(null, failure.message ?: "Unable to send a sign-in code. Please try again.") }
+        }
+    }
+
+    fun loginWithOtp(phone: String, code: String, role: AppRole) {
+        if (!_authBusy.compareAndSet(false, true)) return
+        viewModelScope.launch {
+            try {
+                _authError.value = null
+                if (!finishPrivateCacheCleanup()) return@launch
+                val token = repository.verifyLoginOtp(phone, code)
+                val user = repository.authenticateWithOtp(phone, role.name, token)
+                if (user == null && role == AppRole.DRIVER && repository.lastAuthCode in setOf("PENDING", "ONBOARDING_REQUIRED")) {
+                    driverApplications.loginWithOtp(phone, token)
+                    _authError.value = if (driverApplications.state.value.application == null) driverApplications.state.value.error else null
+                    return@launch
+                }
+                if (user == null) {
+                    _authError.value = repository.lastAuthError ?: "Unable to sign in. Check your number and try again."
+                    return@launch
+                }
+                driverApplications.close()
+                ++sessionGeneration
+                LiveTrackingWebSocket.disconnect(); LiveTrackingWebSocket.connect()
+                _currentUser.value = user
+                _currentRole.value = role
+                _isAuthenticated.value = true
+                if (role == AppRole.PASSENGER) startPassengerSubscriptionRefresh(user.id)
+                else stopPassengerSubscriptionRefresh()
+                if (role == AppRole.DRIVER) {
+                    _driverTrip.value = DriverTripState(routeId = user.appliedRouteId, routeName = user.appliedRouteName,
+                        vehiclePlate = user.assignedVehiclePlate)
+                    runCatching { repository.fetchTrackedVehicle() }.getOrNull()?.let { vehicle ->
+                        _driverTrip.update { it.copy(vehicleId = vehicle.id, vehiclePlate = vehicle.plateNumber,
+                            vehicleType = vehicle.vehicleType, vehicleCapacity = vehicle.capacityLimit,
+                            totalPassengers = vehicle.capacityLimit, departureTime = vehicle.morningDeparture ?: "06:30",
+                            routeId = vehicle.assignedRouteId.orEmpty(), routeName = vehicle.routeName.orEmpty()) }
+                    }
+                }
+                repository.logAction("LOGIN_SUCCESS", user.id, user.role, "Signed in with phone verification")
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { _authError.value = failure.message ?: "Unable to sign in. Please try again." }
+            finally { _authBusy.value = false }
+        }
+    }
+
     fun register(
         fullName: String,
         phone: String,
@@ -667,6 +761,7 @@ class MainViewModel(
         _isScannerOpen.value = false
         _scanResult.value = null
         com.example.data.api.ApiClient.setAuthToken(null)
+        repository.clearStoredSession()
         LiveTrackingWebSocket.disconnect()
         _driverTrip.value = DriverTripState()
         _currentUser.value = null

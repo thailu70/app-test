@@ -1,6 +1,7 @@
 package com.example.ui.screens.taxi
 
 import android.Manifest
+import android.location.Location
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -48,6 +49,9 @@ import kotlinx.coroutines.launch
     var notice by remember { mutableStateOf<String?>(null) }
     var locating by remember { mutableStateOf(false) }
     var requested by remember { mutableStateOf<SharedRideTrip?>(null) }
+    var driverLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var requestPool by remember { mutableStateOf("TAXI") }
+    var driverMenu by remember { mutableStateOf(false) }
     val pushFocus by com.example.core.notifications.RideNotificationNavigation.focus.collectAsState()
     LaunchedEffect(pushFocus, model) {
         pushFocus?.takeIf { it.scope == "DRIVER" }?.let {
@@ -70,7 +74,7 @@ import kotlinx.coroutines.launch
     fun withFix(action: (Map<String, Any>) -> Unit) {
         if (locating || !allowed()) return
         locating = true; scope.launch {
-            try { val location = freshMobilityLocation(context); check(usableTaxiFix(location)) { "Use a fresh, precise, non-simulated GPS location." }; action(location.taxiBody()) }
+            try { val location = freshMobilityLocation(context); check(usableTaxiFix(location)) { "Use a fresh, precise, non-simulated GPS location." }; driverLocation = location.latitude to location.longitude; action(location.taxiBody()) }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { notice = e.message ?: "A fresh GPS location is required." }
             finally { locating = false }
@@ -91,9 +95,17 @@ import kotlinx.coroutines.launch
         if (target != null && target.driverId.isNotBlank() && target.vehicleId.isNotBlank()) TaxiTracking.start(context, target)
         else if (TaxiTracking.session?.target?.driverId == userId) TaxiTracking.stop()
     }
-    BackHandler { when { state.selectedTrip != null -> model.closeTrip(); page != "calls" -> { page = "calls"; requested = null }; else -> onExit() } }
+    if (driverMenu) AlertDialog(onDismissRequest = { driverMenu = false }, title = { Text("Driver menu") }, text = {
+        Column {
+            TextButton(onClick = { driverMenu = false; page = "calls"; model.closeTrip() }) { Text("Ride calls") }
+            TextButton(onClick = { driverMenu = false; page = "trips"; model.closeTrip() }) { Text("My trips") }
+            TextButton(onClick = { driverMenu = false; page = "credit"; model.closeTrip() }) { Text("Driver credit") }
+            TextButton(onClick = { driverMenu = false; onExit() }) { Text("Daily commute portal") }
+        }
+    }, confirmButton = { TextButton(onClick = { driverMenu = false }) { Text("Close") } })
+    BackHandler { when { driverMenu -> driverMenu = false; state.selectedTrip != null -> model.closeTrip(); page != "calls" -> { page = "calls"; requested = null }; else -> onExit() } }
     Column(Modifier.fillMaxSize().background(CommuteCream)) {
-        TaxiHeader(onBack = onExit, onDailyCommute = onExit)
+        TaxiHeader(onMenu = { driverMenu = true }, onDailyCommute = onExit)
         TaxiNotice(notice ?: state.message) { notice = null; model.clearMessage() }
         if (state.busy || locating) LinearProgressIndicator(Modifier.fillMaxWidth(), color = CommuteTeal)
         if (target != null && trackingEnabled) Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -135,7 +147,7 @@ import kotlinx.coroutines.launch
                         com.example.core.notifications.MobilityNotificationOptIn(driver = true, taxi = true)
                         if (page == "credit") {
                             Text("Driver credit", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
-                            Text("Contact info@passo.live to top up. Only verified payments are credited. Passo reserves the disclosed service fee and settles it once the journey is completed.", color = CommuteInk, fontSize = 14.sp)
+                            Text("Contact info@passo.live to top up. Only verified payments are credited. Your available balance updates as requests and trips are completed.", color = CommuteInk, fontSize = 14.sp)
                         } else if (page == "trips") {
                             dashboard.sharedTrips.forEach { trip -> SharedTripRow(trip) { model.chooseTrip(trip.id) } }
                             if (dashboard.sharedTrips.isEmpty()) Text("Shared trips you publish or accept appear here.", color = Color(0xFF627385))
@@ -144,33 +156,56 @@ import kotlinx.coroutines.launch
                                 OutlinedButton(onClick = { page = "street"; model.clearEstimate() }, enabled = !state.busy && dashboard.eligible && state.settings.enabled, modifier = Modifier.weight(1f)) { Icon(Icons.Default.PersonPinCircle, null, Modifier.size(18.dp)); Text("Street pickup", Modifier.padding(start = 5.dp), fontSize = 12.sp) }
                                 OutlinedButton(onClick = { page = "offer"; requested = null }, enabled = !state.busy && dashboard.eligible && state.settings.sharedEnabled, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Groups, null, Modifier.size(18.dp)); Text("Offer group ride", Modifier.padding(start = 5.dp), fontSize = 12.sp) }
                             }
-                            Text("Nearby taxi calls", color = CommuteInk, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                            if (dashboard.calls.isEmpty()) Text(if (dashboard.online) "No matching nearby calls right now. This list updates automatically." else "Go online with a fresh location to view nearby calls.", color = Color(0xFF627385), fontSize = 14.sp)
-                            dashboard.calls.forEach { call -> Surface(color = Color.White, shape = RoundedCornerShape(21.dp), modifier = Modifier.fillMaxWidth()) {
-                                Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                                    Text("${call.origin} → ${call.destination}", color = CommuteInk, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                                    Text("${call.tier.replace('_', ' ')} · ${"%.1f".format(call.distanceKm)} km · about ${call.durationMinutes.toInt()} min", color = Color(0xFF627385), fontSize = 13.sp)
-                                    Text(taxiMoney(call.estimatedFareEtb), color = CommuteTeal, fontSize = 25.sp, fontWeight = FontWeight.ExtraBold)
-                                    Text("Passo fee: ${taxiMoney(call.commissionEtb)} · reserved when accepted", fontSize = 12.sp, color = Color(0xFF627385))
-                                    TaxiPrimary("Accept call", !state.busy && dashboard.online && vehicleId.isNotBlank(), "taxi_accept_${call.id}") { if (allowed()) model.accept(call.id, vehicleId) }
+                            val requestMarkers = dashboard.calls.map { TaxiNearbyCar(it.originLatitude, it.originLongitude, it.tier) } +
+                                dashboard.sharedRequests.map { TaxiNearbyCar(it.originLatitude, it.originLongitude, "GROUP") }
+                            TaxiMap(driverLocation, null, height = 300, pickupLabel = "Your location", destinationLabel = "",
+                                tileDownloadsEnabled = mapTiles, providedApi = mapApi, nearbyCars = requestMarkers)
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("TAXI" to "Taxi calls (${dashboard.calls.size})", "GROUP" to "Group calls (${dashboard.sharedRequests.size})").forEach { (key, label) ->
+                                    val active = requestPool == key
+                                    FilterChip(selected = active, onClick = { requestPool = key }, label = { Text(label, maxLines = 1) },
+                                        leadingIcon = { Icon(if (key == "TAXI") Icons.Default.LocalTaxi else Icons.Default.Groups, null, Modifier.size(17.dp)) },
+                                        modifier = Modifier.weight(1f).testTag("taxi_driver_pool_$key"))
                                 }
-                            } }
-                            Text("Requested group routes", color = CommuteInk, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                            if (dashboard.sharedRequests.isEmpty()) Text("Passenger group requests will appear here.", color = Color(0xFF627385), fontSize = 14.sp)
-                            dashboard.sharedRequests.forEach { request -> SharedTripRow(request) { requested = request; page = "offer" } }
+                            }
+                            if (requestPool == "TAXI") {
+                                Text("Nearby requests", color = CommuteInk, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                                if (dashboard.calls.isEmpty()) Text(if (dashboard.online) "No matching nearby calls right now. This list updates automatically." else "Go online with a fresh location to view nearby calls.", color = Color(0xFF627385), fontSize = 14.sp)
+                                dashboard.calls.forEach { call -> Surface(color = Color.White.copy(alpha = .93f), shape = RoundedCornerShape(21.dp), modifier = Modifier.fillMaxWidth()) {
+                                    Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("${call.origin} → ${call.destination}", color = CommuteInk, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                                        Text("Approx. pickup ${pickupDistance(driverLocation, call.originLatitude to call.originLongitude)} km away · ${call.tier.replace('_', ' ')}", color = Color(0xFF627385), fontSize = 13.sp)
+                                        Text("Estimated fare", color = Color(0xFF627385), fontSize = 12.sp)
+                                        Text(taxiMoney(call.estimatedFareEtb), color = CommuteTeal, fontSize = 25.sp, fontWeight = FontWeight.ExtraBold)
+                                        TaxiPrimary("Accept call", !state.busy && dashboard.online && vehicleId.isNotBlank(), "taxi_accept_${call.id}") { if (allowed()) model.accept(call.id, vehicleId) }
+                                    }
+                                } }
+                            } else {
+                                Text("Nearby group calls", color = CommuteInk, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                                if (dashboard.sharedRequests.isEmpty()) Text(if (dashboard.online) "No nearby group calls right now." else "Go online to receive nearby group calls.", color = Color(0xFF627385), fontSize = 14.sp)
+                                dashboard.sharedRequests.forEach { request -> Surface(color = Color.White.copy(alpha = .93f), shape = RoundedCornerShape(21.dp), modifier = Modifier.fillMaxWidth()) {
+                                    Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("Group call", color = CommuteTeal, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Text("${request.origin} → ${request.destination}", color = CommuteInk, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                                        Text("${request.seats.coerceAtLeast(1)} passengers · approx. pickup ${pickupDistance(driverLocation, request.originLatitude to request.originLongitude)} km away", color = Color(0xFF627385), fontSize = 13.sp)
+                                        Text("Quote your fare per passenger, then send your offer.", color = Color(0xFF627385), fontSize = 12.sp)
+                                        TaxiPrimary("Quote group call", !state.busy && dashboard.online && vehicleId.isNotBlank(), "taxi_group_quote_${request.id}") { requested = request; page = "offer" }
+                                    }
+                                } }
+                            }
                         }
                     } else { CircularProgressIndicator(color = CommuteTeal); TextButton(onClick = { model.refresh() }) { Text("Refresh driver access") } }
                 }
             }
         }
-        NavigationBar(containerColor = Color.White) {
-            listOf("Calls" to Icons.Default.DirectionsCar, "Trips" to Icons.Default.ReceiptLong, "Credit" to Icons.Default.AccountBalanceWallet, "More" to Icons.Default.MoreHoriz).forEachIndexed { index, pair ->
-                NavigationBarItem(selected = page == listOf("calls", "trips", "credit", "more")[index], onClick = {
-                    if (index == 3) onExit() else { model.closeTrip(); page = listOf("calls", "trips", "credit")[index] }
-                }, icon = { Icon(pair.second, pair.first) }, label = { Text(pair.first, fontSize = 11.sp) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = CommuteTeal, indicatorColor = CommuteMint))
-            }
-        }
     }
+}
+
+private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>): String {
+    if (from == null) return "—"
+    val meters = FloatArray(1)
+    Location.distanceBetween(from.first, from.second, to.first, to.second, meters)
+    return String.format(java.util.Locale.US, "%.1f", meters[0] / 1000.0)
 }
 
 @Composable internal fun DriverCurrentRide(model: TaxiViewModel, state: TaxiUiState, withFix: ((Map<String, Any>) -> Unit) -> Unit,
@@ -179,7 +214,7 @@ import kotlinx.coroutines.launch
     var pin by remember(ride.id) { mutableStateOf("") }
     var confirmComplete by remember { mutableStateOf(false) }
     if (confirmComplete) AlertDialog(onDismissRequest = { confirmComplete = false }, title = { Text("Complete this ride?") },
-        text = { Text("Complete only after arriving at the destination. The server confirms your GPS location, final fare and Passo fee once.") },
+        text = { Text("Complete only after arriving at the destination. Your GPS location and final fare are confirmed once.") },
         confirmButton = { TextButton(onClick = { confirmComplete = false; withFix(model::complete) }) { Text("Complete ride") } }, dismissButton = { TextButton(onClick = { confirmComplete = false }) { Text("Keep driving") } })
     if (ride.status == "IN_PROGRESS") {
         DriverActiveMeter(ride, state.busy, model, mapTiles, mapApi, withFix, onComplete = { confirmComplete = true })
@@ -198,7 +233,6 @@ import kotlinx.coroutines.launch
             Text("Distance ${"%.2f".format(ride.meterDistanceKm)} km · Billable waiting ${taxiDuration(ride.billableWaitingSeconds)}", color = CommuteInk, fontSize = 14.sp)
             Text("Trip duration ${taxiDuration(ride.tripDurationSeconds)} · normal traffic time is not charged", color = Color(0xFF627385), fontSize = 12.sp)
         }
-        Text("Passo fee ${taxiMoney(ride.commissionEtb)} · ${if (ride.status == "COMPLETED") "settled once" else "reserved"}", color = CommuteTeal, fontSize = 13.sp)
         Text("Passenger pays you directly. The app does not collect the fare.", color = Color(0xFF627385), fontSize = 12.sp)
         when (ride.status) {
             "ACCEPTED" -> TaxiPrimary("Arrived at pickup", !state.busy, "taxi_arrive") { withFix(model::arrive) }
@@ -260,7 +294,6 @@ import kotlinx.coroutines.launch
                         if (!ride.passengerPhone.isNullOrBlank()) IconButton(onClick = { callTaxiContact(context, ride.passengerPhone) }, modifier = Modifier.size(44.dp)) { Icon(Icons.Default.Phone, "Call passenger", tint = CommuteTeal, modifier = Modifier.size(22.dp)) }
                     }
                     Surface(color = CommuteMint, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
-                        Text("Passo fee: ${taxiMoney(ride.commissionEtb)} reserved", Modifier.padding(horizontal = 8.dp, vertical = 5.dp), color = CommuteTeal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                     Text("Passenger pays you directly", color = Color(0xFF627385), fontSize = 11.sp)
                 }

@@ -38,7 +38,8 @@ data class OtpResponse(
     val success: Boolean,
     val message: String? = null,
     val error: String? = null,
-    val verificationToken: String? = null
+    val verificationToken: String? = null,
+    val delivery: String? = null
 )
 
 @JsonClass(generateAdapter = true)

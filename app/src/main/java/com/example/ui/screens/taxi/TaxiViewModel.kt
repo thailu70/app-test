@@ -13,6 +13,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
+import kotlin.math.max
+import kotlin.math.roundToInt
 import retrofit2.Response
 
 internal data class TaxiUiState(val busy: Boolean = false, val message: String? = null,
@@ -60,6 +62,18 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
     }
     fun clearMessage() { mutable.update { it.copy(message = null) } }
     fun clearEstimate() { estimateEpoch++; mutable.update { it.copy(estimate = null) } }
+    /** Reprices the already-routed journey locally using the server catalog multipliers.
+     * The server recomputes and validates the fare again when the passenger requests a ride. */
+    fun selectTier(tierId: String) {
+        val current = mutable.value
+        val tier = current.tiers.firstOrNull { it.id == tierId } ?: return
+        val quote = current.estimate
+        val fare = quote?.let {
+            val raw = (current.settings.baseFareEtb + it.distanceKm * current.settings.perKmEtb) * tier.multiplier
+            max(current.settings.minimumFareEtb, raw).let { value -> (value * 100.0).roundToInt() / 100.0 }
+        }
+        mutable.update { state -> state.copy(estimate = state.estimate?.copy(tier = tierId, estimatedFareEtb = fare ?: state.estimate.estimatedFareEtb)) }
+    }
     fun nearby(point: Pair<Double, Double>?, tier: String) {
         val next = point?.let { Triple(it.first, it.second, tier) }
         if (nearbyQuery == next) return

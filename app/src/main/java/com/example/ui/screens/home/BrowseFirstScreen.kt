@@ -77,6 +77,7 @@ fun BrowseFirstScreen(
     onIntercityTravel: () -> Unit = {},
     startWithRoutes: Boolean = false,
     onWelcome: () -> Unit = {},
+    showProviderEntry: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val routes by viewModel.activeRoutes.collectAsState()
@@ -410,14 +411,11 @@ fun BrowseFirstScreen(
                 }
             }
         }
-        item {
+        if (showProviderEntry) item {
             HorizontalDivider()
             Text("Are you a transport provider?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = HomeInk)
-            Text("Drivers, transport companies and associations use separate, permission-controlled portals.", style = MaterialTheme.typography.bodySmall, color = Slate600)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(onClick = onDriverAccess, modifier = Modifier.weight(1f)) { Text("Driver access") }
-                OutlinedButton(onClick = onCompanyAccess, modifier = Modifier.weight(1f)) { Text("Company portal") }
-            }
+            Text("Driver access is available in a separate permission-controlled portal.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+            OutlinedButton(onClick = onDriverAccess, modifier = Modifier.fillMaxWidth()) { Text("Driver access") }
         }
         item {
             Text("PASSO • Go Further, Together.", style = MaterialTheme.typography.labelSmall, color = Slate600, modifier = Modifier.fillMaxWidth())

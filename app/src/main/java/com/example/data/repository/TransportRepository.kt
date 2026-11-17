@@ -2,6 +2,7 @@ package com.example.data.repository
 
 import com.example.core.qr.QrValidationResult
 import com.example.core.payment.TelebirrPaymentResult
+import com.example.core.session.AndroidSessionStore
 import com.example.data.api.*
 import com.example.data.dao.TransportDao
 import com.example.data.entity.*
@@ -23,7 +24,8 @@ import java.util.UUID
  */
 class TransportRepository(
     private val dao: TransportDao,
-    private val apiService: RoutePassApiService = ApiClient.getService()
+    private val apiService: RoutePassApiService = ApiClient.getService(),
+    private val sessionStore: AndroidSessionStore? = null
 ) {
     private val environmentScope = ApiClient.sessionScope()
 
@@ -33,6 +35,41 @@ class TransportRepository(
     suspend fun getUserById(userId: String): UserEntity? = dao.getUserById(userId)
     suspend fun insertUser(user: UserEntity) = dao.insertUser(user)
     suspend fun clearPrivateCache() = dao.clearPrivateCache()
+
+    /** Reads the device-encrypted session immediately so returning users do not see the sign-in page. */
+    fun cachedSession(): Pair<UserEntity, String>? {
+        val saved = sessionStore?.load() ?: return null
+        ApiClient.setAuthToken(saved.token, environmentScope)
+        return saved.user to saved.token
+    }
+
+    /** Refreshes the cached identity; transient connection failures leave the encrypted session intact. */
+    suspend fun refreshSession(token: String): UserEntity? {
+        return try {
+            val response = apiService.getCurrentUser()
+            val dto = response.body()?.user
+            if (response.isSuccessful && response.body()?.success == true && dto != null) {
+                val user = userEntity(dto)
+                dao.insertUser(user)
+                sessionStore?.save(token, user)
+                user
+            } else if (response.code() in setOf(401, 403, 404)) {
+                sessionStore?.clear()
+                ApiClient.setAuthToken(null, environmentScope)
+                null
+            } else null
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { null }
+    }
+
+    fun clearStoredSession() { sessionStore?.clear() }
+
+    private fun userEntity(user: UserDto): UserEntity {
+        val initials = user.fullName.split(" ").mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString("")
+        return UserEntity(user.id, user.role, user.fullName, user.phone, user.email ?: "${user.phone}@transport.et",
+            user.status ?: "ACTIVE", user.licenseNumber ?: "", initials.ifBlank { "ET" }, user.companyName ?: "",
+            user.assignedVehiclePlate ?: "", user.appliedRouteId ?: "", user.appliedRouteName ?: "", user.driverServiceType.orEmpty())
+    }
 
     /** Legacy QR/payment helpers must use this repository's original environment. */
     suspend fun scanRemoteBoarding(input: ScanCheckinRequest): retrofit2.Response<ScanCheckinResponse> {
@@ -63,6 +100,16 @@ class TransportRepository(
     }
     suspend fun requestAccountRecovery(role: String, phone: String) = checkedRecovery(apiService.requestAccountRecovery(AccountRecoveryRequest(role, phone.trim())))
     suspend fun resetAccountPassword(role: String, phone: String, code: String, password: String) = checkedRecovery(apiService.resetAccountPassword(AccountRecoveryReset(role, phone.trim(), code.trim(), password)))
+
+    suspend fun requestPassengerSubscription(routeId: String, serviceClass: String): String {
+        val response = apiService.subscribeRoute(SubscribeRequest(routeId = routeId, serviceClass = commuterServiceClass(serviceClass)))
+        val body = response.body()
+        if (!response.isSuccessful || body?.success != true) {
+            val serverError = runCatching { org.json.JSONObject(response.errorBody()?.string().orEmpty()).optString("error") }.getOrNull()
+            throw IllegalStateException(serverError?.takeIf(String::isNotBlank) ?: body?.message ?: "Could not select this daily route. Please try again.")
+        }
+        return body.message ?: "Route selected. Choose payment to activate your pass."
+    }
 
     /**
      * Authenticate via VPS Backend REST API.
@@ -104,6 +151,7 @@ class TransportRepository(
                     driverServiceType = userDto.driverServiceType.orEmpty()
                 )
                 dao.insertUser(user)
+                sessionStore?.save(token, user)
                 logAction("ONLINE_LOGIN", user.id, user.role, "Logged into VPS Backend (${user.phone})")
                 user
             } else {
@@ -119,9 +167,48 @@ class TransportRepository(
             }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (e: Exception) {
-            lastAuthError = "Unable to reach VPS backend at ${ApiClient.getBaseUrl()}. Error: ${e.message}"
+            lastAuthError = "Unable to connect. Please try again."
             null
         }
+    }
+
+    suspend fun requestLoginOtp(phone: String): String {
+        val response = apiService.requestOtp(mapOf("phone" to phone.trim(), "purpose" to "LOGIN"))
+        val body = response.body()
+        if (!response.isSuccessful || body?.success != true || body.delivery != "SENT")
+            throw IllegalStateException(body?.error ?: "Unable to send a sign-in code. Please try again later.")
+        return body.message ?: "A sign-in code was sent by SMS."
+    }
+
+    suspend fun verifyLoginOtp(phone: String, code: String): String {
+        val response = apiService.verifyOtp(mapOf("phone" to phone.trim(), "purpose" to "LOGIN", "code" to code.trim()))
+        val body = response.body()
+        if (!response.isSuccessful || body?.success != true) throw IllegalStateException(body?.error ?: "That code is not valid. Request a new code.")
+        return body.verificationToken ?: throw IllegalStateException("That code could not be confirmed. Request a new one.")
+    }
+
+    suspend fun authenticateWithOtp(phone: String, role: String, verificationToken: String): UserEntity? {
+        lastAuthError = null; lastAuthCode = null
+        return try {
+            val response = apiService.loginWithOtp(mapOf("phone" to phone.trim(), "role" to role.trim().uppercase(), "verificationToken" to verificationToken))
+            if (response.isSuccessful && response.body()?.success == true) {
+                val body = response.body()!!
+                val token = body.token ?: error("Sign-in could not be completed. Please try again.")
+                val user = userEntity(body.user ?: error("Sign-in could not be completed. Please try again."))
+                currentCoroutineContext().ensureActive()
+                ApiClient.setAuthToken(token, environmentScope)
+                dao.insertUser(user)
+                sessionStore?.save(token, user)
+                user
+            } else {
+                val text = response.errorBody()?.string().orEmpty()
+                val parsed = runCatching { org.json.JSONObject(text) }.getOrNull()
+                lastAuthCode = parsed?.optString("code")?.takeIf(String::isNotBlank)
+                lastAuthError = parsed?.optString("error")?.takeIf(String::isNotBlank) ?: "Unable to sign in. Check your number and try again."
+                null
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { lastAuthError = "Unable to connect. Please try again."; null }
     }
 
     /**
@@ -172,7 +259,7 @@ class TransportRepository(
         val response = try {
             apiService.register(request)
         } catch (e: Exception) {
-            throw IllegalStateException("Cannot connect to VPS backend at ${ApiClient.getBaseUrl()}: ${e.message}")
+            throw IllegalStateException("Unable to connect. Please try again.")
         }
 
         if (response.isSuccessful && response.body()?.success == true) {
@@ -201,6 +288,7 @@ class TransportRepository(
                 driverServiceType = userDto.driverServiceType.orEmpty()
             )
             dao.insertUser(user)
+            sessionStore?.save(body.token, user)
 
             // Caches pending subscription if returned by backend
             body.subscription?.let { subDto ->
@@ -235,7 +323,7 @@ class TransportRepository(
                     org.json.JSONObject(errorBody).optString("error")
                 } else null
             } catch (e: Exception) { null }
-            val errorMsg = parsedMsg ?: response.message().ifBlank { "Registration rejected by VPS server." }
+            val errorMsg = parsedMsg ?: response.message().ifBlank { "Registration could not be completed. Please try again." }
             throw IllegalStateException(errorMsg)
         }
     }

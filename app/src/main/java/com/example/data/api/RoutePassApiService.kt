@@ -11,6 +11,9 @@ interface RoutePassApiService {
     @POST("api/auth/login")
     suspend fun login(@Body request: LoginRequest): Response<AuthResponse>
 
+    @POST("api/auth/login-otp")
+    suspend fun loginWithOtp(@Body request: Map<String, String>): Response<AuthResponse>
+
     @POST("api/auth/register")
     suspend fun register(@Body request: RegisterRequest): Response<AuthResponse>
 
@@ -18,6 +21,8 @@ interface RoutePassApiService {
     suspend fun registerDriverApplication(@Body request: DriverApplicationInput): Response<DriverApplicationResponse>
     @POST("api/onboarding/login")
     suspend fun loginDriverApplication(@Body request: LoginRequest): Response<DriverApplicationResponse>
+    @POST("api/onboarding/login-otp")
+    suspend fun loginDriverApplicationWithOtp(@Body request: Map<String, String>): Response<DriverApplicationResponse>
     @GET("api/onboarding/me")
     suspend fun driverApplication(@Header("Authorization") authorization: String): Response<DriverApplicationResponse>
     @PATCH("api/onboarding/profile")

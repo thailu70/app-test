@@ -494,6 +494,22 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
     Object.defineProperty(result, 'authenticatedSessionVersion', { value: Number(account.credential_session_version) });
     return result;
   }
+  async function loginWithOtp(input) {
+    const phone = normalizePhone(input.phone), proof = typeof input.verificationToken === 'string' ? input.verificationToken : '';
+    if (!phone || !proof) fail(401, 'Enter your phone number and sign-in code.');
+    const row = await db.prepare("SELECT account_id FROM onboarding_accounts WHERE role='DRIVER' AND normalized_phone=?").get(phone);
+    const account = row ? await loadCredentialSnapshot(row.account_id, 'DRIVER', db) : null;
+    if (!account || !mayContinue(account)) fail(401, 'Driver application not found. Check the phone number or register first.');
+    const otpPhone = String(input.phone).trim();
+    const digest = crypto.createHash('sha256').update(proof).digest('hex');
+    const otp = await db.prepare("SELECT id FROM auth_otps WHERE phone=? AND purpose='LOGIN' AND verification_token_hash=? AND verified_at IS NOT NULL AND expires_at>CURRENT_TIMESTAMP ORDER BY created_at DESC LIMIT 1").get(otpPhone, digest);
+    if (!otp) fail(401, 'That sign-in code expired. Request a new one.');
+    const consumed = await db.prepare("UPDATE auth_otps SET verification_token_hash=NULL WHERE id=? AND verification_token_hash=? AND verified_at IS NOT NULL").run(otp.id, digest);
+    if (consumed.changes !== 1) fail(401, 'That sign-in code was already used. Request a new one.');
+    const result = await snapshot(account.id, 'DRIVER');
+    Object.defineProperty(result, 'authenticatedSessionVersion', { value: Number(account.credential_session_version) });
+    return result;
+  }
   async function requestOtp(id, role) {
     const challenge = crypto.randomUUID(), code = String(crypto.randomInt(100000, 1000000));
     const account = await transact(async tx => {
@@ -691,7 +707,7 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
     if (db === DB) void require('./application-notifications').flushApplicationNotifications().catch(() => {});
     return snapshot(id, role, { review: true });
   }
-  return { register, login, snapshot, requestOtp, verifyOtp, updateProfile, upload, readDocument, submit, mayReview, applications, review };
+  return { register, login, loginWithOtp, snapshot, requestOtp, verifyOtp, updateProfile, upload, readDocument, submit, mayReview, applications, review };
 }
 module.exports = { createOnboardingService, initOnboardingSchema, getOnboardingReadiness, isOperationallyEligible,
   markOnboardingReviewed, requestOnboardingCorrections, setDriverSuspension, enrollPendingDriver,

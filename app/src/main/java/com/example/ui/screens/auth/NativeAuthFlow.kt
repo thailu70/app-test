@@ -21,6 +21,7 @@ import com.example.core.localization.AppLanguage
 import com.example.data.api.*
 import com.example.data.entity.commuterServiceClass
 import com.example.ui.screens.passenger.*
+import com.example.ui.screens.taxi.TaxiPendingNavigation
 import com.example.ui.viewmodel.AppRole
 import com.example.ui.viewmodel.MainViewModel
 import kotlinx.coroutines.CancellationException
@@ -85,6 +86,9 @@ internal fun NativeAuthFlow(
     var step by remember(role) { mutableIntStateOf(0) }
     val busy = authBusy || (driver && applicationState.busy)
     var waitingForAuth by remember { mutableStateOf(false) }
+    var loginOtpSent by remember(role) { mutableStateOf(false) }
+    var loginOtpCode by remember(role) { mutableStateOf("") }
+    var otpSending by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var help by remember { mutableStateOf(false) }
     var companies by remember { mutableStateOf<List<TransportCompanyDto>>(emptyList()) }
@@ -92,9 +96,18 @@ internal fun NativeAuthFlow(
     var vehicleTypes by remember { mutableStateOf<List<VehicleTypeOption>>(emptyList()) }
     var vehicleTypesLoading by remember { mutableStateOf(false) }
     var vehicleTypesError by remember { mutableStateOf<String?>(null) }
+    val taxiPendingLogin = remember(taxiPassenger) { if (taxiPassenger) TaxiPendingNavigation.peek()?.takeIf { it.loginOtpSent } else null }
+    LaunchedEffect(taxiPendingLogin) {
+        taxiPendingLogin?.let { pending ->
+            draft.phone = pending.phone.orEmpty()
+            loginOtpSent = true
+            loginOtpCode = ""
+        }
+    }
     fun t(en: String, am: String, om: String) = authText(language, en, am, om)
     fun switchMode(value: Boolean) {
         register = value; step = 0; message = null; waitingForAuth = false
+        loginOtpSent = false; loginOtpCode = ""; otpSending = false
         draft.phone = ""; draft.password = ""; draft.confirmation = ""; draft.adultConfirmed = false
         if (value) draft.name = ""
         model.clearRegistrationMessage()
@@ -239,13 +252,17 @@ internal fun NativeAuthFlow(
                             Modifier.fillMaxWidth().testTag("auth_full_name_input"), enabled = !busy, language = language)
                         AuthField(draft.phone, { draft.phone = it; message = null }, t("Mobile phone number", "የሞባይል ስልክ ቁጥር", "Lakkoofsa bilbilaa"),
                             Modifier.fillMaxWidth().testTag("auth_phone_input"), phone = true, enabled = !busy, language = language)
-                        AuthField(draft.password, { draft.password = it; message = null }, t("Password", "የይለፍ ቃል", "Jecha iccitii"),
-                            Modifier.fillMaxWidth().testTag("auth_password_input"), password = true, enabled = !busy,
-                            helper = if (register) t("Use at least 10 characters.", "ቢያንስ 10 ፊደላት ይጠቀሙ።", "Yoo xiqqaate qubee 10 fayyadami.") else null, language = language)
-                        if (register) AuthField(draft.confirmation, { draft.confirmation = it; message = null }, t("Confirm password", "የይለፍ ቃል ያረጋግጡ", "Jecha iccitii mirkaneessi"),
-                            Modifier.fillMaxWidth().testTag("auth_confirm_password_input"), password = true, enabled = !busy, language = language)
-                        else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton(onClick = { help = true }, modifier = Modifier.testTag("auth_password_help")) { Text(t("Need help signing in?", "ለመግባት እርዳታ ይፈልጋሉ?", "Seenuuf gargaarsa barbaaddaa?"), color = CommuteTeal, fontSize = 12.sp) }
+                        if (register) {
+                            AuthField(draft.password, { draft.password = it; message = null }, t("Create password", "የይለፍ ቃል", "Jecha iccitii"),
+                                Modifier.fillMaxWidth().testTag("auth_password_input"), password = true, enabled = !busy,
+                                helper = t("Use at least 10 characters.", "ቢያንስ 10 ፊደላት ይጠቀሙ።", "Yoo xiqqaate qubee 10 fayyadami."), language = language)
+                            AuthField(draft.confirmation, { draft.confirmation = it; message = null }, t("Confirm password", "የይለፍ ቃል ያረጋግጡ", "Jecha iccitii mirkaneessi"),
+                                Modifier.fillMaxWidth().testTag("auth_confirm_password_input"), password = true, enabled = !busy, language = language)
+                        } else if (loginOtpSent) {
+                            AuthField(loginOtpCode, { loginOtpCode = it.filter(Char::isDigit).take(6); message = null }, t("SMS sign-in code", "የኤስኤምኤስ መግቢያ ኮድ", "Koodii seensa SMS"),
+                                Modifier.fillMaxWidth().testTag("auth_login_otp_input"), phone = true, enabled = !busy && !otpSending, language = language)
+                            TextButton(onClick = { loginOtpSent = false; loginOtpCode = ""; message = null }, enabled = !busy && !otpSending,
+                                modifier = Modifier.align(Alignment.End).testTag("auth_change_phone")) { Text(t("Change number", "ቁጥሩን ቀይር", "Lakkoofsa jijjiiri"), color = CommuteTeal) }
                         }
                     }
                     if (register && step == 1) {
@@ -256,12 +273,20 @@ internal fun NativeAuthFlow(
                     if (driver && waitingForAuth) applicationState.error?.let { Text(it, color = androidx.compose.ui.graphics.Color(0xFFAC2F2F), fontSize = 12.sp, modifier = Modifier.testTag("auth_application_error")) }
                     registrationMessage?.let { Text(it, color = CommuteTeal, fontSize = 13.sp, modifier = Modifier.testTag("auth_registration_message")) }
                     if (!register || step == 0) AuthPrimaryButton(
-                        if (register) t("Continue", "ቀጥል", "Itti fufi") else t("Sign in", "ግባ", "Seeni"),
+                        if (register) t("Continue", "ቀጥል", "Itti fufi") else if (loginOtpSent) t("Verify & sign in", "አረጋግጥ እና ግባ", "Mirkaneessi fi seeni") else t("Send sign-in code", "የመግቢያ ኮድ ላክ", "Koodii seensaa ergi"),
                         onClick = {
                             if (register) continueRegistration()
-                            else if (draft.phone.isBlank() || draft.password.isBlank()) message = t("Enter your phone number and password.", "ስልክ ቁጥርዎን እና የይለፍ ቃልዎን ያስገቡ።", "Lakkoofsa bilbilaa fi jecha iccitii galchi.")
-                            else { waitingForAuth = true; message = null; model.clearRegistrationMessage(); model.login(draft.phone.trim(), draft.password, role) }
-                        }, modifier = Modifier.testTag("auth_submit_button"), enabled = !busy, busy = busy)
+                            else if (canonicalAccountPhone(draft.phone) == null) message = t("Enter a valid mobile number.", "ትክክለኛ የሞባይል ቁጥር ያስገቡ።", "Lakkoofsa bilbilaa sirrii galchi.")
+                            else if (!loginOtpSent) {
+                                otpSending = true; message = null; waitingForAuth = false
+                                model.requestLoginOtp(draft.phone.trim()) { sent, error ->
+                                    otpSending = false
+                                    if (sent != null) { loginOtpSent = true; message = sent }
+                                    else message = error ?: t("Unable to send a sign-in code. Please try again.", "የመግቢያ ኮድ መላክ አልተቻለም። እንደገና ይሞክሩ።", "Koodii seensaa erguun hin danda'amne. Irra deebi'i.")
+                                }
+                            } else if (!loginOtpCode.matches(Regex("\\d{6}"))) message = t("Enter the six-digit code.", "ስድስት አሃዝ ያለውን ኮድ ያስገቡ።", "Koodii lakkoofsa ja'a galchi.")
+                            else { waitingForAuth = true; message = null; model.loginWithOtp(draft.phone.trim(), loginOtpCode, role) }
+                        }, modifier = Modifier.testTag("auth_submit_button"), enabled = !busy && !otpSending, busy = busy || otpSending)
                     if (register && step == 1) AuthPrimaryButton(
                         if (driver) t("Continue to documents", "ወደ ሰነዶች ቀጥል", "Gara sanadootaatti itti fufi") else t("Create account", "መለያ ፍጠር", "Herrega uumi"),
                         ::submit, Modifier.testTag(if (driver) "auth_driver_submit" else "auth_passenger_submit"), enabled = !busy && draft.adultConfirmed, busy = busy)

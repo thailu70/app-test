@@ -3,6 +3,7 @@ package com.example.ui.screens.taxi
 import android.content.Intent
 import android.net.Uri
 import android.view.ViewGroup
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.*
@@ -49,13 +50,17 @@ import org.osmdroid.views.MapView
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 internal data class TaxiPendingIntent(val scope: com.example.core.environment.ApiSessionScope,
-    val route: TaxiRouteInput? = null, val sharedId: String? = null, val sharedStart: Boolean = false)
+    val route: TaxiRouteInput? = null, val sharedId: String? = null, val sharedStart: Boolean = false,
+    val phone: String? = null, val loginOtpSent: Boolean = false)
 /** Process-only sign-in return context; no location draft or bearer is written to disk. */
 internal object TaxiPendingNavigation {
     private var pending: TaxiPendingIntent? = null
-    fun route(value: TaxiRouteInput) { pending = TaxiPendingIntent(ApiClient.sessionScope(), route = value) }
+    fun route(value: TaxiRouteInput) { pending = (peek() ?: TaxiPendingIntent(ApiClient.sessionScope())).copy(route = value) }
+    fun login(phone: String, otpSent: Boolean) { pending = (peek() ?: TaxiPendingIntent(ApiClient.sessionScope())).copy(phone = phone, loginOtpSent = otpSent) }
     fun shared(id: String? = null, start: Boolean = false) { pending = TaxiPendingIntent(ApiClient.sessionScope(), sharedId = id, sharedStart = start) }
     fun peek(): TaxiPendingIntent? = pending?.takeIf { ApiClient.isCurrent(it.scope) }
     fun take(): TaxiPendingIntent? = pending.also { pending = null }?.takeIf { ApiClient.isCurrent(it.scope) }
@@ -102,16 +107,40 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
 }
 
 @Composable internal fun TaxiHeader(title: String? = null, onBack: (() -> Unit)? = null,
-    onDailyCommute: (() -> Unit)? = null, trailing: @Composable RowScope.() -> Unit = {}) {
-    Row(Modifier.fillMaxWidth().background(CommuteCream).padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (onBack != null) IconButton(onClick = onBack, Modifier.testTag("taxi_back")) { Icon(Icons.Default.ArrowBack, "Back", tint = CommuteInk) }
-        if (title == null) Image(painterResource(R.drawable.auth_passo_wordmark), "PASSO", Modifier.width(134.dp).height(45.dp), contentScale = ContentScale.Fit)
-        else Text(title, color = CommuteInk, fontWeight = FontWeight.ExtraBold, fontSize = 23.sp, modifier = Modifier.weight(1f), maxLines = 2)
-        if (title == null) Spacer(Modifier.weight(1f))
-        if (onDailyCommute != null) OutlinedButton(onClick = onDailyCommute, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp), border = BorderStroke(1.dp, CommuteTeal)) {
-            Icon(Icons.Default.DirectionsBus, null, Modifier.size(17.dp)); Spacer(Modifier.width(5.dp)); Text("Daily Commute", fontSize = 12.sp, maxLines = 1)
+    onMenu: (() -> Unit)? = null,
+    onDailyCommute: (() -> Unit)? = null, onSignIn: (() -> Unit)? = null,
+    guestService: String? = null, onGuestService: ((String) -> Unit)? = null,
+    trailing: @Composable RowScope.() -> Unit = {}) {
+    Column(Modifier.fillMaxWidth().background(CommuteCream)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (onBack != null) IconButton(onClick = onBack, Modifier.testTag("taxi_back")) { Icon(Icons.Default.ArrowBack, "Back", tint = CommuteInk) }
+            else if (onMenu != null) IconButton(onClick = onMenu, Modifier.testTag("taxi_menu")) { Icon(Icons.Default.Menu, "Menu", tint = CommuteInk) }
+            if (title == null) Image(painterResource(R.drawable.auth_passo_wordmark), "PASSO", Modifier.width(126.dp).height(42.dp), contentScale = ContentScale.Fit)
+            else Text(title, color = CommuteInk, fontWeight = FontWeight.ExtraBold, fontSize = 23.sp, modifier = Modifier.weight(1f), maxLines = 2)
+            if (title == null) Spacer(Modifier.weight(1f))
+            if (onDailyCommute != null) OutlinedButton(onClick = onDailyCommute, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 5.dp), border = BorderStroke(1.dp, CommuteTeal)) {
+                Icon(Icons.Default.DirectionsBus, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Daily", fontSize = 11.sp, maxLines = 1)
+            }
+            if (onSignIn != null) TextButton(onClick = onSignIn, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 6.dp), modifier = Modifier.testTag("taxi_sign_in")) {
+                Text("Sign in", color = CommuteTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
+            trailing()
         }
-        trailing()
+        if (guestService != null && onGuestService != null) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                listOf("TAXI" to ("Taxi" to Icons.Default.LocalTaxi), "CARGO" to ("Cargo" to Icons.Default.Inventory2), "GROUP" to ("Group" to Icons.Default.Groups)).forEach { (key, pair) ->
+                    val active = guestService == key
+                    Surface(onClick = { onGuestService(key) }, modifier = Modifier.weight(1f).testTag("guest_service_$key"),
+                        color = if (active) CommuteTeal.copy(alpha = .92f) else Color.White.copy(alpha = .8f),
+                        shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, if (active) CommuteTeal else Color(0xFFD9DFDE))) {
+                        Row(Modifier.padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                            Icon(pair.second, null, Modifier.size(17.dp), tint = if (active) Color.White else CommuteInk)
+                            Spacer(Modifier.width(5.dp)); Text(pair.first, color = if (active) Color.White else CommuteInk, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -142,24 +171,51 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
     }
 }
 
-@Composable internal fun TaxiTierTiles(tiers: List<TaxiTier>, selected: String, enabled: Boolean, onSelect: (String) -> Unit) {
+@Composable internal fun TaxiTierTiles(tiers: List<TaxiTier>, selected: String, settings: TaxiSettings,
+    distanceKm: Double?, enabled: Boolean, onSelect: (String) -> Unit) {
     val fallback = listOf(TaxiTier("ECONOMY", "Economy"), TaxiTier("COMFORT", "Comfort"), TaxiTier("MINI_VAN", "Mini-Van"))
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-        (tiers.ifEmpty { fallback }).forEach { tier ->
-            val active = tier.id == selected
-            val surface by animateColorAsState(if (active) CommuteMint else Color.White, tween(180), label = "Vehicle tier surface")
-            val border by animateColorAsState(if (active) CommuteTeal else Color(0xFFD9DFDE), tween(180), label = "Vehicle tier border")
-            val scale by animateFloatAsState(if (active) 1.04f else 1f, tween(180), label = "Vehicle selection")
-            Surface(onClick = { onSelect(tier.id) }, enabled = enabled, modifier = Modifier.weight(1f).testTag("taxi_tier_${tier.id}"),
-                color = surface, border = BorderStroke(if (active) 2.dp else 1.dp, border), shape = RoundedCornerShape(17.dp)) {
-                Column(Modifier.padding(horizontal = 4.dp, vertical = 7.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Image(painterResource(when (tier.id) { "COMFORT" -> R.drawable.taxi_comfort; "MINI_VAN" -> R.drawable.taxi_minivan; else -> R.drawable.taxi_economy }), null,
-                        Modifier.fillMaxWidth().height(60.dp).graphicsLayer { scaleX = scale; scaleY = scale }, contentScale = ContentScale.Fit)
-                    Text(tier.name, color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
+    var previewTier by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(previewTier) {
+        val shown = previewTier ?: return@LaunchedEffect
+        delay(1400)
+        if (previewTier == shown) previewTier = null
+    }
+    Column(Modifier.fillMaxWidth().animateContentSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        AnimatedVisibility(visible = previewTier != null) {
+            val item = (tiers.ifEmpty { fallback }).firstOrNull { it.id == previewTier }
+            item?.let { chosen ->
+                val previewFare = distanceKm?.let { taxiFareForTier(it, settings, chosen) }
+                Surface(Modifier.align(Alignment.CenterHorizontally), color = CommuteTeal.copy(alpha = .88f), shape = RoundedCornerShape(16.dp)) {
+                    Text("${if (chosen.id == "MINI_VAN") "Minivan" else chosen.name}  ·  ${previewFare?.let(::taxiMoney) ?: "Fare estimate"}",
+                        Modifier.padding(horizontal = 14.dp, vertical = 7.dp), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            (tiers.ifEmpty { fallback }).take(3).forEach { tier ->
+                val active = tier.id == selected
+                val surface by animateColorAsState(if (active) CommuteMint else Color.White.copy(alpha = .84f), tween(180), label = "Vehicle tier surface")
+                val border by animateColorAsState(if (active) CommuteTeal else Color(0xFFD9DFDE), tween(180), label = "Vehicle tier border")
+                val scale by animateFloatAsState(if (active) 1.04f else 1f, tween(180), label = "Vehicle selection")
+                val fare = distanceKm?.let { taxiFareForTier(it, settings, tier) }
+                Surface(onClick = { previewTier = tier.id; onSelect(tier.id) }, enabled = enabled,
+                    modifier = Modifier.weight(1f).testTag("taxi_tier_${tier.id}"), color = surface,
+                    border = BorderStroke(if (active) 2.dp else 1.dp, border), shape = RoundedCornerShape(16.dp)) {
+                    Column(Modifier.padding(horizontal = 4.dp, vertical = 5.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Image(painterResource(when (tier.id) { "COMFORT" -> R.drawable.taxi_comfort; "MINI_VAN" -> R.drawable.taxi_minivan; else -> R.drawable.taxi_economy }), null,
+                            Modifier.fillMaxWidth().height(44.dp).graphicsLayer { scaleX = scale; scaleY = scale }, contentScale = ContentScale.Fit)
+                        Text(if (tier.id == "MINI_VAN") "Minivan" else tier.name, color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                        Text(fare?.let(::taxiMoney) ?: "—", color = if (active) CommuteTeal else Color(0xFF627385), fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
+                    }
                 }
             }
         }
     }
+}
+
+private fun taxiFareForTier(distanceKm: Double, settings: TaxiSettings, tier: TaxiTier): Double {
+    val value = max(settings.minimumFareEtb, (settings.baseFareEtb + distanceKm * settings.perKmEtb) * tier.multiplier)
+    return (value * 100.0).roundToInt() / 100.0
 }
 
 /** A real native base map, not the mockup image. No unassigned driver positions are invented. */
@@ -185,7 +241,8 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
         }
         Box(modifier.fillMaxWidth().height(height.dp).clipToBounds()) {
             AndroidView(factory = { (map.parent as? ViewGroup)?.removeView(map); map }, Modifier.fillMaxSize(), update = {
-                replaceRoadOverlays(map, emptyList(), emptyList(), null, null, null, false, false, pickupLabel, destinationLabel, R.drawable.taxi_car_top, nearby)
+                replaceRoadOverlays(map, emptyList(), emptyList(), pickup, destination, driver, driver != null && !driver.stale,
+                    false, pickupLabel, destinationLabel, R.drawable.taxi_car_top, nearby)
                 if (!centered && pickup != null) { map.controller.setCenter(GeoPoint(pickup.first, pickup.second)); centered = true }
                 map.invalidate()
             })

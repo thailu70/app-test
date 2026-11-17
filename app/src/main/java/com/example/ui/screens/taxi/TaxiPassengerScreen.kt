@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -19,6 +20,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.api.*
@@ -32,15 +34,15 @@ import kotlinx.coroutines.launch
 /** Public destination-first discovery; only requesting a ride or booking a seat requires sign-in. */
 @Composable fun TaxiPassengerScreen(main: MainViewModel, onDailyCommute: () -> Unit,
     onSignIn: () -> Unit, onBack: () -> Unit, onPrivacy: () -> Unit = {},
-    onProfile: () -> Unit = {}, onSignOut: () -> Unit = {}) {
+    onProfile: () -> Unit = {}, onSignOut: () -> Unit = {}, onOpenMobility: (String) -> Unit = {}) {
     val authenticated by main.isAuthenticated.collectAsState()
     val model = taxiViewModel(authenticated, false)
-    TaxiPassengerContent(authenticated, model, onDailyCommute, onSignIn, onBack, onPrivacy, onProfile, onSignOut)
+    TaxiPassengerContent(main, authenticated, model, onDailyCommute, onSignIn, onBack, onPrivacy, onProfile, onSignOut, onOpenMobility)
 }
 
-@Composable internal fun TaxiPassengerContent(authenticated: Boolean, model: TaxiViewModel,
+@Composable internal fun TaxiPassengerContent(main: MainViewModel, authenticated: Boolean, model: TaxiViewModel,
     onDailyCommute: () -> Unit, onSignIn: () -> Unit, onBack: () -> Unit, onPrivacy: () -> Unit = {},
-    onProfile: () -> Unit = {}, onSignOut: () -> Unit = {}, mapTiles: Boolean = true) {
+    onProfile: () -> Unit = {}, onSignOut: () -> Unit = {}, onOpenMobility: (String) -> Unit = {}, mapTiles: Boolean = true) {
     val state by model.state.collectAsState()
     val pending = remember(authenticated) { if (authenticated) TaxiPendingNavigation.take() else TaxiPendingNavigation.peek() }
     val context = LocalContext.current; val scope = rememberCoroutineScope()
@@ -56,6 +58,9 @@ import kotlinx.coroutines.launch
     var localNotice by remember { mutableStateOf<String?>(null) }
     var locating by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
+    var showPhonePrompt by remember { mutableStateOf(false) }
+    var phoneNumber by remember { mutableStateOf("") }
+    var sendingSignInCode by remember { mutableStateOf(false) }
     val pushFocus by com.example.core.notifications.RideNotificationNavigation.focus.collectAsState()
     LaunchedEffect(pushFocus, model) {
         pushFocus?.takeIf { it.scope == "PASSENGER" }?.let {
@@ -81,6 +86,9 @@ import kotlinx.coroutines.launch
         return TaxiRouteInput(pickupName, destinationName, from.first, from.second, to.first, to.second, tier)
     }
     LaunchedEffect(mapTiles) { if (mapTiles && pickup == null && taxiLocationPermission(context)) locatePickup() }
+    LaunchedEffect(pickup, destination, state.settings.enabled, state.estimate, state.busy) {
+        if (pickup != null && destination != null && state.settings.enabled && state.estimate == null && !state.busy) route()?.let(model::estimate)
+    }
     val nearbyPoint = state.ride?.takeIf { it.status == "REQUESTED" }?.let { it.originLatitude to it.originLongitude }
         ?: pickup.takeIf { state.ride == null }
     LaunchedEffect(nearbyPoint, tier, state.ride?.tier) { model.nearby(nearbyPoint, state.ride?.tier ?: tier) }
@@ -91,7 +99,11 @@ import kotlinx.coroutines.launch
         picker = null; model.clearEstimate()
     } }
     if (more) AlertDialog(onDismissRequest = { more = false }, title = { Text("Passo Mobility") }, text = {
-        Column { TextButton(onClick = { more = false; onDailyCommute() }) { Text("Daily Commute") }
+        Column {
+            TextButton(onClick = { more = false; page = "home"; model.closeTrip() }) { Text("Taxi home") }
+            TextButton(onClick = { more = false; page = "trips" }) { Text("My trips") }
+            TextButton(onClick = { more = false; page = "payments" }) { Text("Payments") }
+            TextButton(onClick = { more = false; onDailyCommute() }) { Text("Daily Commute") }
             if (authenticated) TextButton(onClick = { more = false; onProfile() }) { Text("Profile & documents") }
             TextButton(onClick = { more = false; onPrivacy() }) { Text("Privacy & account") }
             if (authenticated) TextButton(onClick = { more = false; onSignOut() }) { Text("Sign out") }
@@ -99,7 +111,12 @@ import kotlinx.coroutines.launch
     }, confirmButton = { TextButton(onClick = { more = false }) { Text("Close") } })
     BackHandler { if (state.selectedTrip != null) model.closeTrip() else if (page != "home") page = "home" else onBack() }
     Column(Modifier.fillMaxSize().background(CommuteCream)) {
-        TaxiHeader(onDailyCommute = { TaxiPendingNavigation.clear(); onDailyCommute() }, onBack = if (!authenticated) ({ TaxiPendingNavigation.clear(); onBack() }) else null)
+        TaxiHeader(onDailyCommute = { TaxiPendingNavigation.clear(); onDailyCommute() },
+            onBack = if (!authenticated) ({ TaxiPendingNavigation.clear(); onBack() }) else null,
+            onMenu = if (authenticated) ({ more = true }) else null,
+            onSignIn = if (!authenticated) onSignIn else null,
+            guestService = if (!authenticated) "TAXI" else null,
+            onGuestService = if (!authenticated) { service -> if (service == "TAXI") Unit else onOpenMobility(service) } else null)
         TaxiNotice(localNotice ?: state.message) { localNotice = null; model.clearMessage() }
         if (state.busy || locating) LinearProgressIndicator(Modifier.fillMaxWidth(), color = CommuteTeal)
         Box(Modifier.weight(1f).smoothPortalMotion("$page:${state.ride?.status}:${state.selectedTrip?.id}")) {
@@ -119,7 +136,7 @@ import kotlinx.coroutines.launch
                     var sheetPixels by remember { mutableIntStateOf(0) }
                     val density = LocalDensity.current
                     val sheetDp = with(density) { sheetPixels.toDp().value }.takeIf { it > 0 } ?: 260f
-                    val mapHeight = if (destination == null && state.estimate == null) (maxHeight.value - sheetDp).coerceAtLeast(160f).toInt() else 210
+                    val mapHeight = if (destination == null && state.estimate == null) (maxHeight.value - sheetDp).coerceAtLeast(235f).toInt() else 300
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     TaxiMap(pickup, destination, height = mapHeight,
                         pickupLabel = pickupName, destinationLabel = destinationName, tileDownloadsEnabled = mapTiles, nearbyCars = state.nearbyCars, routeGeometry = state.estimate?.routeGeometry, routeGeometryQuality = state.estimate?.routeGeometryQuality)
@@ -130,16 +147,15 @@ import kotlinx.coroutines.launch
                                     Text(destinationName.ifBlank { "Where to?" }, Modifier.weight(1f).padding(horizontal = 11.dp), fontWeight = FontWeight.Bold, color = CommuteInk, fontSize = 21.sp)
                                     Icon(Icons.Default.ArrowForward, null, tint = CommuteTeal) }
                             }
-                            TaxiTierTiles(state.tiers, tier, !state.busy) { tier = it; model.clearEstimate() }
+                            TaxiTierTiles(state.tiers, tier, state.settings, state.estimate?.distanceKm, !state.busy) { tier = it; model.selectTier(it) }
                             if (destination != null) {
-                                TaxiRouteRow("Pickup", if (pickup == null) "Choose pickup on map" else pickupName, true, !state.busy) { picker = "pickup" }
                                 state.estimate?.let { estimate ->
                                     HorizontalDivider()
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Estimated fare", color = CommuteInk); Text(taxiMoney(estimate.estimatedFareEtb), fontWeight = FontWeight.ExtraBold, color = CommuteTeal, fontSize = 22.sp) }
                                     Text("${"%.1f".format(estimate.distanceKm)} km · about ${estimate.durationMinutes.toInt()} min", color = Color(0xFF627385), fontSize = 13.sp)
                                     Text("Final fare follows the meter. Pay the driver directly.", fontSize = 12.sp, color = Color(0xFF627385))
-                                    TaxiPrimary(if (authenticated) "Request ${state.tiers.find { it.id == tier }?.name ?: tier.replace('_', ' ')}" else "Sign in to request", !state.busy && state.settings.enabled, "taxi_request") {
-                                        if (!authenticated) { route()?.let(TaxiPendingNavigation::route); onSignIn() } else route()?.let(model::request)
+                                    TaxiPrimary(if (authenticated) "Request ${state.tiers.find { it.id == tier }?.name ?: tier.replace('_', ' ')}" else "Continue", !state.busy && state.settings.enabled, "taxi_request") {
+                                        if (!authenticated) { route()?.let(TaxiPendingNavigation::route); showPhonePrompt = true } else route()?.let(model::request)
                                     }
                                 } ?: TaxiPrimary("Show estimated fare", !state.busy && !locating && route() != null && state.settings.enabled, "taxi_estimate") { route()?.let(model::estimate) }
                             }
@@ -152,14 +168,41 @@ import kotlinx.coroutines.launch
                 }
             }
         }
-        NavigationBar(containerColor = Color.White) {
-            listOf("Home" to Icons.Default.Home, "Trips" to Icons.Default.ReceiptLong, "Payments" to Icons.Default.CreditCard, "More" to Icons.Default.MoreHoriz).forEachIndexed { index, item ->
-                NavigationBarItem(selected = (index == 0 && page == "home") || (index == 1 && page in setOf("trips", "shared")) || (index == 2 && page == "payments"), onClick = {
-                    when (index) { 0 -> { model.closeTrip(); page = "home" }; 1 -> page = "trips"; 2 -> page = "payments"; else -> more = true }
-                }, icon = { Icon(item.second, item.first) }, label = { Text(item.first, fontSize = 11.sp) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = CommuteTeal, indicatorColor = CommuteMint))
-            }
-        }
     }
+    if (showPhonePrompt) AlertDialog(
+        onDismissRequest = { if (!sendingSignInCode) showPhonePrompt = false },
+        title = { Text("Continue with phone", color = CommuteInk, fontWeight = FontWeight.ExtraBold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Enter your number and we’ll send a one-time sign-in code.", color = Color(0xFF627385), fontSize = 14.sp)
+                OutlinedTextField(value = phoneNumber, onValueChange = { phoneNumber = it.take(20) },
+                    label = { Text("Mobile number (+251)") }, singleLine = true, enabled = !sendingSignInCode,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), modifier = Modifier.fillMaxWidth().testTag("taxi_phone_prompt"))
+                Text("Your ride details will be kept while you verify.", color = Color(0xFF627385), fontSize = 12.sp)
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                val phone = phoneNumber.trim()
+                if (!Regex("^\\+?[0-9][0-9 ()-]{7,19}$").matches(phone)) localNotice = "Enter a valid mobile number."
+                else if (!sendingSignInCode) {
+                    sendingSignInCode = true
+                    main.requestLoginOtp(phone) { message, error ->
+                        sendingSignInCode = false
+                        if (error != null) localNotice = error
+                        else {
+                            TaxiPendingNavigation.login(phone, true)
+                            showPhonePrompt = false
+                            onSignIn()
+                        }
+                    }
+                }
+            }, enabled = !sendingSignInCode, colors = ButtonDefaults.buttonColors(containerColor = CommuteTeal.copy(alpha = .84f)),
+                modifier = Modifier.fillMaxWidth()) { Text(if (sendingSignInCode) "Sending code…" else "Send sign-in code") }
+        },
+        dismissButton = { TextButton(onClick = { if (!sendingSignInCode) showPhonePrompt = false }) { Text("Not now", color = CommuteTeal) } },
+        containerColor = Color.White.copy(alpha = .93f), tonalElevation = 0.dp, shape = RoundedCornerShape(26.dp)
+    )
 }
 
 @Composable internal fun PassengerCurrentRide(ride: TaxiRide, busy: Boolean, model: TaxiViewModel, mapTiles: Boolean = true, mapApi: MobilityApi? = null, nearbyCars: List<TaxiNearbyCar> = emptyList()) {
