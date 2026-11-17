@@ -313,9 +313,20 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
     const key = id('mrq_'), capability = secret();
     if(input.estimatedWeightKg!=null&&input.estimatedWeightKg!==''&&(!Number.isFinite(Number(input.estimatedWeightKg))||Number(input.estimatedWeightKg)<=0||Number(input.estimatedWeightKg)>100000))fail(400,'Enter a valid estimated weight in kilograms.');
     if(input.travelTime&&(!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.travelTime)))fail(400,'Choose a valid pickup time.');
-    await write(async tx=>{await tx.prepare('INSERT INTO mobility_requests(id,kind,secret_hash,origin,destination,travel_date,people,vehicle_type,customer_name,customer_phone,details,origin_latitude,origin_longitude,destination_latitude,destination_longitude,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    const otpPurpose = input.kind === 'CARGO' ? 'CARGO_REQUEST' : 'GROUP_REQUEST';
+    const otpToken = typeof input.otpVerificationToken === 'string' ? input.otpVerificationToken : '';
+    if (otpToken.length < 20 || otpToken.length > 200) fail(400, 'Verify the requester phone by SMS before sending this request.');
+    await write(async tx=>{
+      const otp = await tx.prepare("SELECT id FROM auth_otps WHERE phone=? AND purpose=? AND verification_token_hash=? AND verified_at IS NOT NULL AND expires_at>CURRENT_TIMESTAMP ORDER BY created_at DESC LIMIT 1")
+        .get(customer.phone, otpPurpose, hash(otpToken));
+      if (!otp) fail(401, 'The phone verification expired. Request a new code.');
+      const consumed = await tx.prepare("UPDATE auth_otps SET verification_token_hash=NULL WHERE id=? AND verification_token_hash=? AND verified_at IS NOT NULL")
+        .run(otp.id, hash(otpToken));
+      if (Number(consumed.changes ?? consumed.rowCount ?? 0) !== 1) fail(401, 'The phone verification was already used. Request a new code.');
+      await tx.prepare('INSERT INTO mobility_requests(id,kind,secret_hash,origin,destination,travel_date,people,vehicle_type,customer_name,customer_phone,details,origin_latitude,origin_longitude,destination_latitude,destination_longitude,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(key, input.kind, hash(capability), origin, destination, date, people, input.vehicleType, customer.name, customer.phone, details, lat, lng, toLat, toLng, input.kind === 'CARGO' ? 'DRAFT' : 'REQUESTED', instant());
-    await marketplace.createMeta(key,input,tx);});
+      await marketplace.createMeta(key,input,tx);
+    });
     return { requestSecret: capability, request: await requestView(await getRequest(key, capability)) };
   }
   async function request(key, capability) { return { request: await requestView(await getRequest(key, capability)) }; }

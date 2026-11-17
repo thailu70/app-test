@@ -51,6 +51,9 @@ class DriverApplicationRepository(private val api: RoutePassApiService) {
 
     suspend fun register(input: DriverApplicationInput) = action("Your details were saved. Upload your documents to complete your application.", true) { api.registerDriverApplication(input) }
     suspend fun login(phone: String, password: String) = action(newSession = true) { api.loginDriverApplication(LoginRequest(phone.trim(), password, "DRIVER")) }
+    suspend fun loginWithOtp(phone: String, verificationToken: String) = action(newSession = true) {
+        api.loginDriverApplicationWithOtp(mapOf("phone" to phone.trim(), "verificationToken" to verificationToken))
+    }
     suspend fun refresh() = action { api.driverApplication(authorization()) }
     suspend fun saveProfile(name: String, phone: String, color: String) = action("Your details were saved.") {
         check(mutable.value.application?.editable == true) { "Your application is not open for changes. Refresh its status first." }

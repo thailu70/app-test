@@ -295,6 +295,12 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
     var picking by remember { mutableStateOf<String?>(null) }
     var roadDistance by remember { mutableStateOf<String?>(null) }
     val locationApi = providedApi ?: remember { ApiClient.createFeatureService(MobilityApi::class.java) }
+    var showPhoneVerification by remember { mutableStateOf(false) }
+    var otpSent by remember { mutableStateOf(false) }
+    var phoneCode by remember { mutableStateOf("") }
+    var otpBusy by remember { mutableStateOf(false) }
+    var otpMessage by remember { mutableStateOf<String?>(null) }
+    val otpScope = rememberCoroutineScope()
     LaunchedEffect(fromPoint, toPoint) {
         roadDistance = null
         val from = fromPoint; val to = toPoint
@@ -305,7 +311,7 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
         }
     }
     val photo = rememberCargoPhoto()
-    if (picking != null) {
+    if (picking != null && kind != "CARGO") {
         val pickup = picking == "origin"
         MobilityLocationPicker(
             intercityText(language, if (pickup) "Choose pickup location" else "Choose destination location",
@@ -316,16 +322,66 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
             initialLabel = if (pickup) origin else destination, providedApi = locationApi,
             tileDownloadsEnabled = pickerTileDownloadsEnabled)
     }
+    if (showPhoneVerification) AlertDialog(
+        onDismissRequest = { if (!otpBusy) showPhoneVerification = false },
+        title = { Text("Confirm your phone", color = CommuteInk, fontWeight = FontWeight.ExtraBold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Text("We’ll send a one-time code to confirm this contact. No account or password needed.", color = Color(0xFF627385), fontSize = 14.sp)
+                Text(phone, color = CommuteInk, fontWeight = FontWeight.Bold)
+                if (otpSent) OutlinedTextField(phoneCode, { phoneCode = it.filter(Char::isDigit).take(8) },
+                    label = { Text("Verification code") }, singleLine = true, enabled = !otpBusy,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), modifier = Modifier.fillMaxWidth().testTag("mobility_guest_otp"))
+                otpMessage?.let { Text(it, color = if (it.startsWith("Code sent")) CommuteTeal else MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                if (otpBusy) return@Button
+                otpBusy = true
+                val purpose = if (kind == "CARGO") "CARGO_REQUEST" else "GROUP_REQUEST"
+                otpScope.launch {
+                    try {
+                        if (!otpSent) {
+                            val result = mobilityBody(locationApi.requestContactOtp(mapOf("phone" to phone.trim(), "purpose" to purpose)))
+                            check(result.success && result.delivery == "SENT") { result.error ?: "The code could not be sent. Try again." }
+                            otpSent = true; otpMessage = "Code sent by SMS."
+                        } else {
+                            val result = mobilityBody(locationApi.verifyContactOtp(mapOf("phone" to phone.trim(), "purpose" to purpose, "code" to phoneCode.trim())))
+                            check(result.success) { result.error ?: "That code is incorrect or expired." }
+                            val token = result.verificationToken?.takeIf { it.length >= 20 } ?: error("The code could not be confirmed. Try again.")
+                            val input = MobilityRequestInput(kind, origin.trim(), destination.trim(), date, people.toIntOrNull(), type,
+                                details.trim().takeIf { kind == "CARGO" }, name.trim(), phone.trim(), state.adultConfirmed,
+                                fromPoint?.first, fromPoint?.second, toPoint?.first, toPoint?.second,
+                                weight.toDoubleOrNull().takeIf { kind == "CARGO" }, travelTime, token)
+                            showPhoneVerification = false
+                            send(input, photo.bytes, photo.type)
+                        }
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (failure: Exception) { otpMessage = failure.message ?: "Phone verification failed. Try again." }
+                    finally { otpBusy = false }
+                }
+            }, enabled = !otpBusy && (!otpSent || phoneCode.length >= 4), modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = CommuteTeal.copy(alpha = .86f))) {
+                Text(if (otpBusy) "Please wait…" else if (otpSent) "Verify & send request" else "Send verification code")
+            }
+        },
+        dismissButton = { TextButton(onClick = { if (!otpBusy) showPhoneVerification = false }) { Text("Not now", color = CommuteTeal) } },
+        containerColor = Color.White.copy(alpha = .93f), tonalElevation = 0.dp, shape = RoundedCornerShape(25.dp)
+    )
     MobilityCard {
         Text(if (kind == "GROUP") intercityText(language, "Plan a group journey", "የቡድን ጉዞ ይጠይቁ", "Imala garee karoorsi") else intercityText(language, "Tell us about your cargo", "ስለ ጭነትዎ ይግለጹ", "Waa'ee fe'umsa kee ibsi"), color = CommuteInk, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text("Nearby available drivers can send quotes. Compare their offers and choose your driver. Sending a request does not collect payment.", color = CommuteInk, fontSize = 12.sp)
         MobilityField(name, { name = it }, "Your full name", "request_name")
         MobilityField(phone, { phone = it }, "Phone number", "request_phone", number = true)
-        Box(Modifier.testTag("request_pickup_location")) {
-            CargoLocationField("Pickup location", origin, false, "request_origin", !state.busy) { picking = "origin" }
-        }
-        Box(Modifier.testTag("request_delivery_location")) {
-            CargoLocationField("Destination", destination, false, "request_destination", !state.busy) { picking = "destination" }
+        if (kind == "CARGO") {
+            CargoAddressSearchField("Pickup location", origin, locationApi, !state.busy,
+                onValue = { origin = it; fromPoint = null }, onSelect = { origin = it.name; fromPoint = it.latitude to it.longitude }, tag = "request_origin")
+            CargoAddressSearchField("Delivery destination", destination, locationApi, !state.busy,
+                onValue = { destination = it; toPoint = null }, onSelect = { destination = it.name; toPoint = it.latitude to it.longitude }, tag = "request_destination")
+        } else {
+            Box(Modifier.testTag("request_pickup_location")) { CargoLocationField("Pickup location", origin, false, "request_origin", !state.busy) { picking = "origin" } }
+            Box(Modifier.testTag("request_delivery_location")) { CargoLocationField("Destination", destination, false, "request_destination", !state.busy) { picking = "destination" } }
         }
         MobilityDateField(date, { date = it })
         roadDistance?.let { Text(it, color = CommuteTeal, fontSize = 12.sp) }
@@ -340,8 +396,38 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
         MobilityAdult(state.adultConfirmed, !state.busy, onAdult)
         val validCargo = kind != "CARGO" || (details.isNotBlank() && (weight.toDoubleOrNull() ?: 0.0) > 0 && photo.bytes != null && fromPoint != null && toPoint != null)
         MobilityButton("Send request", !state.busy && !photo.busy && state.adultConfirmed && name.isNotBlank() && phone.isNotBlank() && origin.isNotBlank() && destination.isNotBlank() && type.isNotBlank() && validCargo && (kind != "GROUP" || ((people.toIntOrNull() ?: 0) > 0 && fromPoint != null && toPoint != null && fromPoint != toPoint)), "mobility_send_request") {
-            send(MobilityRequestInput(kind, origin.trim(), destination.trim(), date, people.toIntOrNull(), type, details.trim().takeIf { kind == "CARGO" }, name.trim(), phone.trim(), state.adultConfirmed,
-                fromPoint?.first, fromPoint?.second, toPoint?.first, toPoint?.second, weight.toDoubleOrNull().takeIf { kind == "CARGO" }, travelTime), photo.bytes, photo.type)
+            showPhoneVerification = true; otpSent = false; phoneCode = ""; otpMessage = null
+        }
+    }
+}
+
+@Composable private fun CargoAddressSearchField(label: String, value: String, api: MobilityApi, enabled: Boolean,
+    onValue: (String) -> Unit, onSelect: (MobilityPlace) -> Unit, tag: String) {
+    var suggestions by remember { mutableStateOf<List<MobilityPlace>>(emptyList()) }
+    var searching by remember { mutableStateOf(false) }
+    var selectedLabel by remember { mutableStateOf("") }
+    LaunchedEffect(value) {
+        if (value.trim().length < 2 || value == selectedLabel) { suggestions = emptyList(); searching = false; return@LaunchedEffect }
+        delay(350); searching = true
+        try {
+            val result = mobilityBody(api.locations(value.trim()))
+            if (result.success && value.trim() != selectedLabel) suggestions = result.places.take(5)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (_: Exception) { suggestions = emptyList() }
+        finally { searching = false }
+    }
+    Column(Modifier.fillMaxWidth().testTag(tag)) {
+        OutlinedTextField(value, { selectedLabel = ""; onValue(it) }, label = { Text(label) }, singleLine = true,
+            enabled = enabled, leadingIcon = { Icon(Icons.Default.Search, null, tint = CommuteTeal) },
+            trailingIcon = { if (searching) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) },
+            shape = RoundedCornerShape(15.dp), modifier = Modifier.fillMaxWidth().testTag("${tag}_search"))
+        if (suggestions.isNotEmpty()) Surface(color = Color.White.copy(alpha = .97f), shape = RoundedCornerShape(15.dp),
+            border = BorderStroke(1.dp, Color(0xFFE1E8E5)), modifier = Modifier.fillMaxWidth()) {
+            Column { suggestions.forEach { place ->
+                TextButton(onClick = { selectedLabel = place.name; suggestions = emptyList(); onSelect(place) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.LocationOn, null, tint = CommuteTeal); Spacer(Modifier.width(7.dp)); Text(place.name, color = CommuteInk, modifier = Modifier.weight(1f))
+                }
+            } }
         }
     }
 }

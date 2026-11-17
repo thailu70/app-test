@@ -57,6 +57,7 @@ import com.example.core.location.AppLocationPrompt
 import com.example.core.notifications.AppPushRegistration
 import com.example.core.notifications.MobilityNotificationNavigation
 import com.example.core.notifications.MobilityNotificationDestination
+import com.example.core.session.AndroidSessionStore
 import com.example.data.api.LiveTrackingWebSocket
 import com.example.ui.screens.auth.AuthScreen
 import com.example.ui.screens.home.BrowseFirstScreen
@@ -64,6 +65,7 @@ import com.example.ui.screens.home.PassoWelcomeScreen
 import com.example.ui.screens.home.WelcomeService
 import com.example.ui.screens.home.HostedPortalScreen
 import com.example.ui.screens.intercity.IntercityPassengerScreen
+import com.example.ui.screens.intercity.MobilityPassengerScreen
 import com.example.ui.screens.profile.ProfileCompletionScreen
 import com.example.ui.screens.profile.AccountPrivacyScreen
 import com.example.ui.screens.driver.DriverTripScreen
@@ -88,7 +90,7 @@ class MainActivity : ComponentActivity() {
         com.example.core.notifications.MobilityPush.initialize(this)
 
         val database = TransportDatabase.getDatabase(this, lifecycleScope)
-        val repository = TransportRepository(database.transportDao())
+        val repository = TransportRepository(database.transportDao(), sessionStore = AndroidSessionStore(this))
         val factory = MainViewModelFactory(repository)
         viewModel = ViewModelProvider(this, factory)[MainViewModel::class.java]
         MobilityNotificationNavigation.acceptIntent(this, intent)
@@ -165,9 +167,11 @@ internal fun PassengerTopBar(
     onLogout: () -> Unit,
     onSelectLanguage: ((AppLanguage) -> Unit)? = null,
     onToggleNetwork: (() -> Unit)? = null,
-    networkLabel: String = ""
+    networkLabel: String = "",
+    onPassengerService: ((String) -> Unit)? = null
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    var servicesOpen by remember { mutableStateOf(false) }
     val environmentSettings = LocalEnvironmentSettings.current
     TopAppBar(
         title = {
@@ -175,8 +179,29 @@ internal fun PassengerTopBar(
             else if (onSelectLanguage != null) CommuterHeader(language, onSelectLanguage) else CommuterWordmark()
         },
         navigationIcon = {
-            if (profileOpen) IconButton(onClick = onBack, modifier = Modifier.testTag("top_bar_profile_button")) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back to your commute")
+            when {
+                profileOpen -> IconButton(onClick = onBack, modifier = Modifier.testTag("top_bar_profile_button")) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                }
+                onPassengerService != null -> Box {
+                    IconButton(onClick = { servicesOpen = true }, modifier = Modifier.testTag("passenger_services_menu")) {
+                        Icon(Icons.Default.Menu, contentDescription = "Travel services")
+                    }
+                    DropdownMenu(expanded = servicesOpen, onDismissRequest = { servicesOpen = false }) {
+                        listOf("TAXI" to "Meter Taxi", "COMMUTE" to "Daily Commute", "INTERCITY" to "Intercity Travel",
+                            "GROUP" to "Group Travel", "CARGO" to "Cargo Transport").forEach { (key, label) ->
+                            DropdownMenuItem(text = { Text(label) }, leadingIcon = {
+                                Icon(when (key) {
+                                    "TAXI" -> Icons.Default.LocalTaxi
+                                    "COMMUTE" -> Icons.Default.DirectionsBus
+                                    "INTERCITY" -> Icons.Default.DirectionsRailway
+                                    "GROUP" -> Icons.Default.Groups
+                                    else -> Icons.Default.LocalShipping
+                                }, contentDescription = null)
+                            }, onClick = { servicesOpen = false; onPassengerService(key) }, modifier = Modifier.testTag("passenger_service_$key"))
+                        }
+                    }
+                }
             }
         },
         actions = {
@@ -208,6 +233,8 @@ fun MainTransportApp(viewModel: MainViewModel) {
     AppPushRegistration(userId = currentUser?.id, role = currentUser?.role)
     val currentLang by viewModel.currentLanguage.collectAsState()
     val networkStatus by viewModel.networkStatus.collectAsState()
+    val commuteSnapshot by viewModel.passengerSubscriptionSnapshot.collectAsState()
+    val commuteLoading by viewModel.passengerSubscriptionLoading.collectAsState()
     val isNotificationTrayOpen by viewModel.isNotificationTrayOpen.collectAsState()
     val passengerNotifs by viewModel.passengerNotifications.collectAsState()
     val transporterNotifs by viewModel.transporterNotifications.collectAsState()
@@ -216,7 +243,21 @@ fun MainTransportApp(viewModel: MainViewModel) {
     var showPrivacy by remember(currentUser?.id) { mutableStateOf(false) }
     var closureNotice by remember { mutableStateOf<String?>(null) }
     var showDailyCommute by rememberSaveable { mutableStateOf(false) }
+    var passengerService by rememberSaveable(currentUser?.id) { mutableStateOf("TAXI") }
     var showTaxiDriver by remember(currentUser?.id) { mutableStateOf(false) }
+    var passengerLandingReady by rememberSaveable(currentUser?.id) { mutableStateOf(false) }
+    var dailyChoiceMessage by rememberSaveable(currentUser?.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(isAuthenticated, currentRole, currentUser?.id, commuteLoading) {
+        if (isAuthenticated && currentRole == AppRole.PASSENGER && currentUser != null && !commuteLoading && !passengerLandingReady) {
+            val registeredForCommute = commuteSnapshot.subscription != null || !currentUser?.appliedRouteId.isNullOrBlank()
+            passengerService = when {
+                com.example.ui.screens.taxi.TaxiPendingNavigation.peek()?.route != null -> "TAXI"
+                registeredForCommute -> "COMMUTE"
+                else -> "TAXI"
+            }
+            passengerLandingReady = true
+        }
+    }
     LaunchedEffect(currentUser?.id, currentUser?.driverServiceType) {
         if (currentRole == AppRole.DRIVER && currentUser?.driverServiceType == "TAXI") showTaxiDriver = true
     }
@@ -238,10 +279,16 @@ fun MainTransportApp(viewModel: MainViewModel) {
 
     MobilityNotificationDestination(currentLang, currentUser?.id, currentUser?.role,
         onOpenDriver = { viewModel.setRole(AppRole.DRIVER) })
-    if (!isAuthenticated) {
+    val sessionReady by viewModel.sessionReady.collectAsState()
+    if (!sessionReady) {
+        Box(Modifier.fillMaxSize().background(Color(0xFFFFFBF4)), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = TransportGreenPrimary)
+        }
+    } else if (!isAuthenticated) {
         var showWelcome by rememberSaveable { mutableStateOf(true) }
         var showPublicHome by rememberSaveable { mutableStateOf(true) }
         var showTaxi by rememberSaveable { mutableStateOf(false) }
+        var guestMobilityKind by rememberSaveable { mutableStateOf<String?>(null) }
         var authReturnsToTaxi by rememberSaveable { mutableStateOf(false) }
         var showCompanyPortal by rememberSaveable { mutableStateOf(false) }
         var showIntercityPortal by rememberSaveable { mutableStateOf(false) }
@@ -264,13 +311,17 @@ fun MainTransportApp(viewModel: MainViewModel) {
             requestedServiceTier = null
         }
         androidx.activity.compose.BackHandler(enabled = !showWelcome && !showIntercityPortal && !showCompanyPortal) {
-            if (showPublicHome) showWelcome = true else returnFromAuthentication()
+            when {
+                guestMobilityKind != null -> guestMobilityKind = null
+                showPublicHome -> showWelcome = true
+                else -> returnFromAuthentication()
+            }
         }
         val destination = when {
             showWelcome -> "welcome"
             showIntercityPortal -> "intercity"
             showCompanyPortal -> "company"
-            showTaxi -> "taxi"
+            showTaxi -> guestMobilityKind?.let { "guest-$it" } ?: "taxi"
             showPublicHome -> "daily-routes"
             else -> "auth-${requestedAuthPortal?.name}"
         }
@@ -286,7 +337,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                     showTaxi = service == WelcomeService.PASSENGER
                     showDailyCommute = false
                     showPublicHome = false
-                    showIntercityPortal = service == WelcomeService.INTERCITY
+                    showIntercityPortal = false
                     showWelcome = false
                 },
                 language = currentLang,
@@ -303,11 +354,15 @@ fun MainTransportApp(viewModel: MainViewModel) {
                 showPublicHome = true
             })
         } else if (showTaxi) {
-            com.example.ui.screens.taxi.TaxiPassengerScreen(viewModel,
+            if (guestMobilityKind != null) {
+                com.example.ui.screens.intercity.MobilityPassengerScreen(guestMobilityKind!!, currentLang,
+                    onBack = { guestMobilityKind = null })
+            } else com.example.ui.screens.taxi.TaxiPassengerScreen(viewModel,
                 onDailyCommute = { showTaxi = false; showPublicHome = true; showDailyCommute = true },
                 onSignIn = { authReturnsToTaxi = true; showDailyCommute = false; requestedAuthPortal = AppRole.PASSENGER; requestedRegisterFirst = false; showTaxi = false; showPublicHome = false },
                 onBack = { showTaxi = false; showWelcome = true },
-                onPrivacy = { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://passo.live/privacy/"))) })
+                onPrivacy = { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://passo.live/privacy/"))) },
+                onOpenMobility = { kind -> guestMobilityKind = kind.takeIf { it == "CARGO" || it == "GROUP" } })
         } else if (showPublicHome) {
             BrowseFirstScreen(
                 viewModel = viewModel,
@@ -397,7 +452,14 @@ fun MainTransportApp(viewModel: MainViewModel) {
                         onLogout = { viewModel.logout() },
                         onSelectLanguage = { viewModel.setLanguage(it) },
                         onToggleNetwork = if (currentRole == AppRole.DRIVER) ({ viewModel.toggleNetworkMode() }) else null,
-                        networkLabel = networkStatus.name
+                        networkLabel = networkStatus.name,
+                        onPassengerService = if (currentRole == AppRole.PASSENGER) ({ service ->
+                            showProfile = false
+                            showPrivacy = false
+                            passengerService = if (service == "COMMUTE" && commuteSnapshot.subscription == null && currentUser?.appliedRouteId.isNullOrBlank()) "COMMUTE_BROWSE" else service
+                            showDailyCommute = service == "COMMUTE"
+                            dailyChoiceMessage = null
+                        }) else null
                     )
                 } else TopAppBar(
                     title = {
@@ -546,11 +608,28 @@ fun MainTransportApp(viewModel: MainViewModel) {
                     ProfileCompletionScreen(role = currentRole.name, onBack = { showProfile = false }, onPrivacy = { showPrivacy = true })
                 } else when (currentRole) {
                     AppRole.PASSENGER -> {
-                        if (showDailyCommute) Column(Modifier.fillMaxSize()) {
-                            TextButton(onClick = { showDailyCommute = false }, modifier = Modifier.align(Alignment.Start)) { Icon(Icons.Default.ArrowBack, null); Spacer(Modifier.width(7.dp)); Text("Taxi & Group Ride") }
+                        if (!passengerLandingReady) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = TransportGreenPrimary) }
+                        else if (passengerService == "COMMUTE") Column(Modifier.fillMaxSize()) {
+                            TextButton(onClick = { showDailyCommute = false; passengerService = "TAXI" }, modifier = Modifier.align(Alignment.Start)) { Icon(Icons.Default.ArrowBack, null); Spacer(Modifier.width(7.dp)); Text("Meter Taxi") }
                             Box(Modifier.weight(1f)) { PassengerDashboardScreen(viewModel = viewModel, onOpenProfile = { showProfile = true }) }
-                        } else com.example.ui.screens.taxi.TaxiPassengerScreen(viewModel,
-                            onDailyCommute = { showDailyCommute = true }, onSignIn = {}, onBack = { showDailyCommute = true },
+                        } else if (passengerService == "INTERCITY") IntercityPassengerScreen(currentLang, { viewModel.setLanguage(it) },
+                            onExit = { passengerService = "TAXI" })
+                        else if (passengerService == "CARGO" || passengerService == "GROUP") MobilityPassengerScreen(
+                            kind = passengerService, language = currentLang, onBack = { passengerService = "TAXI" }, modifier = Modifier.fillMaxSize())
+                        else if (passengerService == "COMMUTE_BROWSE") {
+                            dailyChoiceMessage?.let { Text(it, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), color = Color(0xFF9A3D32)) }
+                            BrowseFirstScreen(viewModel = viewModel,
+                                onPassengerContinue = { _, routeId, _, tier ->
+                                    if (routeId.isNullOrBlank()) dailyChoiceMessage = "Choose a daily route first."
+                                    else viewModel.requestDailyCommuteSubscription(routeId, tier ?: "Economy") { ok, message ->
+                                        if (ok) { passengerService = "COMMUTE"; dailyChoiceMessage = null }
+                                        else dailyChoiceMessage = message
+                                    }
+                                }, onDriverAccess = {}, onCompanyAccess = {}, onWelcome = { passengerService = "TAXI" },
+                                onIntercityTravel = { passengerService = "INTERCITY" }, startWithRoutes = true, showProviderEntry = false)
+                        }
+                        else com.example.ui.screens.taxi.TaxiPassengerScreen(viewModel,
+                            onDailyCommute = { passengerService = if (commuteSnapshot.subscription != null || !currentUser?.appliedRouteId.isNullOrBlank()) "COMMUTE" else "COMMUTE_BROWSE"; showDailyCommute = true }, onSignIn = {}, onBack = {},
                             onPrivacy = { showPrivacy = true }, onProfile = { showProfile = true }, onSignOut = { viewModel.logout() })
                     }
                     AppRole.DRIVER -> {

@@ -15,27 +15,31 @@ const sha256 = value => crypto.createHash('sha256').update(String(value)).digest
 const normalizePhone = value => String(value || '').trim();
 
 function resolveAdminSecret() {
-  if (process.env.ADMIN_REGISTRATION_SECRET && process.env.ADMIN_REGISTRATION_SECRET.trim().length > 0) {
-    return process.env.ADMIN_REGISTRATION_SECRET.trim();
-  }
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('[FATAL SECURITY ERROR] ADMIN_REGISTRATION_SECRET is required in production.');
-  }
-  return 'routepass_admin_invite_secret_2026';
+  const configured = process.env.ADMIN_REGISTRATION_SECRET;
+  if (typeof configured === 'string' && configured.trim().length > 0) return configured.trim();
+  throw new Error('ADMIN_REGISTRATION_SECRET must be configured before the server starts.');
 }
 
 const ADMIN_REGISTRATION_SECRET = resolveAdminSecret();
 
 router.post('/request-otp', authLimiter, async (req, res) => {
   const phone = normalizePhone(req.body.phone), purpose = String(req.body.purpose || 'REGISTRATION').toUpperCase();
-  if (!phone || !['REGISTRATION', 'LOGIN'].includes(purpose)) return res.status(400).json({ success: false, error: 'Phone number and OTP purpose are required.' });
+  if (!phone || !['REGISTRATION', 'LOGIN', 'CARGO_REQUEST', 'GROUP_REQUEST'].includes(purpose)) return res.status(400).json({ success: false, error: 'Phone number and OTP purpose are required.' });
   const code = String(crypto.randomInt(100000, 1000000));
   const id = 'otp_' + crypto.randomUUID().replace(/-/g, '').slice(0, 20);
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
   await DB.prepare("UPDATE auth_otps SET expires_at=CURRENT_TIMESTAMP WHERE phone=? AND purpose=? AND verified_at IS NULL").run(phone, purpose);
   await DB.prepare('INSERT INTO auth_otps(id,phone,purpose,code_hash,expires_at) VALUES(?,?,?,?,?)').run(id, phone, purpose, sha256(code), expiresAt);
-  const delivery = await sendSms(phone, `RoutePass verification code: ${code}. It expires in 10 minutes.`);
-  res.json({ success: true, message: delivery.sent ? 'Verification code sent by SMS.' : 'Verification code created, but SMS delivery is not configured.', delivery: delivery.sent ? 'SENT' : 'NOT_CONFIGURED', testCode: process.env.NODE_ENV === 'test' ? code : undefined });
+  let delivery;
+  const message = purpose === 'CARGO_REQUEST' || purpose === 'GROUP_REQUEST'
+    ? `PASSO ${purpose === 'CARGO_REQUEST' ? 'cargo' : 'group travel'} request verification code: ${code}. It expires in 10 minutes. Do not share it.`
+    : `PASSO sign-in verification code: ${code}. It expires in 10 minutes. Do not share it.`;
+  try { delivery = await sendSms(phone, message); } catch (_) { delivery = null; }
+  if (!delivery?.sent) {
+    await DB.prepare('DELETE FROM auth_otps WHERE id=? AND verified_at IS NULL').run(id);
+    return res.status(503).json({ success: false, error: 'The SMS could not be sent. Please try again later.', delivery: 'FAILED' });
+  }
+  res.json({ success: true, message: 'Verification code sent by SMS.', delivery: 'SENT', testCode: process.env.NODE_ENV === 'test' ? code : undefined });
 });
 
 router.post('/verify-otp', authLimiter, async (req, res) => {
@@ -372,6 +376,46 @@ router.post('/login', authLimiter, async (req, res) => {
   } catch (err) {
     console.error('[RoutePass] request failed:', err);
     res.status(500).json({ success: false, error: 'Internal server error.' });
+  }
+});
+
+/** Phone-code sign in for passenger and approved driver accounts. */
+router.post('/login-otp', authLimiter, async (req, res) => {
+  try {
+    const phone = typeof req.body?.phone === 'string' ? req.body.phone.trim() : '';
+    const role = String(req.body?.role || '').trim().toUpperCase();
+    const verificationToken = typeof req.body?.verificationToken === 'string' ? req.body.verificationToken : '';
+    if (!phone || !verificationToken || !['PASSENGER', 'DRIVER'].includes(role))
+      return res.status(400).json({ success: false, error: 'Enter your phone number and sign-in code.' });
+    const canonical = require('../services/onboarding').normalizePhone(phone);
+    if (!canonical) return res.status(400).json({ success: false, error: 'Enter a valid mobile number.' });
+    const national = canonical.slice(4);
+    const matches = await DB.prepare("SELECT * FROM users WHERE REPLACE(REPLACE(REPLACE(REPLACE(phone,' ',''),'-',''),'(',''),')','') IN (?,?,?,?)")
+      .all(canonical, canonical.slice(1), '0' + national, national);
+    let user = matches.length === 1 ? matches[0] : null;
+    if (!user) return res.status(401).json({ success: false, error: 'Unable to sign in. Check your number and code.' });
+    user = await loadCredentialSnapshot(user.id, user.role);
+    if (!user || user.role !== role) return res.status(403).json({ success: false, error: 'This account cannot use the selected sign-in option.' });
+    if (user.role === 'DRIVER' && (user.status === 'PENDING' || !(await isOperationallyEligible(user.id, 'DRIVER'))))
+      return res.status(403).json({ success: false, code: 'ONBOARDING_REQUIRED', error: 'Continue your driver application.' });
+    if (user.status !== 'ACTIVE') return res.status(403).json({ success: false, code: user.status, error: 'This account is not active.' });
+
+    const otp = await DB.prepare("SELECT id FROM auth_otps WHERE phone=? AND purpose='LOGIN' AND verification_token_hash=? AND verified_at IS NOT NULL AND expires_at>CURRENT_TIMESTAMP ORDER BY created_at DESC LIMIT 1")
+      .get(phone, sha256(verificationToken));
+    if (!otp) return res.status(401).json({ success: false, error: 'That sign-in code expired. Request a new one.' });
+    const consumed = await DB.prepare("UPDATE auth_otps SET verification_token_hash=NULL WHERE id=? AND verification_token_hash=? AND verified_at IS NOT NULL").run(otp.id, sha256(verificationToken));
+    if (consumed.changes !== 1) return res.status(401).json({ success: false, error: 'That sign-in code was already used. Request a new one.' });
+
+    const token = signToken({ id: user.id, role: user.role, fullName: user.fullName, phone: user.phone,
+      sessionVersion: Number(user.credential_session_version) });
+    res.json({ success: true, token, user: { id: user.id, role: user.role, fullName: user.fullName,
+      phone: user.phone, email: user.email, status: user.status, licenseNumber: user.licenseNumber,
+      companyName: user.companyName, assignedVehiclePlate: user.assignedVehiclePlate,
+      appliedRouteId: user.appliedRouteId, appliedRouteName: user.appliedRouteName,
+      driverServiceType: user.role === 'DRIVER' ? await getDriverServiceType(user.id) : null } });
+  } catch (err) {
+    console.error('[RoutePass] OTP sign-in failed:', err.code || err.name || 'Error');
+    res.status(500).json({ success: false, error: 'Sign-in is temporarily unavailable. Please try again.' });
   }
 });
 

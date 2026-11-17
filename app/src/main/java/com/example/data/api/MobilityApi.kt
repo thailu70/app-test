@@ -55,7 +55,7 @@ data class MobilityRequestInput(val kind: String, val origin: String, val destin
     val customerName: String, val customerPhone: String, val adultConfirmed: Boolean,
     val originLatitude: Double? = null, val originLongitude: Double? = null,
     val destinationLatitude: Double? = null, val destinationLongitude: Double? = null,
-    val estimatedWeightKg: Double? = null, val travelTime: String = "")
+    val estimatedWeightKg: Double? = null, val travelTime: String = "", val otpVerificationToken: String? = null)
 @JsonClass(generateAdapter = true)
 data class MobilityTripInput(val vehicleId: String, val origin: String, val destination: String,
     val departureAt: String, val seats: Int, val fareEtb: Double, val latitude: Double, val longitude: Double)
@@ -123,6 +123,8 @@ data class MobilityRoadGeometry(val type: String = "", val coordinates: List<Lis
 
 /** Public availability is separate from capability-protected guest details and authenticated driver operations. */
 interface MobilityApi {
+    @POST("api/auth/request-otp") suspend fun requestContactOtp(@Body input: Map<String, String>): Response<OtpResponse>
+    @POST("api/auth/verify-otp") suspend fun verifyContactOtp(@Body input: Map<String, String>): Response<OtpResponse>
     @GET("api/mobility/locations") suspend fun locations(@Query("q") query: String): Response<MobilityPlacesResponse>
     @GET("api/mobility/route") suspend fun road(@Query("originLatitude") originLatitude: Double,
         @Query("originLongitude") originLongitude: Double, @Query("destinationLatitude") destinationLatitude: Double,

@@ -48,7 +48,7 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.core.localization.AppLanguage
 
-enum class WelcomeService { PASSENGER, DRIVER, INTERCITY }
+enum class WelcomeService { PASSENGER, DRIVER }
 
 private val WelcomeInk = Color(0xFF06233D)
 private val WelcomeTeal = Color(0xFF007C78)
@@ -86,6 +86,21 @@ fun PassoWelcomeScreen(
     }
     ProvideTextStyle(LocalTextStyle.current.copy(fontFamily = WelcomeFont)) {
     Box(modifier.fillMaxSize().background(WelcomeCream).safeDrawingPadding(), contentAlignment = Alignment.TopCenter) {
+        var languageMenu by remember { mutableStateOf(false) }
+        Box(Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 12.dp)) {
+            TextButton(onClick = { languageMenu = true }, modifier = Modifier.testTag("welcome_language_menu")) {
+                Icon(Icons.Default.Language, null, tint = WelcomeTeal, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(5.dp))
+                Text(language.displayName, color = WelcomeInk, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Icon(Icons.Default.ExpandMore, null, tint = WelcomeTeal)
+            }
+            DropdownMenu(expanded = languageMenu, onDismissRequest = { languageMenu = false }) {
+                AppLanguage.entries.forEach { item -> DropdownMenuItem(
+                    text = { Text(item.displayName) }, leadingIcon = { if (item == language) Icon(Icons.Default.Check, null) else Icon(Icons.Default.Language, null) },
+                    onClick = { languageMenu = false; onLanguage(item) }, modifier = Modifier.testTag("welcome_language_${item.code}")
+                ) }
+            }
+        }
         WelcomeViewport { portrait, availableHeight ->
         // Portrait uses the full safe width. The photo takes the height left by the
         // native controls, rather than shrinking the entire page and leaving gutters.
@@ -131,27 +146,9 @@ fun PassoWelcomeScreen(
                 Spacer(Modifier.height(if (compact) 4.dp else 6.dp))
                 Text(copy("Reliable rides, smarter connections.\nGo Further, Together.", "አስተማማኝ ጉዞ፣ የተሻለ ግንኙነት።\nአብረን ወደ ፊት።", "Imala amanamaa, walqunnamtii caalu.\nWaliin fagootti haa imallu."), modifier = languageTextMotion, color = Color(0xFF53606C), fontSize = if (compact) 11.sp else 13.sp, lineHeight = if (compact) 15.sp else 18.sp, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AppLanguage.entries.forEach { item ->
-                        val selected = language == item
-                        val optionColor by animateColorAsState(if (selected) WelcomeTeal else WelcomeCream, tween(200), label = "welcome-language-background-${item.code}")
-                        val optionBorder by animateColorAsState(if (selected) WelcomeTeal else Color(0xFFE1DED7), tween(200), label = "welcome-language-border-${item.code}")
-                        val optionInk by animateColorAsState(if (selected) Color.White else WelcomeInk, tween(200), label = "welcome-language-ink-${item.code}")
-                        Surface(color = optionColor, shape = CircleShape,
-                            border = BorderStroke(1.dp, optionBorder), modifier = Modifier.weight(1f)) {
-                            Row(Modifier.testTag("welcome_language_${item.code}").selectable(language == item, role = Role.RadioButton, onClick = { onLanguage(item) }).heightIn(min = 48.dp).padding(horizontal = 5.dp, vertical = 8.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Language, null, Modifier.size(18.dp), tint = optionInk)
-                                Spacer(Modifier.width(4.dp))
-                                Text(item.displayName, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = optionInk)
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth().height(IntrinsicSize.Max).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     WelcomeServiceCard(copy("Passenger", "ተሳፋሪ", "Imaltuu"), copy("Find and ride with ease.", "በቀላሉ ይጓዙ።", "Salphaatti imalaa."), 32, Icons.Default.DirectionsBus, Color(0xFFE4F4E9), selectedService == WelcomeService.PASSENGER, Modifier.weight(1f).testTag("welcome_service_PASSENGER"), { languageOpacity.value }) { selectedService = WelcomeService.PASSENGER }
                     WelcomeServiceCard(copy("Driver", "ሹፌር", "Konkolaachisaa"), copy("Earn, drive and grow.", "ይንዱ፣ ያግኙ፣ ያድጉ።", "Oofaa, hojjedhaa, guddadhaa."), 306, Icons.Default.DirectionsCar, Color(0xFFE4F2FA), selectedService == WelcomeService.DRIVER, Modifier.weight(1f).testTag("welcome_service_DRIVER"), { languageOpacity.value }) { selectedService = WelcomeService.DRIVER }
-                    WelcomeServiceCard(copy("Intercity Travel", "የከተማ መካከል ጉዞ", "Imala magaalotaa"), copy("Explore more places.", "አዳዲስ ቦታዎችን ያስሱ።", "Bakkeewwan haaraa daawwadhaa."), 566, Icons.Default.AddRoad, Color(0xFFFFF1DB), selectedService == WelcomeService.INTERCITY, Modifier.weight(1f).testTag("welcome_service_INTERCITY"), { languageOpacity.value }) { selectedService = WelcomeService.INTERCITY }
                 }
                 Spacer(Modifier.height(10.dp))
                 Button(onClick = { onContinue(selectedService) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("welcome_continue"), shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = WelcomeTeal)) {
