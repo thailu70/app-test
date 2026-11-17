@@ -63,9 +63,11 @@ class AuthLayoutTest {
     private lateinit var database: TransportDatabase
     private lateinit var model: MainViewModel
     private val logins = mutableListOf<LoginRequest>()
+    private val otpLogins = mutableListOf<Map<String, String>>()
     private val registrations = mutableListOf<RegisterRequest>()
     private val driverApplications = mutableListOf<DriverApplicationInput>()
     private val applicationLogins = mutableListOf<LoginRequest>()
+    private val applicationOtpLogins = mutableListOf<Map<String, String>>()
     private var pendingDriverLogin = false
     private val recoveryRequests = mutableListOf<AccountRecoveryRequest>()
     private val recoveryResets = mutableListOf<AccountRecoveryReset>()
@@ -93,12 +95,19 @@ class AuthLayoutTest {
                 "requestOtp" -> {
                     @Suppress("UNCHECKED_CAST") val request = args!![0] as Map<String, String>
                     requestedCodes += request
-                    Response.success(OtpResponse(true, message = "Verification code sent by SMS."))
+                    Response.success(OtpResponse(true, message = "Verification code sent by SMS.", delivery = "SENT"))
                 }
                 "verifyOtp" -> {
                     @Suppress("UNCHECKED_CAST") val request = args!![0] as Map<String, String>
                     verifiedCodes += request
                     Response.success(OtpResponse(true, verificationToken = "private-test-phone-verification"))
+                }
+                "loginWithOtp" -> {
+                    @Suppress("UNCHECKED_CAST") val request = args!![0] as Map<String, String>
+                    otpLogins += request
+                    if (pendingDriverLogin && request["role"] == "DRIVER")
+                        Response.error<AuthResponse>(403, """{"success":false,"code":"PENDING","error":"Application is pending."}""".toResponseBody("application/json".toMediaType()))
+                    else Response.error<AuthResponse>(401, """{"success":false,"error":"Test credentials were not accepted."}""".toResponseBody("application/json".toMediaType()))
                 }
                 "register" -> {
                     val request = args!![0] as RegisterRequest
@@ -113,6 +122,7 @@ class AuthLayoutTest {
                 "driverCommuteQuote" -> Response.success(DriverQuoteResponse(true, DriverQuoteMatch("EXACT", "route-auth-test", "Bole → CMC"), DriverQuotePrice("FIXED", 132500.0, 53, 2500.0)))
                 "registerDriverApplication" -> { driverApplications += args!![0] as DriverApplicationInput; Response.success(applicationResponse) }
                 "loginDriverApplication" -> { applicationLogins += args!![0] as LoginRequest; Response.success(applicationResponse) }
+                "loginDriverApplicationWithOtp" -> { @Suppress("UNCHECKED_CAST") val request = args!![0] as Map<String, String>; applicationOtpLogins += request; Response.success(applicationResponse) }
                 "driverApplication" -> Response.success(applicationResponse.copy(token = null))
                 "requestAccountRecovery" -> { recoveryRequests += args!![0] as AccountRecoveryRequest; Response.success(AccountRecoveryResponse(true, "If the account matches, a reset code will be sent.")) }
                 "resetAccountPassword" -> { recoveryResets += args!![0] as AccountRecoveryReset; Response.success(AccountRecoveryResponse(true, "Password updated. Sign in with your new password.")) }
@@ -224,15 +234,23 @@ class AuthLayoutTest {
         return compose.onNodeWithTag(tag)
     }
 
+    private fun requestAndVerifyLoginCode(phone: String = "0912345678") {
+        compose.onNodeWithTag("auth_phone_input").performTextInput(phone)
+        compose.onNodeWithTag("auth_submit_button").performClick()
+        compose.waitUntil(5_000) { requestedCodes.isNotEmpty() }
+        compose.onNodeWithTag("auth_login_otp_input").performTextInput("123456")
+        compose.onNodeWithTag("auth_submit_button").performClick()
+        compose.waitUntil(5_000) { otpLogins.isNotEmpty() && !model.authBusy.value }
+    }
+
     @Test fun passengerLoginMatchesMockupAndSubmitsPassengerRole() {
         show(AppRole.PASSENGER)
         assertPrimaryInsideViewport()
         capture("01-passenger-login")
-        compose.onNodeWithTag("auth_phone_input").performTextInput("0912345678")
-        compose.onNodeWithTag("auth_password_input").performTextInput("valid-test-password")
-        compose.onNodeWithTag("auth_submit_button").performClick()
-        compose.waitUntil(5_000) { logins.isNotEmpty() }
-        assertEquals(LoginRequest("0912345678", "valid-test-password", "PASSENGER"), logins.single())
+        requestAndVerifyLoginCode()
+        assertEquals(mapOf("phone" to "0912345678", "role" to "PASSENGER", "verificationToken" to "private-test-phone-verification"), otpLogins.single())
+        assertEquals(mapOf("phone" to "0912345678", "purpose" to "LOGIN", "code" to "123456"), verifiedCodes.single())
+        assertTrue(logins.isEmpty())
         assertFalse(model.isAuthenticated.value)
     }
 
@@ -240,11 +258,10 @@ class AuthLayoutTest {
         show(AppRole.DRIVER)
         assertPrimaryInsideViewport()
         capture("03-driver-login")
-        compose.onNodeWithTag("auth_phone_input").performTextInput("0912345678")
-        compose.onNodeWithTag("auth_password_input").performTextInput("valid-test-password")
-        compose.onNodeWithTag("auth_submit_button").performClick()
-        compose.waitUntil(5_000) { logins.isNotEmpty() }
-        assertEquals(LoginRequest("0912345678", "valid-test-password", "DRIVER"), logins.single())
+        requestAndVerifyLoginCode()
+        assertEquals(mapOf("phone" to "0912345678", "role" to "DRIVER", "verificationToken" to "private-test-phone-verification"), otpLogins.single())
+        assertEquals(mapOf("phone" to "0912345678", "purpose" to "LOGIN", "code" to "123456"), verifiedCodes.single())
+        assertTrue(logins.isEmpty())
         assertFalse(model.isAuthenticated.value)
     }
 
@@ -403,10 +420,9 @@ class AuthLayoutTest {
     @Test fun pendingDriverSignInOpensApplicationWithoutOperationalAuthenticationAndApprovalNeedsExplicitSignIn() {
         pendingDriverLogin = true
         show(AppRole.DRIVER)
-        compose.onNodeWithTag("auth_phone_input").performTextInput("0912345678")
-        compose.onNodeWithTag("auth_password_input").performTextInput("valid-test-password")
-        compose.onNodeWithTag("auth_submit_button").performClick()
-        compose.waitUntil(5_000) { applicationLogins.isNotEmpty() && model.driverApplications.state.value.application != null }
+        requestAndVerifyLoginCode()
+        compose.waitUntil(5_000) { applicationOtpLogins.isNotEmpty() && model.driverApplications.state.value.application != null }
+        assertEquals(mapOf("phone" to "0912345678", "verificationToken" to "private-test-phone-verification"), applicationOtpLogins.single())
         compose.onNodeWithTag("driver_application_screen").assertExists()
         applicationNode("driver_application_upload_LICENSE").assertIsEnabled()
         assertFalse(model.isAuthenticated.value)
@@ -504,39 +520,32 @@ class AuthLayoutTest {
     @Test fun repeatedIdenticalLoginFailuresAlwaysReenableNativeSignIn() {
         show(AppRole.PASSENGER)
         compose.onNodeWithTag("auth_phone_input").performTextInput("0912345678")
-        compose.onNodeWithTag("auth_password_input").performTextInput("valid-test-password")
+        compose.onNodeWithTag("auth_submit_button").performClick()
+        compose.waitUntil(5_000) { requestedCodes.isNotEmpty() }
+        compose.onNodeWithTag("auth_login_otp_input").performTextInput("123456")
         for (attempt in 1..3) {
             compose.onNodeWithTag("auth_submit_button").assertIsEnabled().performClick()
-            compose.waitUntil(5_000) { logins.size == attempt && !model.authBusy.value }
+            compose.waitUntil(5_000) { otpLogins.size == attempt && verifiedCodes.size == attempt && !model.authBusy.value }
             compose.onNodeWithTag("auth_submit_button").assertIsEnabled()
             assertEquals("Test credentials were not accepted.", model.authError.value)
         }
-        assertEquals(3, logins.size)
+        assertEquals(3, otpLogins.size)
         assertFalse(model.isAuthenticated.value)
     }
 
-    @Test fun driverPasswordRecoveryUsesSeparateResetProofAndDoesNotSignInOrVerifySignup() {
+    @Test fun driverSignInUsesSmsCodeAndDoesNotOfferPasswordRecovery() {
         show(AppRole.DRIVER)
         compose.onNodeWithTag("auth_phone_input").performTextInput("0912345678")
-        compose.onNodeWithTag("auth_password_help").performScrollTo().performClick()
-        compose.onNodeWithTag("auth_recovery_screen").assertExists()
-        compose.onNodeWithTag("auth_recovery_request").performScrollTo().performClick()
-        compose.waitUntil(5_000) { recoveryRequests.size == 1 }
-        assertEquals(AccountRecoveryRequest("DRIVER", "0912345678"), recoveryRequests.single())
-        compose.onNodeWithTag("auth_recovery_code").performScrollTo().performTextInput("123456")
-        compose.onNodeWithTag("auth_recovery_password").performScrollTo().performTextInput("new-fixture-password")
-        compose.onNodeWithTag("auth_recovery_confirmation").performScrollTo().performTextInput("different-password")
-        compose.onNodeWithTag("auth_recovery_reset").performScrollTo().performClick()
-        assertTrue(recoveryResets.isEmpty())
-        compose.onNodeWithTag("auth_recovery_confirmation").performScrollTo().performTextReplacement("new-fixture-password")
-        compose.onNodeWithTag("auth_recovery_reset").performScrollTo().performClick()
-        compose.waitUntil(5_000) { recoveryResets.size == 1 }
-        compose.onNodeWithTag("auth_recovery_done").performScrollTo().assertIsEnabled()
-        assertEquals(AccountRecoveryReset("DRIVER", "0912345678", "123456", "new-fixture-password"), recoveryResets.single())
+        compose.onNodeWithTag("auth_password_input").assertDoesNotExist()
+        compose.onNodeWithTag("auth_password_help").assertDoesNotExist()
+        compose.onNodeWithTag("auth_submit_button").performClick()
+        compose.waitUntil(5_000) { requestedCodes.isNotEmpty() }
+        compose.onNodeWithTag("auth_login_otp_input").assertIsDisplayed()
         assertFalse(model.isAuthenticated.value)
         assertNull(ApiClient.getAuthToken())
-        assertTrue(registrations.isEmpty()); assertTrue(driverApplications.isEmpty()); assertTrue(requestedCodes.isEmpty())
-        capture("10-driver-password-recovery")
+        assertTrue(registrations.isEmpty()); assertTrue(driverApplications.isEmpty())
+        assertTrue(recoveryRequests.isEmpty()); assertTrue(recoveryResets.isEmpty())
+        capture("10-driver-sms-sign-in")
     }
 
     @Test fun unverifiedPassengerCanRequestCustomCommuteWithoutPretendingAnExistingRouteWasAssigned() {
@@ -575,11 +584,11 @@ class AuthLayoutTest {
         compose.onNodeWithTag("auth_language_om").performClick()
         assertEquals(AppLanguage.OROMO, model.currentLanguage.value)
         compose.onNodeWithTag("auth_phone_input").performScrollTo().performTextInput("0912345678")
-        compose.onNodeWithTag("auth_password_input").performScrollTo().performTextInput("valid-test-password")
+        compose.onNodeWithTag("auth_password_input").assertDoesNotExist()
         compose.onNodeWithTag("auth_submit_button").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("auth_signup_link").performScrollTo().performClick()
         capture("07-small-driver-login-oromo")
 
-        compose.onNodeWithTag("auth_signup_link").performScrollTo().performClick()
         compose.onNodeWithTag("auth_full_name_input").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("auth_phone_input").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("auth_password_input").performScrollTo().assertIsDisplayed()
@@ -593,3 +602,4 @@ class AuthLayoutTest {
         assertFalse(model.isAuthenticated.value)
     }
 }
+

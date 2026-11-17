@@ -70,10 +70,11 @@ class TaxiLayoutTest {
         compose.onNodeWithTag("taxi_tier_COMFORT").assertIsDisplayed().performClick()
         compose.onNodeWithTag("taxi_tier_MINI_VAN").assertIsDisplayed()
         compose.onNodeWithText("Current location").assertDoesNotExist()
-        compose.onNodeWithText("Daily Commute").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Daily").assertIsDisplayed().performClick()
         assertEquals(1, commute)
         compose.runOnIdle { val view = compose.activity.window.decorView; val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888); view.draw(Canvas(bitmap))
             val dir = File("build/taxi-previews").apply { mkdirs() }; File(dir, "01-passenger-home.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
     }
 }
+
