@@ -52,36 +52,27 @@ class BrowseBackNavigationTest {
         database.close()
     }
 
-    private fun enterDailyRoutes() {
-        compose.onNodeWithTag("welcome_service_PASSENGER").performClick()
-        compose.onNodeWithTag("welcome_continue").performClick()
-        // Passenger now opens taxi discovery; Daily Commute remains an explicit destination.
+    private fun assertTaxiHome() {
         compose.onNodeWithTag("taxi_where_to").assertIsDisplayed()
-        compose.onNodeWithTag("taxi_daily_commute").assertIsDisplayed().performClick()
-        assertDailyRoutes()
-    }
-
-    private fun assertDailyRoutes() {
-        compose.onNodeWithText("Find a daily route").assertIsDisplayed()
-        compose.onNodeWithTag("commuter_browse_sign_in").assertIsDisplayed()
+        compose.onNodeWithTag("taxi_sign_in").assertIsDisplayed()
         compose.onNodeWithTag("welcome_continue").assertDoesNotExist()
         compose.onNodeWithText("Passenger Sign In").assertDoesNotExist()
     }
 
-    @Test fun passengerSignInTopBackReturnsToDailyRoutes() {
-        enterDailyRoutes()
-        compose.onNodeWithTag("commuter_browse_sign_in").performClick()
-        compose.onNodeWithTag("auth_form_card").assertExists()
-        compose.onNodeWithTag("auth_header_back").performClick()
-        assertDailyRoutes()
+    @Test fun dismissingPassengerPhonePromptReturnsToTaxiHome() {
+        assertTaxiHome()
+        compose.onNodeWithTag("taxi_sign_in").performClick()
+        compose.onNodeWithTag("taxi_sign_in_passenger").performClick()
+        compose.onNodeWithTag("taxi_phone_prompt").assertIsDisplayed()
+        compose.onNodeWithText("Not now").performClick()
+        assertTaxiHome()
     }
 
-    @Test fun myPassHardwareBackReturnsToDailyRoutes() {
-        enterDailyRoutes()
-        compose.onNodeWithText("My pass").performClick()
-        compose.onNodeWithTag("auth_form_card").assertExists()
+    @Test fun destinationSearchBackReturnsToTaxiHome() {
+        assertTaxiHome()
+        compose.onNodeWithTag("taxi_where_to").performClick()
+        compose.onNodeWithTag("taxi_destination_search").assertIsDisplayed()
         compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
-        assertDailyRoutes()
+        assertTaxiHome()
     }
 }
-
