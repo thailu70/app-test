@@ -285,9 +285,11 @@ fun MainTransportApp(viewModel: MainViewModel) {
             CircularProgressIndicator(color = TransportGreenPrimary)
         }
     } else if (!isAuthenticated) {
-        var showWelcome by rememberSaveable { mutableStateOf(true) }
-        var showPublicHome by rememberSaveable { mutableStateOf(true) }
-        var showTaxi by rememberSaveable { mutableStateOf(false) }
+        // The taxi meter is the public landing page. Driver access lives behind
+        // its Sign in chooser, so passengers do not need an extra portal step.
+        var showWelcome by rememberSaveable { mutableStateOf(false) }
+        var showPublicHome by rememberSaveable { mutableStateOf(false) }
+        var showTaxi by rememberSaveable { mutableStateOf(true) }
         var guestMobilityKind by rememberSaveable { mutableStateOf<String?>(null) }
         var authReturnsToTaxi by rememberSaveable { mutableStateOf(false) }
         var showCompanyPortal by rememberSaveable { mutableStateOf(false) }
@@ -298,12 +300,12 @@ fun MainTransportApp(viewModel: MainViewModel) {
         var requestedRouteName by rememberSaveable { mutableStateOf<String?>(null) }
         var requestedServiceTier by rememberSaveable { mutableStateOf<String?>(null) }
         fun returnFromAuthentication() {
-            // Passenger sign-in is entered from route browsing, including My pass.
-            // Keep that return destination while driver access returns to Welcome.
             val returnToRoutes = requestedAuthPortal == AppRole.PASSENGER
-            showPublicHome = !returnToRoutes || !authReturnsToTaxi
-            showTaxi = returnToRoutes && authReturnsToTaxi
-            showWelcome = !returnToRoutes
+            val returnToTaxi = authReturnsToTaxi
+            showPublicHome = if (returnToRoutes) !returnToTaxi else !returnToTaxi
+            showTaxi = returnToTaxi
+            showWelcome = !returnToRoutes && !returnToTaxi
+            authReturnsToTaxi = false
             requestedAuthPortal = null
             requestedRegisterFirst = false
             requestedRouteId = null
@@ -313,6 +315,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
         androidx.activity.compose.BackHandler(enabled = !showWelcome && !showIntercityPortal && !showCompanyPortal) {
             when {
                 guestMobilityKind != null -> guestMobilityKind = null
+                showTaxi -> Unit
                 showPublicHome -> showWelcome = true
                 else -> returnFromAuthentication()
             }
@@ -360,9 +363,15 @@ fun MainTransportApp(viewModel: MainViewModel) {
             } else com.example.ui.screens.taxi.TaxiPassengerScreen(viewModel,
                 onDailyCommute = { showTaxi = false; showPublicHome = true; showDailyCommute = true },
                 onSignIn = { authReturnsToTaxi = true; showDailyCommute = false; requestedAuthPortal = AppRole.PASSENGER; requestedRegisterFirst = false; showTaxi = false; showPublicHome = false },
-                onBack = { showTaxi = false; showWelcome = true },
+                onDriverSignIn = { authReturnsToTaxi = true; showDailyCommute = false; requestedAuthPortal = AppRole.DRIVER; requestedRegisterFirst = false; requestedRouteId = null; requestedRouteName = null; requestedServiceTier = null; showTaxi = false; showPublicHome = false; showWelcome = false },
+                onBack = null,
                 onPrivacy = { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://passo.live/privacy/"))) },
-                onOpenMobility = { kind -> guestMobilityKind = kind.takeIf { it == "CARGO" || it == "GROUP" } })
+                language = currentLang, onLanguage = { viewModel.setLanguage(it) },
+                onOpenMobility = { kind -> when (kind) {
+                    "CARGO", "GROUP" -> guestMobilityKind = kind
+                    "COMMUTE" -> { showTaxi = false; showPublicHome = true; showDailyCommute = true }
+                    "INTERCITY" -> { showTaxi = false; showIntercityPortal = true }
+                } })
         } else if (showPublicHome) {
             BrowseFirstScreen(
                 viewModel = viewModel,
@@ -630,7 +639,13 @@ fun MainTransportApp(viewModel: MainViewModel) {
                         }
                         else com.example.ui.screens.taxi.TaxiPassengerScreen(viewModel,
                             onDailyCommute = { passengerService = if (commuteSnapshot.subscription != null || !currentUser?.appliedRouteId.isNullOrBlank()) "COMMUTE" else "COMMUTE_BROWSE"; showDailyCommute = true }, onSignIn = {}, onBack = {},
-                            onPrivacy = { showPrivacy = true }, onProfile = { showProfile = true }, onSignOut = { viewModel.logout() })
+                            onPrivacy = { showPrivacy = true }, onProfile = { showProfile = true }, onSignOut = { viewModel.logout() },
+                            language = currentLang, onLanguage = { viewModel.setLanguage(it) },
+                            onOpenMobility = { service -> when (service) {
+                                "CARGO", "GROUP" -> passengerService = service
+                                "COMMUTE" -> { passengerService = if (commuteSnapshot.subscription != null || !currentUser?.appliedRouteId.isNullOrBlank()) "COMMUTE" else "COMMUTE_BROWSE"; showDailyCommute = true }
+                                "INTERCITY" -> passengerService = "INTERCITY"
+                            } })
                     }
                     AppRole.DRIVER -> {
                         if (showTaxiDriver) com.example.ui.screens.taxi.TaxiDriverScreen(viewModel, onExit = { showTaxiDriver = false })

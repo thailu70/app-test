@@ -328,6 +328,13 @@ router.post('/login', authLimiter, async (req, res) => {
       });
     }
 
+    // Passenger and driver accounts now sign in only with a one-time SMS code.
+    // Keep the password path for administrator access while preventing older
+    // clients from silently bypassing OTP for customer or driver accounts.
+    if (user.role !== 'ADMIN') {
+      return res.status(410).json({ success: false, code: 'OTP_REQUIRED', error: 'Sign in with your phone number and SMS code.' });
+    }
+
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
       return res.status(401).json({
@@ -394,6 +401,10 @@ router.post('/login-otp', authLimiter, async (req, res) => {
     const matches = await DB.prepare("SELECT * FROM users WHERE REPLACE(REPLACE(REPLACE(REPLACE(phone,' ',''),'-',''),'(',''),')','') IN (?,?,?,?)")
       .all(canonical, canonical.slice(1), '0' + national, national);
     let user = matches.length === 1 ? matches[0] : null;
+    const otp = await DB.prepare("SELECT id FROM auth_otps WHERE phone=? AND purpose='LOGIN' AND verification_token_hash=? AND verified_at IS NOT NULL AND expires_at>CURRENT_TIMESTAMP ORDER BY created_at DESC LIMIT 1")
+      .get(phone, sha256(verificationToken));
+    if (!otp) return res.status(401).json({ success: false, error: 'That sign-in code expired. Request a new one.' });
+    if (!user && role === 'PASSENGER') return res.status(404).json({ success: false, code: 'NEW_PASSENGER', error: 'Create your passenger account to continue.' });
     if (!user) return res.status(401).json({ success: false, error: 'Unable to sign in. Check your number and code.' });
     user = await loadCredentialSnapshot(user.id, user.role);
     if (!user || user.role !== role) return res.status(403).json({ success: false, error: 'This account cannot use the selected sign-in option.' });
@@ -401,9 +412,6 @@ router.post('/login-otp', authLimiter, async (req, res) => {
       return res.status(403).json({ success: false, code: 'ONBOARDING_REQUIRED', error: 'Continue your driver application.' });
     if (user.status !== 'ACTIVE') return res.status(403).json({ success: false, code: user.status, error: 'This account is not active.' });
 
-    const otp = await DB.prepare("SELECT id FROM auth_otps WHERE phone=? AND purpose='LOGIN' AND verification_token_hash=? AND verified_at IS NOT NULL AND expires_at>CURRENT_TIMESTAMP ORDER BY created_at DESC LIMIT 1")
-      .get(phone, sha256(verificationToken));
-    if (!otp) return res.status(401).json({ success: false, error: 'That sign-in code expired. Request a new one.' });
     const consumed = await DB.prepare("UPDATE auth_otps SET verification_token_hash=NULL WHERE id=? AND verification_token_hash=? AND verified_at IS NOT NULL").run(otp.id, sha256(verificationToken));
     if (consumed.changes !== 1) return res.status(401).json({ success: false, error: 'That sign-in code was already used. Request a new one.' });
 
@@ -417,6 +425,56 @@ router.post('/login-otp', authLimiter, async (req, res) => {
   } catch (err) {
     console.error('[RoutePass] OTP sign-in failed:', err.code || err.name || 'Error');
     res.status(500).json({ success: false, error: 'Sign-in is temporarily unavailable. Please try again.' });
+  }
+});
+
+/** Create the first passenger account only after a verified sign-in phone code. */
+router.post('/register-passenger-otp', authLimiter, async (req, res) => {
+  try {
+    const phone = typeof req.body?.phone === 'string' ? req.body.phone.trim() : '';
+    const fullName = typeof req.body?.fullName === 'string' ? req.body.fullName.trim() : '';
+    const verificationToken = typeof req.body?.verificationToken === 'string' ? req.body.verificationToken : '';
+    const canonical = require('../services/onboarding').normalizePhone(phone);
+    if (!canonical || fullName.length < 2 || fullName.length > 100 || /[\u0000-\u001f]/.test(fullName) || !verificationToken)
+      return res.status(400).json({ success: false, error: 'Enter your name and a valid mobile number.' });
+
+    const otp = await DB.prepare("SELECT id FROM auth_otps WHERE phone=? AND purpose='LOGIN' AND verification_token_hash=? AND verified_at IS NOT NULL AND expires_at>CURRENT_TIMESTAMP ORDER BY created_at DESC LIMIT 1")
+      .get(phone, sha256(verificationToken));
+    if (!otp) return res.status(401).json({ success: false, error: 'That sign-in code expired. Request a new one.' });
+
+    const national = canonical.slice(4);
+    const matchingUsers = await DB.prepare("SELECT id FROM users WHERE REPLACE(REPLACE(REPLACE(REPLACE(phone,' ',''),'-',''),'(',''),')','') IN (?,?,?,?)")
+      .all(canonical, canonical.slice(1), '0' + national, national);
+    if (matchingUsers.length) return res.status(409).json({ success: false, code: 'ACCOUNT_EXISTS', error: 'This phone is already registered. Sign in instead.' });
+    const phoneAvailable = await require('../services/onboarding').phoneAvailable(canonical, null);
+    if (!phoneAvailable) return res.status(409).json({ success: false, code: 'ACCOUNT_EXISTS', error: 'This phone is already registered. Sign in instead.' });
+
+    const userId = `usr_pas_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    const passwordHash = await bcrypt.hash(crypto.randomBytes(48).toString('base64url'), 12);
+    const created = await DB.transaction(async tx => {
+      const duplicate = await tx.prepare("SELECT id FROM users WHERE REPLACE(REPLACE(REPLACE(REPLACE(phone,' ',''),'-',''),'(',''),')','') IN (?,?,?,?)")
+        .get(canonical, canonical.slice(1), '0' + national, national);
+      if (duplicate) return false;
+      const consumed = await tx.prepare("UPDATE auth_otps SET verification_token_hash=NULL WHERE id=? AND verification_token_hash=? AND verified_at IS NOT NULL")
+        .run(otp.id, sha256(verificationToken));
+      if (consumed.changes !== 1) return false;
+      await tx.prepare("INSERT INTO users (id, role, fullName, phone, email, passwordHash, status, licenseNumber, companyName, assignedVehiclePlate, appliedRouteId, appliedRouteName, companyId) VALUES (?, 'PASSENGER', ?, ?, ?, ?, 'ACTIVE', '', '', '', '', '', NULL)")
+        .run(userId, fullName, canonical, `${userId}@accounts.passo.live`, passwordHash);
+      return true;
+    });
+    if (!created) return res.status(409).json({ success: false, code: 'ACCOUNT_EXISTS', error: 'This phone is already registered. Sign in instead.' });
+
+    const user = await loadCredentialSnapshot(userId, 'PASSENGER');
+    if (!user) throw new Error('New passenger account could not be loaded.');
+    const token = signToken({ id: user.id, role: user.role, fullName: user.fullName, phone: user.phone,
+      sessionVersion: Number(user.credential_session_version) });
+    res.status(201).json({ success: true, token, user: { id: user.id, role: user.role, fullName: user.fullName,
+      phone: user.phone, email: user.email, status: user.status, licenseNumber: user.licenseNumber,
+      companyName: user.companyName, assignedVehiclePlate: user.assignedVehiclePlate,
+      appliedRouteId: user.appliedRouteId, appliedRouteName: user.appliedRouteName } });
+  } catch (err) {
+    console.error('[RoutePass] OTP passenger registration failed:', err.code || err.name || 'Error');
+    res.status(500).json({ success: false, error: 'Account creation is temporarily unavailable. Please try again.' });
   }
 });
 

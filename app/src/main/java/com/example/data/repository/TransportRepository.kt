@@ -333,6 +333,22 @@ class TransportRepository(
         }
     }
 
+    suspend fun registerPassengerWithOtp(fullName: String, phone: String, verificationToken: String): UserEntity {
+        val response = apiService.registerPassengerWithOtp(mapOf(
+            "fullName" to fullName.trim(), "phone" to phone.trim(), "verificationToken" to verificationToken
+        ))
+        val body = response.body()
+        if (!response.isSuccessful || body?.success != true)
+            throw IllegalStateException(body?.error ?: "Unable to create your account. Please try again.")
+        val token = body.token ?: error("Account creation could not be completed. Please try again.")
+        val user = userEntity(body.user ?: error("Account creation could not be completed. Please try again."))
+        currentCoroutineContext().ensureActive()
+        ApiClient.setAuthToken(token, environmentScope)
+        dao.insertUser(user)
+        sessionStore?.save(token, user)
+        return user
+    }
+
     suspend fun requestRegistrationOtp(phone: String): String {
         val response = apiService.requestOtp(mapOf("phone" to phone.trim(), "purpose" to "REGISTRATION"))
         if (!response.isSuccessful || response.body()?.success != true) throw IllegalStateException(response.body()?.error ?: "Could not send the verification SMS.")

@@ -57,11 +57,11 @@ import kotlin.math.roundToInt
 
 internal data class TaxiPendingIntent(val scope: com.example.core.environment.ApiSessionScope,
     val route: TaxiRouteInput? = null, val sharedId: String? = null, val sharedStart: Boolean = false,
-    val phone: String? = null, val loginOtpSent: Boolean = false)
+    val phone: String? = null, val loginOtpSent: Boolean = false, val requestAfterSignIn: Boolean = false)
 /** Process-only sign-in return context; no location draft or bearer is written to disk. */
 internal object TaxiPendingNavigation {
     private var pending: TaxiPendingIntent? = null
-    fun route(value: TaxiRouteInput) { pending = (peek() ?: TaxiPendingIntent(ApiClient.sessionScope())).copy(route = value) }
+    fun route(value: TaxiRouteInput, requestAfterSignIn: Boolean = false) { pending = (peek() ?: TaxiPendingIntent(ApiClient.sessionScope())).copy(route = value, requestAfterSignIn = requestAfterSignIn) }
     fun login(phone: String, otpSent: Boolean) { pending = (peek() ?: TaxiPendingIntent(ApiClient.sessionScope())).copy(phone = phone, loginOtpSent = otpSent) }
     fun shared(id: String? = null, start: Boolean = false) { pending = TaxiPendingIntent(ApiClient.sessionScope(), sharedId = id, sharedStart = start) }
     fun peek(): TaxiPendingIntent? = pending?.takeIf { ApiClient.isCurrent(it.scope) }
@@ -111,6 +111,7 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
 @Composable internal fun TaxiHeader(title: String? = null, onBack: (() -> Unit)? = null,
     onMenu: (() -> Unit)? = null,
     onDailyCommute: (() -> Unit)? = null, onSignIn: (() -> Unit)? = null,
+    languageLabel: String? = null, onLanguage: (() -> Unit)? = null,
     guestService: String? = null, onGuestService: ((String) -> Unit)? = null,
     trailing: @Composable RowScope.() -> Unit = {}) {
     val dailyCommuteLabel = if (LocalConfiguration.current.screenWidthDp >= 380) "Daily Commute" else "Daily"
@@ -121,6 +122,11 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
             if (title == null) Image(painterResource(R.drawable.auth_passo_wordmark), "PASSO", Modifier.width(126.dp).height(42.dp), contentScale = ContentScale.Fit)
             else Text(title, color = CommuteInk, fontWeight = FontWeight.ExtraBold, fontSize = 23.sp, modifier = Modifier.weight(1f), maxLines = 2)
             if (title == null) Spacer(Modifier.weight(1f))
+            if (languageLabel != null && onLanguage != null) TextButton(onClick = onLanguage,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp), modifier = Modifier.testTag("taxi_language")) {
+                Icon(Icons.Default.Language, null, Modifier.size(17.dp), tint = CommuteTeal)
+                Spacer(Modifier.width(4.dp)); Text(languageLabel, color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
+            }
             if (onDailyCommute != null) OutlinedButton(onClick = onDailyCommute, modifier = Modifier.testTag("taxi_daily_commute"), contentPadding = PaddingValues(horizontal = 7.dp, vertical = 5.dp), border = BorderStroke(1.dp, CommuteTeal)) {
                 Icon(Icons.Default.DirectionsBus, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text(dailyCommuteLabel, fontSize = 11.sp, maxLines = 1)
             }
@@ -131,7 +137,7 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
         }
         if (guestService != null && onGuestService != null) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                listOf("TAXI" to ("Taxi" to Icons.Default.LocalTaxi), "CARGO" to ("Cargo" to Icons.Default.Inventory2), "GROUP" to ("Group" to Icons.Default.Groups)).forEach { (key, pair) ->
+                listOf("TAXI" to ("Taxi" to Icons.Default.LocalTaxi), "CARGO" to ("Cargo" to Icons.Default.Inventory2), "COMMUTE" to ("Commute" to Icons.Default.DirectionsBus), "INTERCITY" to ("Intercity" to Icons.Default.Map)).forEach { (key, pair) ->
                     val active = guestService == key
                     Surface(onClick = { onGuestService(key) }, modifier = Modifier.weight(1f).testTag("guest_service_$key"),
                         color = if (active) CommuteTeal.copy(alpha = .92f) else Color.White.copy(alpha = .8f),
@@ -187,9 +193,9 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
         AnimatedVisibility(visible = previewTier != null) {
             val item = (tiers.ifEmpty { fallback }).firstOrNull { it.id == previewTier }
             item?.let { chosen ->
-                val previewFare = distanceKm?.let { taxiFareForTier(it, settings, chosen) }
+                val previewFare = distanceKm?.takeIf { settings.enabled }?.let { taxiFareForTier(it, settings, chosen) }
                 Surface(Modifier.align(Alignment.CenterHorizontally), color = CommuteTeal.copy(alpha = .88f), shape = RoundedCornerShape(16.dp)) {
-                    Text("${if (chosen.id == "MINI_VAN") "Minivan" else chosen.name}  ·  ${previewFare?.let(::taxiMoney) ?: "Fare estimate"}",
+                    Text("${if (chosen.id == "MINI_VAN") "Minivan" else chosen.name}  ·  ${previewFare?.let(::taxiMoney) ?: "Fare unavailable"}",
                         Modifier.padding(horizontal = 14.dp, vertical = 7.dp), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
@@ -200,15 +206,17 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
                 val surface by animateColorAsState(if (active) CommuteMint else Color.White.copy(alpha = .84f), tween(180), label = "Vehicle tier surface")
                 val border by animateColorAsState(if (active) CommuteTeal else Color(0xFFD9DFDE), tween(180), label = "Vehicle tier border")
                 val scale by animateFloatAsState(if (active) 1.04f else 1f, tween(180), label = "Vehicle selection")
-                val fare = distanceKm?.let { taxiFareForTier(it, settings, tier) }
-                Surface(onClick = { previewTier = tier.id; onSelect(tier.id) }, enabled = enabled,
+                val fare = distanceKm?.takeIf { settings.enabled }?.let { taxiFareForTier(it, settings, tier) }
+                Surface(onClick = { previewTier = tier.id; onSelect(tier.id) }, enabled = enabled && settings.enabled,
                     modifier = Modifier.weight(1f).testTag("taxi_tier_${tier.id}"), color = surface,
                     border = BorderStroke(if (active) 2.dp else 1.dp, border), shape = RoundedCornerShape(16.dp)) {
                     Column(Modifier.padding(horizontal = 4.dp, vertical = 5.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Image(painterResource(when (tier.id) { "COMFORT" -> R.drawable.taxi_comfort; "MINI_VAN" -> R.drawable.taxi_minivan; else -> R.drawable.taxi_economy }), null,
                             Modifier.fillMaxWidth().height(44.dp).graphicsLayer { scaleX = scale; scaleY = scale }, contentScale = ContentScale.Fit)
                         Text(if (tier.id == "MINI_VAN") "Minivan" else tier.name, color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
-                        Text(fare?.let(::taxiMoney) ?: "—", color = if (active) CommuteTeal else Color(0xFF627385), fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
+                        Text(fare?.let(::taxiMoney) ?: if (distanceKm == null) "Select destination" else "Unavailable",
+                            color = if (fare != null && active) CommuteTeal else Color(0xFF627385), fontWeight = FontWeight.Bold,
+                            fontSize = if (distanceKm == null) 9.sp else 11.sp, maxLines = 1)
                     }
                 }
             }
@@ -216,8 +224,10 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
     }
 }
 
-private fun taxiFareForTier(distanceKm: Double, settings: TaxiSettings, tier: TaxiTier): Double {
+private fun taxiFareForTier(distanceKm: Double, settings: TaxiSettings, tier: TaxiTier): Double? {
+    if (settings.baseFareEtb <= 0.0 && settings.perKmEtb <= 0.0 && settings.minimumFareEtb <= 0.0) return null
     val value = max(settings.minimumFareEtb, (settings.baseFareEtb + distanceKm * settings.perKmEtb) * tier.multiplier)
+    if (!value.isFinite() || value <= 0.0) return null
     return (value * 100.0).roundToInt() / 100.0
 }
 
