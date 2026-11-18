@@ -36,6 +36,7 @@ import com.example.ui.viewmodel.AppRole
 import com.example.ui.viewmodel.MainViewModel
 import com.example.smoothPortalMotion
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 
 /** Public destination-first discovery; only requesting a ride or booking a seat requires sign-in. */
@@ -384,7 +385,7 @@ private fun TaxiPassengerHome(
         verticalArrangement = Arrangement.spacedBy(15.dp)) {
         Box(Modifier.fillMaxWidth().height(235.dp).background(CommuteMint, RoundedCornerShape(25.dp))) {
             Image(painterResource(R.drawable.passo_hero_background), "Passo passengers and bus in Addis Ababa",
-                Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop, alignment = Alignment(0.5f, 0.42f))
+                Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop, alignment = Alignment.Center)
             Surface(Modifier.align(Alignment.BottomStart).padding(13.dp), color = CommuteInk.copy(alpha = .84f),
                 shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.padding(horizontal = 15.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
