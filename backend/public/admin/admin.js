@@ -165,13 +165,12 @@
     return pageHeader("Settings", "Monitor server capacity and manage passenger SMS notifications.") +
       (window.RoutepassResources ? window.RoutepassResources.markup() : "") +
       (result.settingsError ? section("Afro SMS", "SMS settings could not be loaded.", '<div class="empty-note">' + esc(result.settingsError) + '</div>') :
-      section("Afro SMS", "Enter the AfroMessage token and Identifier ID. The token is stored securely and is never displayed after saving.",
+      section("Afro SMS", "Connect OTP and service alerts through AfroMessage. Its official send endpoint is fixed in the application; API tokens and verification codes are never displayed.",
         '<form id="afro-sms-form" class="form-card" style="padding:0;border:0;box-shadow:none">' +
         '<div class="driver-form-grid">' +
         '<div class="field"><label for="afro-sms-token">API token</label><input id="afro-sms-token" name="apiToken" type="password" autocomplete="new-password" placeholder="Paste Afro SMS API token" required><span class="hint">' + (configured.AFRO_SMS_API_TOKEN ? 'A token is already saved. Enter a new token only when rotating it.' : 'Required before RoutePass can send SMS notifications.') + '</span></div>' +
-        '<div class="field"><label for="afro-sms-identifier">Identifier ID (from, optional)</label><input id="afro-sms-identifier" name="identifier" maxlength="120" placeholder="Leave blank to use your default identifier"><span class="hint">Use an Identifier ID only when your AfroMessage account has multiple short codes. Otherwise leave it blank.</span></div>' +
-        '<div class="field"><label for="afro-sms-sender">Approved sender name</label><input id="afro-sms-sender" name="sender" maxlength="40" value="WHALE" placeholder="Approved AfroMessage sender"><span class="hint">For the WHALE identifier, use the approved sender name from AfroMessage. The default is WHALE.</span></div>' +
-        '<div class="field"><label for="afro-sms-url">API URL</label><input id="afro-sms-url" name="url" type="url" value="https://api.afromessage.com/api/send"><span class="hint">Leave the default Afro SMS endpoint unless your account uses another URL.</span></div>' +
+        '<div class="field"><label for="afro-sms-identifier">Identifier ID (optional)</label><input id="afro-sms-identifier" name="identifier" maxlength="120" placeholder="Use the ID from your AfroMessage account"><span class="hint">Enter the Identifier ID provided by AfroMessage. Leave blank when your account already has a default.</span></div>' +
+        '<div class="field"><label for="afro-sms-sender">Verified sender name (optional)</label><input id="afro-sms-sender" name="sender" maxlength="40" placeholder="Leave blank for AfroMessage default"><span class="hint">Only enter a sender name approved for your AfroMessage account. Blank uses the provider default.</span></div>' +
         '</div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Afro SMS settings</button></div><div class="driver-form-grid" style="margin-top:16px"><div class="field"><label for="afro-sms-test-phone">Test phone number</label><input id="afro-sms-test-phone" type="tel" placeholder="09XXXXXXXX"></div><div class="field"><label for="afro-sms-test-message">Test message</label><input id="afro-sms-test-message" maxlength="320" value="RoutePass test SMS: Afro SMS is connected."></div></div><div class="form-actions"><button class="btn btn-secondary" type="button" id="afro-sms-test">Send test message</button></div><p id="afro-sms-message" class="form-message" hidden></p></form>'));
   }
   async function saveAfroSms(event) {
@@ -185,8 +184,6 @@
       const data = Object.fromEntries(new FormData(form).entries());
       await api("/api/admin/integrations/afro-sms", { method: "PUT", body: JSON.stringify(data) });
       form.reset();
-      $("#afro-sms-sender").value = "WHALE";
-      $("#afro-sms-url").value = "https://api.afromessage.com/api/send";
       message.textContent = "Afro SMS settings saved securely.";
       message.className = "form-message";
       message.hidden = false;
@@ -535,7 +532,7 @@
         button.disabled = true;
         try {
           await api("/api/admin/integrations/afro-sms/test", { method: "POST", body: JSON.stringify({ phone: $("#afro-sms-test-phone").value, message: $("#afro-sms-test-message").value }) });
-          message.textContent = "Test SMS sent."; message.className = "form-message"; message.hidden = false; toast("Test SMS sent.");
+          message.textContent = "AfroMessage accepted the test SMS for delivery."; message.className = "form-message"; message.hidden = false; toast("AfroMessage accepted the test SMS.");
         } catch (error) { message.textContent = error.message; message.className = "form-message error"; message.hidden = false; }
         finally { button.disabled = false; }
       });

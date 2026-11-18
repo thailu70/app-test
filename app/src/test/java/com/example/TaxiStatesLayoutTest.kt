@@ -123,7 +123,11 @@ class TaxiStatesLayoutTest {
         compose.onNodeWithTag("shared_seat_1").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithTag("shared_seat_2").performScrollTo().performClick()
         compose.onNodeWithTag("shared_book_seats").performScrollTo().assertIsEnabled()
-        compose.onNodeWithText("Total: ETB 80 for 1 seat(s)").assertIsDisplayed()
+        compose.onNodeWithText("Total: ETB 80 for 1 seat").assertIsDisplayed()
+        compose.onNodeWithText("Book 1 seat").assertIsDisplayed()
+        compose.onNodeWithTag("shared_seat_4").performScrollTo().performClick()
+        compose.onNodeWithText("Total: ETB 160 for 2 seats").assertIsDisplayed()
+        compose.onNodeWithText("Book 2 seats").assertIsDisplayed()
         capture("shared-seat-booking")
     }
     @Test fun requesting393() = passenger("REQUESTED")

@@ -108,8 +108,9 @@ import java.util.*
                     }
                     repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
-                if (selected.isNotEmpty()) Text("Total: ${taxiMoney((trip.farePerSeatEtb ?: 0.0) * selected.size)} for ${selected.size} seat(s)", color = CommuteInk, fontWeight = FontWeight.Bold)
-                TaxiPrimary(if (authenticated) "Book ${selected.size} seat(s)" else "Sign in to book", !state.busy && selected.isNotEmpty(), "shared_book_seats") { if (authenticated) model.book(selected.sorted()) else { TaxiPendingNavigation.shared(trip.id); onSignIn() } }
+                val seatLabel = if (selected.size == 1) "seat" else "seats"
+                if (selected.isNotEmpty()) Text("Total: ${taxiMoney((trip.farePerSeatEtb ?: 0.0) * selected.size)} for ${selected.size} $seatLabel", color = CommuteInk, fontWeight = FontWeight.Bold)
+                TaxiPrimary(if (authenticated) "Book ${selected.size} $seatLabel" else "Sign in to book", !state.busy && selected.isNotEmpty(), "shared_book_seats") { if (authenticated) model.book(selected.sorted()) else { TaxiPendingNavigation.shared(trip.id); onSignIn() } }
             } else Text(trip.status.replace('_', ' '), color = CommuteTeal, fontWeight = FontWeight.Bold)
         }
         if (authenticated && trip.status in setOf("REQUESTED", "OPEN") && state.myTrips.any { it.id == trip.id && it.initiatorRole == "PASSENGER" })

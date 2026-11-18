@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -112,6 +113,7 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
     onDailyCommute: (() -> Unit)? = null, onSignIn: (() -> Unit)? = null,
     guestService: String? = null, onGuestService: ((String) -> Unit)? = null,
     trailing: @Composable RowScope.() -> Unit = {}) {
+    val dailyCommuteLabel = if (LocalConfiguration.current.screenWidthDp >= 380) "Daily Commute" else "Daily"
     Column(Modifier.fillMaxWidth().background(CommuteCream)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) IconButton(onClick = onBack, Modifier.testTag("taxi_back")) { Icon(Icons.Default.ArrowBack, "Back", tint = CommuteInk) }
@@ -120,7 +122,7 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
             else Text(title, color = CommuteInk, fontWeight = FontWeight.ExtraBold, fontSize = 23.sp, modifier = Modifier.weight(1f), maxLines = 2)
             if (title == null) Spacer(Modifier.weight(1f))
             if (onDailyCommute != null) OutlinedButton(onClick = onDailyCommute, modifier = Modifier.testTag("taxi_daily_commute"), contentPadding = PaddingValues(horizontal = 7.dp, vertical = 5.dp), border = BorderStroke(1.dp, CommuteTeal)) {
-                Icon(Icons.Default.DirectionsBus, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Daily", fontSize = 11.sp, maxLines = 1)
+                Icon(Icons.Default.DirectionsBus, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text(dailyCommuteLabel, fontSize = 11.sp, maxLines = 1)
             }
             if (onSignIn != null) TextButton(onClick = onSignIn, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 6.dp), modifier = Modifier.testTag("taxi_sign_in")) {
                 Text("Sign in", color = CommuteTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
