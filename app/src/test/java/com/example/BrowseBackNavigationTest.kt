@@ -59,13 +59,12 @@ class BrowseBackNavigationTest {
         compose.onNodeWithText("Passenger Sign In").assertDoesNotExist()
     }
 
-    @Test fun dismissingPassengerPhonePromptReturnsToTaxiHome() {
+    @Test fun taxiLandingOffersPassengerServicesAndSignIn() {
         assertTaxiHome()
-        compose.onNodeWithTag("taxi_sign_in").performClick()
-        compose.onNodeWithTag("taxi_sign_in_passenger").performClick()
-        compose.onNodeWithTag("taxi_phone_prompt").assertIsDisplayed()
-        compose.onNodeWithText("Not now").performClick()
-        assertTaxiHome()
+        compose.onNodeWithTag("taxi_service_CARGO").assertExists()
+        compose.onNodeWithTag("taxi_service_COMMUTE").assertExists()
+        compose.onNodeWithTag("taxi_service_INTERCITY").assertExists()
+        compose.onNodeWithTag("taxi_travel_together").assertExists()
     }
 
     @Test fun destinationSearchBackReturnsToTaxiHome() {
