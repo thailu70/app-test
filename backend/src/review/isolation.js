@@ -12,6 +12,8 @@ function validateReviewEnvironment(env = process.env, { test = false } = {}) {
   if (env.REVIEW_SMS_MODE !== 'DISABLED' || env.PAYMENT_MODE !== 'PRODUCTION' || env.PAYMENT_TESTS_ENABLED !== 'false') fail('Outbound SMS and all payment test paths must be disabled.');
   if (env.ALLOW_MANUAL_TEST_RECHARGE !== 'false' || env.ALLOW_ADMIN_PASS_ACTIVATION !== 'false' || env.PAYMENT_TEST_PASSENGER_ID) fail('No manual/payment account bypass is allowed.');
   for (const [key, value] of Object.entries(env)) if (/^(TELEBIRR_|AFRO_SMS_)/.test(key) && String(value || '').trim()) fail('Provider credentials/configuration must be absent: ' + key);
+  if (env.PASSO_TEST_OTP_ENABLED === 'true' || ['PASSO_TEST_OTP_CODE','PASSO_TEST_OTP_PASSENGER_PHONE','PASSO_TEST_OTP_DRIVER_PHONE','PASSO_TEST_OTP_EXPIRES_AT'].some(key => String(env[key] || '').trim())) fail('Test sign-in OTP settings must be absent from the review environment.');
+  if (env.PASSO_SMS_GATEWAY_ENABLED === 'true' || env.PASSO_TEST_OTP_DELIVERY === 'PHONE_GATEWAY') fail('The personal phone SMS gateway must be disabled in the review environment.');
   const secrets = ['JWT_SECRET', 'QR_SIGNING_KEY', 'ADMIN_REGISTRATION_SECRET', 'REVIEW_FIXTURE_SECRET', 'REVIEW_INSTANCE_ID'];
   for (const key of secrets) if (typeof env[key] !== 'string' || env[key].length < 48) fail(key + ' must be a dedicated generated secret.');
   if (new Set(secrets.map(key => env[key])).size !== secrets.length) fail('Secrets must be distinct.');
@@ -52,3 +54,4 @@ async function assertReviewDatabase(db, config) {
   }
 }
 module.exports = { validateReviewEnvironment, activateReviewRuntime, getReviewRuntime, assertReviewDatabase };
+
