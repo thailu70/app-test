@@ -56,6 +56,18 @@ function createAfroSmsService({ db = DB, fetchImpl = (...args) => fetch(...args)
   return { sendSms };
 }
 
+/** Non-OTP account and trip messages use the encrypted phone gateway when selected in Admin. */
+async function sendTransactionalSms(eventKey, phone, message, { db = DB, fallbackSendSms = smsService.sendSms } = {}) {
+  try {
+    const gateway = require('./phone-sms-gateway');
+    if (await gateway.getDeliveryMode({ db }) === 'PHONE_GATEWAY') {
+      const queued = await gateway.queueServiceMessage({ eventKey, phone, message, db });
+      if (queued.queued) return { sent: true, queued: true };
+    }
+  } catch (_) { /* Fall back to the configured SMS provider if pilot delivery is unavailable. */ }
+  return fallbackSendSms(phone, message);
+}
+
 const smsService = createAfroSmsService();
-module.exports = { sendSms: smsService.sendSms, normalizePhone, createAfroSmsService,
+module.exports = { sendSms: smsService.sendSms, sendTransactionalSms, normalizePhone, createAfroSmsService,
   AFROMESSAGE_SEND_URL };

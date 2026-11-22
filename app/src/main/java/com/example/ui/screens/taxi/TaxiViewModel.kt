@@ -204,8 +204,21 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
         val ride = mutable.value.ride ?: return@act
         val finalSequence = flushMeter(ride.id, location)
         val result = check(mobilityBody(api.complete(ride.id, location + mapOf("finalSequence" to finalSequence))))
-        mutable.update { it.copy(ride = result.ride) }; load()
-        if (driver && result.ride?.status == "COMPLETED") mutable.update { it.copy(ride = null, message = "Trip completed. You are back online.") }
+        if (driver && result.ride?.status == "COMPLETED") {
+            mutable.update { it.copy(ride = null, message = "Trip completed. You are back online.") }
+            val vehicle = result.ride.vehicleId
+            val availability = if (!vehicle.isNullOrBlank()) runCatching {
+                check(mobilityBody(api.availability(location + mapOf("online" to true, "vehicleId" to vehicle))))
+            }.getOrNull() else null
+            if (availability != null) mutable.update { it.copy(dashboard = availability, ride = null) }
+            else {
+                runCatching { load() }
+                if (mutable.value.dashboard?.online != true) mutable.update { it.copy(message = "Trip completed. Reconnecting to your driver availability…") }
+            }
+        } else {
+            mutable.update { it.copy(ride = result.ride) }
+            load()
+        }
     }
     fun chooseTrip(id: String) = act { loadTrip(id) }
     private suspend fun loadTrip(id: String) {

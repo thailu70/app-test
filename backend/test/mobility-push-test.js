@@ -82,7 +82,7 @@ test('push tokens stay private; nearby eligibility, busy suppression, dedup and 
   await DB.prepare("UPDATE mobility_requests SET status='CANCELLED' WHERE id='push-request'").run();
   for(let i=0;i<8;i++)await paged.flush();
   assert.deepEqual(pagedSends.filter(x=>pagingTokens.includes(x.token)).map(x=>x.token).sort(),pagingTokens.slice().sort(),'Stable keyset paging reaches every older customer token without starvation or duplicate delivery.');
-  assert.deepEqual(createMobilityPushService({service:fake,env:{JWT_SECRET:process.env.JWT_SECRET}}).health(),{enabled:false,reason:'NOT_CONFIGURED'});
+  assert.deepEqual(createMobilityPushService({service:fake,env:{JWT_SECRET:process.env.JWT_SECRET}}).health(),{enabled:false,reason:'NOT_CONFIGURED',lastDelivery:null});
   const review = createMobilityPushService({service:fake,env:{JWT_SECRET:process.env.JWT_SECRET,REVIEW_ENVIRONMENT:'true'},provider:{send:async()=>{throw new Error('Must not contact provider');}}});
   assert.deepEqual(await review.flush(),{sent:0,enabled:false,reason:'REVIEW_DISABLED'});
   const express = require('express');
@@ -139,4 +139,7 @@ test('FCM HTTP v1 signs a scoped assertion, caches access and identifies revoked
   assert.deepEqual(await provider.send('synthetic-registration-token',{title:'Update',body:'Open Passo'},{eventType:'QUOTES'}),{sent:true});
   assert.equal((await provider.send('synthetic-registration-token',{title:'Update',body:'Open Passo'},{eventType:'QUOTES'})).invalidToken,true);
   assert.equal(authorizations,1);assert.equal(messages,2);
+  const aliased = createMobilityPushService({ service: { init: async () => {} },
+    env: { JWT_SECRET: process.env.JWT_SECRET, FCM_SERVICE_ACCOUNT_PATH: file }, fetchImpl: async () => { throw new Error('Health must not send a network request.'); } });
+  assert.equal(aliased.health().enabled, true, 'The VPS FCM_SERVICE_ACCOUNT_PATH alias enables push delivery.');
 });

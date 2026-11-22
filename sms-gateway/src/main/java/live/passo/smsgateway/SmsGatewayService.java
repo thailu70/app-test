@@ -29,7 +29,8 @@ public class SmsGatewayService extends Service {
     private static final String KEY_DEVICE_TOKEN = "device_token_enc";
     private static final String CHANNEL_ID = "passo_sms_gateway";
     private static final int NOTIFICATION_ID = 5091;
-    private static final Pattern OTP_TEXT = Pattern.compile("^PASSO sign-in verification code: \\d{6}\\. It expires in 10 minutes\\. Do not share it\\.$");
+    private static final Pattern OTP_TEXT = Pattern.compile("^PASSO (?:sign-in|cargo request|group travel request) verification code: \\d{6}\\. It expires in 10 minutes\\. Do not share it\\.$");
+    private static final Pattern PASSO_TRANSACTION_TEXT = Pattern.compile("^(?:PASSO(?:[\\p{L}\\p{N}]+|[ :])|RoutePass(?::| ))[^\\r\\n]{1,480}$");
     private static final Pattern ETHIOPIAN_PHONE = Pattern.compile("^\\+251[79]\\d{8}$");
 
     private volatile boolean running;
@@ -126,7 +127,7 @@ public class SmsGatewayService extends Service {
             // Keep the decryption failure category recorded above.
         } else if (!ETHIOPIAN_PHONE.matcher(phone).matches()) {
             failureReason = "recipient_invalid";
-        } else if (!OTP_TEXT.matcher(message).matches()) {
+        } else if (!OTP_TEXT.matcher(message).matches() && !PASSO_TRANSACTION_TEXT.matcher(message).matches()) {
             failureReason = "message_policy_rejected";
         } else {
             try {
@@ -147,7 +148,7 @@ public class SmsGatewayService extends Service {
             acknowledgement.put("leaseToken", lease);
             acknowledgement.put("status", sent ? "SENT" : "FAILED");
             post("/api/sms-gateway/jobs/" + id + "/ack", acknowledgement);
-            updateNotification(sent ? "Test sign-in SMS sent from this phone" : "A test SMS could not be sent");
+            updateNotification(sent ? "Passo message sent from this phone" : "A Passo message could not be sent");
         } catch (Exception ignored) {
             updateNotification("Message queued · reconnecting to Passo");
         } finally {
@@ -178,8 +179,8 @@ public class SmsGatewayService extends Service {
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT < 26) return;
-        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Passo test SMS gateway", NotificationManager.IMPORTANCE_LOW);
-        channel.setDescription("Shows when Passo is sending test sign-in SMS through this phone.");
+        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Passo SMS gateway", NotificationManager.IMPORTANCE_LOW);
+        channel.setDescription("Shows when Passo is sending encrypted SMS through this phone.");
         getSystemService(NotificationManager.class).createNotificationChannel(channel);
     }
 

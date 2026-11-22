@@ -2,7 +2,7 @@
 const crypto = require("node:crypto");
 const { DB } = require("../db");
 const { initRidesSchema } = require("./rides-schema");
-const { normalizePhone, sendSms } = require("./afro-sms");
+const { normalizePhone, sendSms, sendTransactionalSms } = require("./afro-sms");
 const ACTIVE = ["ACCEPTED", "AT_PICKUP", "IN_PROGRESS"];
 class RideError extends Error {
   constructor(status, message, code = "RIDE_ERROR") {
@@ -192,7 +192,7 @@ function createRidesService({
         if (!row) break;
         if (row.cancelled) continue;
         let sent = false;
-        try { sent = (await sendSms(row.phone, row.message))?.sent === true; } catch (_) {}
+        try { sent = (await sendTransactionalSms(row.event_key || row.id, row.phone, row.message, { db, fallbackSendSms: sendSms }))?.sent === true; } catch (_) {}
         await db.prepare("UPDATE ride_sms_outbox SET status=?,sent_at=?,next_attempt_at=?,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=?")
           .run(sent ? "SENT" : row.attempts >= 8 ? "FAILED" : "PENDING", sent ? instant() : null, new Date(now() + Math.min(3600000, 60000 * 2 ** Math.min(row.attempts - 1, 6))).toISOString(), row.id, row.lease);
         result[sent ? "sent" : "failed"]++;

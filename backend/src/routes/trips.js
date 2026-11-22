@@ -188,8 +188,9 @@ router.post('/start', authenticate, requireRole('DRIVER'), operationalAccount, a
         timestamp: new Date().toISOString()
       });
     }
-    const passengers = await DB.prepare("SELECT u.phone FROM subscriptions s JOIN users u ON u.id=s.passengerId WHERE s.vehicleId=? AND s.subscriptionStatus='ACTIVE' AND s.paymentStatus='PAID' AND s.daysRemaining>0 AND u.phone IS NOT NULL").all(vehicle.id);
-    for (const passenger of passengers) sendSms(passenger.phone, `RoutePass: your ${route.name} transport has arrived. Please board now using your boarding QR code.`).catch(() => {});
+    const passengers = await DB.prepare("SELECT u.id,u.phone FROM subscriptions s JOIN users u ON u.id=s.passengerId WHERE s.vehicleId=? AND s.subscriptionStatus='ACTIVE' AND s.paymentStatus='PAID' AND s.daysRemaining>0 AND u.phone IS NOT NULL").all(vehicle.id);
+    for (const passenger of passengers) require('../services/afro-sms').sendTransactionalSms(`daily-trip-arrival-${tripId}-${passenger.id}`, passenger.phone,
+      `RoutePass: your ${route.name} transport has arrived. Please board now using your boarding QR code.`).catch(() => {});
 
     res.json({
       success: true,

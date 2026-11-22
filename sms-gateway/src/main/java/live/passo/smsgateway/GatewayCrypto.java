@@ -70,17 +70,44 @@ final class GatewayCrypto {
         store.load(null);
         PrivateKey privateKey = (PrivateKey) store.getKey(RSA_ALIAS, null);
         if (privateKey == null) throw new IllegalStateException("Phone decryption key is missing.");
-        byte[] ciphertext = Base64.decode(encryptedPayload, Base64.DEFAULT);
+        byte[] ciphertext = null;
         byte[] plaintext = null;
+        byte[] wrappedKey = null;
+        byte[] aesKey = null;
+        byte[] iv = null;
+        byte[] encryptedMessage = null;
+        byte[] envelopeBytes = null;
         try {
-            Cipher cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
-            OAEPParameterSpec oaep = new OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA256,
-                    PSource.PSpecified.DEFAULT);
-            cipher.init(Cipher.DECRYPT_MODE, privateKey, oaep);
-            plaintext = cipher.doFinal(ciphertext);
+            if (encryptedPayload.startsWith("P2.")) {
+                envelopeBytes = Base64.decode(encryptedPayload.substring(3), Base64.DEFAULT);
+                JSONObject envelope = new JSONObject(new String(envelopeBytes, StandardCharsets.UTF_8));
+                wrappedKey = Base64.decode(envelope.getString("key"), Base64.DEFAULT);
+                iv = Base64.decode(envelope.getString("iv"), Base64.DEFAULT);
+                encryptedMessage = Base64.decode(envelope.getString("ciphertext"), Base64.DEFAULT);
+                Cipher rsa = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
+                OAEPParameterSpec oaep = new OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA256,
+                        PSource.PSpecified.DEFAULT);
+                rsa.init(Cipher.DECRYPT_MODE, privateKey, oaep);
+                aesKey = rsa.doFinal(wrappedKey);
+                Cipher aes = Cipher.getInstance("AES/GCM/NoPadding");
+                aes.init(Cipher.DECRYPT_MODE, new javax.crypto.spec.SecretKeySpec(aesKey, "AES"), new GCMParameterSpec(128, iv));
+                plaintext = aes.doFinal(encryptedMessage);
+            } else {
+                ciphertext = Base64.decode(encryptedPayload, Base64.DEFAULT);
+                Cipher cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
+                OAEPParameterSpec oaep = new OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA256,
+                        PSource.PSpecified.DEFAULT);
+                cipher.init(Cipher.DECRYPT_MODE, privateKey, oaep);
+                plaintext = cipher.doFinal(ciphertext);
+            }
             return new JSONObject(new String(plaintext, StandardCharsets.UTF_8));
         } finally {
-            Arrays.fill(ciphertext, (byte) 0);
+            if (ciphertext != null) Arrays.fill(ciphertext, (byte) 0);
+            if (wrappedKey != null) Arrays.fill(wrappedKey, (byte) 0);
+            if (aesKey != null) Arrays.fill(aesKey, (byte) 0);
+            if (iv != null) Arrays.fill(iv, (byte) 0);
+            if (encryptedMessage != null) Arrays.fill(encryptedMessage, (byte) 0);
+            if (envelopeBytes != null) Arrays.fill(envelopeBytes, (byte) 0);
             if (plaintext != null) Arrays.fill(plaintext, (byte) 0);
         }
     }

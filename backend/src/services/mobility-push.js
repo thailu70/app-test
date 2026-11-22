@@ -63,7 +63,8 @@ function createFcmTransport({ accountFile, fetchImpl = globalThis.fetch, now = D
     if (response.ok && typeof body.name === 'string') return { sent: true };
     if (response.status === 401) access = null;
     const code = (body.error?.details || []).find(item => String(item['@type'] || '').endsWith('google.firebase.fcm.v1.FcmError'))?.errorCode;
-    return { sent: false, invalidToken: ['UNREGISTERED', 'SENDER_ID_MISMATCH'].includes(code), permanent: response.status === 400 && code !== 'UNAVAILABLE' };
+    return { sent: false, httpStatus: response.status, errorCode: String(code || body.error?.status || 'FCM_SEND_FAILED').slice(0, 60),
+      invalidToken: ['UNREGISTERED', 'SENDER_ID_MISMATCH'].includes(code), permanent: response.status === 400 && code !== 'UNAVAILABLE' };
   } };
 }
 function createMobilityPushService({ db = DB, service, ridesService, env = process.env, now = Date.now, provider, fetchImpl,
@@ -76,14 +77,16 @@ function createMobilityPushService({ db = DB, service, ridesService, env = proce
   const customerLimit = Math.min(500, Math.max(1, Math.floor(Number(customerBatchSize)) || 200));
   const deliveryLimit = Math.min(100, Math.max(1, Math.floor(Number(deliveryBatchSize)) || 20));
   let transport = provider, configurationError = false, working = false, driverCursor = '', customerCursor = '';
+  let lastDelivery = null;
+  const serviceAccountFile = () => String(env.FCM_SERVICE_ACCOUNT_FILE || env.FCM_SERVICE_ACCOUNT_PATH || '').trim();
   const instant = () => new Date(now()).toISOString();
   const rideEvents = require('./ride-push-events').createRidePushEvents({ db, now, enqueue,
     rides: () => ridesService || require('./rides').getRidesService() });
   function health() {
     if (isReview()) return { enabled: false, reason: 'REVIEW_DISABLED' };
-    if (!transport && !env.FCM_SERVICE_ACCOUNT_FILE) return { enabled: false, reason: 'NOT_CONFIGURED' };
-    if (!transport && !configurationError) try { transport = createFcmTransport({ accountFile: env.FCM_SERVICE_ACCOUNT_FILE, fetchImpl, now }); } catch (_) { configurationError = true; }
-    return { enabled: Boolean(transport) && !configurationError, reason: configurationError ? 'CONFIGURATION_UNAVAILABLE' : 'READY' };
+    if (!transport && !serviceAccountFile()) return { enabled: false, reason: 'NOT_CONFIGURED', lastDelivery };
+    if (!transport && !configurationError) try { transport = createFcmTransport({ accountFile: serviceAccountFile(), fetchImpl, now }); } catch (_) { configurationError = true; }
+    return { enabled: Boolean(transport) && !configurationError, reason: configurationError ? 'CONFIGURATION_UNAVAILABLE' : 'READY', lastDelivery };
   }
   function encrypt(value) {
     const iv = crypto.randomBytes(12), cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey, iv);
@@ -226,7 +229,8 @@ function createMobilityPushService({ db = DB, service, ridesService, env = proce
         if (!acquired.changes) continue;
         let result;
         try { result = await transport.send(decrypt(token.token_encrypted), notification(job.event_type, job.scope, job.kind), { requestId: job.request_id, eventType: job.event_type, scope: job.scope, kind: job.kind }); }
-        catch (_) { result = { sent: false }; }
+        catch (error) { result = { sent: false, errorCode: error?.message === 'FCM authorization is unavailable.' ? 'FCM_AUTH_FAILED' : 'FCM_TRANSPORT_FAILED' }; }
+        lastDelivery = result.sent ? { status: 'SENT', at: instant() } : { status: 'FAILED', at: instant(), code: result.errorCode || 'FCM_SEND_FAILED', httpStatus: result.httpStatus || null };
         if (result.sent) { await db.prepare("UPDATE mobility_push_outbox SET status='SENT',attempts=attempts+1,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=?").run(job.id, lease); sent++; }
         else {
           if (result.invalidToken) await db.prepare('DELETE FROM mobility_push_tokens WHERE token_hash=?').run(token.token_hash);

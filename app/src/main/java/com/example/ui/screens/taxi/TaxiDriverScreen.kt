@@ -16,6 +16,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -114,10 +116,6 @@ import kotlinx.coroutines.launch
         TaxiHeader(onMenu = { driverMenu = true }, onDailyCommute = onExit)
         TaxiNotice(notice ?: state.message) { notice = null; model.clearMessage() }
         if (state.busy || locating) LinearProgressIndicator(Modifier.fillMaxWidth(), color = CommuteTeal)
-        if (target != null && trackingEnabled) Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(trackingStatus, Modifier.weight(1f), color = Color(0xFF627385), fontSize = 12.sp)
-            if (TaxiTracking.session == null) TextButton(onClick = { if (allowed()) TaxiTracking.start(context, target) }) { Text("Resume sharing") }
-        }
         Box(Modifier.weight(1f).smoothPortalMotion("$page:${state.ride?.status}:${state.selectedTrip?.status}")) {
             when {
                 state.selectedTrip != null -> SharedDriverTrip(model, state, ::withFix)
@@ -130,38 +128,63 @@ import kotlinx.coroutines.launch
                     Text("Settings", color = CommuteInk, fontWeight = FontWeight.ExtraBold, fontSize = 27.sp)
                     com.example.core.notifications.MobilityAlertToneSettings(driver = true, language = com.example.core.localization.AppLanguage.ENGLISH)
                 }
-                else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(15.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (page == "trips") "Your trips" else "Ride calls", Modifier.weight(1f), fontWeight = FontWeight.ExtraBold, fontSize = 28.sp, color = CommuteInk)
-                        Text(if (state.dashboard?.online == true) "Online" else "Offline", color = CommuteTeal, fontSize = 13.sp)
-                        Switch(state.dashboard?.online == true, onCheckedChange = { online ->
-                            if (online) withFix { model.online(true, vehicleId, it) } else model.online(false, vehicleId, emptyMap())
-                        }, enabled = !state.busy && !locating && state.dashboard?.eligible == true && vehicleId.isNotBlank() && (state.settings.enabled || state.settings.sharedEnabled))
-                    }
+                else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 15.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     val dashboard = state.dashboard
                     if (dashboard != null) {
-                        Surface(color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                            Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.AccountBalanceWallet, null, tint = PassoMobilityPalette.brand)
-                                Column(Modifier.weight(1f).padding(start = 11.dp)) { Text("Available credit", color = PassoMobilityPalette.muted, fontSize = 12.sp); Text(taxiMoney(dashboard.wallet.availableEtb), fontWeight = FontWeight.ExtraBold, fontSize = 25.sp, color = PassoMobilityPalette.brand); Text("Reserved ${taxiMoney(dashboard.wallet.heldEtb)}", color = PassoMobilityPalette.muted, fontSize = 12.sp) }
-                            }
-                        }
-                        if (!dashboard.eligible) Text("Taxi and shared-ride access needs separate driver and vehicle approval. Contact Passo after completing your driver documents.", color = CommuteInk, fontSize = 14.sp)
-                        else if (dashboard.vehicles.isNotEmpty()) Box {
-                            OutlinedButton(onClick = { vehicleMenu = true }, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text(dashboard.vehicles.find { it.id == vehicleId }?.let { "${it.model} · ${it.plateNumber}" } ?: "Choose approved vehicle"); Icon(Icons.Default.ArrowDropDown, null) }
-                            DropdownMenu(vehicleMenu, { vehicleMenu = false }) { dashboard.vehicles.forEach { item -> DropdownMenuItem(text = { Text("${item.model} · ${item.plateNumber}") }, onClick = {
-                                if (dashboard.online) notice = "Go offline before changing your vehicle." else vehicleId = item.id
-                                vehicleMenu = false
-                            }) } }
-                        }
-                        com.example.core.notifications.MobilityNotificationOptIn(driver = true, taxi = true)
                         if (page == "credit") {
+                            Surface(color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("Available credit", color = PassoMobilityPalette.muted, fontSize = 12.sp)
+                                    Text(taxiMoney(dashboard.wallet.availableEtb), fontWeight = FontWeight.ExtraBold, fontSize = 25.sp, color = PassoMobilityPalette.brand)
+                                    Text("Reserved ${taxiMoney(dashboard.wallet.heldEtb)}", color = PassoMobilityPalette.muted, fontSize = 12.sp)
+                                }
+                            }
                             Text("Driver credit", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
                             Text("Contact info@passo.live to top up. Only verified payments are credited. Your available balance updates as requests and trips are completed.", color = CommuteInk, fontSize = 14.sp)
                         } else if (page == "trips") {
+                            Text("Your trips", fontWeight = FontWeight.ExtraBold, fontSize = 26.sp, color = CommuteInk)
                             dashboard.sharedTrips.forEach { trip -> SharedTripRow(trip) { model.chooseTrip(trip.id) } }
                             if (dashboard.sharedTrips.isEmpty()) Text("Shared trips you publish or accept appear here.", color = Color(0xFF627385))
                         } else {
+                            val requestMarkers = dashboard.calls.map { TaxiNearbyCar(it.originLatitude, it.originLongitude, it.tier) } +
+                                dashboard.sharedRequests.map { TaxiNearbyCar(it.originLatitude, it.originLongitude, "GROUP") }
+                            Box(Modifier.fillMaxWidth().height(250.dp).clip(RoundedCornerShape(22.dp))) {
+                                TaxiMap(driverLocation, null, height = 250, pickupLabel = "Your location", destinationLabel = "",
+                                    tileDownloadsEnabled = mapTiles, providedApi = mapApi, nearbyCars = requestMarkers)
+                                Surface(Modifier.align(Alignment.TopStart).padding(10.dp), color = PassoMobilityPalette.card.copy(alpha = .96f),
+                                    shape = RoundedCornerShape(18.dp), shadowElevation = 3.dp) {
+                                    Row(Modifier.padding(start = 8.dp, end = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text(if (dashboard.online) "Online" else "Offline", color = PassoMobilityPalette.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Switch(checked = dashboard.online, onCheckedChange = { online ->
+                                            if (online) withFix { model.online(true, vehicleId, it) } else model.online(false, vehicleId, emptyMap())
+                                        }, enabled = !state.busy && !locating && dashboard.eligible && vehicleId.isNotBlank() && (state.settings.enabled || state.settings.sharedEnabled),
+                                            modifier = Modifier.scale(.82f))
+                                    }
+                                }
+                                Surface(Modifier.align(Alignment.TopEnd).padding(10.dp).clickable { page = "credit" }, color = PassoMobilityPalette.card.copy(alpha = .96f),
+                                    shape = RoundedCornerShape(18.dp), shadowElevation = 3.dp) {
+                                    Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.AccountBalanceWallet, null, tint = PassoMobilityPalette.brand, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(5.dp)); Text(taxiMoney(dashboard.wallet.availableEtb), color = PassoMobilityPalette.brand, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                                    }
+                                }
+                                if (locating || (target != null && trackingEnabled && trackingStatus.contains("Waiting for precise GPS", ignoreCase = true)))
+                                    Surface(Modifier.align(Alignment.BottomStart).padding(10.dp), color = PassoMobilityPalette.text.copy(alpha = .9f), shape = RoundedCornerShape(12.dp)) {
+                                        Text("LOADING...", Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                            }
+                            if (!dashboard.eligible) Text("Taxi and shared-ride access needs driver and vehicle approval.", color = CommuteInk, fontSize = 14.sp)
+                            else if (dashboard.vehicles.isNotEmpty()) Box {
+                                OutlinedButton(onClick = { vehicleMenu = true }, enabled = !state.busy && !dashboard.online, modifier = Modifier.fillMaxWidth()) {
+                                    Text(dashboard.vehicles.find { it.id == vehicleId }?.let { "${it.model} · ${it.plateNumber}" } ?: "Choose approved vehicle")
+                                    Icon(Icons.Default.ArrowDropDown, null)
+                                }
+                                DropdownMenu(vehicleMenu, { vehicleMenu = false }) { dashboard.vehicles.forEach { item -> DropdownMenuItem(text = { Text("${item.model} · ${item.plateNumber}") }, onClick = {
+                                    if (dashboard.online) notice = "Go offline before changing your vehicle." else vehicleId = item.id
+                                    vehicleMenu = false
+                                }) } }
+                            }
+                            com.example.core.notifications.MobilityNotificationOptIn(driver = true, taxi = true)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(onClick = { withFix { point ->
                                     formPickup = (point["latitude"] as Number).toDouble() to (point["longitude"] as Number).toDouble()
@@ -172,10 +195,6 @@ import kotlinx.coroutines.launch
                                     formPickupName = "Your location"; page = "offer"; requested = null; model.clearEstimate()
                                 } }, enabled = !state.busy && !locating && dashboard.eligible && state.settings.sharedEnabled, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Groups, null, Modifier.size(18.dp)); Text("Offer group ride", Modifier.padding(start = 5.dp), fontSize = 12.sp) }
                             }
-                            val requestMarkers = dashboard.calls.map { TaxiNearbyCar(it.originLatitude, it.originLongitude, it.tier) } +
-                                dashboard.sharedRequests.map { TaxiNearbyCar(it.originLatitude, it.originLongitude, "GROUP") }
-                            TaxiMap(driverLocation, null, height = 300, pickupLabel = "Your location", destinationLabel = "",
-                                tileDownloadsEnabled = mapTiles, providedApi = mapApi, nearbyCars = requestMarkers)
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 listOf("TAXI" to "Taxi calls (${dashboard.calls.size})", "GROUP" to "Group calls (${dashboard.sharedRequests.size})").forEach { (key, label) ->
                                     val active = requestPool == key

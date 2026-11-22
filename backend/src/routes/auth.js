@@ -28,7 +28,7 @@ const ADMIN_REGISTRATION_SECRET = resolveAdminSecret();
 
 router.post('/request-otp', authLimiter, async (req, res) => {
   const submittedPhone = normalizePhone(req.body.phone), purpose = String(req.body.purpose || 'REGISTRATION').toUpperCase();
-  const phone = purpose === 'LOGIN' ? normalizeAccountPhone(submittedPhone) : submittedPhone;
+  const phone = normalizeAccountPhone(submittedPhone);
   if (!phone || !['REGISTRATION', 'LOGIN', 'CARGO_REQUEST', 'GROUP_REQUEST'].includes(purpose)) return res.status(400).json({ success: false, error: 'Phone number and OTP purpose are required.' });
   const testConfig = purpose === 'LOGIN' ? getTestLoginOtpConfig() : null;
   const testRole = testOtpRoleForPhone(testConfig, phone);
@@ -36,8 +36,8 @@ router.post('/request-otp', authLimiter, async (req, res) => {
   const code = testMode ? testConfig.code : String(crypto.randomInt(100000, 1000000));
   const codeHash = testMode ? storedTestOtpHash(testConfig.codeHash) : sha256(code);
   const testDelivery = await phoneSmsGateway.getDeliveryMode();
-  const phoneGatewayPilot = testDelivery === 'PHONE_GATEWAY' && await phoneSmsGateway.isPilotPhone(phone);
-  if (phoneGatewayPilot) await phoneSmsGateway.initPhoneSmsGatewaySchema(DB);
+  const phoneGatewayMode = testDelivery === 'PHONE_GATEWAY';
+  if (phoneGatewayMode) await phoneSmsGateway.initPhoneSmsGatewaySchema(DB);
   const id = 'otp_' + crypto.randomUUID().replace(/-/g, '').slice(0, 20);
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
   let delivery = null;
@@ -45,7 +45,7 @@ router.post('/request-otp', authLimiter, async (req, res) => {
     ? `PASSO ${purpose === 'CARGO_REQUEST' ? 'cargo' : 'group travel'} request verification code: ${code}. It expires in 10 minutes. Do not share it.`
     : `PASSO sign-in verification code: ${code}. It expires in 10 minutes. Do not share it.`;
   let alreadySent = false;
-  if (phoneGatewayPilot && testMode) {
+  if (phoneGatewayMode && testMode) {
     const created = await DB.transaction(async tx => {
       // The static pilot code is identical on every request. Serialize by phone
       // and reuse its active OTP so rapid taps/retries cannot queue duplicate SMS.
@@ -73,9 +73,9 @@ router.post('/request-otp', authLimiter, async (req, res) => {
     await DB.prepare("UPDATE auth_otps SET expires_at=CURRENT_TIMESTAMP WHERE phone=? AND purpose=? AND verified_at IS NULL").run(phone, purpose);
     await DB.prepare('INSERT INTO auth_otps(id,phone,purpose,code_hash,expires_at) VALUES(?,?,?,?,?)').run(id, phone, purpose, codeHash, expiresAt);
   }
-  if (phoneGatewayPilot) {
+  if (phoneGatewayMode) {
     try {
-      delivery = await phoneSmsGateway.queueTestOtp({ otpId: id, phone, code, expiresAt });
+      delivery = await phoneSmsGateway.queueOtp({ otpId: id, phone, code, expiresAt });
       if (delivery?.queued) delivery = { sent: true, testMode: testMode || undefined, phoneGateway: true };
       else delivery = null;
     } catch (_) { delivery = null; }
@@ -92,7 +92,7 @@ router.post('/request-otp', authLimiter, async (req, res) => {
 
 router.post('/verify-otp', authLimiter, async (req, res) => {
   const submittedPhone = normalizePhone(req.body.phone), purpose = String(req.body.purpose || 'REGISTRATION').toUpperCase(), code = String(req.body.code || '').trim();
-  const phone = purpose === 'LOGIN' ? normalizeAccountPhone(submittedPhone) : submittedPhone;
+  const phone = normalizeAccountPhone(submittedPhone);
   if (!phone) return res.status(400).json({ success: false, error: 'Enter a valid mobile number.' });
   const otp = await DB.prepare('SELECT * FROM auth_otps WHERE phone IN (?,?) AND purpose=? AND verified_at IS NULL ORDER BY created_at DESC LIMIT 1')
     .get(phone, submittedPhone, purpose);

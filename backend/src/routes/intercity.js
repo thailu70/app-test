@@ -89,7 +89,8 @@ function shortTicketNumber(b) { return 'RP-' + String(b.id).replace(/[^a-zA-Z0-9
 async function notifyPaidTicket(b, d) {
   if (!b?.passenger_phone) return;
   const when = new Date(d.departure_at).toLocaleString('en-GB', { timeZone: 'Africa/Addis_Ababa', dateStyle: 'medium', timeStyle: 'short' });
-  await sendSms(b.passenger_phone, `RoutePass ticket confirmed. Ticket ${shortTicketNumber(b)} for ${d.origin} to ${d.destination}, seat ${b.seat_number}, ${when}. Board with this number or your QR code.`);
+  await require('../services/afro-sms').sendTransactionalSms(`intercity-ticket-${b.id}`, b.passenger_phone,
+    `RoutePass ticket confirmed. Ticket ${shortTicketNumber(b)} for ${d.origin} to ${d.destination}, seat ${b.seat_number}, ${when}. Board with this number or your QR code.`, { db: DB });
 }
 async function notifyIntercityBoarding(d) {
   const details = await DB.prepare(`SELECT d.origin,d.destination,v.plateNumber AS plate,u.phone AS driverPhone,c.name AS companyName
@@ -101,7 +102,7 @@ async function notifyIntercityBoarding(d) {
   if (!details) return;
   const passengers = await DB.prepare("SELECT passenger_phone FROM intercity_bookings WHERE departure_id=? AND payment_status='PAID' AND status='CONFIRMED' AND passenger_phone IS NOT NULL AND passenger_phone<>''").all(d.id);
   const message = `RoutePass: ${details.companyName} vehicle ${details.plate || 'assigned vehicle'} is ready for boarding. Route ${details.origin} to ${details.destination}. Driver phone: ${details.driverPhone || 'not available'}. Board with your ticket number or QR code.`;
-  await Promise.allSettled(passengers.map(p => sendSms(p.passenger_phone, message)));
+  await Promise.allSettled(passengers.map(p => require('../services/afro-sms').sendTransactionalSms(`intercity-boarding-${d.id}-${p.passenger_phone}`, p.passenger_phone, message, { db: DB })));
 }
 function bookingView(b, d, includePersonal = true) {
   return { id: b.id, departureId: b.departure_id, seatNumber: b.seat_number, amountEtb: Number(b.amount_etb), status: b.status, paymentStatus: b.payment_status, paymentMethod: b.payment_method, expiresAt: b.expires_at,

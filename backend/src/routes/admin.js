@@ -66,7 +66,7 @@ router.put('/integrations/phone-sms-gateway/settings', async (req, res) => {
       deliveryMode: req.body?.deliveryMode,
       pilotNumbers: req.body?.pilotNumbers
     });
-    res.json({ success: true, ...settings, message: 'Pilot SMS settings saved.' });
+    res.json({ success: true, ...settings, message: 'SMS settings saved.' });
   } catch (error) {
     res.status(error.status || 500).json({ success: false, error: error.status ? error.message : 'Could not save pilot SMS settings.' });
   }

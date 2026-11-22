@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -106,7 +107,16 @@ import kotlinx.coroutines.delay
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { open = false }) { Text(intercityText(language, "Done", "ጨርስ", "Xumuri"), color = CommuteTeal) } },
+        confirmButton = {
+            Row {
+                TextButton(onClick = { MobilityPush.testAlertSound(context, driver) }) {
+                    Icon(Icons.Default.PlayArrow, null, tint = CommuteTeal, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(3.dp))
+                    Text(intercityText(language, "Test sound", "ድምፅ ሞክር", "Sagalee yaali"), color = CommuteTeal)
+                }
+                TextButton(onClick = { open = false }) { Text(intercityText(language, "Done", "ጨርስ", "Xumuri"), color = CommuteTeal) }
+            }
+        },
         containerColor = Color.White, tonalElevation = 0.dp, shape = RoundedCornerShape(24.dp)
     )
 }

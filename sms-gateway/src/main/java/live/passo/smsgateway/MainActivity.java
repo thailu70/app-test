@@ -60,7 +60,7 @@ public class MainActivity extends Activity {
         layout.addView(title, matchWrap());
 
         TextView intro = new TextView(this);
-        intro.setText("A private pilot companion that sends Passo sign-in codes through this phone’s SIM. It only sends codes to numbers enabled in Passo Admin → Settings.");
+        intro.setText("A private companion that sends Passo sign-in, cargo and group travel codes, and trip updates through this phone’s SIM. It sends only encrypted messages requested by Passo to valid Ethiopian numbers.");
         intro.setTextSize(16);
         intro.setTextColor(0xFF506070);
         intro.setPadding(0, dp(12), 0, dp(20));
@@ -118,7 +118,7 @@ public class MainActivity extends Activity {
         layout.addView(disconnectButton, buttonParams());
 
         TextView note = new TextView(this);
-        note.setText("OTP content is encrypted to this phone and never shown here or in notifications. Android may keep sent messages in its Messages history. Keep this phone powered and connected while testing; SMS charges come from its SIM. Disconnect it in Passo Admin → Settings.");
+        note.setText("Message content is encrypted to this phone and never shown here or in notifications. Android may keep sent messages in its Messages history. Keep this phone powered and connected while the gateway is selected; SMS charges come from its SIM. Disconnect it in Passo Admin → Settings.");
         note.setTextSize(13);
         note.setTextColor(0xFF65717D);
         note.setPadding(0, dp(20), 0, 0);
@@ -180,7 +180,7 @@ public class MainActivity extends Activity {
                 preferences.edit().putString(KEY_BASE_URL, base).putString(KEY_DEVICE_TOKEN, protectedToken).apply();
                 runOnUiThread(() -> {
                     pairingCodeField.setText("");
-                    statusLabel.setText("Phone paired. Start the gateway when you’re ready to test sign-in SMS.");
+                    statusLabel.setText("Phone paired. Start the gateway when you’re ready to send Passo SMS.");
                     updatePairedState();
                 });
             } catch (Exception error) {

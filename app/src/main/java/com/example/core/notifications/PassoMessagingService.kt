@@ -2,7 +2,6 @@ package com.example.core.notifications
 
 import android.app.PendingIntent
 import android.content.Intent
-import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -53,7 +52,7 @@ class PassoMessagingService : FirebaseMessagingService() {
                     setCategory(NotificationCompat.CATEGORY_CALL)
                     setVibrate(longArrayOf(0, 850, 350, 850, 350, 1200))
                     if (Build.VERSION.SDK_INT < 26) setSound(
-                        RingtoneManager.getDefaultUri(MobilityAlertTone.selected(this@PassoMessagingService, driverAlert).ringtoneType))
+                        MobilityAlertTone.selected(this@PassoMessagingService, driverAlert).soundUri(this@PassoMessagingService))
                 } else setDefaults(NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_VIBRATE)
             }
             .build()

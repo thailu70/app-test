@@ -7,11 +7,13 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.media.AudioAttributes
-import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationCompat
+import com.example.R
 import com.example.core.environment.AppEnvironment
 import com.example.core.environment.EnvironmentPreferences
 import com.example.data.api.*
@@ -35,7 +37,7 @@ class AndroidMobilityGuestPushRegistrar(context: Context) : MobilityGuestPushReg
 object MobilityPush {
     const val CHANNEL_ID = "cargo_updates"
     // Bump this when alert sound behavior changes: Android keeps a user's old channel settings.
-    const val RIDE_ALERT_CHANNEL_ID = "ride_alerts_v3"
+    const val RIDE_ALERT_CHANNEL_ID = "ride_alerts_v4"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val guestSynced = ConcurrentHashMap<String, Pair<String, Long>>()
     @Volatile private var activeDriverId: String? = null
@@ -68,7 +70,7 @@ object MobilityPush {
                         lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
                         enableVibration(true)
                         vibrationPattern = longArrayOf(0, 850, 350, 850, 350, 1200)
-                        setSound(RingtoneManager.getDefaultUri(tone.ringtoneType), AudioAttributes.Builder()
+                        setSound(tone.soundUri(context), AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
                             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
                     })
@@ -79,6 +81,24 @@ object MobilityPush {
 
     fun selectedAlertChannel(context: Context, driver: Boolean): String = alertChannelId(MobilityAlertTone.selected(context, driver), driver)
     private fun alertChannelId(tone: MobilityAlertTone, driver: Boolean): String = "${RIDE_ALERT_CHANNEL_ID}_${if (driver) "driver" else "passenger"}_${tone.id.lowercase()}"
+
+    /** Posts a local notification through the same channel used by real alerts. */
+    @Suppress("MissingPermission")
+    fun testAlertSound(context: Context, driver: Boolean) {
+        if (!notificationsGranted(context)) return
+        ensureChannel(context)
+        val id = (System.currentTimeMillis() and 0x7fffffff).toInt()
+        val notification = NotificationCompat.Builder(context, selectedAlertChannel(context, driver))
+            .setSmallIcon(R.drawable.ic_mobility_notification)
+            .setContentTitle("Passo sound test")
+            .setContentText("This is a test of your new trip alert sound.")
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setOnlyAlertOnce(false)
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(context).notify(id, notification)
+    }
 
     internal suspend fun currentToken(context: Context): String? {
         if (!allowed(context)) return null
@@ -211,9 +231,11 @@ object MobilityPush {
     }
 }
 
-enum class MobilityAlertTone(val id: String, val title: String, val ringtoneType: Int) {
-    RING("RING", "Classic ring", RingtoneManager.TYPE_RINGTONE),
-    BEEP("BEEP", "Short beep", RingtoneManager.TYPE_NOTIFICATION);
+enum class MobilityAlertTone(val id: String, val title: String, private val soundResource: Int) {
+    RING("RING", "Classic ring", R.raw.passo_alert_ring),
+    BEEP("BEEP", "Short beep", R.raw.passo_alert_beep);
+
+    fun soundUri(context: Context): Uri = Uri.parse("android.resource://${context.packageName}/$soundResource")
 
     companion object {
         private const val PREFERENCES = "passo_alert_preferences"

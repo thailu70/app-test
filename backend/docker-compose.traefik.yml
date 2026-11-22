@@ -1,5 +1,10 @@
 services:
   api:
+    environment:
+      # Keep the credential outside the image and make it read-only in the API container.
+      FCM_SERVICE_ACCOUNT_PATH: ${FCM_SERVICE_ACCOUNT_PATH:-/etc/routepass/fcm-service-account.json}
+    volumes:
+      - "${FCM_SERVICE_ACCOUNT_PATH:-/etc/routepass/fcm-service-account.json}:${FCM_SERVICE_ACCOUNT_PATH:-/etc/routepass/fcm-service-account.json}:ro"
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=routepass_internal_net"

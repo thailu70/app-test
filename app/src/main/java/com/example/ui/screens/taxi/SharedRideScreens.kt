@@ -141,6 +141,7 @@ import java.util.*
     var consent by remember { mutableStateOf(false) }
     var streetPassengerName by remember { mutableStateOf("") }
     var streetPassengerPhone by remember { mutableStateOf("") }
+    var lastEstimatedRouteKey by remember(acceptRequest?.id) { mutableStateOf<String?>(null) }
     val calendar = remember { Calendar.getInstance(TimeZone.getTimeZone("Africa/Addis_Ababa")).apply { add(Calendar.MINUTE, 30) } }
     var date by remember { mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = calendar.timeZone }.format(calendar.time)) }
     var time by remember { mutableStateOf(SimpleDateFormat("HH:mm", Locale.US).apply { timeZone = calendar.timeZone }.format(calendar.time)) }
@@ -156,8 +157,16 @@ import java.util.*
             departureAt = if (!street) departure else null, seats = if (!street) count else null,
             farePerSeatEtb = if (driver && !street) fare.toDoubleOrNull()?.takeIf { it.isFinite() && it > 0 } else null,
             passengerName = null, passengerPhone = streetPassengerPhone.takeIf { street }) else null
-    LaunchedEffect(driver, street, pickup, dropoff, origin, destination, vehicleId, count, acceptRequest?.id) {
-        if (driver && !street && !state.busy && base != null && vehicle != null) model.estimate(base.copy(farePerSeatEtb = null))
+    val estimateRouteKey = base?.let { route ->
+        listOf(route.origin, route.destination, route.originLatitude, route.originLongitude, route.destinationLatitude,
+            route.destinationLongitude, route.tier, route.vehicleId.orEmpty()).joinToString("|")
+    }
+    LaunchedEffect(driver, street, estimateRouteKey, acceptRequest?.id) {
+        val route = base
+        if (driver && route != null && vehicle != null && estimateRouteKey != null && lastEstimatedRouteKey != estimateRouteKey) {
+            lastEstimatedRouteKey = estimateRouteKey
+            model.estimate(route.copy(farePerSeatEtb = null))
+        }
     }
     LaunchedEffect(state.estimate?.estimatedFareEtb, count, driver, street) {
         val estimate = state.estimate?.estimatedFareEtb
@@ -176,7 +185,7 @@ import java.util.*
         if (!passengerGroupRequest) TaxiRouteRow("Pickup", origin.ifBlank { "Your location" }, true, !state.busy && !driver && !street && acceptRequest == null) { if (!driver && !street && acceptRequest == null) picker = "pickup" }
         TaxiRouteRow("Destination", destination.ifBlank { "Where to?" }, false, !state.busy && acceptRequest == null) { if (acceptRequest == null) picker = "destination" }
         if (street) {
-            OutlinedTextField(streetPassengerPhone, { streetPassengerPhone = it.filter { ch -> ch.isDigit() || ch == '+' }.take(16); model.clearEstimate() }, label = { Text("Passenger phone") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true, enabled = !state.busy, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(streetPassengerPhone, { streetPassengerPhone = it.filter { ch -> ch.isDigit() || ch == '+' }.take(16) }, label = { Text("Passenger phone") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true, enabled = !state.busy, modifier = Modifier.fillMaxWidth())
         }
         if (driver) Box {
             Surface(onClick = { vehicleMenu = true }, enabled = !state.busy, modifier = Modifier.fillMaxWidth(), color = CommuteMint, shape = RoundedCornerShape(18.dp)) {
@@ -210,7 +219,14 @@ import java.util.*
                 Text("Passo fee reserved on start: ${taxiMoney(state.settings.fixedCommissionEtb)}", color = CommuteTeal, fontSize = 13.sp)
                 Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(consent, { consent = it }, enabled = !state.busy); Text("Passenger agrees to this estimate", color = CommuteInk, fontSize = 14.sp) }
                 TaxiPrimary("Start meter", !state.busy && consent && streetContactReady && base != null && vehicle != null && state.settings.enabled, "street_start_meter") { base?.let(onSubmit) }
-            } ?: TaxiPrimary("Show estimated fare", !state.busy && base != null && vehicle != null && state.settings.enabled, "street_estimate") { base?.let(model::estimate) }
+            } ?: run {
+                if (state.busy) Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = CommuteTeal)
+                    Spacer(Modifier.width(8.dp)); Text("Calculating estimated fare…", color = CommuteTeal, fontWeight = FontWeight.SemiBold)
+                }
+                TaxiPrimary(if (state.busy) "Calculating fare…" else "Retry fare estimate",
+                    !state.busy && base != null && vehicle != null && state.settings.enabled, "street_estimate") { base?.let { model.estimate(it.copy(farePerSeatEtb = null)) } }
+            }
         }
     }
 }
