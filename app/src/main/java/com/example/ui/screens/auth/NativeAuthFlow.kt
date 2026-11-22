@@ -279,13 +279,17 @@ internal fun NativeAuthFlow(
                             else if (canonicalAccountPhone(draft.phone) == null) message = t("Enter a valid mobile number.", "ትክክለኛ የሞባይል ቁጥር ያስገቡ።", "Lakkoofsa bilbilaa sirrii galchi.")
                             else if (!loginOtpSent) {
                                 otpSending = true; message = null; waitingForAuth = false
-                                model.requestLoginOtp(draft.phone.trim()) { sent, error ->
+                                val canonicalPhone = canonicalAccountPhone(draft.phone)!!
+                                model.requestLoginOtp(canonicalPhone) { sent, error ->
                                     otpSending = false
                                     if (sent != null) { loginOtpSent = true; message = sent }
                                     else message = error ?: t("Unable to send a sign-in code. Please try again.", "የመግቢያ ኮድ መላክ አልተቻለም። እንደገና ይሞክሩ።", "Koodii seensaa erguun hin danda'amne. Irra deebi'i.")
                                 }
                             } else if (!loginOtpCode.matches(Regex("\\d{6}"))) message = t("Enter the six-digit code.", "ስድስት አሃዝ ያለውን ኮድ ያስገቡ።", "Koodii lakkoofsa ja'a galchi.")
-                            else { waitingForAuth = true; message = null; model.loginWithOtp(draft.phone.trim(), loginOtpCode, role) }
+                            else {
+                                val canonicalPhone = canonicalAccountPhone(draft.phone)!!
+                                waitingForAuth = true; message = null; model.loginWithOtp(canonicalPhone, loginOtpCode, role)
+                            }
                         }, modifier = Modifier.testTag("auth_submit_button"), enabled = !busy && !otpSending, busy = busy || otpSending)
                     if (register && step == 1) AuthPrimaryButton(
                         if (driver) t("Continue to documents", "ወደ ሰነዶች ቀጥል", "Gara sanadootaatti itti fufi") else t("Create account", "መለያ ፍጠር", "Herrega uumi"),

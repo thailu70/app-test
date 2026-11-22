@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.api.*
 import com.example.ui.screens.intercity.mobilityBody
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -17,13 +18,16 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 import retrofit2.Response
 
+internal enum class NearbyCarsStatus { IDLE, LOADING, AVAILABLE, EMPTY, UNAVAILABLE }
+
 internal data class TaxiUiState(val busy: Boolean = false, val message: String? = null,
     val settings: TaxiSettings = TaxiSettings(), val tiers: List<TaxiTier> = emptyList(),
     val estimate: TaxiEstimate? = null, val ride: TaxiRide? = null, val rides: List<TaxiRide> = emptyList(),
     val dashboard: TaxiResponse? = null, val trips: List<SharedRideTrip> = emptyList(),
     val myTrips: List<SharedRideTrip> = emptyList(), val bookings: List<SharedRideBooking> = emptyList(),
     val selectedTrip: SharedRideTrip? = null, val selectedBooking: SharedRideBooking? = null,
-    val occupiedSeats: List<Int> = emptyList(), val nearbyCars: List<TaxiNearbyCar> = emptyList())
+    val occupiedSeats: List<Int> = emptyList(), val nearbyCars: List<TaxiNearbyCar> = emptyList(),
+    val nearbyCarsStatus: NearbyCarsStatus = NearbyCarsStatus.IDLE)
 
 /** Server fare and seat counts are authoritative. A failed refresh never empties a displayed roster. */
 internal class TaxiViewModel(private val api: TaxiApi, private val authenticated: Boolean, private val driver: Boolean,
@@ -34,6 +38,7 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
     private val operations = Mutex()
     private val idempotency = mutableMapOf<String, String>()
     private var nearbyQuery: Triple<Double, Double, String>? = null
+    private var nearbyJob: Job? = null
     private var estimateEpoch = 0L
     init { refresh() }
     private fun key(value: String) = idempotency.getOrPut(value) { UUID.randomUUID().toString() }
@@ -74,15 +79,32 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
         }
         mutable.update { state -> state.copy(estimate = state.estimate?.copy(tier = tierId, estimatedFareEtb = fare ?: state.estimate.estimatedFareEtb)) }
     }
-    fun nearby(point: Pair<Double, Double>?, tier: String) {
+    fun nearby(point: Pair<Double, Double>?, tier: String, force: Boolean = false) {
         val next = point?.let { Triple(it.first, it.second, tier) }
-        if (nearbyQuery == next) return
-        nearbyQuery = next; mutable.update { it.copy(nearbyCars = emptyList()) }
-        if (next != null) viewModelScope.launch { runCatching { loadNearby(next) } }
+        val changed = nearbyQuery != next
+        if (!changed && (!force || nearbyJob?.isActive == true)) return
+        nearbyQuery = next
+        if (next == null) mutable.update { it.copy(nearbyCars = emptyList(), nearbyCarsStatus = NearbyCarsStatus.IDLE) }
+        else if (changed) mutable.update { it.copy(nearbyCars = emptyList(), nearbyCarsStatus = NearbyCarsStatus.LOADING) }
+        nearbyJob?.cancel()
+        nearbyJob = next?.let { query -> viewModelScope.launch {
+            try { loadNearby(query) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                if (nearbyQuery == query) mutable.update { current -> current.copy(
+                    nearbyCarsStatus = if (current.nearbyCars.isNotEmpty()) NearbyCarsStatus.AVAILABLE else NearbyCarsStatus.UNAVAILABLE) }
+            }
+        } }
     }
     private suspend fun loadNearby(query: Triple<Double, Double, String>) {
         val result = mobilityBody(api.nearby(query.first, query.second, query.third))
-        if (result.success && result.approximate && nearbyQuery == query) mutable.update { it.copy(nearbyCars = result.vehicles.filter { car -> car.latitude.isFinite() && car.longitude.isFinite() && car.latitude in -90.0..90.0 && car.longitude in -180.0..180.0 }.take(40)) }
+        if (nearbyQuery == query) {
+            val cars = result.vehicles.filter { car -> car.latitude.isFinite() && car.longitude.isFinite() && car.latitude in -90.0..90.0 && car.longitude in -180.0..180.0 }.take(40)
+            mutable.update { current -> current.copy(nearbyCars = if (result.success && result.approximate) cars else current.nearbyCars,
+                nearbyCarsStatus = when { !result.success || !result.approximate -> if (current.nearbyCars.isNotEmpty()) NearbyCarsStatus.AVAILABLE else NearbyCarsStatus.UNAVAILABLE
+                    cars.isEmpty() -> NearbyCarsStatus.EMPTY
+                    else -> NearbyCarsStatus.AVAILABLE }) }
+        }
     }
     fun closeTrip() { mutable.update { it.copy(selectedTrip = null, selectedBooking = null, occupiedSeats = emptyList()) } }
     fun dismissRide() { mutable.update { it.copy(ride = null) } }
@@ -128,10 +150,12 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
     }
     fun openRide(id: String) = act { val result = check(mobilityBody(api.ride(id))); mutable.update { it.copy(ride = result.ride) } }
     fun openNotifiedTrip(id: String, shared: Boolean) { viewModelScope.launch { state.first { !it.busy }; if (shared) chooseTrip(id) else openRide(id) } }
-    fun cancelRide(reason: String = "Cancelled in app") = act {
+    fun cancelRide(reason: String = "Cancelled in app", location: Map<String, Any> = emptyMap()) = act {
         val ride = mutable.value.ride ?: return@act
-        val result = check(mobilityBody(if (driver) api.driverCancel(ride.id, mapOf("reason" to reason)) else api.cancel(ride.id, mapOf("reason" to reason))))
+        val body = buildMap { put("reason", reason); location.forEach { (key, value) -> put(key, value.toString()) } }
+        val result = check(mobilityBody(if (driver) api.driverCancel(ride.id, body) else api.cancel(ride.id, body)))
         mutable.update { it.copy(ride = result.ride) }; load()
+        if (driver && result.ride?.status == "CANCELLED") mutable.update { it.copy(ride = null, message = "Trip cancelled. You are back online.") }
     }
     fun online(online: Boolean, vehicle: String, location: Map<String, Any>) = act {
         val result = check(mobilityBody(api.availability(location + mapOf("online" to online, "vehicleId" to vehicle))))
@@ -146,10 +170,10 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
         val result = check(mobilityBody(api.arrive(ride.id, location)))
         mutable.update { it.copy(ride = result.ride) }
     }
-    fun start(pin: String, location: Map<String, Any>) = act {
+    fun start(qrToken: String, location: Map<String, Any>) = act {
         val ride = mutable.value.ride ?: return@act
         flushMeter(ride.id, location)
-        val result = check(mobilityBody(api.start(ride.id, mapOf("pin" to pin))))
+        val result = check(mobilityBody(api.start(ride.id, mapOf("qrToken" to qrToken))))
         mutable.update { it.copy(ride = result.ride) }
     }
     fun street(route: TaxiRouteInput, location: Map<String, Any>) = act {
@@ -180,7 +204,8 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
         val ride = mutable.value.ride ?: return@act
         val finalSequence = flushMeter(ride.id, location)
         val result = check(mobilityBody(api.complete(ride.id, location + mapOf("finalSequence" to finalSequence))))
-        mutable.update { it.copy(ride = result.ride) }
+        mutable.update { it.copy(ride = result.ride) }; load()
+        if (driver && result.ride?.status == "COMPLETED") mutable.update { it.copy(ride = null, message = "Trip completed. You are back online.") }
     }
     fun chooseTrip(id: String) = act { loadTrip(id) }
     private suspend fun loadTrip(id: String) {
@@ -218,10 +243,12 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
     fun cancelSharedRequest() = act { val trip = mutable.value.selectedTrip ?: return@act
         val result = check(mobilityBody(api.cancelSharedRequest(trip.id))); mutable.update { it.copy(selectedTrip = result.trip ?: trip.copy(status = "CANCELLED")) }; load()
     }
-    fun sharedAction(action: String, location: Map<String, Any> = emptyMap(), bookingId: String? = null, pin: String? = null) = act {
+    fun sharedAction(action: String, location: Map<String, Any> = emptyMap(), bookingId: String? = null, pin: String? = null, qrToken: String? = null) = act {
         val trip = mutable.value.selectedTrip ?: return@act
-        val body = location.toMutableMap().apply { put("action", action); bookingId?.let { put("bookingId", it) }; pin?.let { put("pin", it) } }
+        val body = location.toMutableMap().apply { put("action", action); bookingId?.let { put("bookingId", it) }; pin?.let { put("pin", it) }; qrToken?.let { put("qrToken", it) } }
         val result = check(mobilityBody(api.sharedAction(trip.id, body)))
         mutable.update { it.copy(selectedTrip = result.trip ?: trip) }; load()
+        if (action in setOf("COMPLETE", "CANCEL") && result.trip?.status in setOf("COMPLETED", "CANCELLED"))
+            mutable.update { it.copy(selectedTrip = null, message = if (action == "COMPLETE") "Group trip completed. You are back online." else "Group trip cancelled. You are back online.") }
     }
 }

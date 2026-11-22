@@ -19,7 +19,10 @@ function createOnboardingRouter({ service = createOnboardingService(), rateLimit
   router.get('/commute-quote', asyncRoute(async (req, res) => res.json({ success: true, ...await commuteQuote(req.query) })));
   const issue = result => ({ success: true, ...result, token: jwt.sign({ id: result.account.id, role: result.account.role, scope: 'ONBOARDING', sessionVersion: result.authenticatedSessionVersion ?? 0 }, JWT_SECRET, { expiresIn: '2h', audience: 'routepass-onboarding' }) });
   router.post('/register', registerLimit, asyncRoute(async (req, res) => res.status(201).json(await issue(await service.register(req.body || {})))));
-  router.post('/login', loginLimit, asyncRoute(async (req, res) => res.json(await issue(await service.login(req.body || {})))));
+  router.post('/login', loginLimit, asyncRoute(async (req, res) => {
+    if (String(req.body?.role || '').toUpperCase() === 'DRIVER') throw new OnboardingError(410, 'Sign in with your phone number and SMS code.');
+    res.json(await issue(await service.login(req.body || {})));
+  }));
   router.post('/login-otp', loginLimit, asyncRoute(async (req, res) => res.json(await issue(await service.loginWithOtp(req.body || {})))));
   const reviewGuard = [authenticate, requireRole('ADMIN', 'COMPANY')];
   const target = req => {

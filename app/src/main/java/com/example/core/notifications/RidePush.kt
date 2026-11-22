@@ -35,7 +35,8 @@ internal object RidePush {
         val session = ApiClient.sessionScope()
         val api = ApiClient.createSessionService(MobilityPushApi::class.java, bearer)
         val token = MobilityPush.currentToken(context) ?: return
-        val result = api.registerRides(MobilityPushInput(token))
+        val point = MobilityPush.recentLocation(context)
+        val result = api.registerRides(MobilityPushInput(token, point?.first, point?.second))
         if (result.isSuccessful && result.body()?.success == true) synchronized(lock) {
             MobilityPushStore(context).confirmRides(owner, role) {
                 canConfirmRidePush(owner, role, activeOwner, activeRole, bearer, ApiClient.getAuthToken(), ApiClient.isCurrent(session), MobilityPush.allowed(context))

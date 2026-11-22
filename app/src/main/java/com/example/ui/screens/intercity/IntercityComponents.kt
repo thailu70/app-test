@@ -48,6 +48,7 @@ import com.example.ui.screens.passenger.CommuteCream
 import com.example.ui.screens.passenger.CommuteInk
 import com.example.ui.screens.passenger.CommuteMint
 import com.example.ui.screens.passenger.CommuteTeal
+import com.example.ui.components.PassoMobilityPalette
 import com.example.ui.screens.passenger.CommuterLanguageSwitch
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -60,8 +61,7 @@ internal fun intercityText(language: AppLanguage, en: String, am: String, om: St
     AppLanguage.OROMO -> om
 }
 
-private val IntercityMuted = Color(0xFF5D6A78)
-private val IntercityBorder = Color(0xFFE7E3DB)
+private val IntercityMuted = PassoMobilityPalette.muted
 
 /** Only clean photographic/brand regions are reused. All labels and controls remain native. */
 @Composable
@@ -130,21 +130,21 @@ internal fun IntercitySearchPanel(
     modifier: Modifier = Modifier
 ) {
     val focusManager = LocalFocusManager.current
-    Surface(color = CommuteCream, shape = RoundedCornerShape(23.dp), shadowElevation = 6.dp, modifier = modifier.fillMaxWidth().testTag("intercity_search_panel")) {
+    Surface(color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, shape = RoundedCornerShape(23.dp), shadowElevation = 6.dp, modifier = modifier.fillMaxWidth().testTag("intercity_search_panel")) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 listOf(
-                    Icons.Default.DirectionsBus to intercityText(language, "Intercity\npassenger", "የከተማ መካከል\nመንገደኛ", "Imalaa\nmagaalota"),
-                    Icons.Default.Inventory2 to intercityText(language, "Parcel\ncargo", "የዕቃ\nጭነት", "Fe'umsa\nxixiqqaa"),
-                    Icons.Default.Groups to intercityText(language, "Group\ntravel", "የቡድን\nጉዞ", "Imala\ngaree")
-                ).forEachIndexed { index, (icon, label) ->
-                    val selected = serviceTab == index
-                    Column(Modifier.weight(1f).clickable(role = Role.Tab) { onServiceTab(index) }.testTag("intercity_service_tab_$index"), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Triple(2, Icons.Default.Groups, intercityText(language, "Group travel", "የቡድን ጉዞ", "Imala garee")),
+                    Triple(0, Icons.Default.DirectionsBus, intercityText(language, "Intercity travel", "የከተማ መካከል ጉዞ", "Imala magaalaa gara magaalaa"))
+                ).forEach { (tabValue, icon, label) ->
+                    val selected = serviceTab == tabValue
+                    val testTagIndex = if (tabValue == 2) 1 else 0
+                    Column(Modifier.weight(1f).clickable(role = Role.Tab) { onServiceTab(tabValue) }.testTag("intercity_service_tab_$testTagIndex"), horizontalAlignment = Alignment.CenterHorizontally) {
                         Row(Modifier.heightIn(min = 46.dp).padding(horizontal = 2.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                            Icon(icon, null, Modifier.size(20.dp), tint = if (selected) CommuteTeal else IntercityMuted)
-                            Text(label, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, color = if (selected) CommuteTeal else IntercityMuted)
+                            Icon(icon, null, Modifier.size(20.dp), tint = if (selected) PassoMobilityPalette.brand else PassoMobilityPalette.muted)
+                            Text(label, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, color = if (selected) PassoMobilityPalette.brand else PassoMobilityPalette.muted)
                         }
-                        Box(Modifier.fillMaxWidth().height(if (selected) 2.dp else 1.dp).background(if (selected) CommuteTeal else IntercityBorder))
+                        Box(Modifier.fillMaxWidth().height(if (selected) 2.dp else 1.dp).background(if (selected) PassoMobilityPalette.brand else PassoMobilityPalette.border))
                     }
                 }
             }
@@ -154,18 +154,18 @@ internal fun IntercitySearchPanel(
                         IntercityCityInput(origin, intercityText(language, "From", "መነሻ", "Irraa"), suggestions, onOrigin, language, "intercity_from", Modifier.weight(1f))
                         IntercityCityInput(destination, intercityText(language, "To", "መድረሻ", "Gara"), suggestions, onDestination, language, "intercity_to", Modifier.weight(1f))
                     }
-                    Surface(onClick = { focusManager.clearFocus(); onSwap() }, color = CommuteCream, shape = CircleShape, border = BorderStroke(1.dp, IntercityBorder), modifier = Modifier.align(Alignment.Center).size(34.dp).testTag("intercity_swap")) {
-                        Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.SwapHoriz, intercityText(language, "Swap cities", "ከተሞችን ቀይር", "Magaalota jijjiiri"), tint = CommuteInk, modifier = Modifier.size(22.dp)) }
+                    Surface(onClick = { focusManager.clearFocus(); onSwap() }, color = PassoMobilityPalette.cardRaised, shape = CircleShape, border = BorderStroke(1.dp, PassoMobilityPalette.border), modifier = Modifier.align(Alignment.Center).size(34.dp).testTag("intercity_swap")) {
+                        Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.SwapHoriz, intercityText(language, "Swap cities", "ከተሞችን ቀይር", "Magaalota jijjiiri"), tint = PassoMobilityPalette.text, modifier = Modifier.size(22.dp)) }
                     }
                 }
-                Surface(onClick = { focusManager.clearFocus(); onDate() }, color = CommuteCream, shape = RoundedCornerShape(13.dp), border = BorderStroke(1.dp, IntercityBorder), modifier = Modifier.fillMaxWidth().testTag("intercity_date")) {
+                Surface(onClick = { focusManager.clearFocus(); onDate() }, color = PassoMobilityPalette.cardRaised, shape = RoundedCornerShape(13.dp), border = BorderStroke(1.dp, PassoMobilityPalette.border), modifier = Modifier.fillMaxWidth().testTag("intercity_date")) {
                     Row(Modifier.padding(horizontal = 13.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-                        Icon(Icons.Default.CalendarMonth, null, Modifier.size(24.dp), tint = CommuteInk)
+                        Icon(Icons.Default.CalendarMonth, null, Modifier.size(24.dp), tint = PassoMobilityPalette.muted)
                         Column(Modifier.weight(1f)) {
-                            Text(intercityText(language, "Travel date", "የጉዞ ቀን", "Guyyaa imalaa"), color = IntercityMuted, fontSize = 11.sp, lineHeight = 14.sp)
-                            Text(dateLabel, color = CommuteInk, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
+                            Text(intercityText(language, "Travel date", "የጉዞ ቀን", "Guyyaa imalaa"), color = PassoMobilityPalette.muted, fontSize = 11.sp, lineHeight = 14.sp)
+                            Text(dateLabel, color = PassoMobilityPalette.text, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
                         }
-                        Icon(Icons.Default.KeyboardArrowDown, null, tint = CommuteInk)
+                        Icon(Icons.Default.KeyboardArrowDown, null, tint = PassoMobilityPalette.text)
                     }
                 }
                 Button(onClick = { focusManager.clearFocus(); onSearch() }, enabled = !busy, colors = ButtonDefaults.buttonColors(containerColor = CommuteTeal, contentColor = Color.White), shape = RoundedCornerShape(15.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp), modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("intercity_search")) {
@@ -189,7 +189,7 @@ private fun IntercityCityInput(
     val choices = remember(suggestions, value) { suggestions.distinct().filter { value.isBlank() || it.contains(value, ignoreCase = true) }.take(7) }
     val focusManager = LocalFocusManager.current
     Box(modifier) {
-        Surface(color = CommuteCream, shape = RoundedCornerShape(13.dp), border = BorderStroke(1.dp, IntercityBorder)) {
+        Surface(color = CommuteCream, shape = RoundedCornerShape(13.dp), border = BorderStroke(1.dp, PassoMobilityPalette.border)) {
             Row(Modifier.fillMaxWidth().heightIn(min = 62.dp).clickable { fieldFocus.requestFocus() }.padding(start = 9.dp, end = 15.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Icon(Icons.Default.LocationOn, null, Modifier.size(23.dp), tint = CommuteTeal)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -234,7 +234,7 @@ internal fun IntercityDepartureCard(
     modifier: Modifier = Modifier
 ) {
     val available = departure.availableSeats > 0
-    Surface(color = CommuteCream, shape = RoundedCornerShape(19.dp), shadowElevation = 3.dp, modifier = modifier.width(225.dp).testTag("intercity_departure_${departure.id}")) {
+    Surface(color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, shape = RoundedCornerShape(19.dp), shadowElevation = 3.dp, modifier = modifier.width(225.dp).testTag("intercity_departure_${departure.id}")) {
         Column {
             Box(Modifier.fillMaxWidth().height(129.dp)) {
                 when (Math.floorMod(photoIndex, 3)) {
@@ -247,8 +247,8 @@ internal fun IntercityDepartureCard(
                 }
             }
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("${departure.origin} → ${departure.destination}", color = CommuteInk, fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(departure.companyName, color = CommuteTeal, fontSize = 11.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${departure.origin} → ${departure.destination}", color = PassoMobilityPalette.text, fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(departure.companyName, color = PassoMobilityPalette.brand, fontSize = 11.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 IntercityDetailLine(Icons.Default.Schedule, formatIntercityTime(departure.departureAt))
                 IntercityDetailLine(Icons.Default.EventSeat, if (available) intercityText(language, "${departure.availableSeats} seats available", "${departure.availableSeats} ወንበሮች አሉ", "Teessoo ${departure.availableSeats} jira") else intercityText(language, "Sold out", "ሙሉ ነው", "Guuteera"))
                 listOfNotNull(departure.vehicleModel?.takeIf { it.isNotBlank() }, departure.vehicleType?.takeIf { it.isNotBlank() }).distinct().joinToString(" · ").takeIf { it.isNotBlank() }?.let {
@@ -256,10 +256,10 @@ internal fun IntercityDepartureCard(
                 }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     Column(Modifier.weight(1f)) {
-                        Text(intercityText(language, "Per passenger", "በመንገደኛ", "Imalaa tokkoof"), color = IntercityMuted, fontSize = 10.sp, lineHeight = 13.sp)
-                        Text("ETB ${formatIntercityFare(departure.fareEtb)}", color = CommuteTeal, fontSize = 18.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold)
+                    Text(intercityText(language, "Per passenger", "በመንገደኛ", "Imalaa tokkoof"), color = PassoMobilityPalette.muted, fontSize = 10.sp, lineHeight = 13.sp)
+                        Text("ETB ${formatIntercityFare(departure.fareEtb)}", color = PassoMobilityPalette.brand, fontSize = 18.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold)
                     }
-                    FilledIconButton(onClick = onSelect, enabled = available, colors = IconButtonDefaults.filledIconButtonColors(containerColor = CommuteMint, contentColor = CommuteInk), modifier = Modifier.size(43.dp).testTag("intercity_select_${departure.id}")) {
+                    FilledIconButton(onClick = onSelect, enabled = available, colors = IconButtonDefaults.filledIconButtonColors(containerColor = PassoMobilityPalette.cardRaised, contentColor = PassoMobilityPalette.text), modifier = Modifier.size(43.dp).testTag("intercity_select_${departure.id}")) {
                         Icon(Icons.AutoMirrored.Filled.ArrowForward, intercityText(language, "Choose seats", "ወንበር ይምረጡ", "Teessoo filadhu"), Modifier.size(23.dp))
                     }
                 }
@@ -271,8 +271,8 @@ internal fun IntercityDepartureCard(
 @Composable
 private fun IntercityDetailLine(icon: ImageVector, value: String) {
     Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-        Icon(icon, null, Modifier.size(15.dp), tint = CommuteInk)
-        Text(value, color = IntercityMuted, fontSize = 11.sp, lineHeight = 15.sp)
+        Icon(icon, null, Modifier.size(15.dp), tint = PassoMobilityPalette.muted)
+        Text(value, color = PassoMobilityPalette.muted, fontSize = 11.sp, lineHeight = 15.sp)
     }
 }
 

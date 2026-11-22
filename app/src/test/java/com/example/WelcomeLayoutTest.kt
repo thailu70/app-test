@@ -89,11 +89,14 @@ class WelcomeLayoutTest {
             assertEquals("${language.code}: translated service cards share one bottom edge", cards.first().bottom, card.bottom, tolerance)
             assertTrue("${language.code}: service card is fully on screen", card.top >= viewport.top - tolerance && card.bottom <= button.top + tolerance)
         }
+        compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
+        compose.onNodeWithTag("welcome_language_menu").assertIsDisplayed().performClick()
         AppLanguage.entries.forEach { item ->
             val option = compose.onNodeWithTag("welcome_language_${item.code}").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
             assertTrue("${language.code}: language touch target must not be scaled down", option.height >= 48f * density - tolerance)
         }
-        compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
+        compose.onNodeWithTag("welcome_language_${language.code}").performClick()
+        compose.waitForIdle()
     }
 
     private fun capturePreview(name: String) {
@@ -112,7 +115,7 @@ class WelcomeLayoutTest {
             }
         }
         AppLanguage.entries.forEach { item ->
-            compose.onNodeWithTag("welcome_language_${item.code}").assertIsDisplayed().performClick()
+            chooseLanguage(item)
             assertEquals(item, language)
             assertPortraitUsesSafeViewport(item)
             WelcomeService.entries.forEach { service ->
@@ -122,6 +125,11 @@ class WelcomeLayoutTest {
             }
             capturePreview("$previewPrefix-${item.code}.png")
         }
+    }
+
+    private fun chooseLanguage(item: AppLanguage) {
+        compose.onNodeWithTag("welcome_language_menu").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("welcome_language_${item.code}").assertIsDisplayed().performClick()
     }
 
     @Test
@@ -146,7 +154,7 @@ class WelcomeLayoutTest {
             }
         }
         AppLanguage.entries.forEach { item ->
-            compose.onNodeWithTag("welcome_language_${item.code}").assertIsDisplayed().performClick()
+            chooseLanguage(item)
             WelcomeService.entries.forEach { service ->
                 compose.onNodeWithTag("welcome_service_${service.name}").assertIsDisplayed().performClick()
                 compose.onNodeWithTag("welcome_continue").assertIsDisplayed().performClick()
@@ -173,7 +181,7 @@ class WelcomeLayoutTest {
             }
         }
         AppLanguage.entries.forEach { item ->
-            compose.onNodeWithTag("welcome_language_${item.code}").assertIsDisplayed().performClick()
+            chooseLanguage(item)
             assertPortraitUsesSafeViewport(item)
             WelcomeService.entries.forEach { service ->
                 compose.onNodeWithTag("welcome_service_${service.name}").assertIsDisplayed().performClick()
@@ -211,10 +219,10 @@ class WelcomeLayoutTest {
         captureWindow().let { bitmap ->
             File(dir, "welcome-controls.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
-        compose.onNodeWithTag("welcome_language_om").assertIsDisplayed().performClick()
+        chooseLanguage(AppLanguage.OROMO)
         assertEquals(AppLanguage.OROMO, language)
         compose.onNodeWithText("Itti fufi").assertExists()
-        compose.onNodeWithTag("welcome_language_am").assertIsDisplayed().performClick()
+        chooseLanguage(AppLanguage.AMHARIC)
         assertEquals(AppLanguage.AMHARIC, language)
         compose.onNodeWithText("ቀጥል").assertExists()
         assertPortraitUsesSafeViewport(AppLanguage.AMHARIC)
@@ -243,6 +251,8 @@ class WelcomeLayoutTest {
                 compose.onNodeWithTag("welcome_continue").performClick()
                 assertEquals(service, destination)
             }
+            compose.onNodeWithTag("welcome_language_menu").performClick()
+            compose.mainClock.advanceTimeBy(250)
             compose.onNodeWithTag("welcome_language_om").performClick()
             compose.mainClock.advanceTimeBy(80)
             compose.onNodeWithText("Itti fufi").assertExists()

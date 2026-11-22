@@ -45,6 +45,7 @@ import com.example.core.localization.AppLanguage
 import com.example.data.api.ApiClient
 import com.example.data.api.MobilityApi
 import com.example.data.api.MobilityPlace
+import com.example.ui.components.PassoMobilityPalette
 import com.example.ui.screens.passenger.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -113,6 +114,8 @@ internal fun MobilityLocationPicker(
         MapView(context).apply {
             tag = "mobility_native_map"
             setTileSource(TileSourceFactory.MAPNIK); setUseDataConnection(tileDownloadsEnabled)
+            overlayManager.tilesOverlay.setColorFilter(null)
+            overlayManager.tilesOverlay.setLoadingBackgroundColor(android.graphics.Color.rgb(231, 238, 233))
             setMultiTouchControls(true); setBuiltInZoomControls(false)
             // A chosen point follows the finger, not an inertial fling after the gesture ends.
             setFlingEnabled(false)
@@ -287,12 +290,12 @@ private fun LocationSearch(query: String, onQuery: (String) -> Unit, searching: 
 
 @Composable
 private fun LocationMap(map: MapView, selected: Boolean, locating: Boolean, onLocate: () -> Unit, modifier: Modifier) {
-    Box(modifier.clipToBounds().background(Color(0xFFE8EEE8)).testTag("mobility_location_map")) {
+    Box(modifier.clipToBounds().background(PassoMobilityPalette.map).testTag("mobility_location_map")) {
         // MATCH_PARENT refers to this measured slot, never the activity or the full dialog.
         AndroidView(factory = { BoundedMobilityMap(it, map) }, modifier = Modifier.matchParentSize().clipToBounds(), update = { it.clipChildren = true; map.invalidate() })
-        if (selected) Icon(Icons.Default.LocationOn, "Selected location", tint = CommuteTeal, modifier = Modifier.align(Alignment.Center).offset(y = (-21).dp).size(48.dp))
-        Surface(shape = CircleShape, color = Color.White, shadowElevation = 3.dp, border = BorderStroke(1.dp, Color(0xFFDDE2DC)), modifier = Modifier.align(Alignment.BottomEnd).padding(14.dp)) {
-            IconButton(onClick = onLocate, enabled = !locating, modifier = Modifier.testTag("mobility_location_recenter")) { Icon(Icons.Default.MyLocation, "Use current location", tint = CommuteInk) }
+        if (selected) Icon(Icons.Default.LocationOn, "Selected location", tint = PassoMobilityPalette.landmark, modifier = Modifier.align(Alignment.Center).offset(y = (-21).dp).size(48.dp))
+        Surface(shape = CircleShape, color = PassoMobilityPalette.card, shadowElevation = 3.dp, border = BorderStroke(1.dp, PassoMobilityPalette.border), modifier = Modifier.align(Alignment.BottomEnd).padding(14.dp)) {
+            IconButton(onClick = onLocate, enabled = !locating, modifier = Modifier.testTag("mobility_location_recenter")) { Icon(Icons.Default.MyLocation, "Use current location", tint = PassoMobilityPalette.text) }
         }
         Surface(color = Color.White.copy(alpha = 0.92f), shape = RoundedCornerShape(topEnd = 6.dp), modifier = Modifier.align(Alignment.BottomStart)) { Text("© OpenStreetMap contributors", color = CommuteInk, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)) }
     }
@@ -300,12 +303,12 @@ private fun LocationMap(map: MapView, selected: Boolean, locating: Boolean, onLo
 
 @Composable
 private fun LocationConfirmation(selected: Boolean, selectedName: String, destination: Boolean, onConfirm: () -> Unit, t: (String, String, String) -> String) {
-    Surface(color = Color.White, shape = RoundedCornerShape(topStart = 23.dp, topEnd = 23.dp), modifier = Modifier.fillMaxWidth().testTag("mobility_location_confirmation")) {
+    Surface(color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, shape = RoundedCornerShape(topStart = 23.dp, topEnd = 23.dp), modifier = Modifier.fillMaxWidth().testTag("mobility_location_confirmation")) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 21.dp, vertical = 15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(if (destination) t("Selected destination", "የተመረጠ መድረሻ", "Ga'umsa filatame") else t("Selected pickup", "የተመረጠ መነሻ", "Ka'umsa filatame"), color = Color(0xFF4D6577), fontSize = 12.sp)
-            Text(selectedName.ifBlank { if (selected) t("Selected map point", "በካርታ የተመረጠ ቦታ", "Bakka kaartaa filatame") else t("Choose a place on the map", "በካርታው ላይ ቦታ ይምረጡ", "Kaartaa irratti bakka filadhu") }, color = CommuteInk,
+            Text(if (destination) t("Selected destination", "የተመረጠ መድረሻ", "Ga'umsa filatame") else t("Selected pickup", "የተመረጠ መነሻ", "Ka'umsa filatame"), color = PassoMobilityPalette.muted, fontSize = 12.sp)
+            Text(selectedName.ifBlank { if (selected) t("Selected map point", "በካርታ የተመረጠ ቦታ", "Bakka kaartaa filatame") else t("Choose a place on the map", "በካርታው ላይ ቦታ ይምረጡ", "Kaartaa irratti bakka filadhu") }, color = PassoMobilityPalette.text,
                 fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("mobility_location_selected_name"))
-            Text(t("Check the pickup or delivery entrance.", "የመነሻ ወይም የማድረሻ መግቢያውን ያረጋግጡ።", "Balbala ka'umsaa yookaan geejjibaa mirkaneessi."), color = Color(0xFF566D7B), fontSize = 12.sp, lineHeight = 16.sp)
+            Text(t("Check the pickup or delivery entrance.", "የመነሻ ወይም የማድረሻ መግቢያውን ያረጋግጡ።", "Balbala ka'umsaa yookaan geejjibaa mirkaneessi."), color = PassoMobilityPalette.muted, fontSize = 12.sp, lineHeight = 16.sp)
             Button(onClick = onConfirm, enabled = selected, modifier = Modifier.fillMaxWidth().padding(top = 10.dp).heightIn(min = 52.dp).testTag("mobility_location_confirm"), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = CommuteTeal)) {
                 Text(if (destination) t("Use this destination", "ይህን መድረሻ ተጠቀም", "Ga'umsa kana fayyadami") else t("Use this pickup", "ይህን መነሻ ተጠቀም", "Ka'umsa kana fayyadami"), fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }

@@ -1,0 +1,236 @@
+package live.passo.smsgateway;
+
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
+import android.content.Intent;
+import android.content.pm.ServiceInfo;
+import android.os.Build;
+import android.os.IBinder;
+import android.telephony.SmsManager;
+
+import org.json.JSONObject;
+
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
+
+public class SmsGatewayService extends Service {
+    private static final String KEY_BASE_URL = "base_url";
+    // Keep this key in sync with MainActivity.KEY_DEVICE_TOKEN. The value is
+    // encrypted at rest and must be decrypted before the service can heartbeat.
+    private static final String KEY_DEVICE_TOKEN = "device_token_enc";
+    private static final String CHANNEL_ID = "passo_sms_gateway";
+    private static final int NOTIFICATION_ID = 5091;
+    private static final Pattern OTP_TEXT = Pattern.compile("^PASSO sign-in verification code: \\d{6}\\. It expires in 10 minutes\\. Do not share it\\.$");
+    private static final Pattern ETHIOPIAN_PHONE = Pattern.compile("^\\+251[79]\\d{8}$");
+
+    private volatile boolean running;
+    private String baseUrl;
+    private String deviceToken;
+    private ScheduledExecutorService executor;
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        createNotificationChannel();
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        // Android requires a started foreground service to publish its notification
+        // immediately. Do this before every validation/early-return path so an
+        // unpaired phone is handled cleanly instead of crashing the app.
+        startForegroundServiceNotification("Starting secure SMS gateway…");
+        if (intent == null) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+            stopSelf(startId);
+            return START_NOT_STICKY;
+        }
+        baseUrl = normalizeBase(intent.getStringExtra(KEY_BASE_URL));
+        try {
+            String encryptedToken = getSharedPreferences("passo_gateway", MODE_PRIVATE).getString(KEY_DEVICE_TOKEN, "");
+            deviceToken = GatewayCrypto.decryptDeviceToken(encryptedToken);
+        } catch (Exception ignored) { deviceToken = ""; }
+        if (baseUrl.isEmpty() || deviceToken.length() < 32) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+            stopSelf(startId);
+            return START_NOT_STICKY;
+        }
+        updateNotification("Connecting to Passo…");
+        if (executor == null || executor.isShutdown()) {
+            running = true;
+            executor = Executors.newSingleThreadScheduledExecutor();
+            executor.scheduleWithFixedDelay(this::pollSafely, 0, 5, TimeUnit.SECONDS);
+        }
+        return START_NOT_STICKY;
+    }
+
+    private String normalizeBase(String value) {
+        if (value == null) return "";
+        String result = value.trim();
+        while (result.endsWith("/")) result = result.substring(0, result.length() - 1);
+        return result.startsWith("https://") ? result : "";
+    }
+
+    private void pollSafely() {
+        if (!running) return;
+        try {
+            JSONObject response = post("/api/sms-gateway/claim", new JSONObject());
+            JSONObject job = response.optJSONObject("job");
+            if (job == null || job == JSONObject.NULL) {
+                updateNotification("Connected · waiting for a test sign-in code");
+                return;
+            }
+            deliver(job);
+        } catch (UnauthorizedException error) {
+            updateNotification("Pair again in Passo Admin");
+            running = false;
+            stopSelf();
+        } catch (Exception error) {
+            updateNotification("Reconnecting to Passo…");
+        }
+    }
+
+    private void deliver(JSONObject job) {
+        String id = job.optString("id", "");
+        String encryptedPayload = job.optString("encryptedPayload", "");
+        String lease = job.optString("leaseToken", "");
+        boolean sent = false;
+        boolean payloadValid = false;
+        String failureReason = "job_invalid";
+        String phone = "";
+        String message = "";
+        try {
+            if (encryptedPayload.length() < 100 || encryptedPayload.length() > 3000) throw new IllegalArgumentException("Invalid encrypted payload.");
+            JSONObject secret = GatewayCrypto.decryptOtpPayload(encryptedPayload);
+            phone = secret.optString("phone", "");
+            message = secret.optString("message", "");
+            payloadValid = true;
+            failureReason = "payload_invalid";
+        } catch (Exception error) {
+            failureReason = "payload_" + error.getClass().getSimpleName();
+            phone = "";
+            message = "";
+        }
+        if (id.isEmpty() || lease.isEmpty()) {
+            failureReason = "job_invalid";
+        } else if (!payloadValid) {
+            // Keep the decryption failure category recorded above.
+        } else if (!ETHIOPIAN_PHONE.matcher(phone).matches()) {
+            failureReason = "recipient_invalid";
+        } else if (!OTP_TEXT.matcher(message).matches()) {
+            failureReason = "message_policy_rejected";
+        } else {
+            try {
+                SmsManager.getDefault().sendTextMessage(phone, null, message, null, null);
+                sent = true;
+            } catch (SecurityException error) {
+                failureReason = "sms_permission_denied";
+            } catch (IllegalArgumentException error) {
+                failureReason = "sms_arguments_invalid";
+            } catch (Exception error) {
+                failureReason = "sms_manager_" + error.getClass().getSimpleName();
+                sent = false;
+            }
+        }
+        if (!sent) android.util.Log.w("PassoSmsGateway", "SMS delivery failed [" + failureReason + "]");
+        try {
+            JSONObject acknowledgement = new JSONObject();
+            acknowledgement.put("leaseToken", lease);
+            acknowledgement.put("status", sent ? "SENT" : "FAILED");
+            post("/api/sms-gateway/jobs/" + id + "/ack", acknowledgement);
+            updateNotification(sent ? "Test sign-in SMS sent from this phone" : "A test SMS could not be sent");
+        } catch (Exception ignored) {
+            updateNotification("Message queued · reconnecting to Passo");
+        } finally {
+            // Java strings cannot be reliably zeroed, so never display or log these values.
+            phone = "";
+            message = "";
+        }
+    }
+
+    private JSONObject post(String path, JSONObject body) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(baseUrl + path).openConnection();
+        connection.setRequestMethod("POST");
+        connection.setConnectTimeout(10000);
+        connection.setReadTimeout(10000);
+        connection.setDoOutput(true);
+        connection.setRequestProperty("Content-Type", "application/json");
+        connection.setRequestProperty("Accept", "application/json");
+        connection.setRequestProperty("Authorization", "Bearer " + deviceToken);
+        connection.getOutputStream().write(body.toString().getBytes(StandardCharsets.UTF_8));
+        int status = connection.getResponseCode();
+        InputStream input = status >= 200 && status < 300 ? connection.getInputStream() : connection.getErrorStream();
+        byte[] responseBytes = input == null ? new byte[0] : input.readAllBytes();
+        connection.disconnect();
+        if (status == 401) throw new UnauthorizedException();
+        if (status < 200 || status >= 300) throw new IllegalStateException("Gateway request failed.");
+        return new JSONObject(new String(responseBytes, StandardCharsets.UTF_8));
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT < 26) return;
+        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Passo test SMS gateway", NotificationManager.IMPORTANCE_LOW);
+        channel.setDescription("Shows when Passo is sending test sign-in SMS through this phone.");
+        getSystemService(NotificationManager.class).createNotificationChannel(channel);
+    }
+
+    private Notification notification(String message) {
+        Intent openIntent = new Intent(this, MainActivity.class);
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        if (Build.VERSION.SDK_INT >= 26) {
+            return new Notification.Builder(this, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.stat_notify_chat)
+                    .setContentTitle("Passo SMS Gateway")
+                    .setContentText(message)
+                    .setContentIntent(pendingIntent)
+                    .setOngoing(true)
+                    .build();
+        }
+        return new Notification.Builder(this)
+                .setSmallIcon(android.R.drawable.stat_notify_chat)
+                .setContentTitle("Passo SMS Gateway")
+                .setContentText(message)
+                .setContentIntent(pendingIntent)
+                .setOngoing(true)
+                .build();
+    }
+
+    private void startForegroundServiceNotification(String message) {
+        Notification notification = notification(message);
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING);
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
+        }
+    }
+
+    private void updateNotification(String message) {
+        NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        manager.notify(NOTIFICATION_ID, notification(message));
+    }
+
+    @Override
+    public void onDestroy() {
+        running = false;
+        if (executor != null) executor.shutdownNow();
+        stopForeground(STOP_FOREGROUND_REMOVE);
+        super.onDestroy();
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+
+    private static final class UnauthorizedException extends Exception { }
+}

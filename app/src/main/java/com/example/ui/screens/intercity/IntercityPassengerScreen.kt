@@ -45,6 +45,7 @@ import com.example.ui.screens.passenger.CommuteCream
 import com.example.ui.screens.passenger.CommuteInk
 import com.example.ui.screens.passenger.CommuteMint
 import com.example.ui.screens.passenger.CommuteTeal
+import com.example.ui.components.PassoMobilityPalette
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -69,7 +70,7 @@ internal fun IntercityPassengerScreen(
     val model = providedViewModel ?: viewModel<IntercityPassengerViewModel>(key = "intercity-passenger", factory = factory)
     val state by model.state.collectAsState()
     if (state.phase == IntercityPhase.BROWSE && state.serviceTab != 0) {
-        MobilityPassengerScreen(if (state.serviceTab == 1) "CARGO" else "GROUP", language,
+        MobilityPassengerScreen("GROUP", language,
             onBack = { model.setTab(0) }, modifier = modifier, providedModel = providedMobilityViewModel)
         return
     }
@@ -166,11 +167,11 @@ internal fun IntercityPassengerScreen(
                             }
                         }
                         if (state.departures.isEmpty() && !state.busy) item {
-                            Surface(color = Color.White, shape = RoundedCornerShape(22.dp), modifier = Modifier.padding(horizontal = 14.dp).fillMaxWidth()) {
+                            Surface(color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, shape = RoundedCornerShape(22.dp), modifier = Modifier.padding(horizontal = 14.dp).fillMaxWidth()) {
                                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Icon(Icons.Default.Search, null, tint = CommuteTeal)
-                                    Text(intercityText(language, "No available routes", "ያሉ መስመሮች የሉም", "Karaaleen hin jiran"), fontWeight = FontWeight.Bold, color = CommuteInk)
-                                    Text(intercityText(language, "Try another date or city, or request a route.", "ሌላ ቀን ወይም ከተማ ይሞክሩ፣ ወይም መስመር ይጠይቁ።", "Guyyaa ykn magaalaa biraa filadhu, yookaan karaa gaafadhu."), fontSize = 12.sp, color = CommuteInk)
+                                    Text(intercityText(language, "No available routes", "ያሉ መስመሮች የሉም", "Karaaleen hin jiran"), fontWeight = FontWeight.Bold, color = PassoMobilityPalette.text)
+                                    Text(intercityText(language, "Try another date or city, or request a route.", "ሌላ ቀን ወይም ከተማ ይሞክሩ፣ ወይም መስመር ይጠይቁ።", "Guyyaa ykn magaalaa biraa filadhu, yookaan karaa gaafadhu."), fontSize = 12.sp, color = PassoMobilityPalette.muted)
                                 }
                             }
                         }
@@ -257,22 +258,24 @@ private fun IntercityTestPaymentVerification(
     state: IntercityUiState, language: AppLanguage, verificationCode: String, onCodeChange: (String) -> Unit,
     onVerify: (String) -> Unit, onResend: () -> Unit, onCancel: () -> Unit
 ) {
-    Surface(color = Color.White, shape = RoundedCornerShape(24.dp),
+    Surface(color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, shape = RoundedCornerShape(24.dp),
         modifier = Modifier.padding(horizontal = 14.dp).fillMaxWidth().testTag("intercity_verification")) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Icon(Icons.Default.VerifiedUser, null, tint = CommuteTeal, modifier = Modifier.size(30.dp))
             Text(intercityText(language, "Verify your phone", "ስልክዎን ያረጋግጡ", "Bilbila kee mirkaneessi"),
-                color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 23.sp)
+                color = PassoMobilityPalette.text, fontWeight = FontWeight.Bold, fontSize = 23.sp)
             Text(intercityText(language,
                 "Enter the code sent to ${state.testVerificationPhone.orEmpty()} to confirm this test booking. No money will be collected.",
                 "ይህን የሙከራ ቦታ ለማረጋገጥ ወደ ${state.testVerificationPhone.orEmpty()} የተላከውን ኮድ ያስገቡ። ገንዘብ አይከፈልም።",
                 "Ajaja yaalii kana mirkaneessuuf koodii gara ${state.testVerificationPhone.orEmpty()} ergame galchi. Maallaqni hin kaffalamu."),
-                color = CommuteInk, fontSize = 14.sp)
+                color = PassoMobilityPalette.muted, fontSize = 14.sp)
             OutlinedTextField(verificationCode, { onCodeChange(it.filter(Char::isDigit).take(6)) },
                 enabled = !state.busy, singleLine = true,
                 label = { Text(intercityText(language, "Six-digit code", "ባለ 6 አሃዝ ኮድ", "Koodii lakkoofsa ja'aa")) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                shape = RoundedCornerShape(13.dp), modifier = Modifier.fillMaxWidth().testTag("intercity_test_otp"))
+                shape = RoundedCornerShape(13.dp), colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color.White,
+                    unfocusedContainerColor = Color.White, focusedTextColor = CommuteInk, unfocusedTextColor = CommuteInk),
+                modifier = Modifier.fillMaxWidth().testTag("intercity_test_otp"))
             state.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             TextButton(onClick = onResend, enabled = !state.busy, modifier = Modifier.testTag("intercity_resend_test")) {
                 Text(intercityText(language, "Resend code", "ኮድ እንደገና ላክ", "Koodii irra deebi'i ergi"), color = CommuteTeal)
@@ -306,10 +309,10 @@ private fun IntercityRequestForm(state: IntercityUiState, language: AppLanguage,
     var phone by rememberSaveable { mutableStateOf("") }
     var company by rememberSaveable { mutableStateOf("") }
     var companyMenu by remember { mutableStateOf(false) }
-    Surface(color = Color.White, shape = RoundedCornerShape(24.dp), modifier = Modifier.padding(horizontal = 14.dp).fillMaxWidth()) {
+    Surface(color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, shape = RoundedCornerShape(24.dp), modifier = Modifier.padding(horizontal = 14.dp).fillMaxWidth()) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(intercityText(language, "Request your route", "መስመርዎን ይጠይቁ", "Karaa kee gaafadhu"), fontWeight = FontWeight.Bold, fontSize = 23.sp, color = CommuteInk)
-            Text(intercityText(language, "A request does not reserve seats or collect payment.", "ጥያቄ መቀመጫ አይይዝም፣ ክፍያም አይጠይቅም።", "Gaaffiin teessoo hin qabatu, kaffaltii hin gaafatu."), fontSize = 12.sp, color = CommuteInk)
+            Text(intercityText(language, "Request your route", "መስመርዎን ይጠይቁ", "Karaa kee gaafadhu"), fontWeight = FontWeight.Bold, fontSize = 23.sp, color = PassoMobilityPalette.text)
+            Text(intercityText(language, "A request does not reserve seats or collect payment.", "ጥያቄ መቀመጫ አይይዝም፣ ክፍያም አይጠይቅም።", "Gaaffiin teessoo hin qabatu, kaffaltii hin gaafatu."), fontSize = 12.sp, color = PassoMobilityPalette.muted)
             OutlinedTextField(state.origin, onOrigin, label = { Text(intercityText(language, "From", "መነሻ", "Irraa")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             OutlinedTextField(state.destination, onDestination, label = { Text(intercityText(language, "To", "መድረሻ", "Gara")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             OutlinedButton(onClick = onDate, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.CalendarMonth, null); Spacer(Modifier.width(8.dp)); Text(intercityDateLabel(state.date)) }

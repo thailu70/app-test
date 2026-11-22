@@ -105,7 +105,7 @@ function createMobilityPushService({ db = DB, service, ridesService, env = proce
   async function register(scope, owner, input, snapshot = '') {
     const token = tokenValue(input.token), tokenHash = hash(token), id = hash(scope + '\0' + owner + '\0' + tokenHash);
     let latitude = null, longitude = null, gpsAt = null;
-    if (scope === 'DRIVER' && (input.latitude != null || input.longitude != null)) {
+    if ((scope === 'DRIVER' || scope === 'RIDE_DRIVER' || scope === 'RIDE_PASSENGER') && (input.latitude != null || input.longitude != null)) {
       latitude = Number(input.latitude); longitude = Number(input.longitude);
       if (input.latitude == null || input.longitude == null || !Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) throw new MobilityPushError('Use a valid current map location.');
       gpsAt = instant();
@@ -138,7 +138,7 @@ function createMobilityPushService({ db = DB, service, ridesService, env = proce
   async function registerRideAccount(user, input) {
     await init();
     if (!['DRIVER', 'PASSENGER'].includes(user.role) || !await db.prepare("SELECT id FROM users WHERE id=? AND role=? AND status='ACTIVE'").get(user.id, user.role)) throw new MobilityPushError('Account unavailable.', 403);
-    return register('RIDE_' + user.role, user.id, input, await rideEvents.snapshot(user.role, user.id));
+    return register('RIDE_' + user.role, user.id, input, await rideEvents.snapshot(user.role, user.id, input));
   }
   async function unregisterRideAccount(user, input) { await init(); return unregister('RIDE_' + user.role, user.id, input); }
   async function unregister(scope, owner, input) {
@@ -182,7 +182,10 @@ function createMobilityPushService({ db = DB, service, ridesService, env = proce
       for (const job of (result.requests || []).filter(item => item.nearby && !item.myQuote)) for (const token of tokens) await enqueue(token, job.id, 'NEW_REQUEST', job.kind, driverId);
     }
   }
-  function notification(event) {
+  function notification(event, scope, kind) {
+    if (event === 'NEW_REQUEST' && scope === 'PASSENGER' && kind === 'SHARED') return { title: 'Group ride nearby', body: 'A nearby group taxi has seats available. Open Passo to view it.' };
+    if (event === 'NEW_REQUEST' && kind === 'TAXI') return { title: scope === 'DRIVER' ? 'Taxi call nearby' : 'Taxi trip update', body: scope === 'DRIVER' ? 'A passenger is looking for a ride nearby. Open Passo to respond.' : 'Open Passo to view your taxi request.' };
+    if (event === 'NEW_REQUEST' && kind === 'SHARED') return { title: 'Group ride request nearby', body: 'A passenger requested a group ride near your location. Open Passo to respond.' };
     if (event === 'NEW_REQUEST') return { title: 'New transport request nearby', body: 'Open Passo to view the request and send your quote.' };
     if (event === 'SELECTED') return { title: 'Your quote was selected', body: 'Open Passo to view your confirmed transport task.' };
     if (event === 'QUOTES') return { title: 'You have transport quotes', body: 'Open Passo to compare driver offers for your request.' };
@@ -222,7 +225,7 @@ function createMobilityPushService({ db = DB, service, ridesService, env = proce
         const acquired = await db.prepare("UPDATE mobility_push_outbox SET lease_token=?,lease_until=? WHERE id=? AND status='PENDING' AND (lease_until IS NULL OR lease_until<?)").run(lease, new Date(now() + 30000).toISOString(), job.id, instant());
         if (!acquired.changes) continue;
         let result;
-        try { result = await transport.send(decrypt(token.token_encrypted), notification(job.event_type), { requestId: job.request_id, eventType: job.event_type, scope: job.scope, kind: job.kind }); }
+        try { result = await transport.send(decrypt(token.token_encrypted), notification(job.event_type, job.scope, job.kind), { requestId: job.request_id, eventType: job.event_type, scope: job.scope, kind: job.kind }); }
         catch (_) { result = { sent: false }; }
         if (result.sent) { await db.prepare("UPDATE mobility_push_outbox SET status='SENT',attempts=attempts+1,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=?").run(job.id, lease); sent++; }
         else {

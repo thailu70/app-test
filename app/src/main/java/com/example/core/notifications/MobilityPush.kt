@@ -6,6 +6,8 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
 import android.os.SystemClock
 import androidx.core.app.NotificationManagerCompat
@@ -32,6 +34,8 @@ class AndroidMobilityGuestPushRegistrar(context: Context) : MobilityGuestPushReg
 
 object MobilityPush {
     const val CHANNEL_ID = "cargo_updates"
+    // Bump this when alert sound behavior changes: Android keeps a user's old channel settings.
+    const val RIDE_ALERT_CHANNEL_ID = "ride_alerts_v3"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val guestSynced = ConcurrentHashMap<String, Pair<String, Long>>()
     @Volatile private var activeDriverId: String? = null
@@ -52,12 +56,29 @@ object MobilityPush {
     fun allowed(context: Context): Boolean = mobilityPushAllowed(if (production(context)) AppEnvironment.PRODUCTION else AppEnvironment.DEMO, notificationsGranted(context), configured(context))
 
     fun ensureChannel(context: Context) {
-        if (Build.VERSION.SDK_INT >= 26) context.getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Transport requests & updates", NotificationManager.IMPORTANCE_HIGH).apply {
+        if (Build.VERSION.SDK_INT >= 26) context.getSystemService(NotificationManager::class.java).apply {
+            createNotificationChannel(NotificationChannel(CHANNEL_ID, "Transport requests & updates", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Nearby transport requests, driver quotes and booking progress."
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
             })
+            MobilityAlertTone.values().forEach { tone ->
+                listOf(false, true).forEach { driver ->
+                    createNotificationChannel(NotificationChannel(alertChannelId(tone, driver), "${if (driver) "Driver" else "Passenger"} alerts · ${tone.title}", NotificationManager.IMPORTANCE_HIGH).apply {
+                        description = "Sound and vibration for new nearby taxi calls, shared rides and trip updates."
+                        lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
+                        enableVibration(true)
+                        vibrationPattern = longArrayOf(0, 850, 350, 850, 350, 1200)
+                        setSound(RingtoneManager.getDefaultUri(tone.ringtoneType), AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+                    })
+                }
+            }
+        }
     }
+
+    fun selectedAlertChannel(context: Context, driver: Boolean): String = alertChannelId(MobilityAlertTone.selected(context, driver), driver)
+    private fun alertChannelId(tone: MobilityAlertTone, driver: Boolean): String = "${RIDE_ALERT_CHANNEL_ID}_${if (driver) "driver" else "passenger"}_${tone.id.lowercase()}"
 
     internal suspend fun currentToken(context: Context): String? {
         if (!allowed(context)) return null
@@ -177,7 +198,7 @@ object MobilityPush {
     }.getOrDefault(false)
 
     @Suppress("MissingPermission", "DEPRECATION")
-    private fun recentLocation(context: Context): Pair<Double, Double>? {
+    internal fun recentLocation(context: Context): Pair<Double, Double>? {
         val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!fine && !coarse) return null
@@ -187,5 +208,24 @@ object MobilityPush {
                 .filter { location -> (SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000L in 0..5 * 60_000L && location.hasAccuracy() && location.accuracy in 0f..1000f }
                 .maxByOrNull { it.elapsedRealtimeNanos }?.let { it.latitude to it.longitude }
         }.getOrNull()
+    }
+}
+
+enum class MobilityAlertTone(val id: String, val title: String, val ringtoneType: Int) {
+    RING("RING", "Classic ring", RingtoneManager.TYPE_RINGTONE),
+    BEEP("BEEP", "Short beep", RingtoneManager.TYPE_NOTIFICATION);
+
+    companion object {
+        private const val PREFERENCES = "passo_alert_preferences"
+        private const val SELECTED_TONE = "ride_alert_tone"
+        private fun preferenceKey(driver: Boolean) = "${SELECTED_TONE}_${if (driver) "driver" else "passenger"}"
+        fun selected(context: Context, driver: Boolean): MobilityAlertTone {
+            val id = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(preferenceKey(driver), RING.id)
+            return values().firstOrNull { it.id == id } ?: RING
+        }
+        fun select(context: Context, tone: MobilityAlertTone, driver: Boolean) {
+            context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putString(preferenceKey(driver), tone.id).apply()
+        }
+        fun channelId(tone: MobilityAlertTone, driver: Boolean): String = "${MobilityPush.RIDE_ALERT_CHANNEL_ID}_${if (driver) "driver" else "passenger"}_${tone.id.lowercase()}"
     }
 }

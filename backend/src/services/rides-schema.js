@@ -38,6 +38,12 @@ async function initRidesSchema(db = require("../db").DB) {
       CREATE TABLE IF NOT EXISTS ride_shared_seats (trip_id TEXT NOT NULL REFERENCES ride_shared_trips(id),seat_number INTEGER NOT NULL,booking_id TEXT NOT NULL REFERENCES ride_shared_bookings(id),PRIMARY KEY(trip_id,seat_number));
       CREATE TABLE IF NOT EXISTS ride_shared_locations (trip_id TEXT PRIMARY KEY REFERENCES ride_shared_trips(id),driver_id TEXT NOT NULL,latitude REAL NOT NULL,longitude REAL NOT NULL,accuracy_meters REAL NOT NULL,recorded_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS ride_pin_attempts (ride_id TEXT NOT NULL,actor_id TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,blocked_until TEXT,PRIMARY KEY(ride_id,actor_id));
+      CREATE TABLE IF NOT EXISTS ride_sms_outbox (
+        id TEXT PRIMARY KEY,event_key TEXT NOT NULL UNIQUE,ride_id TEXT NOT NULL,phone TEXT NOT NULL,message TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'PENDING',attempts INTEGER NOT NULL DEFAULT 0,next_attempt_at TEXT NOT NULL,
+        lease_token TEXT,lease_until TEXT,sent_at TEXT,created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS ride_sms_delivery ON ride_sms_outbox(status,next_attempt_at);
     `);
         })
         .catch((error) => {

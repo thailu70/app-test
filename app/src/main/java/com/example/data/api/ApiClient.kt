@@ -79,6 +79,14 @@ object ApiClient {
 
     private val okHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                try { chain.proceed(chain.request()) }
+                catch (error: IOException) {
+                    if (error.message?.contains("environment changed", ignoreCase = true) != true)
+                        throw IOException("Unable to connect to server. Please connect to the internet.", error)
+                    throw error
+                }
+            }
             .addInterceptor(loggingInterceptor)
             .followRedirects(false)
             .followSslRedirects(false)

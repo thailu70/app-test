@@ -9,7 +9,7 @@ function createRidePushEvents({ db, enqueue, rides, now = Date.now, batchSize = 
       : "SELECT name FROM sqlite_master WHERE type='table' AND name='ride_jobs'";
     return Boolean(await db.prepare(query).get());
   }
-  async function state(role, owner) {
+  async function state(role, owner, point = null) {
     const principal = { id: owner, role };
     const data = role === 'DRIVER' ? await rides().dashboard(principal) : await rides().me(principal);
     const status = new Map();
@@ -34,11 +34,19 @@ function createRidePushEvents({ db, enqueue, rides, now = Date.now, batchSize = 
         for (const trip of data.sharedRequests || []) if (require('./rides').km(Number(point.latitude),Number(point.longitude),trip.originLatitude,trip.originLongitude) <= radius) calls.push({ id: trip.id, kind: 'SHARED' });
       }
     }
+    if (role === 'PASSENGER' && point?.latitude != null && point?.longitude != null && point?.gpsAt && now() - Date.parse(point.gpsAt) <= 86400000) {
+      const cfg = (await rides().catalog()).settings;
+      const nearby = await rides().sharedTrips();
+      for (const trip of nearby.trips || []) {
+        const distance = require('./rides').km(Number(point.latitude), Number(point.longitude), trip.originLatitude, trip.originLongitude);
+        if (distance <= cfg.notificationRadiusKm) calls.push({ id: trip.id, kind: 'SHARED' });
+      }
+    }
     return { statuses: [...status.values()], calls };
   }
-  async function snapshot(role, owner) {
+  async function snapshot(role, owner, point = null) {
     if (!await ready()) return JSON.stringify({ statuses: [], calls: [] });
-    return JSON.stringify(await state(role, owner));
+    return JSON.stringify(await state(role, owner, point));
   }
   async function collect() {
     if (!await ready()) return;
@@ -49,9 +57,10 @@ function createRidePushEvents({ db, enqueue, rides, now = Date.now, batchSize = 
       const role = token.scope.replace('RIDE_', '');
       const user = await db.prepare("SELECT id FROM users WHERE id=? AND role=? AND status='ACTIVE'").get(token.owner_id, role);
       if (!user) { await db.prepare('DELETE FROM mobility_push_tokens WHERE id=?').run(token.id); continue; }
-      const cacheKey = role + ':' + token.owner_id;
       let current;
-      try { if (!accountStates.has(cacheKey)) accountStates.set(cacheKey, await state(role, token.owner_id)); current = accountStates.get(cacheKey); }
+      const point = { latitude: token.latitude, longitude: token.longitude, gpsAt: token.gps_at };
+      const cacheKey = role + ':' + token.owner_id + ':' + String(point.latitude) + ':' + String(point.longitude) + ':' + String(point.gpsAt);
+      try { if (!accountStates.has(cacheKey)) accountStates.set(cacheKey, await state(role, token.owner_id, point)); current = accountStates.get(cacheKey); }
       catch (_) { continue; }
       let previous; try { previous = JSON.parse(token.snapshot); } catch (_) { previous = null; }
       for (const call of current.calls) await enqueue(token, call.id, 'NEW_REQUEST', call.kind, token.owner_id);
@@ -68,7 +77,7 @@ function createRidePushEvents({ db, enqueue, rides, now = Date.now, batchSize = 
     if (!['DRIVER', 'PASSENGER'].includes(role) || job.scope !== role) return false;
     if (!await db.prepare("SELECT id FROM users WHERE id=? AND role=? AND status='ACTIVE'").get(token.owner_id, role)) return false;
     try {
-      const current = await state(role, token.owner_id);
+      const current = await state(role, token.owner_id, { latitude: token.latitude, longitude: token.longitude, gpsAt: token.gps_at });
       return job.event_type === 'NEW_REQUEST'
         ? current.calls.some(call => call.id === job.request_id && call.kind === job.kind)
         : current.statuses.some(item => item.id === job.request_id && item.kind === job.kind && ('STATUS_' + item.status === job.event_type || role === 'DRIVER' && job.kind === 'SHARED' && job.event_type === 'BOOKING_UPDATED'));

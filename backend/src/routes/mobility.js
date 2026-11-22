@@ -12,6 +12,7 @@ function createMobilityRouter({ service = getMobilityService(), pushService, rat
   const router = express.Router();
   const push = pushService || createMobilityPushService({ service });
   const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+  const optionalAuth = (req, res, next) => req.get('Authorization') ? authenticate(req, res, next) : next();
   const { identify, readLimit, writeLimit, draftLimit, photoLimit } = createMobilityTrafficLimits({
     service, rateLimitMax, draftLimitMax, photoLimitMax });
   router.use((_req, res, next) => { res.set('Cache-Control', 'private, no-store'); res.set('Referrer-Policy', 'no-referrer'); next(); });
@@ -28,7 +29,7 @@ function createMobilityRouter({ service = getMobilityService(), pushService, rat
   router.post('/bookings/:id/checkout', writeLimit, asyncRoute(async (req,res) => respond(res, await service.checkout(req.params.id, bookingSecret(req)))));
   router.post('/bookings/:id/reconcile', writeLimit, asyncRoute(async (req,res) => respond(res, await service.booking(req.params.id, bookingSecret(req)))));
   router.post('/payments/webhook', asyncRoute(async (req,res) => respond(res, await service.webhook(req.body))));
-  router.post('/requests', draftLimit, writeLimit, asyncRoute(async (req,res) => respond(res, await service.createRequest(req.body || {}), 201)));
+  router.post('/requests', optionalAuth, draftLimit, writeLimit, asyncRoute(async (req,res) => respond(res, await service.createRequest(req.body || {}, req.user || null), 201)));
   router.get('/requests/:id', readLimit, asyncRoute(async (req,res) => respond(res, await service.request(req.params.id, requestSecret(req)))));
   router.post('/requests/:id/push-token', writeLimit, asyncRoute(async (req,res) => respond(res, await push.registerRequest(req.params.id, requestSecret(req), req.body || {}))));
   router.delete('/requests/:id/push-token', writeLimit, asyncRoute(async (req,res) => respond(res, await push.unregisterRequest(req.params.id, requestSecret(req), req.body || {}))));

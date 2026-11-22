@@ -24,4 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Transport Navigator"
 
-include(":app")
+include(":app", ":sms-gateway")

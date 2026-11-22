@@ -2,6 +2,7 @@
 const crypto = require("node:crypto");
 const { DB } = require("../db");
 const { initRidesSchema } = require("./rides-schema");
+const { normalizePhone, sendSms } = require("./afro-sms");
 const ACTIVE = ["ACCEPTED", "AT_PICKUP", "IN_PROGRESS"];
 class RideError extends Error {
   constructor(status, message, code = "RIDE_ERROR") {
@@ -142,6 +143,64 @@ function createRidesService({
   secret = process.env.JWT_SECRET || "development-rides-key",
 } = {}) {
   const instant = () => new Date(now()).toISOString();
+  let smsFlush = null;
+  async function queueRideSms(tx, rideId, event, phone, message) {
+    const recipient = normalizePhone(phone);
+    if (!recipient) return;
+    const eventKey = `${event}:${rideId}:${recipient}`;
+    await tx.prepare("INSERT INTO ride_sms_outbox(id,event_key,ride_id,phone,message,next_attempt_at,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(event_key) DO NOTHING")
+      .run(id("rsms_"), eventKey, rideId, recipient, message, instant(), instant());
+  }
+  async function queueTaxiSms(tx, ride, event) {
+    const route = parse(ride.route_json);
+    const account = ride.passenger_id ? await tx.prepare("SELECT phone FROM users WHERE id=?").get(ride.passenger_id) : null;
+    const phone = account?.phone || route.streetPassengerPhone;
+    const label = event === "start" ? "started" : "completed";
+    await queueRideSms(tx, ride.id, `ride-${event}`, phone,
+      `PASSO taxi trip ${label}: ${route.origin} to ${route.destination}. Open Passo to view your trip.`);
+  }
+  async function flushRideSms({ limit = 20 } = {}) {
+    if (smsFlush) return smsFlush;
+    smsFlush = (async () => {
+      const result = { sent: 0, failed: 0 };
+      for (let index = 0; index < Math.min(100, limit); index++) {
+        const row = await db.transaction(async tx => {
+          const current = await tx.prepare("SELECT * FROM ride_sms_outbox WHERE attempts<8 AND ((status='PENDING' AND next_attempt_at<=?) OR (status='SENDING' AND lease_until<=?)) ORDER BY created_at,id LIMIT 1" + (tx.isPostgres ? " FOR UPDATE SKIP LOCKED" : ""))
+            .get(instant(), instant());
+          if (!current) return null;
+          const event = current.event_key.split(":", 1)[0];
+          let deliverable = false;
+          if (event.startsWith("ride-")) {
+            const ride = await tx.prepare("SELECT status,passenger_id,source,route_json FROM ride_jobs WHERE id=?").get(current.ride_id);
+            const route = parse(ride?.route_json);
+            const passenger = ride?.passenger_id ? await tx.prepare("SELECT phone FROM users WHERE id=?").get(ride.passenger_id) : null;
+            const intended = normalizePhone(passenger?.phone) || normalizePhone(route.streetPassengerPhone);
+            deliverable = event === "ride-start" ? ["IN_PROGRESS", "COMPLETED"].includes(ride?.status) && intended === current.phone
+              : event === "ride-complete" && ride?.status === "COMPLETED" && intended === current.phone;
+          } else if (event.startsWith("shared-")) {
+            const trip = await tx.prepare("SELECT status FROM ride_shared_trips WHERE id=?").get(current.ride_id);
+            const passengers = await tx.prepare("SELECT u.phone FROM ride_shared_bookings b JOIN users u ON u.id=b.passenger_id WHERE b.trip_id=? AND b.status IN ('BOARDED','COMPLETED')").all(current.ride_id);
+            const intended = passengers.some(passenger => normalizePhone(passenger.phone) === current.phone);
+            deliverable = event === "shared-start" ? ["IN_PROGRESS", "COMPLETED"].includes(trip?.status) && intended
+              : event === "shared-complete" && trip?.status === "COMPLETED" && intended;
+          }
+          if (!deliverable) { await tx.prepare("UPDATE ride_sms_outbox SET status='CANCELLED' WHERE id=?").run(current.id); return { cancelled: true }; }
+          const lease = crypto.randomUUID();
+          await tx.prepare("UPDATE ride_sms_outbox SET status='SENDING',attempts=attempts+1,lease_token=?,lease_until=? WHERE id=?").run(lease, new Date(now() + 5 * 60000).toISOString(), current.id);
+          return { ...current, lease, attempts: Number(current.attempts) + 1 };
+        });
+        if (!row) break;
+        if (row.cancelled) continue;
+        let sent = false;
+        try { sent = (await sendSms(row.phone, row.message))?.sent === true; } catch (_) {}
+        await db.prepare("UPDATE ride_sms_outbox SET status=?,sent_at=?,next_attempt_at=?,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=?")
+          .run(sent ? "SENT" : row.attempts >= 8 ? "FAILED" : "PENDING", sent ? instant() : null, new Date(now() + Math.min(3600000, 60000 * 2 ** Math.min(row.attempts - 1, 6))).toISOString(), row.id, row.lease);
+        result[sent ? "sent" : "failed"]++;
+      }
+      return result;
+    })().finally(() => { smsFlush = null; });
+    return smsFlush;
+  }
   const encryptionKey = crypto
     .createHash("sha256")
     .update(secret + ":passo-ride-pins")
@@ -909,6 +968,10 @@ function createRidesService({
         result.passengerName = p?.fullName || "";
         result.passengerPhone = p?.phone || "";
       }
+      if (viewer.id === row.driver_id && row.source === "STREET") {
+        result.passengerName = r.streetPassengerName || "Street passenger";
+        result.passengerPhone = r.streetPassengerPhone || "";
+      }
       if (row.driver_id) {
         const d = await tx
             .prepare("SELECT fullName,phone FROM users WHERE id=?")
@@ -928,8 +991,10 @@ function createRidesService({
         viewer.id === row.passenger_id &&
         row.pin_cipher &&
         ["REQUESTED", ...ACTIVE].includes(row.status)
-      )
+      ) {
         result.boardingPin = decrypt(row.pin_cipher);
+        result.boardingQrToken = result.boardingPin;
+      }
       if (ACTIVE.includes(row.status) && row.driver_id) {
         const location = await tx
           .prepare("SELECT * FROM ride_availability WHERE driver_id=?")
@@ -1272,6 +1337,11 @@ function createRidesService({
     if (old) return { ride: await rideView(old, user) };
     const data = await calculate(input);
     expectedEstimate(input, data, true);
+    const streetPassengerName = clean(input.passengerName || "Street passenger", "passenger name", 120);
+    const streetPassengerPhone = normalizePhone(input.passengerPhone);
+    if (!streetPassengerPhone) fail(400, "Enter a valid passenger phone number.");
+    data.route.streetPassengerName = streetPassengerName;
+    data.route.streetPassengerPhone = streetPassengerPhone;
     const initialPosition =
       input.latitude == null
         ? await db
@@ -1341,8 +1411,10 @@ function createRidesService({
           p.accuracyMeters,
           instant(),
         );
+      await queueTaxiSms(tx, { id: rid, route_json: JSON.stringify(data.route) }, "start");
       await saveAvailability(tx, user.id, v.id, false, p);
     });
+    void flushRideSms();
     return { ride: await rideView(await getRide(rid, user), user) };
   }
   async function owned(key, user, tx = db, locked = false) {
@@ -1394,6 +1466,7 @@ function createRidesService({
         );
       await saveAvailability(tx, user.id, r.vehicle_id, false, p);
     });
+    void flushRideSms();
     return { ride: await rideView(await getRide(key, user), user) };
   }
   async function verifyPin(tx, key, actor, stored, pin) {
@@ -1433,7 +1506,7 @@ function createRidesService({
       const r = await owned(key, user, tx, true);
       if (r.status === "IN_PROGRESS") return;
       if (r.status !== "AT_PICKUP") fail(409, "Mark arrival at pickup first.");
-      if (!(await verifyPin(tx, key, user.id, r.pin_hash, input.pin))) {
+      if (!(await verifyPin(tx, key, user.id, r.pin_hash, input.qrToken || input.pin))) {
         invalid = true;
         return;
       }
@@ -1460,7 +1533,9 @@ function createRidesService({
           instant(),
           key,
         );
+      await queueTaxiSms(tx, r, "start");
     });
+    void flushRideSms();
     if (invalid)
       fail(
         400,
@@ -1823,9 +1898,11 @@ function createRidesService({
           "UPDATE ride_jobs SET status='COMPLETED',pin_hash=NULL,pin_cipher=NULL,waiting_seconds=waiting_seconds+?,waiting_since=NULL,waiting_kind=NULL,completed_at=? WHERE id=?",
         )
         .run(liveWaiting(r), instant(), key);
+      await queueTaxiSms(tx, r, "complete");
       await settle(tx, r, "ride_jobs", true);
-      await saveAvailability(tx, user.id, r.vehicle_id, false, p);
+      await saveAvailability(tx, user.id, r.vehicle_id, true, p);
     });
+    void flushRideSms();
     return { ride: await rideView(await getRide(key, user), user) };
   }
   async function cancel(user, key, input = {}) {
@@ -1847,6 +1924,10 @@ function createRidesService({
           String(input.reason || "Cancelled by participant").slice(0, 500),
           key,
         );
+      if (r.driver_id) {
+        const p = user.id === r.driver_id && input.latitude != null ? position(input) : null;
+        await saveAvailability(tx, r.driver_id, r.vehicle_id, true, p);
+      }
     });
     return { ride: await rideView(await getRide(key, user), user) };
   }
@@ -1957,6 +2038,7 @@ function createRidesService({
       ["CONFIRMED", "BOARDED"].includes(b.status)
     ) {
       result.boardingPin = decrypt(b.pin_cipher);
+      result.boardingQrToken = result.boardingPin;
     }
     if (own || driver) {
       const u = await tx
@@ -2067,7 +2149,7 @@ function createRidesService({
   async function sharedTrips(query = {}) {
     const rows = await db
       .prepare(
-        "SELECT * FROM ride_shared_trips WHERE status='OPEN' AND departure_at>? ORDER BY departure_at LIMIT 200",
+        "SELECT t.* FROM ride_shared_trips t WHERE t.status='OPEN' AND t.departure_at>? AND t.seats>(SELECT COUNT(*) FROM ride_shared_seats s WHERE s.trip_id=t.id) ORDER BY t.departure_at LIMIT 200",
       )
       .all(instant());
     const o = String(query.origin || "").toLocaleLowerCase(),
@@ -2556,7 +2638,7 @@ function createRidesService({
         if (b.status === "BOARDED") return;
         if (b.status !== "CONFIRMED")
           fail(409, "This booking is not confirmed.");
-        if (!(await verifyPin(tx, b.id, user.id, b.pin_hash, input.pin))) {
+        if (!(await verifyPin(tx, b.id, user.id, b.pin_hash, input.qrToken || input.pin))) {
           invalid = true;
           return;
         }
@@ -2647,6 +2729,9 @@ function createRidesService({
             "UPDATE ride_shared_trips SET status='IN_PROGRESS',started_at=? WHERE id=?",
           )
           .run(instant(), key);
+        const onboarded = await tx.prepare("SELECT u.phone FROM ride_shared_bookings b JOIN users u ON u.id=b.passenger_id WHERE b.trip_id=? AND b.status='BOARDED'").all(key);
+        const routeLabel = `${route.origin} to ${route.destination}`;
+        for (const passenger of onboarded) await queueRideSms(tx, key, "shared-start", passenger.phone, `PASSO group taxi trip started: ${routeLabel}. Open Passo to view your trip.`);
       } else if (action === "COMPLETE") {
         if (r.status === "COMPLETED") return;
         if (r.status !== "IN_PROGRESS")
@@ -2677,6 +2762,10 @@ function createRidesService({
             "UPDATE ride_shared_bookings SET status='COMPLETED' WHERE trip_id=? AND status='BOARDED'",
           )
           .run(key);
+        const completed = await tx.prepare("SELECT u.phone FROM ride_shared_bookings b JOIN users u ON u.id=b.passenger_id WHERE b.trip_id=? AND b.status='COMPLETED'").all(key);
+        const routeLabel = `${route.origin} to ${route.destination}`;
+        for (const passenger of completed) await queueRideSms(tx, key, "shared-complete", passenger.phone, `PASSO group taxi trip completed: ${routeLabel}. Thank you for riding with Passo.`);
+        await saveAvailability(tx, user.id, r.vehicle_id, true, p);
       } else if (action === "CANCEL") {
         if (r.status === "CANCELLED") return;
         if (!["REQUESTED", "OPEN", "BOARDING"].includes(r.status))
@@ -2698,8 +2787,11 @@ function createRidesService({
         await tx
           .prepare("DELETE FROM ride_shared_seats WHERE trip_id=?")
           .run(key);
+        const p = input.latitude != null ? position(input) : null;
+        await saveAvailability(tx, user.id, r.vehicle_id, true, p);
       } else fail(400, "Choose a valid shared trip action.");
     });
+    void flushRideSms();
     if (invalid)
       fail(
         400,
@@ -2857,6 +2949,7 @@ function createRidesService({
     sharedActions,
     sharedLocation,
     cleanup,
+    flushSms: flushRideSms,
     get: async (user, key) => ({
       ride: await rideView(await getRide(key, user), user),
     }),
@@ -2872,6 +2965,7 @@ function startRidesWorker({ service = getRidesService() } = {}) {
     try {
       await service.init();
       await service.cleanup();
+      await service.flushSms?.();
     } catch (error) {
       console.error("[Rides] maintenance failed:", error.message);
     } finally {
@@ -2880,7 +2974,7 @@ function startRidesWorker({ service = getRidesService() } = {}) {
   };
   const timer = setInterval(() => {
     void tick();
-  }, 60000);
+  }, 30000);
   timer.unref?.();
   return () => clearInterval(timer);
 }

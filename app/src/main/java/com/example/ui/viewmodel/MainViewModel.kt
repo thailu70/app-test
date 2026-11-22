@@ -181,6 +181,11 @@ class MainViewModel(
     private val _authBusy = MutableStateFlow(false)
     val authBusy: StateFlow<Boolean> = _authBusy.asStateFlow()
 
+    private val _newPassengerPhone = MutableStateFlow<String?>(null)
+    val newPassengerPhone: StateFlow<String?> = _newPassengerPhone.asStateFlow()
+    private var pendingPassengerOtpPhone: String? = null
+    private var pendingPassengerOtpToken: String? = null
+
     private val _registrationMessage = MutableStateFlow<String?>(null)
     val registrationMessage: StateFlow<String?> = _registrationMessage.asStateFlow()
 
@@ -576,6 +581,9 @@ class MainViewModel(
         viewModelScope.launch {
             try {
                 _authError.value = null
+                _newPassengerPhone.value = null
+                pendingPassengerOtpPhone = null
+                pendingPassengerOtpToken = null
                 if (!finishPrivateCacheCleanup()) return@launch
                 val token = repository.verifyLoginOtp(phone, code)
                 val user = repository.authenticateWithOtp(phone, role.name, token)
@@ -585,7 +593,13 @@ class MainViewModel(
                     return@launch
                 }
                 if (user == null) {
-                    _authError.value = repository.lastAuthError ?: "Unable to sign in. Check your number and try again."
+                    if (role == AppRole.PASSENGER && repository.lastAuthCode == "NEW_PASSENGER") {
+                        pendingPassengerOtpPhone = phone.trim()
+                        pendingPassengerOtpToken = token
+                        _newPassengerPhone.value = phone.trim()
+                    } else {
+                        _authError.value = repository.lastAuthError ?: "Unable to sign in. Check your number and try again."
+                    }
                     return@launch
                 }
                 driverApplications.close()
@@ -609,6 +623,32 @@ class MainViewModel(
                 repository.logAction("LOGIN_SUCCESS", user.id, user.role, "Signed in with phone verification")
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { _authError.value = failure.message ?: "Unable to sign in. Please try again." }
+            finally { _authBusy.value = false }
+        }
+    }
+
+    fun completePassengerSignup(fullName: String) {
+        if (!_authBusy.compareAndSet(false, true)) return
+        viewModelScope.launch {
+            try {
+                _authError.value = null
+                if (!finishPrivateCacheCleanup()) return@launch
+                val phone = pendingPassengerOtpPhone ?: error("Enter your phone number again to continue.")
+                val token = pendingPassengerOtpToken ?: error("Your verification expired. Request a new code.")
+                val user = repository.registerPassengerWithOtp(fullName, phone, token)
+                pendingPassengerOtpPhone = null
+                pendingPassengerOtpToken = null
+                _newPassengerPhone.value = null
+                driverApplications.close()
+                ++sessionGeneration
+                LiveTrackingWebSocket.disconnect(); LiveTrackingWebSocket.connect()
+                _currentUser.value = user
+                _currentRole.value = AppRole.PASSENGER
+                _isAuthenticated.value = true
+                startPassengerSubscriptionRefresh(user.id)
+                repository.logAction("PASSENGER_REGISTERED", user.id, user.role, "Created an account using phone verification")
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { _authError.value = failure.message ?: "Unable to create your account. Please try again." }
             finally { _authBusy.value = false }
         }
     }
@@ -768,6 +808,9 @@ class MainViewModel(
         _currentUser.value = null
         _isAuthenticated.value = false
         _authError.value = null
+        _newPassengerPhone.value = null
+        pendingPassengerOtpPhone = null
+        pendingPassengerOtpToken = null
         privateCacheCleanup = viewModelScope.async { repository.clearPrivateCache() }
     }
 

@@ -36,6 +36,7 @@ import com.example.data.entity.commuterServiceClass
 import com.example.ui.components.QrCodeCanvas
 import com.example.ui.components.MiniVehicleMap
 import com.example.ui.components.PassoBrandHeader
+import com.example.ui.components.PassoMobilityPalette
 import com.example.ui.screens.profile.ProfileCompletionPrompt
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.MainViewModel
@@ -135,7 +136,7 @@ fun PassengerDashboardScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = Slate50,
+        containerColor = PassoMobilityPalette.canvas,
         bottomBar = {
             NavigationBar(containerColor = Color.White, tonalElevation = 0.dp, modifier = Modifier.padding(horizontal = 8.dp).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))) {
                 primarySections.forEach { section ->
@@ -249,6 +250,7 @@ fun PassengerDashboardScreen(
                 "Trip Attendance" -> item { TripAttendanceCard(checkIns, lang) }
                 "Help & Complaints" -> item { ComplaintsCard(complaints, lang, onSubmitClick = { viewModel.openComplaintDialog() }) }
                 else -> {
+                    item { com.example.core.notifications.MobilityAlertToneSettings(driver = false, language = lang) }
                     item { PassengerMenuRow(passengerText(lang, "My profile", "የእኔ መገለጫ"), passengerText(lang, "Photo, ID and personal details", "ፎቶ፣ መታወቂያ እና የግል መረጃ"), Icons.Default.Person, onOpenProfile) }
                     item { com.example.ui.components.EnvironmentSettingsButton() }
                     item { PassengerMenuRow(sectionLabel("Live Location"), passengerText(lang, "Your driver's latest position", "የአሽከርካሪዎ የቅርብ ጊዜ ቦታ"), Icons.Default.LocationOn, { passengerSection = "Live Location" }) }

@@ -30,11 +30,13 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.screens.assignedRouteLocations
+import com.example.ui.components.PassoMobilityPalette
 import com.example.R
 import com.example.core.localization.AppLanguage
 import com.example.data.api.TrackedVehicleDto
@@ -49,10 +51,10 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
-internal val CommuteInk = Color(0xFF06263C)
-internal val CommuteTeal = Color(0xFF00695F)
+internal val CommuteInk = PassoMobilityPalette.text
+internal val CommuteTeal = PassoMobilityPalette.brand
 internal val CommuteMint = Color(0xFFE4F3E9)
-internal val CommuteCream = Color(0xFFFFFBF4)
+internal val CommuteCream = PassoMobilityPalette.canvas
 
 internal fun commuteText(lang: AppLanguage, en: String, am: String, om: String): String = when (lang) {
     AppLanguage.ENGLISH -> en
@@ -123,7 +125,7 @@ fun CommuterActiveTripCard(
     val morning = subscription?.morningSchedule?.takeIf { it.isNotBlank() } ?: route?.morningDeparture.orEmpty()
     val evening = subscription?.eveningSchedule?.takeIf { it.isNotBlank() } ?: route?.eveningDeparture.orEmpty()
     var callError by remember(driver?.phone) { mutableStateOf(false) }
-    Surface(color = Color.White, shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth().testTag("commuter_active_trip")) {
+    Surface(color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, PassoMobilityPalette.border), modifier = Modifier.fillMaxWidth().testTag("commuter_active_trip")) {
         Column {
             Row(Modifier.fillMaxWidth().background(CommuteTeal).padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Default.DirectionsBus, null, Modifier.size(24.dp), tint = Color.White)
@@ -131,13 +133,13 @@ fun CommuterActiveTripCard(
                 Text(SimpleDateFormat("EEE, d MMM", Locale.ENGLISH).apply { timeZone = TimeZone.getTimeZone("Africa/Addis_Ababa") }.format(Date()), fontSize = 10.sp, color = Color.White)
             }
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(routeName?.takeIf { it.isNotBlank() } ?: commuteText(lang, "Route awaiting assignment", "መስመር እየተጠበቀ ነው", "Karaa eeggachaa jira"), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
+                Text(routeName?.takeIf { it.isNotBlank() } ?: commuteText(lang, "Route awaiting assignment", "መስመር እየተጠበቀ ነው", "Karaa eeggachaa jira"), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = PassoMobilityPalette.text)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         CommuteStop(morning.ifBlank { "—" }, pickup ?: commuteText(lang, "Pickup unavailable", "መሳፈሪያ አልተገኘም", "Ka'umsi hin argamne"), commuteText(lang, "Departure", "መነሻ", "Ka'umsa"))
                         CommuteStop(commuteText(lang, "Return", "መመለሻ", "Deebii") + " · " + evening.ifBlank { "—" }, destination ?: commuteText(lang, "Destination unavailable", "መድረሻ አልተገኘም", "Ga'umsi hin argamne"), commuteText(lang, "Destination / return pickup", "መድረሻ / የመመለሻ መሳፈሪያ", "Ga'umsa / ka'umsa deebii"))
                     }
-                    VerticalDivider(Modifier.height(154.dp), color = Color(0xFFEDF0EA))
+                    VerticalDivider(Modifier.height(154.dp), color = PassoMobilityPalette.border)
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (driver == null) {
                             Icon(Icons.Default.AccountCircle, null, Modifier.size(48.dp), tint = Color(0xFFBDCCC4))
@@ -145,18 +147,18 @@ fun CommuterActiveTripCard(
                         } else {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Box(Modifier.size(40.dp)) { driverPortrait(driver.userId) }
-                            Text(driver.fullName.takeIf { it.isNotBlank() } ?: commuteText(lang, "Your driver", "ሹፌርዎ", "Konkolaachisaa kee"), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
+                            Text(driver.fullName.takeIf { it.isNotBlank() } ?: commuteText(lang, "Your driver", "ሹፌርዎ", "Konkolaachisaa kee"), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = PassoMobilityPalette.text)
                             }
                             if (driver.phone.any(Char::isDigit)) OutlinedButton(onClick = {
                                 try { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", driver.phone, null))) }
                                 catch (_: android.content.ActivityNotFoundException) { callError = true }
                                 catch (_: SecurityException) { callError = true }
-                            }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 3.dp), modifier = Modifier.heightIn(min = 40.dp).testTag("commuter_call_driver"), border = BorderStroke(1.dp, CommuteTeal)) {
-                                Icon(Icons.Default.Call, null, Modifier.size(15.dp)); Spacer(Modifier.width(4.dp))
-                                Text(commuteText(lang, "Call driver", "ሹፌሩን ይደውሉ", "Bilbili"), fontSize = 11.sp, color = CommuteTeal)
+                            }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 3.dp), modifier = Modifier.heightIn(min = 40.dp).testTag("commuter_call_driver"), border = BorderStroke(1.dp, PassoMobilityPalette.brand), colors = ButtonDefaults.outlinedButtonColors(contentColor = PassoMobilityPalette.brand)) {
+                                Icon(Icons.Default.Call, null, Modifier.size(15.dp), tint = PassoMobilityPalette.brand); Spacer(Modifier.width(4.dp))
+                                Text(commuteText(lang, "Call driver", "ሹፌሩን ይደውሉ", "Bilbili"), fontSize = 11.sp, color = PassoMobilityPalette.brand)
                             }
-                            driver.phone.cleanDetail()?.let { Text(it, fontSize = 10.sp, color = CommuteInk) }
-                            Text(listOfNotNull(driver.model.cleanDetail(), driver.vehicleColor.cleanDetail(), friendlyVehicleType(driver.vehicleType)).joinToString(" · "), fontSize = 11.sp, lineHeight = 14.sp, color = Color(0xFF526270))
+                            driver.phone.cleanDetail()?.let { Text(it, fontSize = 10.sp, color = PassoMobilityPalette.text) }
+                            Text(listOfNotNull(driver.model.cleanDetail(), driver.vehicleColor.cleanDetail(), friendlyVehicleType(driver.vehicleType)).joinToString(" · "), fontSize = 11.sp, lineHeight = 14.sp, color = PassoMobilityPalette.muted)
                             driver.plateNumber.cleanDetail()?.let { plate ->
                                 Surface(shape = RoundedCornerShape(5.dp), border = BorderStroke(1.dp, Color(0xFFD4DDD7))) { Text(plate, Modifier.padding(horizontal = 7.dp, vertical = 3.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = CommuteInk) }
                             }
@@ -165,14 +167,14 @@ fun CommuterActiveTripCard(
                 }
                 if (driverError != null) TextButton(onClick = onRetry) { Text(commuteText(lang, "Refresh driver details", "የሹፌር መረጃ አድስ", "Odeeffannoo haaromsi"), fontSize = 12.sp) }
                 if (callError) Text(driver?.phone.orEmpty(), color = CommuteInk)
-                HorizontalDivider(color = Color(0xFFEDF0EA))
+                HorizontalDivider(color = PassoMobilityPalette.border)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         if (subscription != null) {
                             Text(if (daysLeft != null) commuteText(lang, "$daysLeft days remaining", "$daysLeft ቀናት ቀርተዋል", "Guyyoota $daysLeft hafe")
-                                else commuteText(lang, "Validity not available", "የማብቂያ ጊዜ አልተገኘም", "Yeroon tajaajilaa hin argamne"), fontSize = 11.sp, color = Color(0xFF526270), modifier = Modifier.testTag("commuter_days_remaining"))
-                            subscription.endDate.takeIf { it.isNotBlank() }?.let { Text(commuteText(lang, "Valid until", "የሚያበቃበት ቀን", "Hanga") + " " + it.take(10), fontSize = 10.sp, color = Color(0xFF526270)) }
-                        } else Text(commuteText(lang, "Your pass appears after activation.", "የጉዞ ፈቃድዎ ሲነቃ ይታያል።", "Hayyamni erga mirkanaa'ee mul'ata."), fontSize = 11.sp, color = Color(0xFF526270))
+                                else commuteText(lang, "Validity not available", "የማብቂያ ጊዜ አልተገኘም", "Yeroon tajaajilaa hin argamne"), fontSize = 11.sp, color = PassoMobilityPalette.muted, modifier = Modifier.testTag("commuter_days_remaining"))
+                            subscription.endDate.takeIf { it.isNotBlank() }?.let { Text(commuteText(lang, "Valid until", "የሚያበቃበት ቀን", "Hanga") + " " + it.take(10), fontSize = 10.sp, color = PassoMobilityPalette.muted) }
+                        } else Text(commuteText(lang, "Your pass appears after activation.", "የጉዞ ፈቃድዎ ሲነቃ ይታያል።", "Hayyamni erga mirkanaa'ee mul'ata."), fontSize = 11.sp, color = PassoMobilityPalette.muted)
                     }
                     if (subscription != null && subscription.subscriptionStatus != "CANCELLED") TextButton(onClick = onRenew, enabled = paymentAvailable, modifier = Modifier.testTag("commuter_payment_action")) {
                         Text(commuteText(lang, if (canBoard) "Renew pass" else "Payment options", if (canBoard) "አድስ" else "የክፍያ አማራጮች", if (canBoard) "Haaromsi" else "Kaffaltii"), fontSize = 11.sp)
@@ -193,9 +195,10 @@ private fun CommuteStop(time: String, name: String, caption: String?) {
             Box(Modifier.width(2.dp).height(44.dp).background(Color(0xFF50AD96)))
         }
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(time, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = CommuteInk)
-            Text(name, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 17.sp, color = CommuteInk)
-            caption?.let { Text(it, color = Color(0xFF64717C), fontSize = 11.sp) }
+            Text(time, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = PassoMobilityPalette.text)
+            Text(name, fontWeight = FontWeight.Bold, fontSize = 13.sp, lineHeight = 16.sp, color = PassoMobilityPalette.text,
+                maxLines = 3, overflow = TextOverflow.Ellipsis)
+            caption?.let { Text(it, color = PassoMobilityPalette.muted, fontSize = 11.sp) }
         }
     }
 }

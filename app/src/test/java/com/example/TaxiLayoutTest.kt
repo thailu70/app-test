@@ -70,10 +70,17 @@ class TaxiLayoutTest {
         compose.onNodeWithTag("taxi_tier_COMFORT").assertIsDisplayed().performClick()
         compose.onNodeWithTag("taxi_tier_MINI_VAN").assertIsDisplayed()
         compose.onNodeWithText("Current location").assertDoesNotExist()
-        compose.onNodeWithText("Daily").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Daily Commute").assertIsDisplayed().performClick()
         assertEquals(1, commute)
         compose.runOnIdle { val view = compose.activity.window.decorView; val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888); view.draw(Canvas(bitmap))
             val dir = File("build/taxi-previews").apply { mkdirs() }; File(dir, "01-passenger-home.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
+    }
+    @Test @Config(qualifiers = "w320dp-h740dp-xhdpi") fun `daily commute shortcut stays compact on a narrow phone`() {
+        var commute = 0
+        compose.setContent { MyApplicationTheme { TaxiHeader(onDailyCommute = { commute++ }) } }
+        compose.onNodeWithTag("taxi_daily_commute").assertIsDisplayed().performClick()
+        assertEquals(1, commute)
+        compose.onNodeWithText("Daily").assertIsDisplayed()
     }
 }

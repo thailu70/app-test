@@ -7,12 +7,19 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -47,6 +54,61 @@ import kotlinx.coroutines.delay
             delay(5 * 60_000L)
         }
     }
+}
+
+/** Per-device choice for the sound used by new taxi and group-ride notifications. */
+@Composable fun MobilityAlertToneSettings(driver: Boolean, language: AppLanguage, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var selected by remember(driver) { mutableStateOf(MobilityAlertTone.selected(context, driver)) }
+    var open by remember { mutableStateOf(false) }
+    val title = intercityText(language, if (driver) "Request alert sound" else "Ride alert sound",
+        if (driver) "የጥያቄ ማሳወቂያ ድምፅ" else "የጉዞ ማሳወቂያ ድምፅ",
+        if (driver) "Sagalee beeksisa gaaffii" else "Sagalee beeksisa imalaa")
+    val soundName = when (selected) {
+        MobilityAlertTone.RING -> intercityText(language, "Classic ring", "የስልክ ደወል", "Bilbila")
+        MobilityAlertTone.BEEP -> intercityText(language, "Short beep", "አጭር ቢፕ", "Beep gabaabaa")
+    }
+    Surface(color = Color.White, contentColor = CommuteInk, shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, Color(0xFFE2E8E7)), modifier = modifier.fillMaxWidth().clickable { open = true }) {
+        Row(Modifier.padding(horizontal = 13.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.VolumeUp, null, tint = CommuteTeal)
+            Column(Modifier.weight(1f).padding(start = 11.dp)) {
+                Text(title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = CommuteInk)
+                Text(soundName, fontSize = 12.sp, color = CommuteTeal)
+            }
+            Text(intercityText(language, "Change", "ቀይር", "Jijjiiri"), color = CommuteTeal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        }
+    }
+    if (open) AlertDialog(
+        onDismissRequest = { open = false },
+        title = { Text(title, color = CommuteInk, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(intercityText(language, "Choose the sound for new requests and ride updates on this phone.",
+                    "በዚህ ስልክ ለአዳዲስ ጥያቄዎች እና የጉዞ ማሻሻያዎች ድምፅ ይምረጡ።",
+                    "Bilbila kana irratti gaaffii haaraa fi haaromsa imalaa kamiin akka dhageessisu filadhu."), color = Color(0xFF627385), fontSize = 13.sp)
+                MobilityAlertTone.values().forEach { tone ->
+                    val label = if (tone == MobilityAlertTone.RING)
+                        intercityText(language, "Classic ring", "የስልክ ደወል", "Bilbila")
+                    else intercityText(language, "Short beep", "አጭር ቢፕ", "Beep gabaabaa")
+                    Row(Modifier.fillMaxWidth().clickable {
+                        MobilityAlertTone.select(context, tone, driver)
+                        MobilityPush.ensureChannel(context)
+                        selected = tone; open = false
+                    }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = selected == tone, onClick = {
+                            MobilityAlertTone.select(context, tone, driver)
+                            MobilityPush.ensureChannel(context)
+                            selected = tone; open = false
+                        })
+                        Text(label, Modifier.padding(start = 7.dp), color = CommuteInk, fontSize = 15.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { open = false }) { Text(intercityText(language, "Done", "ጨርስ", "Xumuri"), color = CommuteTeal) } },
+        containerColor = Color.White, tonalElevation = 0.dp, shape = RoundedCornerShape(24.dp)
+    )
 }
 
 /** No OS dialog is opened until the driver/requester taps this control. */

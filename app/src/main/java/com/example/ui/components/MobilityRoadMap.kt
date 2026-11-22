@@ -1,5 +1,7 @@
 package com.example.ui.components
 
+import android.content.Intent
+import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.DashPathEffect
@@ -8,6 +10,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -39,6 +42,20 @@ import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import java.time.Instant
 import kotlin.math.*
+
+/** Shared light Passo surfaces, text and route colors used by every mobility portal. */
+internal object PassoMobilityPalette {
+    val canvas = Color(0xFFF7F9F7)
+    val map = Color(0xFFE7EEE9)
+    val card = Color.White
+    val cardRaised = Color(0xFFF0F7F3)
+    val text = Color(0xFF102F45)
+    val muted = Color(0xFF627385)
+    val brand = Color(0xFF008755)
+    val route = Color(0xFF91D3B5)
+    val landmark = Color(0xFFF4C84A)
+    val border = Color(0xFFDDE6E1)
+}
 
 internal fun validRoadPoint(point: Pair<Double, Double>?): Boolean = point != null &&
     point.first.isFinite() && point.second.isFinite() && point.first in -90.0..90.0 && point.second in -180.0..180.0
@@ -107,6 +124,8 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
         MapView(context).apply {
             tag = "mobility_road_native_map"
             setTileSource(TileSourceFactory.MAPNIK); setUseDataConnection(tileDownloadsEnabled)
+            overlayManager.tilesOverlay.setColorFilter(null)
+            overlayManager.tilesOverlay.setLoadingBackgroundColor(android.graphics.Color.rgb(231, 238, 233))
             setMultiTouchControls(true); setBuiltInZoomControls(false)
             clipChildren = true; clipToPadding = true
             controller.setZoom(13.0)
@@ -184,13 +203,14 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
         else points.firstOrNull()?.let { map.controller.setCenter(it); map.controller.setZoom(15.0) }
     }
     Column(modifier.fillMaxWidth().testTag("mobility_road_map"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFFE7EEE9)) {
+        Surface(shape = RoundedCornerShape(16.dp), color = PassoMobilityPalette.map) {
             Box(Modifier.fillMaxWidth().height(mapHeight.coerceIn(140, 420).dp).clipToBounds()) {
                 AndroidView(factory = { ctx -> FrameLayout(ctx).apply {
                     clipChildren = true; clipToPadding = true
                     (map.parent as? ViewGroup)?.removeView(map)
                     addView(map, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
                 } }, modifier = Modifier.matchParentSize().clipToBounds(), update = {
+                    map.overlayManager.tilesOverlay.setColorFilter(null)
                     vehicleMotion.update(driverLocation, fresh, movingPoints.ifEmpty { plannedPoints }, animate = resumed, paused = freezeVehicle)
                     replaceRoadOverlays(map, plannedPoints, movingPoints, from, to, driverLocation, fresh,
                         roadToDestination(stage), pickupLabel, destinationLabel, driverIcon, nearbyPoints,
@@ -200,15 +220,17 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
                     }
                     map.invalidate()
                 })
-                Surface(color = Color.White.copy(alpha = 0.95f), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.TopStart).padding(9.dp)) {
+                Surface(color = PassoMobilityPalette.card.copy(alpha = 0.93f), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.TopStart).padding(9.dp)) {
                     Text(if (fresh) "Live driver" else if (driverLocation != null) "Last known location" else "Journey route",
-                        Modifier.padding(horizontal = 9.dp, vertical = 6.dp), fontSize = 11.sp, color = Color(0xFF00685C))
+                        Modifier.padding(horizontal = 9.dp, vertical = 6.dp), fontSize = 11.sp, color = PassoMobilityPalette.text)
                 }
                 FilledIconButton(onClick = { fitMap(); map.invalidate() }, modifier = Modifier.align(Alignment.TopEnd).padding(7.dp).size(36.dp).testTag("road_map_recenter"),
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color(0xFF00685C))) {
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = PassoMobilityPalette.cardRaised, contentColor = PassoMobilityPalette.text)) {
                     Icon(Icons.Default.MyLocation, "Show whole journey", Modifier.size(20.dp))
                 }
-                Text("© OpenStreetMap contributors", Modifier.align(Alignment.BottomStart).background(Color.White.copy(alpha = 0.9f)).padding(4.dp), fontSize = 9.sp, color = Color(0xFF092C3E))
+                Text("© OpenStreetMap contributors", Modifier.align(Alignment.BottomEnd).background(Color.White.copy(alpha = 0.78f))
+                    .clickable { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.openstreetmap.org/copyright"))) } }
+                    .padding(horizontal = 4.dp, vertical = 2.dp), fontSize = 8.sp, color = Color(0xFF092C3E))
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -243,8 +265,8 @@ internal fun replaceRoadOverlays(map: MapView, planned: List<Pair<Double, Double
         map.overlays.add(Polyline(map).apply { setGeodesic(false); setPoints(points.map { GeoPoint(it.first, it.second) }); outlinePaint.color = color; outlinePaint.strokeWidth = 8f
             if (dashed) outlinePaint.pathEffect = DashPathEffect(floatArrayOf(18f, 12f), 0f) })
     }
-    line(planned, if (inTransit) 0xFF9BC8BC.toInt() else 0xFF00685C.toInt(), false)
-    line(moving, if (inTransit) 0xFF00685C.toInt() else 0xFF248B9A.toInt(), !inTransit)
+    line(planned, 0xFF91D3B5.toInt(), false)
+    line(moving, 0xFF008755.toInt(), !inTransit)
     fun marker(point: Pair<Double, Double>?, title: String, letter: String, color: Int) {
         if (!validRoadPoint(point)) return
         map.overlays.add(Marker(map).apply {
@@ -265,8 +287,8 @@ internal fun replaceRoadOverlays(map: MapView, planned: List<Pair<Double, Double
             }
         })
     }
-    marker(pickup, pickupLabel, "P", 0xFF00685C.toInt())
-    marker(destination, destinationLabel, "F", 0xFF092C3E.toInt())
+    marker(pickup, pickupLabel, "P", 0xFF008755.toInt())
+    marker(destination, destinationLabel, "F", 0xFFF4C84A.toInt())
     nearbyPoints.take(40).forEach { marker(it, "Nearby car · approximate", "D", 0xFF00695F.toInt()) }
     driver?.let {
         if (stableDriverMarker != null) map.overlays.add(stableDriverMarker)

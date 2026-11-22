@@ -25,9 +25,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import com.example.data.api.*
+import com.example.ui.components.PassoMobilityPalette
+import com.example.ui.screens.driver.DriverQrScannerDialog
 import com.example.ui.screens.intercity.freshMobilityLocation
 import com.example.ui.screens.passenger.*
 import com.example.ui.viewmodel.MainViewModel
+import com.example.ui.viewmodel.DriverTripState
 import com.example.smoothPortalMotion
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -50,6 +53,8 @@ import kotlinx.coroutines.launch
     var locating by remember { mutableStateOf(false) }
     var requested by remember { mutableStateOf<SharedRideTrip?>(null) }
     var driverLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var formPickup by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var formPickupName by remember { mutableStateOf("Your location") }
     var requestPool by remember { mutableStateOf("TAXI") }
     var driverMenu by remember { mutableStateOf(false) }
     val pushFocus by com.example.core.notifications.RideNotificationNavigation.focus.collectAsState()
@@ -100,6 +105,7 @@ import kotlinx.coroutines.launch
             TextButton(onClick = { driverMenu = false; page = "calls"; model.closeTrip() }) { Text("Ride calls") }
             TextButton(onClick = { driverMenu = false; page = "trips"; model.closeTrip() }) { Text("My trips") }
             TextButton(onClick = { driverMenu = false; page = "credit"; model.closeTrip() }) { Text("Driver credit") }
+            TextButton(onClick = { driverMenu = false; page = "settings"; model.closeTrip() }) { Text("Alert sound settings") }
             TextButton(onClick = { driverMenu = false; onExit() }) { Text("Daily commute portal") }
         }
     }, confirmButton = { TextButton(onClick = { driverMenu = false }) { Text("Close") } })
@@ -116,8 +122,13 @@ import kotlinx.coroutines.launch
             when {
                 state.selectedTrip != null -> SharedDriverTrip(model, state, ::withFix)
                 state.ride != null -> DriverCurrentRide(model, state, ::withFix, mapTiles, mapApi)
-                page in setOf("street", "offer") -> TaxiTripForm(state, true, page == "street", model, { page = "calls"; requested = null }, acceptRequest = requested) { input ->
+                page in setOf("street", "offer") -> TaxiTripForm(state, true, page == "street", model, { page = "calls"; requested = null }, acceptRequest = requested,
+                    initialPickup = formPickup, initialOrigin = formPickupName) { input ->
                     if (allowed()) when { page == "street" -> withFix { model.street(input, it) }; requested != null -> model.acceptShared(requested!!.id, input.vehicleId.orEmpty(), input.seats ?: 1, input.farePerSeatEtb ?: 0.0); else -> model.offer(input) }
+                }
+                page == "settings" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(15.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Settings", color = CommuteInk, fontWeight = FontWeight.ExtraBold, fontSize = 27.sp)
+                    com.example.core.notifications.MobilityAlertToneSettings(driver = true, language = com.example.core.localization.AppLanguage.ENGLISH)
                 }
                 else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(15.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -129,11 +140,10 @@ import kotlinx.coroutines.launch
                     }
                     val dashboard = state.dashboard
                     if (dashboard != null) {
-                        Text("Your approximate location is visible while online. Live trip location is shared with your passenger.", color = Color(0xFF627385), fontSize = 12.sp)
-                        Surface(color = CommuteMint, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                        Surface(color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                             Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.AccountBalanceWallet, null, tint = CommuteTeal)
-                                Column(Modifier.weight(1f).padding(start = 11.dp)) { Text("Available credit", color = CommuteInk, fontSize = 12.sp); Text(taxiMoney(dashboard.wallet.availableEtb), fontWeight = FontWeight.ExtraBold, fontSize = 25.sp, color = CommuteTeal); Text("Reserved ${taxiMoney(dashboard.wallet.heldEtb)}", color = Color(0xFF627385), fontSize = 12.sp) }
+                                Icon(Icons.Default.AccountBalanceWallet, null, tint = PassoMobilityPalette.brand)
+                                Column(Modifier.weight(1f).padding(start = 11.dp)) { Text("Available credit", color = PassoMobilityPalette.muted, fontSize = 12.sp); Text(taxiMoney(dashboard.wallet.availableEtb), fontWeight = FontWeight.ExtraBold, fontSize = 25.sp, color = PassoMobilityPalette.brand); Text("Reserved ${taxiMoney(dashboard.wallet.heldEtb)}", color = PassoMobilityPalette.muted, fontSize = 12.sp) }
                             }
                         }
                         if (!dashboard.eligible) Text("Taxi and shared-ride access needs separate driver and vehicle approval. Contact Passo after completing your driver documents.", color = CommuteInk, fontSize = 14.sp)
@@ -153,8 +163,14 @@ import kotlinx.coroutines.launch
                             if (dashboard.sharedTrips.isEmpty()) Text("Shared trips you publish or accept appear here.", color = Color(0xFF627385))
                         } else {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { page = "street"; model.clearEstimate() }, enabled = !state.busy && dashboard.eligible && state.settings.enabled, modifier = Modifier.weight(1f)) { Icon(Icons.Default.PersonPinCircle, null, Modifier.size(18.dp)); Text("Street pickup", Modifier.padding(start = 5.dp), fontSize = 12.sp) }
-                                OutlinedButton(onClick = { page = "offer"; requested = null }, enabled = !state.busy && dashboard.eligible && state.settings.sharedEnabled, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Groups, null, Modifier.size(18.dp)); Text("Offer group ride", Modifier.padding(start = 5.dp), fontSize = 12.sp) }
+                                OutlinedButton(onClick = { withFix { point ->
+                                    formPickup = (point["latitude"] as Number).toDouble() to (point["longitude"] as Number).toDouble()
+                                    formPickupName = "Your location"; page = "street"; requested = null; model.clearEstimate()
+                                } }, enabled = !state.busy && !locating && dashboard.eligible && state.settings.enabled, modifier = Modifier.weight(1f)) { Icon(Icons.Default.PersonPinCircle, null, Modifier.size(18.dp)); Text("Street pickup", Modifier.padding(start = 5.dp), fontSize = 12.sp) }
+                                OutlinedButton(onClick = { withFix { point ->
+                                    formPickup = (point["latitude"] as Number).toDouble() to (point["longitude"] as Number).toDouble()
+                                    formPickupName = "Your location"; page = "offer"; requested = null; model.clearEstimate()
+                                } }, enabled = !state.busy && !locating && dashboard.eligible && state.settings.sharedEnabled, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Groups, null, Modifier.size(18.dp)); Text("Offer group ride", Modifier.padding(start = 5.dp), fontSize = 12.sp) }
                             }
                             val requestMarkers = dashboard.calls.map { TaxiNearbyCar(it.originLatitude, it.originLongitude, it.tier) } +
                                 dashboard.sharedRequests.map { TaxiNearbyCar(it.originLatitude, it.originLongitude, "GROUP") }
@@ -170,25 +186,25 @@ import kotlinx.coroutines.launch
                             }
                             if (requestPool == "TAXI") {
                                 Text("Nearby requests", color = CommuteInk, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                                if (dashboard.calls.isEmpty()) Text(if (dashboard.online) "No matching nearby calls right now. This list updates automatically." else "Go online with a fresh location to view nearby calls.", color = Color(0xFF627385), fontSize = 14.sp)
-                                dashboard.calls.forEach { call -> Surface(color = Color.White.copy(alpha = .93f), shape = RoundedCornerShape(21.dp), modifier = Modifier.fillMaxWidth()) {
+                                if (dashboard.calls.isEmpty()) Text(if (dashboard.online) "No matching nearby calls right now. This list updates automatically." else "Go online with a fresh location to view nearby calls.", color = PassoMobilityPalette.muted, fontSize = 14.sp)
+                                dashboard.calls.forEach { call -> Surface(color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, shape = RoundedCornerShape(21.dp), border = androidx.compose.foundation.BorderStroke(1.dp, PassoMobilityPalette.border), modifier = Modifier.fillMaxWidth()) {
                                     Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text("${call.origin} → ${call.destination}", color = CommuteInk, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                                        Text("Approx. pickup ${pickupDistance(driverLocation, call.originLatitude to call.originLongitude)} km away · ${call.tier.replace('_', ' ')}", color = Color(0xFF627385), fontSize = 13.sp)
-                                        Text("Estimated fare", color = Color(0xFF627385), fontSize = 12.sp)
-                                        Text(taxiMoney(call.estimatedFareEtb), color = CommuteTeal, fontSize = 25.sp, fontWeight = FontWeight.ExtraBold)
+                                        Text("${call.origin} → ${call.destination}", color = PassoMobilityPalette.text, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                                        Text("Approx. pickup ${pickupDistance(driverLocation, call.originLatitude to call.originLongitude)} km away · ${call.tier.replace('_', ' ')}", color = PassoMobilityPalette.muted, fontSize = 13.sp)
+                                        Text("Estimated fare", color = PassoMobilityPalette.muted, fontSize = 12.sp)
+                                        Text(taxiMoney(call.estimatedFareEtb), color = PassoMobilityPalette.brand, fontSize = 25.sp, fontWeight = FontWeight.ExtraBold)
                                         TaxiPrimary("Accept call", !state.busy && dashboard.online && vehicleId.isNotBlank(), "taxi_accept_${call.id}") { if (allowed()) model.accept(call.id, vehicleId) }
                                     }
                                 } }
                             } else {
                                 Text("Nearby group calls", color = CommuteInk, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                                if (dashboard.sharedRequests.isEmpty()) Text(if (dashboard.online) "No nearby group calls right now." else "Go online to receive nearby group calls.", color = Color(0xFF627385), fontSize = 14.sp)
-                                dashboard.sharedRequests.forEach { request -> Surface(color = Color.White.copy(alpha = .93f), shape = RoundedCornerShape(21.dp), modifier = Modifier.fillMaxWidth()) {
+                                if (dashboard.sharedRequests.isEmpty()) Text(if (dashboard.online) "No nearby group calls right now." else "Go online to receive nearby group calls.", color = PassoMobilityPalette.muted, fontSize = 14.sp)
+                                dashboard.sharedRequests.forEach { request -> Surface(color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, shape = RoundedCornerShape(21.dp), border = androidx.compose.foundation.BorderStroke(1.dp, PassoMobilityPalette.border), modifier = Modifier.fillMaxWidth()) {
                                     Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text("Group call", color = CommuteTeal, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                        Text("${request.origin} → ${request.destination}", color = CommuteInk, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                                        Text("${request.seats.coerceAtLeast(1)} passengers · approx. pickup ${pickupDistance(driverLocation, request.originLatitude to request.originLongitude)} km away", color = Color(0xFF627385), fontSize = 13.sp)
-                                        Text("Quote your fare per passenger, then send your offer.", color = Color(0xFF627385), fontSize = 12.sp)
+                                        Text("Group call", color = PassoMobilityPalette.brand, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Text("${request.origin} → ${request.destination}", color = PassoMobilityPalette.text, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                                        Text("${request.seats.coerceAtLeast(1)} passengers · approx. pickup ${pickupDistance(driverLocation, request.originLatitude to request.originLongitude)} km away", color = PassoMobilityPalette.muted, fontSize = 13.sp)
+                                        Text("Quote your fare per passenger, then send your offer.", color = PassoMobilityPalette.muted, fontSize = 12.sp)
                                         TaxiPrimary("Quote group call", !state.busy && dashboard.online && vehicleId.isNotBlank(), "taxi_group_quote_${request.id}") { requested = request; page = "offer" }
                                     }
                                 } }
@@ -211,11 +227,19 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
 @Composable internal fun DriverCurrentRide(model: TaxiViewModel, state: TaxiUiState, withFix: ((Map<String, Any>) -> Unit) -> Unit,
     mapTiles: Boolean = true, mapApi: MobilityApi? = null) {
     val ride = state.ride ?: return; val context = LocalContext.current
-    var pin by remember(ride.id) { mutableStateOf("") }
+    var scanOpen by remember(ride.id) { mutableStateOf(false) }
     var confirmComplete by remember { mutableStateOf(false) }
     if (confirmComplete) AlertDialog(onDismissRequest = { confirmComplete = false }, title = { Text("Complete this ride?") },
         text = { Text("Complete only after arriving at the destination. Your GPS location and final fare are confirmed once.") },
         confirmButton = { TextButton(onClick = { confirmComplete = false; withFix(model::complete) }) { Text("Complete ride") } }, dismissButton = { TextButton(onClick = { confirmComplete = false }) { Text("Keep driving") } })
+    if (scanOpen) DriverQrScannerDialog(
+        scanResult = null,
+        currentStop = ride.origin,
+        tripState = DriverTripState(tripId = ride.id, vehiclePlate = ride.vehiclePlate.orEmpty()),
+        onScanToken = { token -> scanOpen = false; withFix { model.start(token, it) } },
+        onDismissResult = {},
+        onCloseScanner = { scanOpen = false }
+    )
     if (ride.status == "IN_PROGRESS") {
         DriverActiveMeter(ride, state.busy, model, mapTiles, mapApi, withFix, onComplete = { confirmComplete = true })
         return
@@ -237,8 +261,7 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
         when (ride.status) {
             "ACCEPTED" -> TaxiPrimary("Arrived at pickup", !state.busy, "taxi_arrive") { withFix(model::arrive) }
             "AT_PICKUP" -> {
-                OutlinedTextField(pin, { pin = it.filter(Char::isDigit).take(8) }, label = { Text("Passenger's trip PIN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), enabled = !state.busy, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("taxi_boarding_pin"))
-                TaxiPrimary("Start meter", !state.busy && pin.length >= 4, "taxi_start_meter") { withFix { model.start(pin, it) } }
+                TaxiPrimary("Scan passenger QR to start", !state.busy, "taxi_start_meter") { scanOpen = true }
             }
             "IN_PROGRESS" -> {
                 if (ride.source != "STREET") OutlinedButton(onClick = { withFix { model.wait(if (ride.waiting == "STOP") "END_STOP" else "REQUEST_STOP", it) } }, enabled = !state.busy && !ride.stopWaitingRequested, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PauseCircle, null); Spacer(Modifier.width(8.dp)); Text(if (ride.waiting == "STOP") "End passenger stop" else if (ride.stopWaitingRequested) "Waiting for passenger approval" else "Request passenger stop") }
@@ -246,7 +269,7 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
             }
             "COMPLETED", "CANCELLED" -> TaxiPrimary("Back to calls", !state.busy) { model.dismissRide() }
         }
-        if (ride.status in setOf("ACCEPTED", "AT_PICKUP")) TextButton(onClick = { model.cancelRide() }, enabled = !state.busy) { Text("Cancel ride") }
+        if (ride.status in setOf("ACCEPTED", "AT_PICKUP")) TextButton(onClick = { withFix { model.cancelRide(location = it) } }, enabled = !state.busy) { Text("Cancel ride") }
     }
 }
 
@@ -270,7 +293,7 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
                     Surface(color = CommuteMint, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(horizontal = 9.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.CheckCircle, null, tint = CommuteTeal, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(6.dp))
-                            Text(if (ride.waiting == "STOP") "Passenger stop approved" else if (ride.source == "STREET") "Street pickup · passenger agreed" else "Passenger PIN verified", color = CommuteTeal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text(if (ride.waiting == "STOP") "Passenger stop approved" else if (ride.source == "STREET") "Street pickup · passenger agreed" else "Passenger QR verified", color = CommuteTeal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                     Text(if (ride.distancePaused) "Fare so far · distance paused" else "Fare so far", color = Color(0xFF627385), fontSize = 11.sp)
@@ -310,14 +333,19 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
 
 @Composable private fun SharedDriverTrip(model: TaxiViewModel, state: TaxiUiState, withFix: ((Map<String, Any>) -> Unit) -> Unit) {
     val trip = state.selectedTrip ?: return
-    var boarding by remember { mutableStateOf<SharedRideBooking?>(null) }; var pin by remember { mutableStateOf("") }
+    var scanBooking by remember { mutableStateOf<SharedRideBooking?>(null) }
     var missing by remember { mutableStateOf<SharedRideBooking?>(null) }
     missing?.let { booking -> AlertDialog(onDismissRequest = { missing = null }, title = { Text("Mark this passenger as a no-show?") },
         text = { Text("Do this only after the departure waiting allowance has ended and the passenger has not boarded. Their seat booking will be cancelled.") },
         confirmButton = { TextButton(onClick = { missing = null; model.sharedAction("NO_SHOW", bookingId = booking.id) }) { Text("Confirm no-show") } }, dismissButton = { TextButton(onClick = { missing = null }) { Text("Keep waiting") } }) }
-    boarding?.let { booking -> AlertDialog(onDismissRequest = { boarding = null }, title = { Text("Board ${booking.passengerName ?: "passenger"}") },
-        text = { OutlinedTextField(pin, { pin = it.filter(Char::isDigit).take(8) }, label = { Text("Passenger boarding PIN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword)) },
-        confirmButton = { TextButton(onClick = { model.sharedAction("BOARD", bookingId = booking.id, pin = pin); boarding = null; pin = "" }, enabled = pin.length >= 4 && !state.busy) { Text("Confirm boarding") } }, dismissButton = { TextButton(onClick = { boarding = null }) { Text("Cancel") } }) }
+    scanBooking?.let { booking -> DriverQrScannerDialog(
+        scanResult = null,
+        currentStop = trip.origin,
+        tripState = DriverTripState(tripId = trip.id, vehiclePlate = trip.vehiclePlate.orEmpty()),
+        onScanToken = { token -> model.sharedAction("BOARD", bookingId = booking.id, qrToken = token); scanBooking = null },
+        onDismissResult = {},
+        onCloseScanner = { scanBooking = null }
+    ) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(15.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
         TaxiHeader("Group trip", onBack = { model.closeTrip() })
         TaxiMap(trip.originLatitude to trip.originLongitude, trip.destinationLatitude to trip.destinationLongitude, trip.location,
@@ -331,7 +359,7 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
             "BOARDING" -> TaxiPrimary("Start shared trip", !state.busy && trip.bookings.any { it.status == "BOARDED" }) { withFix { model.sharedAction("START", it) } }
             "IN_PROGRESS" -> TaxiPrimary("Complete shared trip", !state.busy) { withFix { model.sharedAction("COMPLETE", it) } }
         }
-        if (trip.status in setOf("OPEN", "BOARDING")) TextButton(onClick = { model.sharedAction("CANCEL") }, enabled = !state.busy) { Text("Cancel shared trip") }
+        if (trip.status in setOf("OPEN", "BOARDING")) TextButton(onClick = { withFix { model.sharedAction("CANCEL", it) } }, enabled = !state.busy) { Text("Cancel shared trip") }
         Text("Passenger list", color = CommuteInk, fontSize = 21.sp, fontWeight = FontWeight.Bold)
         trip.bookings.filter { it.status != "CANCELLED" }.forEach { booking ->
             Surface(shape = RoundedCornerShape(16.dp), color = Color.White, modifier = Modifier.fillMaxWidth()) {
@@ -339,7 +367,7 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
                     Text(booking.passengerName ?: "Passenger", color = CommuteInk, fontWeight = FontWeight.Bold)
                     Text("Seats ${booking.seatNumbers.joinToString()} · ${booking.status} · ${taxiMoney(booking.totalEtb)}", color = Color(0xFF627385), fontSize = 13.sp)
                     if (trip.status == "BOARDING" && booking.status == "CONFIRMED") {
-                        OutlinedButton(onClick = { boarding = booking; pin = "" }, enabled = !state.busy) { Text("Board with passenger PIN") }
+                        OutlinedButton(onClick = { scanBooking = booking }, enabled = !state.busy) { Text("Scan passenger QR") }
                         TextButton(onClick = { missing = booking }, enabled = !state.busy) { Text("Mark no-show after waiting allowance") }
                     }
                 }

@@ -2,6 +2,8 @@ package com.example.core.notifications
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.media.RingtoneManager
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.example.MainActivity
@@ -32,11 +34,29 @@ class PassoMessagingService : FirebaseMessagingService() {
         }
         val pending = PendingIntent.getActivity(this, id, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val (title, body) = payload.notificationCopy()
-        val notification = NotificationCompat.Builder(this, MobilityPush.CHANNEL_ID)
+        val alert = (payload.scope == "DRIVER" && payload.eventType == "NEW_REQUEST") ||
+            (payload.scope == "PASSENGER" && (
+                (payload.kind == "SHARED" && payload.eventType in setOf("NEW_REQUEST", "STATUS_OPEN")) ||
+                    (payload.kind in setOf("TAXI", "SHARED") && payload.eventType == "STATUS_ACCEPTED") ||
+                    (payload.kind in setOf("CARGO", "GROUP") && payload.eventType == "QUOTES")
+                ))
+        val driverAlert = payload.scope == "DRIVER"
+        val channel = if (alert) MobilityPush.selectedAlertChannel(this, driverAlert) else MobilityPush.CHANNEL_ID
+        val notification = NotificationCompat.Builder(this, channel)
             .setSmallIcon(R.drawable.ic_mobility_notification).setContentTitle(title).setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body)).setContentIntent(pending)
-            .setAutoCancel(true).setOnlyAlertOnce(true).setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).build()
+            .setAutoCancel(true).setOnlyAlertOnce(!alert)
+            .setPriority(if (alert) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .apply {
+                if (alert) {
+                    setCategory(NotificationCompat.CATEGORY_CALL)
+                    setVibrate(longArrayOf(0, 850, 350, 850, 350, 1200))
+                    if (Build.VERSION.SDK_INT < 26) setSound(
+                        RingtoneManager.getDefaultUri(MobilityAlertTone.selected(this@PassoMessagingService, driverAlert).ringtoneType))
+                } else setDefaults(NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_VIBRATE)
+            }
+            .build()
         NotificationManagerCompat.from(this).notify(id, notification)
     }
 }

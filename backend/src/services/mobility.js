@@ -298,10 +298,11 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
     if (!row || !privileged && (typeof capability !== 'string' || capability.length > 200 || !crypto.timingSafeEqual(Buffer.from(row.secret_hash), Buffer.from(hash(capability))))) fail(404, 'Transport request unavailable. Use its private reference on this device.');
     return row;
   }
-  async function createRequest(input) {
+  async function createRequest(input, principal = null) {
     if (input.adultConfirmed !== true) fail(400, 'Confirm that you are at least 18 years old.');
     if (!['GROUP','CARGO'].includes(input.kind)) fail(400, 'Choose group travel or cargo.');
-    const customer = person(input.customerName, input.customerPhone), origin = text(input.origin, 'departure'), destination = text(input.destination, 'destination');
+    if (principal && !['PASSENGER','DRIVER'].includes(String(principal.role || '').toUpperCase())) fail(403, 'Use a passenger or driver account to send a transport request.');
+    const customer = principal ? person(principal.fullName, principal.phone) : person(input.customerName, input.customerPhone), origin = text(input.origin, 'departure'), destination = text(input.destination, 'destination');
     if (origin.toLowerCase() === destination.toLowerCase()) fail(400, 'Departure and destination must differ.');
     const date = validDate(input.travelDate), today = new Date(now() + 3 * 3600000).toISOString().slice(0,10);
     if (date < today || Date.parse(date) > now() + 366 * 86400000) fail(400, 'Choose today or a future date within one year.');
@@ -311,18 +312,20 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
     const details = input.kind === 'CARGO' ? text(input.cargoDetails, 'cargo description', 2000) : text(input.details, 'request details', 2000, true);
     const [lat, lng] = coordinates(input.originLatitude, input.originLongitude, true), [toLat, toLng] = coordinates(input.destinationLatitude, input.destinationLongitude, true);
     const key = id('mrq_'), capability = secret();
+    const otpPurpose = input.kind === 'CARGO' ? 'CARGO_REQUEST' : 'GROUP_REQUEST';
+    const otpVerificationToken = typeof input.otpVerificationToken === 'string' ? input.otpVerificationToken : '';
     if(input.estimatedWeightKg!=null&&input.estimatedWeightKg!==''&&(!Number.isFinite(Number(input.estimatedWeightKg))||Number(input.estimatedWeightKg)<=0||Number(input.estimatedWeightKg)>100000))fail(400,'Enter a valid estimated weight in kilograms.');
     if(input.travelTime&&(!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.travelTime)))fail(400,'Choose a valid pickup time.');
-    const otpPurpose = input.kind === 'CARGO' ? 'CARGO_REQUEST' : 'GROUP_REQUEST';
-    const otpToken = typeof input.otpVerificationToken === 'string' ? input.otpVerificationToken : '';
-    if (otpToken.length < 20 || otpToken.length > 200) fail(400, 'Verify the requester phone by SMS before sending this request.');
     await write(async tx=>{
-      const otp = await tx.prepare("SELECT id FROM auth_otps WHERE phone=? AND purpose=? AND verification_token_hash=? AND verified_at IS NOT NULL AND expires_at>CURRENT_TIMESTAMP ORDER BY created_at DESC LIMIT 1")
-        .get(customer.phone, otpPurpose, hash(otpToken));
-      if (!otp) fail(401, 'The phone verification expired. Request a new code.');
-      const consumed = await tx.prepare("UPDATE auth_otps SET verification_token_hash=NULL WHERE id=? AND verification_token_hash=? AND verified_at IS NOT NULL")
-        .run(otp.id, hash(otpToken));
-      if (Number(consumed.changes ?? consumed.rowCount ?? 0) !== 1) fail(401, 'The phone verification was already used. Request a new code.');
+      if (!principal) {
+        if (otpVerificationToken.length < 20 || otpVerificationToken.length > 512) fail(401, 'Verify your phone number before sending this request.', 'PHONE_VERIFICATION_REQUIRED');
+        const verified = await tx.prepare("SELECT id FROM auth_otps WHERE phone=? AND purpose=? AND verification_token_hash=? AND verified_at IS NOT NULL AND expires_at>CURRENT_TIMESTAMP ORDER BY created_at DESC LIMIT 1" + lock(tx))
+          .get(customer.phone, otpPurpose, hash(otpVerificationToken));
+        if (!verified) fail(401, 'Verify your phone number before sending this request.', 'PHONE_VERIFICATION_REQUIRED');
+        const consumed = await tx.prepare('UPDATE auth_otps SET verification_token_hash=NULL WHERE id=? AND verification_token_hash=? AND verified_at IS NOT NULL')
+          .run(verified.id, hash(otpVerificationToken));
+        if (!consumed.changes) fail(401, 'Verify your phone number before sending this request.', 'PHONE_VERIFICATION_REQUIRED');
+      }
       await tx.prepare('INSERT INTO mobility_requests(id,kind,secret_hash,origin,destination,travel_date,people,vehicle_type,customer_name,customer_phone,details,origin_latitude,origin_longitude,destination_latitude,destination_longitude,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(key, input.kind, hash(capability), origin, destination, date, people, input.vehicleType, customer.name, customer.phone, details, lat, lng, toLat, toLng, input.kind === 'CARGO' ? 'DRAFT' : 'REQUESTED', instant());
       await marketplace.createMeta(key,input,tx);
@@ -512,9 +515,22 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
   async function completeTrip(driverId, key) {
     await write(async tx => {
       const trip = await ownedTrip(driverId, key, tx, true);
+      if (trip.status === 'COMPLETED') return;
       if (trip.status !== 'BOARDING') fail(409, 'Only a boarding trip can be completed.');
       await tx.prepare("UPDATE mobility_trips SET status='COMPLETED' WHERE id=?").run(key);
+      const bookings = await tx.prepare("SELECT * FROM mobility_bookings WHERE trip_id=? AND payment_status='PAID'").all(key);
+      for (const booking of bookings) {
+        const travelers = await tx.prepare('SELECT phone FROM mobility_travelers WHERE booking_id=?').all(booking.id);
+        for (const phone of new Set([booking.buyer_phone, ...travelers.map(person => person.phone)])) {
+          const normalized = normalizePhone(phone);
+          if (!normalized) continue;
+          await tx.prepare("INSERT INTO mobility_sms_outbox(id,event_key,booking_id,phone,message,next_attempt_at,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(event_key) DO NOTHING")
+            .run(id('gsms_'), 'completed:' + key + ':' + booking.id + ':' + normalized, booking.id, normalized,
+              `PASSO group trip completed: ${trip.origin} to ${trip.destination}. Thank you for travelling with us.`, instant(), instant());
+        }
+      }
     });
+    void flushSms();
     return { trip: await tripView(await getTrip(key), db, true) };
   }
   async function audit(tx, actor, action, resource) {

@@ -177,7 +177,9 @@ class TransportRepository(
     }
 
     suspend fun requestLoginOtp(phone: String): String {
-        val response = apiService.requestOtp(mapOf("phone" to phone.trim(), "purpose" to "LOGIN"))
+        val canonicalPhone = canonicalAccountPhone(phone)
+            ?: throw IllegalArgumentException("Enter a valid Ethiopian mobile number.")
+        val response = apiService.requestOtp(mapOf("phone" to canonicalPhone, "purpose" to "LOGIN"))
         val body = response.body()
         if (!response.isSuccessful || body?.success != true || body.delivery != "SENT")
             throw IllegalStateException(body?.error ?: "Unable to send a sign-in code. Please try again later.")
@@ -185,7 +187,9 @@ class TransportRepository(
     }
 
     suspend fun verifyLoginOtp(phone: String, code: String): String {
-        val response = apiService.verifyOtp(mapOf("phone" to phone.trim(), "purpose" to "LOGIN", "code" to code.trim()))
+        val canonicalPhone = canonicalAccountPhone(phone)
+            ?: throw IllegalArgumentException("Enter a valid Ethiopian mobile number.")
+        val response = apiService.verifyOtp(mapOf("phone" to canonicalPhone, "purpose" to "LOGIN", "code" to code.trim()))
         val body = response.body()
         if (!response.isSuccessful || body?.success != true) throw IllegalStateException(body?.error ?: "That code is not valid. Request a new code.")
         return body.verificationToken ?: throw IllegalStateException("That code could not be confirmed. Request a new one.")
@@ -194,7 +198,9 @@ class TransportRepository(
     suspend fun authenticateWithOtp(phone: String, role: String, verificationToken: String): UserEntity? {
         lastAuthError = null; lastAuthCode = null
         return try {
-            val response = apiService.loginWithOtp(mapOf("phone" to phone.trim(), "role" to role.trim().uppercase(), "verificationToken" to verificationToken))
+            val canonicalPhone = canonicalAccountPhone(phone)
+                ?: throw IllegalArgumentException("Enter a valid Ethiopian mobile number.")
+            val response = apiService.loginWithOtp(mapOf("phone" to canonicalPhone, "role" to role.trim().uppercase(), "verificationToken" to verificationToken))
             if (response.isSuccessful && response.body()?.success == true) {
                 val body = response.body()!!
                 val token = body.token ?: error("Sign-in could not be completed. Please try again.")
@@ -331,6 +337,24 @@ class TransportRepository(
             val errorMsg = parsedMsg ?: response.message().ifBlank { "Registration could not be completed. Please try again." }
             throw IllegalStateException(errorMsg)
         }
+    }
+
+    suspend fun registerPassengerWithOtp(fullName: String, phone: String, verificationToken: String): UserEntity {
+        val canonicalPhone = canonicalAccountPhone(phone)
+            ?: throw IllegalArgumentException("Enter a valid Ethiopian mobile number.")
+        val response = apiService.registerPassengerWithOtp(mapOf(
+            "fullName" to fullName.trim(), "phone" to canonicalPhone, "verificationToken" to verificationToken
+        ))
+        val body = response.body()
+        if (!response.isSuccessful || body?.success != true)
+            throw IllegalStateException(body?.error ?: "Unable to create your account. Please try again.")
+        val token = body.token ?: error("Account creation could not be completed. Please try again.")
+        val user = userEntity(body.user ?: error("Account creation could not be completed. Please try again."))
+        currentCoroutineContext().ensureActive()
+        ApiClient.setAuthToken(token, environmentScope)
+        dao.insertUser(user)
+        sessionStore?.save(token, user)
+        return user
     }
 
     suspend fun requestRegistrationOtp(phone: String): String {

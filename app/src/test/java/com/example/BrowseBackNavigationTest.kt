@@ -57,7 +57,7 @@ class BrowseBackNavigationTest {
         compose.onNodeWithTag("welcome_continue").performClick()
         // Passenger now opens taxi discovery; Daily Commute remains an explicit destination.
         compose.onNodeWithTag("taxi_where_to").assertIsDisplayed()
-        compose.onNodeWithText("Daily Commute").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("taxi_daily_commute").assertIsDisplayed().performClick()
         assertDailyRoutes()
     }
 

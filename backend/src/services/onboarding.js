@@ -8,6 +8,7 @@ const { initProfileSchema } = require('./profile-schema');
 const { commuteQuote, commuteEndpoints, vehicleMonthlyPrice } = require('./commute-quote');
 const { accountPhonePolicy } = require('./account-phone-policy');
 const { loadCredentialSnapshot } = require('./account-sessions');
+const { getTestLoginOtpConfig, isTestOtpRecordHash, isConfiguredTestOtpRecord } = require('./test-login-otp');
 
 const REQUIRED = Object.freeze({ DRIVER: ['LICENSE', 'VEHICLE_REGISTRATION', 'INSURANCE', 'PHOTO'], COMPANY: ['BUSINESS_LICENSE', 'REGISTRATION', 'REPRESENTATIVE_ID'] });
 const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
@@ -500,10 +501,16 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
     const row = await db.prepare("SELECT account_id FROM onboarding_accounts WHERE role='DRIVER' AND normalized_phone=?").get(phone);
     const account = row ? await loadCredentialSnapshot(row.account_id, 'DRIVER', db) : null;
     if (!account || !mayContinue(account)) fail(401, 'Driver application not found. Check the phone number or register first.');
-    const otpPhone = String(input.phone).trim();
+    // Login challenges are stored in canonical Ethiopian E.164 form by the
+    // shared auth endpoint; use the same form when a pending driver continues.
+    const submittedOtpPhone = String(input.phone).trim();
     const digest = crypto.createHash('sha256').update(proof).digest('hex');
-    const otp = await db.prepare("SELECT id FROM auth_otps WHERE phone=? AND purpose='LOGIN' AND verification_token_hash=? AND verified_at IS NOT NULL AND expires_at>CURRENT_TIMESTAMP ORDER BY created_at DESC LIMIT 1").get(otpPhone, digest);
+    const otp = await db.prepare("SELECT id,code_hash FROM auth_otps WHERE phone IN (?,?) AND purpose='LOGIN' AND verification_token_hash=? AND verified_at IS NOT NULL AND expires_at>CURRENT_TIMESTAMP ORDER BY created_at DESC LIMIT 1")
+      .get(phone, submittedOtpPhone, digest);
     if (!otp) fail(401, 'That sign-in code expired. Request a new one.');
+    if (isTestOtpRecordHash(otp.code_hash) &&
+        !isConfiguredTestOtpRecord(getTestLoginOtpConfig(), otp.code_hash, phone, 'LOGIN', 'DRIVER'))
+      fail(401, 'That sign-in code expired. Request a new one.');
     const consumed = await db.prepare("UPDATE auth_otps SET verification_token_hash=NULL WHERE id=? AND verification_token_hash=? AND verified_at IS NOT NULL").run(otp.id, digest);
     if (consumed.changes !== 1) fail(401, 'That sign-in code was already used. Request a new one.');
     const result = await snapshot(account.id, 'DRIVER');

@@ -162,8 +162,27 @@
   async function renderSettings() {
     const result = await api("/api/admin/integrations/afro-sms").catch(error => ({ settingsError: error.message }));
     const configured = result.configured || {};
+    const gateway = await api("/api/admin/integrations/phone-sms-gateway").catch(error => ({ gatewayError: error.message, devices: [] }));
+    const gatewayDevices = asArray(gateway.devices).map(device =>
+      '<div class="inline-actions" style="justify-content:space-between;padding:10px 0;border-top:1px solid var(--border)"><span><strong>' +
+      esc(device.device_name || "Android phone") + '</strong> · ' + (device.online ? "Online" : "Offline") +
+      (device.last_seen_at ? ' · Last seen ' + esc(device.last_seen_at) : '') +
+      '</span><button class="btn btn-secondary" type="button" data-phone-gateway-revoke="' + esc(device.id) + '">Disconnect</button></div>'
+    ).join("");
+    const pilotPhoneText = asArray(gateway.additionalPilotNumbers).join("\n");
+    const pilotSmsSection = section("Pilot SMS delivery", "Choose how approved pilot numbers receive login codes. Numbers outside the pilot list always use Afro SMS.",
+      '<form id="pilot-sms-form" class="form-card" style="padding:0;border:0;box-shadow:none">' +
+      '<fieldset style="border:0;padding:0;margin:0"><legend class="field-label">Login code delivery</legend>' +
+      '<div class="inline-actions" style="gap:18px;margin:10px 0 18px">' +
+      '<label style="display:flex;gap:8px;align-items:center"><input type="radio" name="deliveryMode" value="AFRO_SMS"' + (gateway.deliveryMode === "AFRO_SMS" ? ' checked' : '') + '> Afro SMS</label>' +
+      '<label style="display:flex;gap:8px;align-items:center"><input type="radio" name="deliveryMode" value="PHONE_GATEWAY"' + (gateway.deliveryMode === "PHONE_GATEWAY" ? ' checked' : '') + (gateway.enabled ? '' : ' disabled') + '> This phone (pilot)</label>' +
+      '</div></fieldset>' +
+      '<div class="field"><label for="pilot-sms-numbers">Additional pilot phone numbers</label><textarea id="pilot-sms-numbers" rows="4" placeholder="0912345678, 09XXXXXXXX">' + esc(pilotPhoneText) + '</textarea><span class="hint">One Ethiopian mobile number per line or comma-separated, up to 50. The two configured pilot accounts are included automatically.</span></div>' +
+      (!gateway.enabled ? '<p class="hint">The phone gateway is not enabled on the server yet. Afro SMS remains available.</p>' : '') +
+      '<div class="form-actions"><button class="btn btn-primary" type="submit">Save pilot SMS settings</button></div><p id="pilot-sms-message" class="form-message" hidden role="status"></p></form>');
     return pageHeader("Settings", "Monitor server capacity and manage passenger SMS notifications.") +
       (window.RoutepassResources ? window.RoutepassResources.markup() : "") +
+      pilotSmsSection +
       (result.settingsError ? section("Afro SMS", "SMS settings could not be loaded.", '<div class="empty-note">' + esc(result.settingsError) + '</div>') :
       section("Afro SMS", "Enter the AfroMessage token and Identifier ID. The token is stored securely and is never displayed after saving.",
         '<form id="afro-sms-form" class="form-card" style="padding:0;border:0;box-shadow:none">' +
@@ -172,7 +191,16 @@
         '<div class="field"><label for="afro-sms-identifier">Identifier ID (from, optional)</label><input id="afro-sms-identifier" name="identifier" maxlength="120" placeholder="Leave blank to use your default identifier"><span class="hint">Use an Identifier ID only when your AfroMessage account has multiple short codes. Otherwise leave it blank.</span></div>' +
         '<div class="field"><label for="afro-sms-sender">Approved sender name</label><input id="afro-sms-sender" name="sender" maxlength="40" value="WHALE" placeholder="Approved AfroMessage sender"><span class="hint">For the WHALE identifier, use the approved sender name from AfroMessage. The default is WHALE.</span></div>' +
         '<div class="field"><label for="afro-sms-url">API URL</label><input id="afro-sms-url" name="url" type="url" value="https://api.afromessage.com/api/send"><span class="hint">Leave the default Afro SMS endpoint unless your account uses another URL.</span></div>' +
-        '</div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Afro SMS settings</button></div><div class="driver-form-grid" style="margin-top:16px"><div class="field"><label for="afro-sms-test-phone">Test phone number</label><input id="afro-sms-test-phone" type="tel" placeholder="09XXXXXXXX"></div><div class="field"><label for="afro-sms-test-message">Test message</label><input id="afro-sms-test-message" maxlength="320" value="RoutePass test SMS: Afro SMS is connected."></div></div><div class="form-actions"><button class="btn btn-secondary" type="button" id="afro-sms-test">Send test message</button></div><p id="afro-sms-message" class="form-message" hidden></p></form>'));
+        '</div><div class="form-actions"><button class="btn btn-primary" type="submit">Save Afro SMS settings</button></div><div class="driver-form-grid" style="margin-top:16px"><div class="field"><label for="afro-sms-test-phone">Test phone number</label><input id="afro-sms-test-phone" type="tel" placeholder="09XXXXXXXX"></div><div class="field"><label for="afro-sms-test-message">Test message</label><input id="afro-sms-test-message" maxlength="320" value="RoutePass test SMS: Afro SMS is connected."></div></div><div class="form-actions"><button class="btn btn-secondary" type="button" id="afro-sms-test">Send test message</button></div><p id="afro-sms-message" class="form-message" hidden></p></form>')) +
+      section("Phone gateway for pilot sign-in", gateway.gatewayError
+        ? "Gateway status could not be loaded."
+        : gateway.enabled && gateway.deliveryMode === "PHONE_GATEWAY"
+          ? "Approved pilot numbers use this phone when selected. Other users continue through Afro SMS."
+          : "The phone gateway is off or Afro SMS is selected. Choose This phone (pilot) above when the server gateway is enabled.",
+        (gateway.gatewayError ? '<p class="form-message error">' + esc(gateway.gatewayError) + '</p>' : '') +
+        '<div class="form-actions"><button class="btn btn-secondary" type="button" id="phone-gateway-pair"' + (gateway.enabled && gateway.deliveryMode === "PHONE_GATEWAY" ? '' : ' disabled') + '>Create 10-minute pairing code</button></div>' +
+        '<p id="phone-gateway-pair-code" class="form-message" hidden></p>' +
+        (gatewayDevices || '<div class="empty-note">No phone is paired.</div>'));
   }
   async function saveAfroSms(event) {
     event.preventDefault();
@@ -195,6 +223,25 @@
       message.textContent = error.message;
       message.className = "form-message error";
       message.hidden = false;
+    } finally { button.disabled = false; }
+  }
+  async function savePilotSmsSettings(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
+    const message = $("#pilot-sms-message");
+    const selected = form.querySelector('input[name="deliveryMode"]:checked');
+    const pilotNumbers = $("#pilot-sms-numbers").value.split(/[\n,;]+/).map(value => value.trim()).filter(Boolean);
+    if (!selected) { message.textContent = "Choose an OTP delivery method."; message.className = "form-message error"; message.hidden = false; return; }
+    button.disabled = true; message.hidden = true;
+    try {
+      await api("/api/admin/integrations/phone-sms-gateway/settings", {
+        method: "PUT", body: JSON.stringify({ deliveryMode: selected.value, pilotNumbers })
+      });
+      toast("Pilot SMS settings saved.");
+      await renderView();
+    } catch (error) {
+      message.textContent = error.message; message.className = "form-message error"; message.hidden = false;
     } finally { button.disabled = false; }
   }
   async function renderDrivers() {
@@ -529,6 +576,24 @@
       if (companyInviteForm) companyInviteForm.addEventListener("submit", createCompanyInvite);
       const afroSmsForm = $("#afro-sms-form");
       if (afroSmsForm) afroSmsForm.addEventListener("submit", saveAfroSms);
+      const pilotSmsForm = $("#pilot-sms-form");
+      if (pilotSmsForm) pilotSmsForm.addEventListener("submit", savePilotSmsSettings);
+      $("#phone-gateway-pair")?.addEventListener("click", async event => {
+        const button = event.currentTarget, message = $("#phone-gateway-pair-code");
+        button.disabled = true; message.hidden = true;
+        try {
+          const result = await api("/api/admin/integrations/phone-sms-gateway/pair-code", { method: "POST", body: "{}" });
+          message.textContent = "Enter this one-time code in Passo SMS Gateway on the phone: " + result.code + ". It expires in 10 minutes.";
+          message.className = "form-message"; message.hidden = false;
+        } catch (error) { message.textContent = error.message; message.className = "form-message error"; message.hidden = false; }
+        finally { button.disabled = false; }
+      });
+      document.querySelectorAll("[data-phone-gateway-revoke]").forEach(button => button.addEventListener("click", async event => {
+        const target = event.currentTarget;
+        target.disabled = true;
+        try { await api("/api/admin/integrations/phone-sms-gateway/devices/" + encodeURIComponent(target.dataset.phoneGatewayRevoke), { method: "DELETE" }); toast("Phone gateway disconnected."); await renderView(); }
+        catch (error) { target.disabled = false; toast(error.message); }
+      }));
       $("#afro-sms-test")?.addEventListener("click", async event => {
         const button = event.currentTarget;
         const message = $("#afro-sms-message");

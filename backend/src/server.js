@@ -139,6 +139,7 @@ app.get('/api/admin/system/resources', authenticate, requireRole('ADMIN'), (_req
 });
 app.use('/api/master-data', require('./routes/master-data'));
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/sms-gateway', require('./routes/sms-gateway'));
 app.use('/api/onboarding', require('./routes/onboarding'));
 app.use('/api/account-recovery', require('./routes/account-recovery'));
 app.use('/api/account', require('./routes/account'));
@@ -645,6 +646,7 @@ async function initializeFeatureSchemas() {
   await DB.prepare("CREATE TABLE IF NOT EXISTS app_settings (key VARCHAR(100) PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)").run();
   await DB.prepare("CREATE TABLE IF NOT EXISTS auth_otps (id VARCHAR(100) PRIMARY KEY, phone VARCHAR(40) NOT NULL, purpose VARCHAR(40) NOT NULL, code_hash VARCHAR(128) NOT NULL, verification_token_hash VARCHAR(128), expires_at TIMESTAMP NOT NULL, verified_at TIMESTAMP, attempts INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)").run();
   await DB.prepare("CREATE INDEX IF NOT EXISTS idx_auth_otps_phone ON auth_otps(phone, purpose, created_at)").run();
+  await require('./services/phone-sms-gateway').initPhoneSmsGatewaySchema(DB);
 }
 
 async function startServer({ beforeListen, startWorkers = true } = {}) {

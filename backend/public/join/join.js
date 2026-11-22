@@ -119,8 +119,9 @@
   function accountPayload(_role, mode, values, quote) {
     const clean=key=>String(values[key]||'').trim();
     // Public recruitment always creates a driver, never a company or admin.
-    const payload={role:'DRIVER',phone:clean('phone'),password:values.password};
+    const payload={role:'DRIVER',phone:clean('phone')};
     if(mode!=='register')return payload;
+    payload.password=values.password;
     payload.fullName=clean('fullName');
     payload.serviceType=driverService(clean('serviceType'));payload.licenseNumber=clean('licenseNumber');
     for(const key of ['assignedVehiclePlate','vehicleModel','vehicleType'])payload[key]=clean(key);
@@ -138,7 +139,7 @@
   }
   function registrationFields(role,mode,service,choice) {
     service=driverService(service);
-    const fields=['phone','password'];if(mode!=='register')return fields;
+    const fields=['phone'];if(mode!=='register')return fields;
     fields.push('fullName','serviceType','licenseNumber','emergencyContactName','emergencyContactPhone','vehicleColor','adultConfirmation');
     return fields.concat('assignedVehiclePlate','vehicleModel','vehicleType',...(service==='DAILY_COMMUTE'?['proposedMonthlyFeeEtb']:[]),...(service==='TAXI'?[]:['proposedDeparture','proposedDestination']));
   }
@@ -196,7 +197,7 @@
   }
   function createApiClient({ fetchFn, getToken, onUnauthorized = () => {} }) {
     return async function api(path, options = {}) {
-      if (!/^\/(?:register|login|me|profile|request-otp|verify-otp|submit|documents\/[A-Z_]+)$/.test(path)) throw new Error('Invalid onboarding API path.');
+      if (!/^\/(?:register|login|login-otp|me|profile|request-otp|verify-otp|submit|documents\/[A-Z_]+)$/.test(path)) throw new Error('Invalid onboarding API path.');
       const sentToken = options.anonymous ? null : getToken();
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 30000);
@@ -238,16 +239,17 @@
     let token='', mode=initialMode(window.location.search), language='en', snapshot=null, revision=0, otpUntil=0, otpTimer=null;
     const files=new Map(), catalog={types:[]},quotes={},priceKeys={},suggestionTasks=new Map();
     $('#adultConfirmation').checked=false;
-    let accountBusy=false,preferenceBusy=false,editingPreference=false,recoveryOpen=false,recoveryBusy=false,recoveryUntil=0;
+    let accountBusy=false,preferenceBusy=false,editingPreference=false,recoveryOpen=false,recoveryBusy=false,recoveryUntil=0,loginOtpSent=false;
     const recover=createRecoveryClient({fetchFn:window.fetch.bind(window)});
     try { token=window.sessionStorage.getItem(TOKEN_KEY)||''; language=window.sessionStorage.getItem('passo.join.language')||'en'; } catch (_) {}
     if (!(language in languageIndex)) language='en';
-    const t=key=>translate(key,language);
+    const loginOtpCopy={loginOtpHelp:['We’ll text a one-time code to this number.','የአንድ ጊዜ ኮድ ወደዚህ ቁጥር በSMS እንልካለን።','Koodii yeroo tokkoo gara lakkoofsa kanaatti SMS erginna.'],verifyLogin:['Verify and sign in','አረጋግጥ እና ግባ','Mirkaneessiitii seeni.'],sendLoginCode:['Send sign-in code','የመግቢያ ኮድ ላክ','Koodii seensaa ergi.']};
+    const t=key=>loginOtpCopy[key]?.[['en','am','om'].indexOf(language)]||translate(key,language);
     function message(selector,text,error=false) { const element=$(selector); element.textContent=text||''; element.classList.toggle('error',error); }
     function errorMessage(error) { return error.network?t('networkError'):error.server?error.message:t('genericError'); }
     function setToken(value) { token=value; revision++; try { if(value)window.sessionStorage.setItem(TOKEN_KEY,value);else window.sessionStorage.removeItem(TOKEN_KEY); } catch (_) {} }
     function signOut(expired=false) {
-      showRecovery(false); setToken(''); snapshot=null; files.clear(); otpUntil=0; clearInterval(otpTimer); otpTimer=null;
+      showRecovery(false); setToken(''); snapshot=null; files.clear(); otpUntil=0; clearInterval(otpTimer); otpTimer=null; loginOtpSent=false;
       quotes.registration?.reset();quotes.pending?.reset();priceKeys.registration='';priceKeys.pending='';accountBusy=false;preferenceBusy=false;editingPreference=false;
       $('#accountForm').reset(); $('#profileForm').reset(); $('#otpForm').reset();$('#routePreferenceForm').reset();delete $('#routePreferenceForm').dataset.accountId; $('#password').type='password';
       all('#dashboard button').forEach(button=>{button.disabled=false;button.setAttribute('aria-busy','false');});
@@ -258,6 +260,13 @@
       $('#documentCards').replaceChildren();delete $('#documentCards').dataset.renderKey; updateAuth(); if(expired)message('#accountMessage',t('expired'),true);
     }
     const api=createApiClient({fetchFn:window.fetch.bind(window),getToken:()=>token,onUnauthorized:()=>signOut(true)});
+    async function authOtp(endpoint,body) {
+      let response,payload={};
+      try { response=await window.fetch('/api/auth/'+endpoint,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'omit',redirect:'error',body:JSON.stringify(body)}); payload=await response.json(); }
+      catch (_) { throw Object.assign(new Error('Connection failed.'),{network:true}); }
+      if(!response.ok||payload.success===false)throw Object.assign(new Error(typeof payload.error==='string'?payload.error:'Sign-in could not be completed.'),{server:true});
+      return payload;
+    }
     function busy(element,value) { element.disabled=value; element.setAttribute('aria-busy',String(value)); }
     const priceControls={registration:{departure:'#proposedDeparture',destination:'#proposedDestination',vehicle:'#vehicleType',fee:'#proposedMonthlyFeeEtb',status:'#routeLookupStatus',help:'#registrationPriceHelp',retry:'#retryRoutes'},pending:{departure:'#pendingDeparture',destination:'#pendingDestination',vehicle:'#pendingVehicleType',fee:'#pendingFee',status:'#pendingLookupStatus',help:'#pendingPriceHelp',retry:'#retryPendingPrice'}};
     const currentService=name=>driverService(name==='pending'?snapshot?.account?.serviceType:$('#serviceType').value);
@@ -293,11 +302,14 @@
     }
     function updateAuth() {
       $('#serviceType').value=driverService($('#serviceType').value);
-      $('#forgotPassword').hidden=mode!=='login'||recoveryOpen;
+      $('#forgotPassword').hidden=true;
       $('#accountForm').hidden=recoveryOpen;
       const registration=mode==='register', driver=true, daily=currentService('registration')==='DAILY_COMMUTE',taxi=currentService('registration')==='TAXI';
       all('[data-registration]').forEach(el=>{ el.hidden=!registration || (el.hasAttribute('data-company')&&driver) || (el.hasAttribute('data-driver')&&!driver) || (el.hasAttribute('data-daily')&&!daily) || (el.hasAttribute('data-intercity')&&daily); });
       applyRegistrationFields($('#accountForm').elements,role,mode,currentService('registration'));
+      $('#loginOtpField').hidden=registration||!loginOtpSent;
+      $('#loginOtp').disabled=registration||!loginOtpSent||accountBusy;
+      $('#loginOtp').required=!registration&&loginOtpSent;
       $('#registrationRoute').hidden=!registration||taxi;
       all('#registrationRoute [data-monthly]').forEach(el=>el.hidden=!daily);
       $('#registrationRouteLabel').textContent=t(daily?'routePreference':'preferredRoute');
@@ -305,8 +317,8 @@
       updateAdultValidation();
       $('#registerTab').setAttribute('aria-pressed',String(registration));$('#loginTab').setAttribute('aria-pressed',String(!registration));
       $('#formTitle').textContent=t(registration?'createTitle':'loginTitle'); $('#formIntro').textContent=t(registration?(taxi?'taxiRegistrationIntro':daily?'dailyCreateIntro':'independentIntro'):'loginIntro');
-      $('#fullNameLabel').textContent=t(driver?'fullName':'representative'); $('#accountSubmit span').textContent=t(registration?'createButton':'loginButton');
-      $('#password').minLength=registration?10:1; $('#password').autocomplete=registration?'new-password':'current-password';
+      $('#fullNameLabel').textContent=t(driver?'fullName':'representative'); $('#accountSubmit span').textContent=t(registration?'createButton':loginOtpSent?'verifyLogin':'sendLoginCode');
+      $('#password').minLength=10; $('#password').autocomplete='new-password';
       $('#showPassword').textContent=t($('#password').type==='password'?'show':'hide');
       for(const key of ['stepAccount','stepAccountBody','stepDetails','stepDetailsBody'])$('[data-i18n="'+key+'"]').textContent=t('daily'+key[0].toUpperCase()+key.slice(1));
       if(taxi)$('[data-i18n="stepAccountBody"]').textContent=t('taxiStepAccountBody');
@@ -441,14 +453,15 @@
       try{await recover('/reset',payload);const phone=payload.phone;showRecovery(false);$('#phone').value=phone;$('#password').value='';message('#accountMessage',t('recoveryDone'));}
       catch(error){message('#recoveryMessage',errorMessage(error),true);}finally{payload.newPassword='';payload.code='';$('#recoveryPassword').value='';$('#recoveryConfirm').value='';recoveryControls(false);}
     });
-    $('#registerTab').addEventListener('click',()=>{if(recoveryBusy)return;showRecovery(false);mode='register';message('#accountMessage','');updateAuth();});
+    $('#registerTab').addEventListener('click',()=>{if(recoveryBusy)return;showRecovery(false);mode='register';loginOtpSent=false;$('#loginOtp').value='';message('#accountMessage','');updateAuth();});
     $('#serviceType').addEventListener('change',()=>{
       if(accountBusy||recoveryBusy)return;
       applyDriverServiceSelection($('#accountForm').elements,$('#serviceType').value);
       for(const key of ['registrationdeparture','registrationdestination']){const task=suggestionTasks.get(key);if(task){clearTimeout(task.timer);task.controller?.abort();suggestionTasks.delete(key);}}
       quotes.registration.reset();priceKeys.registration='';renderOptions();updateAuth();message('#accountMessage','');
     });
-    $('#loginTab').addEventListener('click',()=>{if(recoveryBusy)return;showRecovery(false);mode='login';message('#accountMessage','');updateAuth();});
+    $('#loginTab').addEventListener('click',()=>{if(recoveryBusy)return;showRecovery(false);mode='login';loginOtpSent=false;$('#loginOtp').value='';message('#accountMessage','');updateAuth();});
+    $('#phone').addEventListener('input',()=>{if(mode==='login'&&loginOtpSent){loginOtpSent=false;$('#loginOtp').value='';updateAuth();message('#accountMessage','');}});
     $('#showPassword').addEventListener('click',()=>{const show=$('#password').type==='password';$('#password').type=show?'text':'password';$('#showPassword').setAttribute('aria-pressed',String(show));$('#showPassword').textContent=t(show?'hide':'show');});
     $('#retryTypes').addEventListener('click',()=>loadOptions('types'));$('#retryRoutes').addEventListener('click',()=>updateQuote('registration',{force:true,immediate:true}));$('#retryPendingPrice').addEventListener('click',()=>updateQuote('pending',{force:true,immediate:true}));
     $('#accountForm').addEventListener('submit',async event=>{
@@ -458,12 +471,25 @@
       const payload=accountPayload(role,mode,Object.fromEntries([...form.elements].filter(input=>input.name).map(input=>[input.name,input.value])),quote.quote);
       if(daily&&quote.quote.price.mode==='PROPOSED'&&!validMonthlyFee(payload.proposedMonthlyFeeEtb)){message('#accountMessage',t('feeInvalid'),true);return;}
       const current=revision;accountBusy=true;updateSubmitAvailability();busy($('#accountSubmit'),true);message('#accountMessage','');
-      try {const result=await api(mode==='register'?'/register':'/login',{method:'POST',body:payload,anonymous:true});if(current!==revision)return;
+      try {
+        let result;
+        if(mode==='register') result=await api('/register',{method:'POST',body:payload,anonymous:true});
+        else if(!loginOtpSent) {
+          await authOtp('request-otp',{phone:payload.phone,purpose:'LOGIN'});
+          if(current!==revision)return;
+          loginOtpSent=true;updateAuth();$('#loginOtp').focus();message('#accountMessage',t('codeSent'));
+          return;
+        } else {
+          const proof=await authOtp('verify-otp',{phone:payload.phone,purpose:'LOGIN',code:$('#loginOtp').value.trim()});
+          if(!proof.verificationToken)throw new Error('Sign-in could not be completed. Request a new code.');
+          result=await api('/login-otp',{method:'POST',body:{phone:payload.phone,verificationToken:proof.verificationToken},anonymous:true});
+        }
+        if(current!==revision)return;
         if(!result.token||!result.account||!result.onboarding)throw new Error('Invalid application response.');
         if(!isDailyDriverAccount(result.account)){message('#accountMessage',t('dailyOnly'),true);return;}
-        setToken(result.token);snapshot=result;$('#password').value='';$('#password').type='password';renderDashboard();$('#dashboardTitle').tabIndex=-1;$('#dashboardTitle').focus();}
+        setToken(result.token);snapshot=result;loginOtpSent=false;$('#password').value='';$('#loginOtp').value='';$('#password').type='password';renderDashboard();$('#dashboardTitle').tabIndex=-1;$('#dashboardTitle').focus();}
       catch(error){if(current===revision)message('#accountMessage',errorMessage(error),true);}
-      finally{accountBusy=false;busy($('#accountSubmit'),false);updateSubmitAvailability();payload.password='';}
+      finally{accountBusy=false;busy($('#accountSubmit'),false);updateAuth();updateSubmitAvailability();if(payload.password!==undefined)payload.password='';}
     });
     $('#logout').addEventListener('click',()=>signOut());
     $('#refreshDashboard').addEventListener('click',()=>run($('#refreshDashboard'),'#dashboardMessage',()=>api('/me')));

@@ -36,14 +36,19 @@ data class MobilityPushPayload(val requestId: String, val eventType: String, val
 internal fun mobilityPushAllowed(environment: AppEnvironment, notificationsGranted: Boolean, firebaseConfigured: Boolean): Boolean =
     environment == AppEnvironment.PRODUCTION && notificationsGranted && firebaseConfigured
 
-internal fun MobilityPushPayload.notificationCopy(): Pair<String, String> = when (eventType) {
-    "BOOKING_UPDATED", "STATUS_BOARDED" -> "Shared ride booking updated" to "A shared ride booking has changed. Open Passo to view the latest boarding details."
-    "NEW_REQUEST" -> "New transport request" to "A transport request is available near your last known location. Open Passo to review it and refresh your location."
-    "QUOTES" -> "Driver offers received" to "Drivers have quoted for your request. Open Passo to compare offers."
-    "SELECTED", "STATUS_ASSIGNED", "STATUS_ACCEPTED", "STATUS_CONFIRMED" -> "Transport booking updated" to "Your transport booking has an update. Open Passo for the details."
-    "STATUS_AT_PICKUP" -> "Your driver has arrived" to "Your driver is at the pickup point. Open Passo for details."
-    "STATUS_LOADED", "STATUS_IN_TRANSIT", "STATUS_IN_PROGRESS" -> "Your journey has started" to "Your transport is underway. Open Passo to follow the request."
-    "STATUS_AT_DESTINATION", "STATUS_AWAITING_CONFIRMATION" -> "Delivery or journey arrived" to "Your driver has arrived. Open Passo to check and confirm completion."
-    "STATUS_COMPLETED" -> "Transport service completed" to "Your service is complete. Open Passo to view details or leave a review."
+internal fun MobilityPushPayload.notificationCopy(): Pair<String, String> = when {
+    eventType == "NEW_REQUEST" && scope == "PASSENGER" && kind == "SHARED" -> "Group ride nearby" to "A nearby group taxi has seats available. Open Passo to view it."
+    eventType == "NEW_REQUEST" && scope == "DRIVER" && kind == "TAXI" -> "Taxi call nearby" to "A passenger is looking for a ride nearby. Open Passo to respond."
+    eventType == "NEW_REQUEST" && scope == "DRIVER" && kind == "SHARED" -> "Group ride request nearby" to "A passenger requested a group ride near your location. Open Passo to respond."
+    eventType == "NEW_REQUEST" && scope == "PASSENGER" && kind == "TAXI" -> "Taxi trip update" to "Open Passo to view your taxi request."
+    eventType == "STATUS_OPEN" && scope == "PASSENGER" && kind == "SHARED" -> "Your group ride is ready" to "A nearby driver accepted your route. Open Passo to review the ride."
+    eventType in setOf("BOOKING_UPDATED", "STATUS_BOARDED") -> "Shared ride booking updated" to "A shared ride booking has changed. Open Passo to view the latest boarding details."
+    eventType == "NEW_REQUEST" -> "New transport request" to "A transport request is available near your last known location. Open Passo to review it and refresh your location."
+    eventType == "QUOTES" -> "Driver offers received" to "Drivers have quoted for your request. Open Passo to compare offers."
+    eventType in setOf("SELECTED", "STATUS_ASSIGNED", "STATUS_ACCEPTED", "STATUS_CONFIRMED") -> "Transport booking updated" to "Your transport booking has an update. Open Passo for the details."
+    eventType == "STATUS_AT_PICKUP" -> "Your driver has arrived" to "Your driver is at the pickup point. Open Passo for details."
+    eventType in setOf("STATUS_LOADED", "STATUS_IN_TRANSIT", "STATUS_IN_PROGRESS") -> "Your journey has started" to "Your transport is underway. Open Passo to follow the request."
+    eventType in setOf("STATUS_AT_DESTINATION", "STATUS_AWAITING_CONFIRMATION") -> "Delivery or journey arrived" to "Your driver has arrived. Open Passo to check and confirm completion."
+    eventType == "STATUS_COMPLETED" -> "Transport service completed" to "Your service is complete. Open Passo to view details or leave a review."
     else -> "Passo request updated" to "Your transport request has an update. Open Passo to view it."
 }

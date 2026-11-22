@@ -38,6 +38,7 @@ import com.example.core.localization.AppLanguage
 import com.example.data.api.*
 import com.example.data.repository.AndroidEncryptedIntercityBookingStore
 import com.example.ui.components.QrCodeCanvas
+import com.example.ui.components.PassoMobilityPalette
 import com.example.ui.screens.passenger.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -47,7 +48,8 @@ import java.io.ByteArrayOutputStream
 
 @Composable
 internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack: () -> Unit,
-    modifier: Modifier = Modifier, providedModel: MobilityViewModel? = null, initialRequestId: String? = null) {
+    modifier: Modifier = Modifier, providedModel: MobilityViewModel? = null, initialRequestId: String? = null,
+    startCargoRequest: Boolean = false, accountName: String = "", accountPhone: String = "") {
     val context = LocalContext.current
     val factory = remember(context.applicationContext) { object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST") override fun <T : ViewModel> create(modelClass: Class<T>) = MobilityViewModel(
@@ -57,10 +59,14 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
     val model = providedModel ?: viewModel<MobilityViewModel>(key = initialRequestId?.let { "mobility-notification-$it" } ?: "mobility-passenger", factory = factory)
     val state by model.state.collectAsState()
     LaunchedEffect(model, initialRequestId) { initialRequestId?.let(model::openSavedRequest) }
-    var origin by remember { mutableStateOf("") }; var destination by remember { mutableStateOf("") }
-    var searchDate by remember { mutableStateOf("") }
+    LaunchedEffect(model, startCargoRequest, initialRequestId) {
+        if (startCargoRequest && kind == "CARGO" && initialRequestId == null) model.request()
+    }
     fun t(en: String, am: String, om: String) = intercityText(language, en, am, om)
-    fun back() { if (initialRequestId != null || state.phase == MobilityPhase.BROWSE) onBack() else model.home() }
+    fun back() {
+        if (initialRequestId != null || state.phase == MobilityPhase.BROWSE || (startCargoRequest && kind == "CARGO" && state.phase == MobilityPhase.REQUEST)) onBack()
+        else model.home()
+    }
     BackHandler { back() }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val latestPhase by rememberUpdatedState(state.phase)
@@ -94,7 +100,7 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
         LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("mobility_content"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             state.message?.let { message -> item {
                 MobilityCard { Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(message, Modifier.weight(1f), color = CommuteInk, fontSize = 13.sp)
+                    Text(message, Modifier.weight(1f), color = PassoMobilityPalette.text, fontSize = 13.sp)
                     IconButton(onClick = model::clearMessage) { Icon(Icons.Default.Close, "Dismiss") }
                 } }
             } }
@@ -112,20 +118,13 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
                         }
                     }
                     if (kind == "GROUP") {
-                        item { MobilityCard {
-                            MobilityField(origin, { origin = it }, t("Departure", "መነሻ", "Ka'umsa"), "mobility_origin")
-                            MobilityField(destination, { destination = it }, t("Destination", "መድረሻ", "Ga'umsa"), "mobility_destination")
-                            MobilityDateField(searchDate, { searchDate = it }, allowAny = true)
-                            MobilityButton(t("Find group trips", "የቡድን ጉዞ ፈልግ", "Imala garee barbaadi"), !state.busy, "mobility_search") { model.search(origin, destination, searchDate.ifBlank { null }) }
-                        } }
-                        item { Text(t("Available group trips", "ያሉ የቡድን ጉዞዎች", "Imala garee jiran"), color = CommuteInk, fontSize = 21.sp, fontWeight = FontWeight.Bold) }
+                        item { Text(t("Upcoming group trips", "የሚመጡ የቡድን ጉዞዎች", "Imala garee dhufu"), color = CommuteInk, fontSize = 21.sp, fontWeight = FontWeight.Bold) }
                         if (state.trips.isEmpty() && !state.busy) item { MobilityCard {
-                            Text(t("No approved trips available yet.", "የተፈቀደ ጉዞ ገና የለም።", "Imalli hayyamame ammaaf hin jiru."), color = CommuteInk)
-                            Text(t("Request a route and our team will review it.", "መስመር ይጠይቁ፤ ቡድናችን ይመለከተዋል።", "Karaa gaafadhu; gareen keenya ni ilaala."), fontSize = 12.sp)
+                            Text(t("No upcoming trips yet.", "ገና የሚመጣ ጉዞ የለም።", "Ammaaf imalli dhufu hin jiru."), color = PassoMobilityPalette.text)
                         } }
                         items(state.trips, key = { it.id }) { trip -> MobilityTripCard(trip, state.busy) { model.choose(trip) } }
                     }
-                    item { MobilityButton(if (kind == "GROUP") t("Request a private group route", "የግል ቡድን መስመር ይጠይቁ", "Karaa garee dhuunfaa gaafadhu") else t("Create cargo request", "የጭነት ጥያቄ ይፍጠሩ", "Gaaffii fe'umsaa uumi"), !state.busy, "mobility_new_request", model::request) }
+                    item { MobilityButton(if (kind == "GROUP") t("Request group travel", "የቡድን ጉዞ ይጠይቁ", "Imala garee gaafadhu") else t("Create cargo request", "የጭነት ጥያቄ ይፍጠሩ", "Gaaffii fe'umsaa uumi"), !state.busy, "mobility_new_request", model::request) }
                     val requests = state.requests.filter { it.kind == kind }
                     if (requests.isNotEmpty()) item { Text(t("Your requests", "ጥያቄዎችዎ", "Gaaffilee kee"), color = CommuteInk, fontWeight = FontWeight.Bold) }
                     items(requests, key = { "request:${it.id}" }) { request -> MobilityRequestCard(request) { model.openRequest(request.id) } }
@@ -133,7 +132,8 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
                 MobilityPhase.SEATS -> item { state.selected?.let { trip -> GroupSeatForm(trip, state, language, model::toggleSeat, model::setAdult, model::book) } }
                 MobilityPhase.BOOKING -> item { state.booking?.let { GroupBookingCard(it, state.busy, state.adultConfirmed, model::setAdult, model::checkout, model::checkPayment) } }
                 MobilityPhase.REQUEST -> item {
-                    if (kind == "CARGO") CargoRequestForm(state, language, model::setAdult, model::sendRequest)
+                     if (kind == "CARGO") CargoRequestForm(state, language, model::setAdult, model::sendRequest,
+                         initialDraft = CargoRequestDraft(name = accountName, phone = accountPhone), hideContactDetails = accountName.isNotBlank() && accountPhone.isNotBlank())
                     else MobilityRequestForm(kind, state, language, model::setAdult, model::sendRequest)
                 }
                 MobilityPhase.REQUEST_STATUS -> item { state.request?.let { request ->
@@ -145,7 +145,7 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
                     item { Text(t("Your tickets & requests", "ቲኬቶች እና ጥያቄዎችዎ", "Tikkeettii fi gaaffilee kee"), color = CommuteInk, fontSize = 23.sp, fontWeight = FontWeight.Bold) }
                     if (state.bookings.isEmpty() && state.requests.isEmpty()) item { Text(t("Bookings and requests made on this device appear here.", "በዚህ ስልክ የተደረጉ ጥያቄዎች እዚህ ይታያሉ።", "Ajajnii fi gaaffileen bilbila kana irratti taasifaman as mul'atu."), color = CommuteInk) }
                     items(state.bookings, key = { "booking:${it.id}" }) { booking -> MobilityCard {
-                        Text("${booking.trip.origin} → ${booking.trip.destination}", fontWeight = FontWeight.Bold, color = CommuteInk)
+                        Text("${booking.trip.origin} → ${booking.trip.destination}", fontWeight = FontWeight.Bold, color = PassoMobilityPalette.text)
                         Text("${booking.travelers.size} travelers · ${booking.paymentStatus} · ETB ${formatIntercityFare(booking.amountEtb)}", fontSize = 12.sp)
                         TextButton(onClick = { model.openBooking(booking.id) }) { Text("Open booking", color = CommuteTeal) }
                     } }
@@ -157,7 +157,7 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
 }
 
 @Composable internal fun MobilityCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Surface(color = Color.White, shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, Color(0xFFE7E3DB)), modifier = modifier.fillMaxWidth().animateContentSize()) {
+    Surface(color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, PassoMobilityPalette.border), modifier = modifier.fillMaxWidth().animateContentSize()) {
         Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(11.dp), content = content)
     }
 }
@@ -165,7 +165,10 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
     number: Boolean = false, modifier: Modifier = Modifier, enabled: Boolean = true) {
     OutlinedTextField(value, onValue, label = { Text(label) }, singleLine = true, enabled = enabled,
         keyboardOptions = KeyboardOptions(keyboardType = if (number) KeyboardType.Decimal else KeyboardType.Text),
-        shape = RoundedCornerShape(14.dp), modifier = modifier.fillMaxWidth().testTag(tag))
+        shape = RoundedCornerShape(14.dp),
+        colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color.White, unfocusedContainerColor = Color.White,
+            focusedTextColor = CommuteInk, unfocusedTextColor = CommuteInk, focusedLabelColor = CommuteTeal, unfocusedLabelColor = Color(0xFF596D7B)),
+        modifier = modifier.fillMaxWidth().testTag(tag))
 }
 @Composable internal fun MobilityButton(label: String, enabled: Boolean, tag: String, onClick: () -> Unit) {
     Button(onClick, enabled = enabled, shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = CommuteTeal), modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp).testTag(tag)) { Text(label, fontWeight = FontWeight.SemiBold) }
@@ -173,13 +176,14 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
 @Composable internal fun MobilityAdult(checked: Boolean, enabled: Boolean, onChecked: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(enabled = enabled) { onChecked(!checked) }, verticalAlignment = Alignment.CenterVertically) {
         Checkbox(checked, { onChecked(it) }, enabled = enabled)
-        Text("I am 18 or older. I have permission to provide the travelers’ contact details.", fontSize = 12.sp, color = CommuteInk, modifier = Modifier.weight(1f))
+        Text("I am 18 or older. I have permission to provide the travelers’ contact details.", fontSize = 12.sp, color = PassoMobilityPalette.text, modifier = Modifier.weight(1f))
     }
 }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun MobilityDateField(value: String, onValue: (String) -> Unit, allowAny: Boolean = false) {
     var open by remember { mutableStateOf(false) }
-    OutlinedButton(onClick = { open = true }, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+    OutlinedButton(onClick = { open = true }, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth(),
+        border = BorderStroke(1.dp, PassoMobilityPalette.border), colors = ButtonDefaults.outlinedButtonColors(contentColor = PassoMobilityPalette.text)) {
         Icon(Icons.Default.CalendarMonth, null); Spacer(Modifier.width(8.dp)); Text(value.ifBlank { if (allowAny) "Any upcoming date" else "Choose travel date" })
     }
     if (open) {
@@ -195,11 +199,11 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
         Row(verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CommuteMint, shape = CircleShape) { Icon(Icons.Default.Groups, null, tint = CommuteTeal, modifier = Modifier.padding(12.dp)) }
             Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                Text("${trip.origin} → ${trip.destination}", color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("${trip.origin} → ${trip.destination}", color = PassoMobilityPalette.text, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text(formatIntercityTime(trip.departureAt), fontSize = 12.sp, color = CommuteTeal)
             }
         }
-        Text("${trip.vehicleType} · ${trip.availableSeats} seats available", fontSize = 12.sp, color = CommuteInk)
+        Text("${trip.vehicleType} · ${trip.availableSeats} seats available", fontSize = 12.sp, color = PassoMobilityPalette.muted)
         Text("ETB ${formatIntercityFare(trip.fareEtb)} / person", fontWeight = FontWeight.Bold, color = CommuteTeal, fontSize = 22.sp)
         MobilityButton("Choose seats", !busy && trip.availableSeats > 0, "group_trip_${trip.id}", onSelect)
     }
@@ -209,7 +213,7 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
     var buyerName by remember(trip.id) { mutableStateOf("") }; var buyerPhone by remember(trip.id) { mutableStateOf("") }
     val names = remember(trip.id) { mutableStateMapOf<Int, String>() }; val phones = remember(trip.id) { mutableStateMapOf<Int, String>() }
     MobilityCard {
-        Text(intercityText(language, "Choose your seats", "መቀመጫዎችን ይምረጡ", "Teessoo filadhu"), color = CommuteInk, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text(intercityText(language, "Choose your seats", "መቀመጫዎችን ይምረጡ", "Teessoo filadhu"), color = PassoMobilityPalette.text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text("${trip.origin} → ${trip.destination}\n${formatIntercityTime(trip.departureAt)}", color = CommuteTeal)
         Text("Select up to 20 seats. Grey seats are occupied. Numbers identify seats and do not represent the vehicle’s physical seating layout.", fontSize = 12.sp)
         (1..trip.seats.coerceAtMost(100)).chunked(4).forEach { row ->
@@ -220,7 +224,7 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
                     Surface(onClick = { toggle(seat) }, enabled = !state.busy && !occupied,
                         color = if (selected) CommuteTeal else if (occupied) Color(0xFFE6E7E8) else CommuteMint,
                         shape = RoundedCornerShape(10.dp), modifier = Modifier.weight(1f).height(43.dp).testTag("group_seat_$seat")) {
-                        Box(contentAlignment = Alignment.Center) { Text(seat.toString(), color = if (selected) Color.White else CommuteInk, fontWeight = FontWeight.Bold) }
+                    Box(contentAlignment = Alignment.Center) { Text(seat.toString(), color = if (selected) Color.White else PassoMobilityPalette.text, fontWeight = FontWeight.Bold) }
                     }
                 }
                 repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
@@ -229,14 +233,14 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
         MobilityField(buyerName, { buyerName = it }, "Buyer’s full name", "group_buyer_name")
         MobilityField(buyerPhone, { buyerPhone = it }, "Buyer’s phone number", "group_buyer_phone", number = true)
         state.seats.forEach { seat ->
-            Text("Traveler · Seat $seat", fontWeight = FontWeight.Bold, color = CommuteInk)
+            Text("Traveler · Seat $seat", fontWeight = FontWeight.Bold, color = PassoMobilityPalette.text)
             MobilityField(names[seat].orEmpty(), { names[seat] = it }, "Traveler’s full name", "group_traveler_name_$seat")
             MobilityField(phones[seat].orEmpty(), { phones[seat] = it }, "Traveler’s phone number", "group_traveler_phone_$seat", number = true)
             if (state.seats.firstOrNull() == seat) TextButton(onClick = { names[seat] = buyerName; phones[seat] = buyerPhone }) { Text("Use buyer details for this traveler", color = CommuteTeal) }
         }
-        Text("Total · ETB ${formatIntercityFare(trip.fareEtb * state.seats.size)}", fontSize = 23.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
+        Text("Total · ETB ${formatIntercityFare(trip.fareEtb * state.seats.size)}", fontSize = 23.sp, fontWeight = FontWeight.Bold, color = PassoMobilityPalette.text)
         MobilityAdult(state.adultConfirmed, !state.busy, adult)
-        Text("Use each traveler's contact details with their permission. After confirmed payment, the buyer and each traveler receive ticket numbers and boarding-pass links by SMS.", fontSize = 12.sp, color = CommuteInk)
+        Text("Use each traveler's contact details with their permission. After confirmed payment, the buyer and each traveler receive ticket numbers and boarding-pass links by SMS.", fontSize = 12.sp, color = PassoMobilityPalette.muted)
         MobilityButton("Reserve & continue", !state.busy && state.adultConfirmed && state.seats.isNotEmpty() && buyerName.isNotBlank() && buyerPhone.isNotBlank() && state.seats.all { !names[it].isNullOrBlank() && !phones[it].isNullOrBlank() }, "group_reserve") {
             onBook(buyerName, buyerPhone, state.seats.map { MobilityTraveler(name = names[it].orEmpty().trim(), phone = phones[it].orEmpty().trim(), seatNumber = it) })
         }
@@ -247,10 +251,10 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
     val context = LocalContext.current
     val paid = booking.paymentStatus == "PAID" && booking.status == "CONFIRMED"
     MobilityCard {
-        Text(if (paid) "Your group boarding passes" else "Complete your booking", color = CommuteInk, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text(if (paid) "Your group boarding passes" else "Complete your booking", color = PassoMobilityPalette.text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text("${booking.trip.origin} → ${booking.trip.destination}", fontWeight = FontWeight.Bold)
         Text(formatIntercityTime(booking.trip.departureAt), color = CommuteTeal)
-        Text("${booking.travelers.size} travelers · ETB ${formatIntercityFare(booking.amountEtb)}", color = CommuteInk)
+        Text("${booking.travelers.size} travelers · ETB ${formatIntercityFare(booking.amountEtb)}", color = PassoMobilityPalette.muted)
         Text("Payment: ${booking.paymentStatus} · ${booking.status}", color = CommuteTeal, fontSize = 12.sp)
         booking.travelers.forEach { traveler ->
             HorizontalDivider(color = CommuteMint)
@@ -370,8 +374,8 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
         containerColor = Color.White.copy(alpha = .93f), tonalElevation = 0.dp, shape = RoundedCornerShape(25.dp)
     )
     MobilityCard {
-        Text(if (kind == "GROUP") intercityText(language, "Plan a group journey", "የቡድን ጉዞ ይጠይቁ", "Imala garee karoorsi") else intercityText(language, "Tell us about your cargo", "ስለ ጭነትዎ ይግለጹ", "Waa'ee fe'umsa kee ibsi"), color = CommuteInk, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Text("Nearby available drivers can send quotes. Compare their offers and choose your driver. Sending a request does not collect payment.", color = CommuteInk, fontSize = 12.sp)
+        Text(if (kind == "GROUP") intercityText(language, "Plan a group journey", "የቡድን ጉዞ ይጠይቁ", "Imala garee karoorsi") else intercityText(language, "Tell us about your cargo", "ስለ ጭነትዎ ይግለጹ", "Waa'ee fe'umsa kee ibsi"), color = PassoMobilityPalette.text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text("Nearby available drivers can send quotes. Compare their offers and choose your driver. Sending a request does not collect payment.", color = PassoMobilityPalette.muted, fontSize = 12.sp)
         MobilityField(name, { name = it }, "Your full name", "request_name")
         MobilityField(phone, { phone = it }, "Phone number", "request_phone", number = true)
         if (kind == "CARGO") {
@@ -442,7 +446,7 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
 }
 @Composable private fun MobilityRequestCard(request: MobilityRequest, onClick: () -> Unit) {
     MobilityCard {
-        Text("${request.origin} → ${request.destination}", color = CommuteInk, fontWeight = FontWeight.Bold)
+        Text("${request.origin} → ${request.destination}", color = PassoMobilityPalette.text, fontWeight = FontWeight.Bold)
         Text("${request.kind} · ${request.status.replace('_', ' ')}", color = CommuteTeal, fontSize = 12.sp)
         TextButton(onClick = onClick) { Text("View request", color = CommuteTeal) }
     }
@@ -452,7 +456,7 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
     val photo = rememberCargoPhoto()
     MobilityCard {
         Icon(if (request.kind == "CARGO") Icons.Default.LocalShipping else Icons.Default.Groups, null, tint = CommuteTeal, modifier = Modifier.size(38.dp))
-        Text("${request.origin} → ${request.destination}", color = CommuteInk, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+        Text("${request.origin} → ${request.destination}", color = PassoMobilityPalette.text, fontSize = 23.sp, fontWeight = FontWeight.Bold)
         Text(request.status.replace('_', ' '), color = CommuteTeal, fontWeight = FontWeight.Bold)
         Text("${request.travelDate} · ${request.vehicleType}", fontSize = 13.sp)
         request.people?.let { Text("$it people") }; request.cargoDetails?.let { Text(it) }
@@ -461,7 +465,7 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
         request.driverName?.let { Text("Driver: $it") }; request.driverPhone?.let { Text("Driver phone: $it") }
         request.vehiclePlate?.let { Text("Vehicle: $it") }
         request.quoteEtb?.let { Text("Quoted amount: ETB ${formatIntercityFare(it)}", color = CommuteTeal, fontWeight = FontWeight.Bold) }
-        if (request.reviewNote.isNotBlank()) Text(request.reviewNote, color = CommuteInk)
+        if (request.reviewNote.isNotBlank()) Text(request.reviewNote, color = PassoMobilityPalette.muted)
         if (request.status == "DRAFT" && request.kind == "CARGO") {
             Text("Finish uploading your cargo photo to send this draft for review. Unsubmitted drafts expire after 7 days.", fontSize = 12.sp)
             CargoPhotoChoice(photo, busy)

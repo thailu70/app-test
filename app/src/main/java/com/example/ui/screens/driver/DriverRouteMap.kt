@@ -216,7 +216,7 @@ internal fun replaceDriverLocationOverlay(map: MapView, fix: DriverGpsFix, langu
         title = driverText(language, "Your location", "የእርስዎ ቦታ", "Bakka kee")
         snippet = driverText(language, "This device’s GPS position", "የዚህ መሣሪያ የGPS ቦታ", "Bakka GPS meeshaa kanaa")
         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-        icon = mapDot(context, AndroidColor.rgb(26, 119, 230), 21)
+        icon = mapDot(context, AndroidColor.rgb(0, 135, 85), 21)
     })
     return point
 }
@@ -225,6 +225,8 @@ private fun createDriverMap(context: Context): MapView {
     Configuration.getInstance().userAgentValue = context.packageName
     return MapView(context).apply {
         setTileSource(TileSourceFactory.MAPNIK)
+        overlayManager.tilesOverlay.setColorFilter(null)
+        overlayManager.tilesOverlay.setLoadingBackgroundColor(AndroidColor.rgb(231, 238, 233))
         setMultiTouchControls(true)
         setBuiltInZoomControls(false)
         clipChildren = true

@@ -12,6 +12,7 @@ const { isAccountClosed } = require('../services/account-deletion');
 const { paymentTestsEnabled } = require('../services/payment-policy');
 const { initCommutePricingSchema, assignmentTerms, getRoutePricing, getRouteOffers,
   getSubscriptionTerms, saveSubscriptionTerms } = require('../services/commute-pricing');
+const phoneSmsGateway = require('../services/phone-sms-gateway');
 
 // Call only after locking the selected vehicle: account closure uses this order.
 async function lockCommuteDriver(tx, id) {
@@ -54,6 +55,33 @@ router.post('/integrations/afro-sms/test', async (req, res) => {
   const result = await sendSms(phone, message);
   if (!result.sent) return res.status(502).json({ success: false, error: result.reason || result.error || (result.skipped ? 'Save the Afro SMS token and Identifier ID before testing.' : 'Afro SMS rejected the test message.') });
   res.json({ success: true, message: 'AfroMessage accepted the test SMS for delivery.', messageId: result.messageId || null });
+});
+
+router.get('/integrations/phone-sms-gateway', async (_req, res) => {
+  res.json({ success: true, ...(await phoneSmsGateway.adminStatus()) });
+});
+router.put('/integrations/phone-sms-gateway/settings', async (req, res) => {
+  try {
+    const settings = await phoneSmsGateway.savePilotSettings({
+      deliveryMode: req.body?.deliveryMode,
+      pilotNumbers: req.body?.pilotNumbers
+    });
+    res.json({ success: true, ...settings, message: 'Pilot SMS settings saved.' });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, error: error.status ? error.message : 'Could not save pilot SMS settings.' });
+  }
+});
+router.post('/integrations/phone-sms-gateway/pair-code', async (_req, res) => {
+  try {
+    res.json({ success: true, ...(await phoneSmsGateway.createPairCode()) });
+  } catch (error) {
+    res.status(error.status || 503).json({ success: false, error: error.status ? error.message : 'Could not create a pairing code.' });
+  }
+});
+router.delete('/integrations/phone-sms-gateway/devices/:deviceId', async (req, res) => {
+  const revoked = await phoneSmsGateway.revokeDevice(String(req.params.deviceId || '').slice(0, 80));
+  if (!revoked) return res.status(404).json({ success: false, error: 'Gateway device not found.' });
+  res.json({ success: true, message: 'Phone gateway disconnected.' });
 });
 
 /**

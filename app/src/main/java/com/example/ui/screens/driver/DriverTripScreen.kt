@@ -303,6 +303,7 @@ fun DriverTripScreen(
                 }
             } }
             if (section == "More") {
+                item { com.example.core.notifications.MobilityAlertToneSettings(driver = true, language = language) }
                 item { com.example.ui.components.EnvironmentSettingsButton() }
                 item { DriverMenuRow(driverText(language, "My assignments", "የእኔ ምደባዎች", "Ramaddii koo"), driverText(language, "Daily commute and intercity journeys", "የዕለት እና የከተማ መካከል ጉዞዎች", "Imala guyyaa fi magaalaa gidduu"), Icons.Default.Route) { section = "My Trips" } }
                 item { DriverDocumentsOverview(completionProfile, profileLoading, profileError, language) { documentsOpen = true } }

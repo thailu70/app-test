@@ -31,6 +31,7 @@ import com.example.ui.screens.passenger.CommuteMint
 import com.example.ui.screens.passenger.CommuteTeal
 import com.example.ui.screens.profile.AuthenticatedProfilePhoto
 import com.example.ui.screens.assignedRouteLocations
+import com.example.ui.components.PassoMobilityPalette
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -81,7 +82,7 @@ internal fun driverWindowInfo(schedule: String, now: Long): DriverWindowInfo {
 fun DriverBottomNavigation(selectedSection: String, documentsOpen: Boolean, language: AppLanguage,
                            onSection: (String) -> Unit, onDocuments: () -> Unit, modifier: Modifier = Modifier) {
     NavigationBar(modifier = modifier.clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
-        containerColor = CommuteInk, contentColor = Color.White, tonalElevation = 8.dp) {
+        containerColor = Color.White, contentColor = CommuteInk, tonalElevation = 4.dp) {
         listOf("Home" to Icons.Default.Home, "Passengers" to Icons.Default.People,
             "Documents" to Icons.Default.Description, "More" to Icons.Default.MoreHoriz).forEach { (key, icon) ->
             val label = when (key) {
@@ -95,9 +96,9 @@ fun DriverBottomNavigation(selectedSection: String, documentsOpen: Boolean, lang
             NavigationBarItem(selected = selected, onClick = { if (key == "Documents") onDocuments() else onSection(key) },
                 icon = { Icon(icon, contentDescription = null) }, label = { Text(label) },
                 modifier = Modifier.testTag("driver_nav_${key.lowercase()}"),
-                colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF38D9B0), selectedTextColor = Color(0xFF38D9B0),
-                    unselectedIconColor = Color.White.copy(alpha = .82f), unselectedTextColor = Color.White.copy(alpha = .82f),
-                    indicatorColor = Color.White.copy(alpha = .12f)))
+                colors = NavigationBarItemDefaults.colors(selectedIconColor = PassoMobilityPalette.brand, selectedTextColor = PassoMobilityPalette.brand,
+                    unselectedIconColor = PassoMobilityPalette.muted, unselectedTextColor = PassoMobilityPalette.muted,
+                    indicatorColor = PassoMobilityPalette.brand.copy(alpha = .12f)))
         }
     }
 }
@@ -164,12 +165,12 @@ fun DriverRouteOverview(routeName: String, vehiclePlate: String, vehicleType: St
     val scopedStops = stops.filter { it.routeId == assignedRouteId }
     val locations = assignedRouteLocations(assignedRouteId, routeName, scopedStops, language,
         origin = origin, destination = destination, inbound = direction == "INBOUND")
-    Surface(shape = RoundedCornerShape(24.dp), color = Color.White, modifier = Modifier.fillMaxWidth().testTag("driver_route_overview")) {
+    Surface(shape = RoundedCornerShape(24.dp), color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, border = BorderStroke(1.dp, PassoMobilityPalette.border), modifier = Modifier.fillMaxWidth().testTag("driver_route_overview")) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(routeName.ifBlank { driverText(language, "Assigned journey", "የተመደበ ጉዞ", "Imala ramadame") }, fontSize = 15.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
-                    Text(listOf(vehiclePlate, vehicleType.replace('_', ' ')).filter { it.isNotBlank() }.joinToString(" · "), fontSize = 10.sp, color = Color(0xFF526575))
+                    Text(routeName.ifBlank { driverText(language, "Assigned journey", "የተመደበ ጉዞ", "Imala ramadame") }, fontSize = 15.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold, color = PassoMobilityPalette.text)
+                    Text(listOf(vehiclePlate, vehicleType.replace('_', ' ')).filter { it.isNotBlank() }.joinToString(" · "), fontSize = 10.sp, color = PassoMobilityPalette.muted)
                 }
                 if (onReadiness != null && !boarding) IconButton(onClick = onReadiness, enabled = !busy,
                     modifier = Modifier.testTag("driver_readiness_check")) {
@@ -193,7 +194,7 @@ fun DriverRouteOverview(routeName: String, vehiclePlate: String, vehicleType: St
                 pickup = if (direction == "INBOUND") last else first,
                 destination = if (direction == "INBOUND") first else last,
                 pickupLabel = locations.departure ?: "Departure", destinationLabel = locations.destination ?: "Destination", inProgress = boarding)
-            Text(gpsStatus, fontSize = 10.sp, lineHeight = 14.sp, color = Color(0xFF526575))
+            Text(gpsStatus, fontSize = 10.sp, lineHeight = 14.sp, color = PassoMobilityPalette.muted)
             validation?.let { Text(it.message, color = if (it.allowed) CommuteTeal else Color(0xFF9A302F), fontSize = 12.sp) }
             if (boarding) OutlinedButton(onClick = onComplete, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("driver_complete_route"), shape = CircleShape) {
                 Icon(Icons.Default.Flag, null, Modifier.size(17.dp)); Spacer(Modifier.width(7.dp))
@@ -208,20 +209,20 @@ private fun DriverRouteStop(label: String, name: String, time: String?) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Icon(Icons.Default.RadioButtonChecked, null, Modifier.size(14.dp), tint = CommuteTeal)
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(label, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF647989))
-            Text(name, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
-            time?.let { Text(it, fontSize = 12.sp, color = CommuteInk) }
+            Text(label, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = PassoMobilityPalette.muted)
+            Text(name, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold, color = PassoMobilityPalette.text)
+            time?.let { Text(it, fontSize = 12.sp, color = PassoMobilityPalette.text) }
         }
     }
 }
 
 @Composable
 fun DriverDocumentsOverview(profile: CompletionProfile?, loading: Boolean, loadError: Boolean, language: AppLanguage, onOpen: () -> Unit) {
-    Surface(shape = RoundedCornerShape(22.dp), color = Color.White, modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onOpen).testTag("driver_documents_overview")) {
+    Surface(shape = RoundedCornerShape(22.dp), color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, border = BorderStroke(1.dp, PassoMobilityPalette.border), modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onOpen).testTag("driver_documents_overview")) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Default.Description, null, tint = CommuteTeal)
-                Text(driverText(language, "Documents", "ሰነዶች", "Sanadoota"), Modifier.weight(1f), fontWeight = FontWeight.Bold, color = CommuteInk)
+                Text(driverText(language, "Documents", "ሰነዶች", "Sanadoota"), Modifier.weight(1f), fontWeight = FontWeight.Bold, color = PassoMobilityPalette.text)
                 Icon(Icons.Default.ChevronRight, null, tint = CommuteTeal)
             }
             listOf("LICENSE" to driverText(language, "Driving licence", "የመንጃ ፈቃድ", "Hayyama konkolaachisummaa"),
@@ -230,11 +231,11 @@ fun DriverDocumentsOverview(profile: CompletionProfile?, loading: Boolean, loadE
                 val uploaded = profile?.documents?.any { it.kind == kind } == true
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(if (uploaded) Icons.Default.CheckCircle else Icons.Default.Description, null, Modifier.size(18.dp), tint = if (uploaded) CommuteTeal else Color(0xFF8A9B92))
-                    Text(label, Modifier.weight(1f), color = CommuteInk, fontSize = 12.sp)
+                    Text(label, Modifier.weight(1f), color = PassoMobilityPalette.text, fontSize = 12.sp)
                     Text(driverText(language, when { loading -> "Loading"; profile == null -> "Review"; uploaded -> "Uploaded"; else -> "Upload" }, when { uploaded -> "ተጭኗል"; else -> "ጫን" }, when { uploaded -> "Ol fe'ame"; else -> "Ol fe'i" }), fontSize = 10.sp, color = CommuteTeal)
                 }
             }
-            if (loadError) Text(driverText(language, "Open documents to refresh your upload status.", "የሰነድ መረጃ ለማደስ ክፈት።", "Odeeffannoo haaromsuuf bani."), fontSize = 11.sp, color = Color(0xFF647989))
+            if (loadError) Text(driverText(language, "Open documents to refresh your upload status.", "የሰነድ መረጃ ለማደስ ክፈት።", "Odeeffannoo haaromsuuf bani."), fontSize = 11.sp, color = PassoMobilityPalette.muted)
             Text(driverText(language, "Photo and emergency contact →", "ፎቶ እና የአደጋ ጊዜ ተጠሪ →", "Suuraa fi nama balaa yeroo →"), fontSize = 11.sp, color = CommuteTeal)
         }
     }

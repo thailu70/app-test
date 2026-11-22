@@ -43,6 +43,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.data.api.TrackedVehicleDto
+import com.example.ui.components.PassoMobilityPalette
 import com.example.ui.theme.Slate600
 import com.example.ui.theme.Slate900
 import com.example.ui.theme.TransportGreenPrimary
@@ -80,15 +81,15 @@ fun MiniVehicleMap(
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFE4E8E7))
+        colors = CardDefaults.cardColors(containerColor = PassoMobilityPalette.card),
+        border = BorderStroke(1.dp, PassoMobilityPalette.border)
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Vehicle location", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Slate900)
+                Text("Vehicle location", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = PassoMobilityPalette.text)
                 if (hasPosition) {
-                    Surface(shape = RoundedCornerShape(8.dp), color = if (live) Color(0xFFE5F5EC) else Color(0xFFF1F3F4)) {
-                        Text(if (live) "Live" else "Last known", modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp), style = MaterialTheme.typography.labelMedium, color = if (live) TransportGreenPrimary else Slate600)
+                        Surface(shape = RoundedCornerShape(8.dp), color = if (live) Color(0xFFE3F4E9) else PassoMobilityPalette.cardRaised) {
+                            Text(if (live) "Live" else "Last known", modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp), style = MaterialTheme.typography.labelMedium, color = if (live) PassoMobilityPalette.brand else PassoMobilityPalette.muted)
                     }
                 }
             }
@@ -104,13 +105,13 @@ fun MiniVehicleMap(
                     mapHeight = mapHeight, trackingActive = live)
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (updateFailed) {
-                        Text("Unable to refresh the location. Showing the last update.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                        Text("Unable to refresh the location. Showing the last update.", style = MaterialTheme.typography.bodySmall, color = PassoMobilityPalette.muted)
                     } else if (!live) {
-                        Text(if (vehicle.trackingStatus == "OFFLINE") "Your driver is not sharing a live location right now." else "Waiting for a new location update.", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                        Text(if (vehicle.trackingStatus == "OFFLINE") "Your driver is not sharing a live location right now." else "Waiting for a new location update.", style = MaterialTheme.typography.bodySmall, color = PassoMobilityPalette.muted)
                     }
-                    age?.let { Text(locationUpdateLabel(it), style = MaterialTheme.typography.bodySmall, color = Slate600) }
+                    age?.let { Text(locationUpdateLabel(it), style = MaterialTheme.typography.bodySmall, color = PassoMobilityPalette.muted) }
                     vehicle.currentStop?.takeIf { it.isNotBlank() }?.let {
-                        Text("Last reported stop: $it", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                        Text("Last reported stop: $it", style = MaterialTheme.typography.bodySmall, color = PassoMobilityPalette.muted)
                     }
                 }
                 val uriHandler = LocalUriHandler.current
@@ -118,11 +119,11 @@ fun MiniVehicleMap(
                     "© OpenStreetMap contributors",
                     modifier = Modifier.clickable { uriHandler.openUri("https://www.openstreetmap.org/copyright") },
                     style = MaterialTheme.typography.labelSmall,
-                    color = Slate600
+                    color = PassoMobilityPalette.muted
                 )
             } else {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFFF0F6F3)) {
+                    Surface(shape = RoundedCornerShape(12.dp), color = PassoMobilityPalette.cardRaised) {
                         Icon(Icons.Outlined.LocationOn, contentDescription = null, tint = TransportGreenPrimary, modifier = Modifier.padding(12.dp).size(24.dp))
                     }
                     Text(
@@ -130,7 +131,7 @@ fun MiniVehicleMap(
                             ?: if (vehicle == null) "Your vehicle location will appear after assignment and pass activation."
                             else "Your driver’s location will appear when they start sharing it.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Slate600,
+                        color = PassoMobilityPalette.muted,
                         modifier = Modifier.weight(1f)
                     )
                 }
