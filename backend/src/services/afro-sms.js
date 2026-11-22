@@ -18,7 +18,14 @@ function normalizePhone(value) {
 }
 
 function safeError(payload, phone, token) {
-  let message = Array.isArray(payload) ? payload.join(' ') : String(payload?.message || payload?.error || payload || '');
+  const describe = value => {
+    if (Array.isArray(value)) return value.map(describe).filter(Boolean).join(' ');
+    if (value && typeof value === 'object') {
+      return describe(value.message || value.error || value.description || value.detail || value.reason || '');
+    }
+    return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+  };
+  let message = describe(payload);
   const normalized = normalizePhone(phone);
   for (const value of [String(phone || ''), String(phone || '').replace(/[\s()-]/g, ''), normalized]) {
     if (value) message = message.replaceAll(value, '[phone]');

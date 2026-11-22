@@ -59,7 +59,7 @@ class TaxiFlowTest {
     @Test fun `wire adapter preserves null fare requested group and never invents a boarding PIN`() {
         val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
         val result = moshi.adapter(TaxiResponse::class.java).fromJson("""{"success":true,"ride":{"id":"r","fareEtb":null},"trip":{"id":"s","status":"REQUESTED","farePerSeatEtb":null}}""")!!
-        assertNull(result.ride!!.fareEtb); assertNull(result.ride.boardingPin)
+        assertNull(result.ride!!.fareEtb); assertNull(result.ride.boardingQrToken)
         assertNull(result.trip!!.farePerSeatEtb)
         assertEquals(0L, result.ride.lastSequence)
     }

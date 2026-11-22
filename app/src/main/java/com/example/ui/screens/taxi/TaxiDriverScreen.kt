@@ -192,23 +192,41 @@ import kotlinx.coroutines.launch
                                 OutlinedButton(onClick = { withFix { point ->
                                     formPickup = (point["latitude"] as Number).toDouble() to (point["longitude"] as Number).toDouble()
                                     formPickupName = "Your location"; page = "street"; requested = null; model.clearEstimate()
-                                } }, enabled = !state.busy && !locating && dashboard.eligible && state.settings.enabled, modifier = Modifier.weight(1f)) { Icon(Icons.Default.PersonPinCircle, null, Modifier.size(18.dp)); Text("Street pickup", Modifier.padding(start = 5.dp), fontSize = 12.sp) }
+                                } }, enabled = !state.busy && !locating && dashboard.eligible && state.settings.enabled,
+                                    modifier = Modifier.weight(1f), shape = RoundedCornerShape(24.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(containerColor = CommuteMint, contentColor = CommuteTeal),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, CommuteTeal)) {
+                                    Icon(Icons.Default.PersonPinCircle, null, Modifier.size(18.dp)); Text("Street pickup", Modifier.padding(start = 5.dp), fontSize = 12.sp)
+                                }
                                 OutlinedButton(onClick = { withFix { point ->
                                     formPickup = (point["latitude"] as Number).toDouble() to (point["longitude"] as Number).toDouble()
                                     formPickupName = "Your location"; page = "offer"; requested = null; model.clearEstimate()
-                                } }, enabled = !state.busy && !locating && dashboard.eligible && state.settings.sharedEnabled, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Groups, null, Modifier.size(18.dp)); Text("Offer group ride", Modifier.padding(start = 5.dp), fontSize = 12.sp) }
+                                } }, enabled = !state.busy && !locating && dashboard.eligible && state.settings.sharedEnabled,
+                                    modifier = Modifier.weight(1f), shape = RoundedCornerShape(24.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(containerColor = CommuteMint, contentColor = CommuteTeal),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, CommuteTeal)) {
+                                    Icon(Icons.Default.Groups, null, Modifier.size(18.dp)); Text("Offer group ride", Modifier.padding(start = 5.dp), fontSize = 12.sp)
+                                }
                             }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 listOf("TAXI" to "Taxi calls (${dashboard.calls.size})", "GROUP" to "Group calls (${dashboard.sharedRequests.size})").forEach { (key, label) ->
                                     val active = requestPool == key
                                     FilterChip(selected = active, onClick = { requestPool = key }, label = { Text(label, maxLines = 1) },
                                         leadingIcon = { Icon(if (key == "TAXI") Icons.Default.LocalTaxi else Icons.Default.Groups, null, Modifier.size(17.dp)) },
-                                        modifier = Modifier.weight(1f).testTag("taxi_driver_pool_$key"))
+                                        modifier = Modifier.weight(1f).testTag("taxi_driver_pool_$key"),
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            containerColor = CommuteMint,
+                                            labelColor = PassoMobilityPalette.text,
+                                            iconColor = CommuteTeal,
+                                            selectedContainerColor = CommuteTeal,
+                                            selectedLabelColor = Color.White,
+                                            selectedLeadingIconColor = Color.White
+                                        ))
                                 }
                             }
                             if (requestPool == "TAXI") {
                                 Text("Nearby requests", color = CommuteInk, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                                if (dashboard.calls.isEmpty()) Text(if (dashboard.online) "No matching nearby calls right now. This list updates automatically." else "Go online with a fresh location to view nearby calls.", color = PassoMobilityPalette.muted, fontSize = 14.sp)
+                                if (dashboard.calls.isEmpty()) Text(if (dashboard.online) "No nearby calls" else "You're offline", color = PassoMobilityPalette.muted, fontSize = 14.sp)
                                 dashboard.calls.forEach { call -> Surface(color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, shape = RoundedCornerShape(21.dp), border = androidx.compose.foundation.BorderStroke(1.dp, PassoMobilityPalette.border), modifier = Modifier.fillMaxWidth()) {
                                     Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Text("${call.origin} → ${call.destination}", color = PassoMobilityPalette.text, fontSize = 19.sp, fontWeight = FontWeight.Bold)

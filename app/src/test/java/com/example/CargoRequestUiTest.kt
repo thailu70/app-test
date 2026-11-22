@@ -55,6 +55,8 @@ class CargoRequestUiTest {
                 roadCalls += args!!.take(4).map { it as Double }
                 Response.success(MobilityRoadResponse(true, 38.2, 60.0))
             }
+            "requestContactOtp" -> Response.success(OtpResponse(success = true, delivery = "SENT"))
+            "verifyContactOtp" -> Response.success(OtpResponse(success = true, verificationToken = "fixture-cargo-otp-verification-token"))
             else -> error("Unexpected API call: ${method.name}")
         }
     } as MobilityApi
@@ -64,7 +66,7 @@ class CargoRequestUiTest {
         val bytes = requireNotNull(javaClass.classLoader?.getResourceAsStream("fixtures/cargo-cement-demo.png")).use { it.readBytes() }
         return CargoPhotoState().apply { this.bytes = bytes; type = "image/png" }
     }
-    private fun show(draft: CargoRequestDraft, photo: CargoPhotoState, adult: Boolean = true,
+    private fun show(draft: CargoRequestDraft, photo: CargoPhotoState, adult: Boolean = true, hideContactDetails: Boolean = false,
         submit: (MobilityRequestInput, ByteArray?, String?) -> Unit = { _, _, _ -> }) {
         val locationApi = api
         compose.setContent {
@@ -73,7 +75,7 @@ class CargoRequestUiTest {
                 Column(Modifier.fillMaxSize().background(CommuteCream).verticalScroll(rememberScrollState()).padding(16.dp)) {
                     CargoRequestForm(MobilityUiState(types = types, adultConfirmed = confirmed), AppLanguage.ENGLISH,
                         { confirmed = it }, submit, initialDraft = draft, providedPhoto = photo, providedApi = locationApi,
-                        pickerTileDownloadsEnabled = false, hideContactDetails = true)
+                        pickerTileDownloadsEnabled = false, hideContactDetails = hideContactDetails)
                 }
             }
         }
@@ -87,6 +89,15 @@ class CargoRequestUiTest {
         compose.onNodeWithTag("mobility_location_suggestion_0").performClick()
         compose.onNodeWithTag("mobility_location_selected_name").assertTextEquals(place.name)
         compose.onNodeWithTag("mobility_location_confirm").assertIsEnabled().performClick()
+    }
+    private fun sendAfterGuestOtp() {
+        compose.onNodeWithTag("mobility_send_request").performClick()
+        compose.onNodeWithTag("cargo_phone_dialog").assertExists()
+        compose.onNodeWithTag("cargo_send_otp").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithTag("cargo_guest_otp_input").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("cargo_guest_otp_input").performTextInput("123456")
+        compose.onNodeWithTag("cargo_verify_otp").performClick()
+        compose.waitForIdle()
     }
     private fun assertEndpoints(input: MobilityRequestInput) {
         assertEquals(pickup.name, input.origin)
@@ -121,13 +132,14 @@ class CargoRequestUiTest {
         compose.onNodeWithTag("cargo_review").performScrollTo().performClick()
         compose.onNodeWithText("Review cargo request").assertExists()
         assertNull(sent)
-        compose.onNodeWithTag("mobility_send_request").performClick()
+        sendAfterGuestOtp()
         compose.runOnIdle {
             assertEquals("Updated Customer", sent!!.customerName)
             assertEquals(250.5, sent!!.estimatedWeightQuintals!!, 0.001)
             assertNull(sent!!.estimatedWeightKg)
             assertEquals(9.0, sent!!.originLatitude!!, 0.001)
             assertEquals("CARGO", sent!!.kind)
+            assertEquals("fixture-cargo-otp-verification-token", sent!!.otpVerificationToken)
         }
     }
     @Test fun `consent is required and edit from review preserves cargo details`() {
@@ -179,10 +191,11 @@ class CargoRequestUiTest {
         compose.onNodeWithTag("request_destination").assertTextContains(delivery.name)
         compose.onNodeWithTag("cargo_review").performScrollTo().performClick()
         assertNull(sent)
-        compose.onNodeWithTag("mobility_send_request").performClick()
+        sendAfterGuestOtp()
         compose.runOnIdle {
             assertEquals("CARGO", sent!!.kind)
             assertEndpoints(sent!!)
+            assertEquals("fixture-cargo-otp-verification-token", sent!!.otpVerificationToken)
         }
     }
 }

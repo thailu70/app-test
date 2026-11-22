@@ -24,7 +24,7 @@ class RidePushTest {
         assertNotNull(MobilityPushPayload.parse(payload + ("kind" to "SHARED") + ("eventType" to "BOOKING_UPDATED")))
         assertNull(MobilityPushPayload.parse(payload + ("scope" to "REQUEST")))
         assertNull(MobilityPushPayload.parse(payload + ("kind" to "CARGO")))
-        for (key in listOf("boardingPin", "latitude", "phone", "url", "secret")) assertNull(MobilityPushPayload.parse(payload + (key to "private")))
+        for (key in listOf("boardingPin", "boardingQrToken", "latitude", "phone", "url", "secret")) assertNull(MobilityPushPayload.parse(payload + (key to "private")))
         assertFalse(MobilityPushPayload.parse(payload)!!.notificationCopy().toString().contains("ride-123"))
     }
     @Test fun `in flight registration cannot bind after account token permission or environment changes`() {

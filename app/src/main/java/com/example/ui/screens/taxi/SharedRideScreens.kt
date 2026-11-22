@@ -92,7 +92,7 @@ import java.util.*
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                         Text("Your booking · ${booking.status.replace('_', ' ')}", fontWeight = FontWeight.Bold, color = CommuteInk)
                         Text("Seats ${booking.seatNumbers.joinToString()} · ${taxiMoney(booking.totalEtb)}", color = CommuteInk)
-                        if (booking.status == "CONFIRMED") (booking.boardingQrToken ?: booking.boardingPin)?.let { token ->
+                        if (booking.status == "CONFIRMED") booking.boardingQrToken?.let { token ->
                             Text("Show this QR to the driver when boarding", fontSize = 12.sp, color = CommuteInk)
                             QrCodeCanvas(token, Modifier.align(Alignment.CenterHorizontally).size(176.dp).padding(top = 6.dp), moduleColor = Color.Black)
                         }

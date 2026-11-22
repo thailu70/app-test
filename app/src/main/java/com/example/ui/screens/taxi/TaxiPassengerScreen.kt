@@ -999,10 +999,10 @@ private fun TaxiGuestTopMenu(expanded: Boolean, onExpandedChange: (Boolean) -> U
                 OutlinedButton(onClick = { callTaxiContact(context, ride.driverPhone) }, enabled = !ride.driverPhone.isNullOrBlank(), modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = PassoMobilityPalette.brand), border = BorderStroke(1.dp, PassoMobilityPalette.brand)) { Icon(Icons.Default.Phone, null); Spacer(Modifier.width(8.dp)); Text("Call driver") }
             }
-            if (ride.status in setOf("ACCEPTED", "AT_PICKUP")) (ride.boardingQrToken ?: ride.boardingPin)?.let { token ->
+            if (ride.status in setOf("ACCEPTED", "AT_PICKUP")) ride.boardingQrToken?.let { token ->
                 Surface(color = CommuteMint, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Show your boarding QR to the driver", color = CommuteInk, fontSize = 13.sp)
-                    QrCodeCanvas(token, Modifier.size(176.dp).padding(top = 8.dp), moduleColor = Color.Black)
+                    QrCodeCanvas(token, Modifier.size(176.dp).padding(top = 8.dp).testTag("taxi_boarding_qr"), moduleColor = Color.Black)
                 } }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

@@ -256,9 +256,9 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
     fun cancelSharedRequest() = act { val trip = mutable.value.selectedTrip ?: return@act
         val result = check(mobilityBody(api.cancelSharedRequest(trip.id))); mutable.update { it.copy(selectedTrip = result.trip ?: trip.copy(status = "CANCELLED")) }; load()
     }
-    fun sharedAction(action: String, location: Map<String, Any> = emptyMap(), bookingId: String? = null, pin: String? = null, qrToken: String? = null) = act {
+    fun sharedAction(action: String, location: Map<String, Any> = emptyMap(), bookingId: String? = null, qrToken: String? = null) = act {
         val trip = mutable.value.selectedTrip ?: return@act
-        val body = location.toMutableMap().apply { put("action", action); bookingId?.let { put("bookingId", it) }; pin?.let { put("pin", it) }; qrToken?.let { put("qrToken", it) } }
+        val body = location.toMutableMap().apply { put("action", action); bookingId?.let { put("bookingId", it) }; qrToken?.let { put("qrToken", it) } }
         val result = check(mobilityBody(api.sharedAction(trip.id, body)))
         mutable.update { it.copy(selectedTrip = result.trip ?: trip) }; load()
         if (action in setOf("COMPLETE", "CANCEL") && result.trip?.status in setOf("COMPLETED", "CANCELLED"))

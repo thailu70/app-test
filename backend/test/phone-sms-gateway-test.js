@@ -90,14 +90,16 @@ test('phone gateway sends encrypted OTPs and trip SMS to any valid Ethiopian num
   }
 
   const additionalNumber = '+251912000004';
-  const accepted = await gateway.queueServiceMessage({ eventKey: 'all-numbers-fixture', phone: additionalNumber, message, db: DB, now: () => now + 1000 });
+  const accepted = await gateway.queueServiceMessage({ eventKey: 'all-numbers-fixture', phone: additionalNumber, message, db: DB, now: () => now });
   assert.deepEqual(accepted, { queued: true }, 'Any valid Ethiopian number can use the selected phone gateway.');
-  const duplicate = await gateway.queueServiceMessage({ eventKey: 'all-numbers-fixture', phone: additionalNumber, message, db: DB, now: () => now + 1000 });
+  const duplicate = await gateway.queueServiceMessage({ eventKey: 'all-numbers-fixture', phone: additionalNumber, message, db: DB, now: () => now });
   assert.deepEqual(duplicate, { queued: true }, 'Repeated delivery events remain idempotent.');
   const totalMessages = await DB.prepare('SELECT COUNT(*) AS count FROM phone_sms_message_jobs').get();
   assert.equal(totalMessages.count, 2, 'Each event creates one encrypted message, even when the recipient is outside the old pilot list.');
   const claimed = await gateway.claimNextJob(device.deviceId, { db: DB });
-  assert.ok(rows.some(row => row.id === claimed.id));
+  assert.ok(claimed);
+  const currentRows = await DB.prepare('SELECT id FROM phone_sms_message_jobs').all();
+  assert.ok(currentRows.some(row => row.id === claimed.id));
   assert.equal(await gateway.acknowledgeJob(device.deviceId, claimed.id, claimed.leaseToken, true, { db: DB }), true);
   const nextClaim = await gateway.claimNextJob(device.deviceId, { db: DB });
   assert.ok(nextClaim);

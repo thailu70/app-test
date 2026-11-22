@@ -38,7 +38,7 @@ class TaxiStatesLayoutTest {
         origin = "Bole Medhanialem", destination = "Meskel Square", originLatitude = 9.0, originLongitude = 38.78,
         destinationLatitude = 9.015, destinationLongitude = 38.76, estimatedFareEtb = 275.0, commissionEtb = 20.0,
         driverName = "Fixture Driver", vehicleModel = vehicle.model, vehiclePlate = vehicle.plateNumber,
-        passengerName = "Fixture Passenger", boardingPin = "1234", distanceKm = 5.2, durationMinutes = 18.0)
+        passengerName = "Fixture Passenger", boardingQrToken = "A".repeat(43), distanceKm = 5.2, durationMinutes = 18.0)
     private val trip = SharedRideTrip("shared-fixture", driverId = "driver-fixture", vehicleId = vehicle.id,
         origin = ride.origin, destination = ride.destination, originLatitude = ride.originLatitude,
         originLongitude = ride.originLongitude, destinationLatitude = ride.destinationLatitude,
@@ -77,13 +77,17 @@ class TaxiStatesLayoutTest {
         compose.onNodeWithText(if (status == "REQUESTED") "Connecting to nearby drivers…" else "Your driver is on the way").assertIsDisplayed()
         capture("passenger-${status.lowercase()}")
         if (status == "REQUESTED") compose.onNodeWithText("Nearby cars · approximate").assertExists()
-        else { compose.onNodeWithText("1234").performScrollTo().assertIsDisplayed(); capture("passenger-accepted-boarding") }
+        else {
+            compose.onNodeWithText("Show your boarding QR to the driver").assertExists()
+            compose.onNodeWithTag("taxi_boarding_qr").assertExists()
+            capture("passenger-accepted-boarding")
+        }
     }
     private fun driver(meter: Boolean, fontScale: Float = 1f, stopped: Boolean = false) {
         if (stopped) previewSuffix = "-approved-stop"
         if (fontScale > 1f) previewSuffix = "-large-text"
         compose.setContent { val density = LocalDensity.current
-            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) { MyApplicationTheme { val vm = remember { TaxiViewModel(api(if (meter) ride.copy(status = "IN_PROGRESS", boardingPin = null,
+            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) { MyApplicationTheme { val vm = remember { TaxiViewModel(api(if (meter) ride.copy(status = "IN_PROGRESS", boardingQrToken = null,
             fareEtb = 187.5, meterDistanceKm = 3.2, tripDurationSeconds = 522,
             waiting = if (stopped) "STOP" else null, distancePaused = stopped,
             waitingState = if (stopped) "FREE_ALLOWANCE" else "NONE", waitingFreeRemainingSeconds = if (stopped) 30 else 0,
@@ -91,7 +95,7 @@ class TaxiStatesLayoutTest {
             TaxiDriverContent("driver-fixture", vm, {}, trackingEnabled = false, mapTiles = false, mapApi = remember { roads() })
         } } }
         compose.waitUntil(10_000) { compose.onAllNodesWithText(if (meter) "Trip in progress" else "Nearby requests").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText(if (meter) "Trip in progress" else "Nearby requests").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(if (meter) "Trip in progress" else "Nearby requests").assertIsDisplayed()
         if (meter) {
             compose.onNodeWithTag("taxi_meter_fare").assertIsDisplayed()
             compose.onNodeWithTag("taxi_meter_distance").assertIsDisplayed()

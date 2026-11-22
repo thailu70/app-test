@@ -205,10 +205,10 @@ function createRidesService({
     .createHash("sha256")
     .update(secret + ":passo-ride-pins")
     .digest();
-  function encrypt(pin) {
+  function encrypt(token) {
     const iv = crypto.randomBytes(12),
       cipher = crypto.createCipheriv("aes-256-gcm", encryptionKey, iv);
-    const bytes = Buffer.concat([cipher.update(pin, "utf8"), cipher.final()]);
+    const bytes = Buffer.concat([cipher.update(token, "utf8"), cipher.final()]);
     return Buffer.concat([iv, cipher.getAuthTag(), bytes]).toString("base64");
   }
   function decrypt(value) {
@@ -226,9 +226,9 @@ function createRidesService({
   }
   const hash = (pin) =>
     crypto.createHmac("sha256", secret).update(pin).digest("hex");
-  const pinPair = () => {
-    const pin = String(crypto.randomInt(1000, 10000));
-    return { hash: hash(pin), cipher: encrypt(pin) };
+  const qrTokenPair = () => {
+    const qrToken = crypto.randomBytes(32).toString("base64url");
+    return { hash: hash(qrToken), cipher: encrypt(qrToken) };
   };
   async function activeUser(tx, userId, role, locked = false) {
     const user = await tx
@@ -990,10 +990,9 @@ function createRidesService({
       if (
         viewer.id === row.passenger_id &&
         row.pin_cipher &&
-        ["REQUESTED", ...ACTIVE].includes(row.status)
+        ACTIVE.includes(row.status)
       ) {
-        result.boardingPin = decrypt(row.pin_cipher);
-        result.boardingQrToken = result.boardingPin;
+        result.boardingQrToken = decrypt(row.pin_cipher);
       }
       if (ACTIVE.includes(row.status) && row.driver_id) {
         const location = await tx
@@ -1065,7 +1064,7 @@ function createRidesService({
           .get(user.id)
       )
         fail(409, "Finish or cancel your current ride request first.");
-      const pin = pinPair(),
+      const token = qrTokenPair(),
         rid = id("ride_");
       await tx
         .prepare(
@@ -1080,8 +1079,8 @@ function createRidesService({
           JSON.stringify(data.route),
           JSON.stringify(data.tariff),
           JSON.stringify(data.estimate),
-          pin.hash,
-          pin.cipher,
+          token.hash,
+          token.cipher,
           user.id,
           key,
           instant(),
@@ -1484,18 +1483,19 @@ function createRidesService({
     void flushRideSms();
     return { ride: await rideView(await getRide(key, user), user) };
   }
-  async function verifyPin(tx, key, actor, stored, pin) {
+  async function verifyQrToken(tx, key, actor, stored, token) {
     const attempt = await tx
       .prepare("SELECT * FROM ride_pin_attempts WHERE ride_id=? AND actor_id=?")
       .get(key, actor);
     if (attempt?.blocked_until && Date.parse(attempt.blocked_until) > now())
-      fail(429, "Too many incorrect boarding PIN attempts. Try again later.");
+      fail(429, "Too many invalid boarding QR scans. Try again later.");
+    const value = String(token || "");
+    const expected = Buffer.from(String(stored || ""));
+    const actual = Buffer.from(hash(value));
     const valid =
-      /^\d{4}$/.test(String(pin || "")) &&
-      crypto.timingSafeEqual(
-        Buffer.from(hash(String(pin))),
-        Buffer.from(stored),
-      );
+      /^(?:[A-Za-z0-9_-]{43}|\d{4})$/.test(value) &&
+      expected.length === actual.length &&
+      crypto.timingSafeEqual(actual, expected);
     if (!valid) {
       const count = Number(attempt?.attempts || 0) + 1;
       await tx
@@ -1521,7 +1521,7 @@ function createRidesService({
       const r = await owned(key, user, tx, true);
       if (r.status === "IN_PROGRESS") return;
       if (r.status !== "AT_PICKUP") fail(409, "Mark arrival at pickup first.");
-      if (!(await verifyPin(tx, key, user.id, r.pin_hash, input.qrToken || input.pin))) {
+      if (!(await verifyQrToken(tx, key, user.id, r.pin_hash, input.qrToken))) {
         invalid = true;
         return;
       }
@@ -1554,8 +1554,8 @@ function createRidesService({
     if (invalid)
       fail(
         400,
-        "The passenger boarding PIN is incorrect.",
-        "INVALID_BOARDING_PIN",
+        "The passenger boarding QR code is invalid.",
+        "INVALID_BOARDING_QR",
       );
     return { ride: await rideView(await getRide(key, user), user) };
   }
@@ -2052,8 +2052,7 @@ function createRidesService({
       viewer?.id === b.passenger_id &&
       ["CONFIRMED", "BOARDED"].includes(b.status)
     ) {
-      result.boardingPin = decrypt(b.pin_cipher);
-      result.boardingQrToken = result.boardingPin;
+      result.boardingQrToken = decrypt(b.pin_cipher);
     }
     if (own || driver) {
       const u = await tx
@@ -2408,7 +2407,7 @@ function createRidesService({
           )
           .run(version, key);
       }
-      const pin = pinPair();
+      const token = qrTokenPair();
       bid = id("seat_");
       await tx
         .prepare(
@@ -2422,8 +2421,8 @@ function createRidesService({
           r.fare_cents,
           Number(r.fare_cents) * seats.length,
           "CONFIRMED",
-          pin.hash,
-          pin.cipher,
+          token.hash,
+          token.cipher,
           requestKey,
           instant(),
         );
@@ -2653,7 +2652,7 @@ function createRidesService({
         if (b.status === "BOARDED") return;
         if (b.status !== "CONFIRMED")
           fail(409, "This booking is not confirmed.");
-        if (!(await verifyPin(tx, b.id, user.id, b.pin_hash, input.qrToken || input.pin))) {
+      if (!(await verifyQrToken(tx, b.id, user.id, b.pin_hash, input.qrToken))) {
           invalid = true;
           return;
         }
@@ -2810,8 +2809,8 @@ function createRidesService({
     if (invalid)
       fail(
         400,
-        "The passenger boarding PIN is incorrect.",
-        "INVALID_BOARDING_PIN",
+        "The passenger boarding QR code is invalid.",
+        "INVALID_BOARDING_QR",
       );
     return {
       trip: await sharedView(

@@ -115,12 +115,13 @@ async function available(d) {
 }
 async function appTrip(key, driver = drivers[0]) {
   await available(driver);
-  const ride = (
+  const requested = (
     await service.createRequest(passenger, { ...route, idempotencyKey: key })
   ).ride;
-  await service.accept(driver, ride.id, { vehicleId: driver.id + "vehicle" });
+  await service.accept(driver, requested.id, { vehicleId: driver.id + "vehicle" });
+  const ride = (await service.get(passenger, requested.id)).ride;
   await service.arrive(driver, ride.id, position());
-  await service.start(driver, ride.id, { pin: ride.boardingPin });
+  await service.start(driver, ride.id, { qrToken: ride.boardingQrToken });
   return ride;
 }
 test("ride lifecycle, metering, shared seats, privacy and credit are transactional", async (t) => {
@@ -179,6 +180,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
           expectedFareEtb: 40,
           expectedCommissionEtb: 1,
           vehicleId: drivers[0].id + "vehicle",
+          passengerPhone: "+251900000001",
           passengerConsent: true,
           idempotencyKey: "changed-street-fee",
         }),
@@ -222,7 +224,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
           idempotencyKey: "first-request",
         })
       ).ride;
-      assert.match(ride.boardingPin, /^\d{4}$/);
+      assert.equal(ride.boardingQrToken, undefined, "The boarding QR stays private until a driver accepts the request.");
       assert.equal(
         (
           await service.createRequest(passenger, {
@@ -234,7 +236,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       );
       const pool = (await service.dashboard(drivers[0])).calls;
       assert.equal(pool.length, 1);
-      assert.equal(pool[0].boardingPin, undefined);
+      assert.equal(pool[0].boardingQrToken, undefined);
       assert.equal(pool[0].passengerPhone, undefined);
       assert.equal(pool[0].passengerId, null);
       const results = await Promise.allSettled(
@@ -264,8 +266,10 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
           d.id ===
           results.find((r) => r.status === "fulfilled").value.ride.driverId,
       );
+      ride = (await service.get(passenger, ride.id)).ride;
+      assert.match(ride.boardingQrToken, /^[A-Za-z0-9_-]{43}$/);
       const driverRide = (await service.get(acceptedDriver, ride.id)).ride;
-      assert.equal(driverRide.boardingPin, undefined);
+      assert.equal(driverRide.boardingQrToken, undefined);
       assert.equal(driverRide.passengerName, passenger.id);
       await assert.rejects(
         service.get(otherPassenger, ride.id),
@@ -282,7 +286,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
     },
   );
   await t.test(
-    "arrival is geofenced and PIN attempts persist without exposing the PIN",
+    "arrival is geofenced and QR scan attempts are limited without exposing the token",
     async () => {
       await assert.rejects(
         service.arrive(acceptedDriver, ride.id, position(10, 39)),
@@ -294,11 +298,13 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       });
       for (let n = 0; n < 5; n++)
         await assert.rejects(
-          service.start(acceptedDriver, ride.id, { pin: "0000" }),
-          (e) => e.code === "INVALID_BOARDING_PIN",
+          service.start(acceptedDriver, ride.id, n === 0
+            ? { pin: ride.boardingQrToken }
+            : { qrToken: "0000" }),
+          (e) => e.code === "INVALID_BOARDING_QR",
         );
       await assert.rejects(
-        service.start(acceptedDriver, ride.id, { pin: ride.boardingPin }),
+        service.start(acceptedDriver, ride.id, { qrToken: ride.boardingQrToken }),
         (e) => e.status === 429,
       );
       clock += 16 * 60000;
@@ -311,7 +317,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
         points: [{ ...position(), sequence: 2 }],
       });
       const started = (
-        await service.start(acceptedDriver, ride.id, { pin: ride.boardingPin })
+        await service.start(acceptedDriver, ride.id, { qrToken: ride.boardingQrToken })
       ).ride;
       assert.equal(started.status, "IN_PROGRESS");
       assert.equal(started.billableWaitingSeconds, 60);
@@ -447,6 +453,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
         service.street(acceptedDriver, {
           ...route,
           vehicleId: acceptedDriver.id + "vehicle",
+          passengerPhone: "+251900000001",
           idempotencyKey: "street",
         }),
         (e) => e.status === 400,
@@ -456,12 +463,13 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
           ...route,
           ...position(),
           vehicleId: acceptedDriver.id + "vehicle",
+          passengerPhone: "+251900000001",
           idempotencyKey: "street",
           passengerConsent: true,
         })
       ).ride;
       assert.equal(street.source, "STREET");
-      assert.equal(street.boardingPin, undefined);
+      assert.equal(street.boardingQrToken, undefined);
       assert.equal(street.status, "IN_PROGRESS");
       await service.resolve(admin, street.id, {
         action: "CANCEL",
@@ -540,7 +548,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       const driverTrip = (await service.sharedTrip(shared.id, acceptedDriver))
         .trip;
       assert.equal(
-        driverTrip.bookings[0].boardingPin,
+        driverTrip.bookings[0].boardingQrToken,
         undefined,
         "Driver roster cannot expose passenger PINs.",
       );
@@ -585,12 +593,12 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       );
       const owner =
         booking.passengerId === passenger.id ? passenger : otherPassenger;
-      const pin = (await service.sharedTrip(shared.id, owner)).booking
-        .boardingPin;
+      const qrToken = (await service.sharedTrip(shared.id, owner)).booking
+        .boardingQrToken;
       await service.sharedActions(acceptedDriver, shared.id, {
         action: "BOARD",
         bookingId: booking.id,
-        pin,
+        qrToken,
       });
       await service.sharedActions(acceptedDriver, shared.id, {
         action: "START",
@@ -996,7 +1004,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       await service.sharedActions(driver, offered.id, {
         action: "BOARD",
         bookingId: a.id,
-        pin: a.boardingPin,
+        qrToken: a.boardingQrToken,
       });
       await assert.rejects(
         service.sharedActions(driver, offered.id, {
@@ -1086,6 +1094,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
           ...route,
           ...position(),
           vehicleId: driver.id + "vehicle",
+          passengerPhone: "+251900000001",
           idempotencyKey: "other-vehicle-duty",
           passengerConsent: true,
         }),
@@ -1109,6 +1118,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
           ...route,
           ...position(),
           vehicleId: driver.id + "vehicle",
+          passengerPhone: "+251900000001",
           idempotencyKey: "next-day-duty",
           passengerConsent: true,
         }),
@@ -1244,7 +1254,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
           passenger,
         );
         assert.equal(created.status, 201);
-        assert.ok(created.body.ride.boardingPin);
+        assert.equal(created.body.ride.boardingQrToken, undefined, "A QR is issued only after a driver accepts.");
         assert.equal(
           (
             await request(
@@ -1335,7 +1345,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       await service.sharedActions(driver, delayed.id, {
         action: "BOARD",
         bookingId: b.id,
-        pin: b.boardingPin,
+        qrToken: b.boardingQrToken,
       });
       clock = Date.parse("2026-11-17T04:20:00Z");
       await assert.rejects(
@@ -1375,6 +1385,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
           ...route,
           ...position(),
           vehicleId: v,
+          passengerPhone: "+251900000001",
           idempotencyKey: "intercity-active-street",
           passengerConsent: true,
         }),
@@ -1466,14 +1477,15 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
         (await DB.prepare("SELECT COUNT(*) AS count FROM ride_jobs").get())
           .count,
       );
-      clock += 31 * 86400000;
+      clock = Math.max(clock, Date.now()) + 31 * 86400000;
       await service.cleanup();
+      const gpsCutoff = new Date(clock - 30 * 86400000).toISOString();
       assert.equal(
         Number(
           (
             await DB.prepare(
-              "SELECT COUNT(*) AS count FROM ride_samples s JOIN ride_jobs r ON r.id=s.ride_id WHERE r.idempotency_owner IN ('ride-passenger','ride-driver','ride-driver-2')",
-            ).get()
+              "SELECT COUNT(*) AS count FROM ride_samples s JOIN ride_jobs r ON r.id=s.ride_id WHERE r.idempotency_owner IN ('ride-passenger','ride-driver','ride-driver-2') AND r.status IN ('COMPLETED','CANCELLED') AND r.completed_at<?",
+            ).get(gpsCutoff)
           ).count,
         ),
         0,

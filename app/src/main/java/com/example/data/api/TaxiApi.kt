@@ -37,7 +37,7 @@ data class TaxiRide(val id: String, val passengerId: String? = null, val driverI
     val estimatedFareEtb: Double = 0.0, val fareEtb: Double? = null, val meterDistanceKm: Double = 0.0,
     val billableWaitingSeconds: Int = 0, val tripDurationSeconds: Int = 0, val waiting: String? = null,
     val stopWaitingRequested: Boolean = false, val commissionEtb: Double = 0.0, val settlement: String? = null,
-    val boardingPin: String? = null, val boardingQrToken: String? = null, val driverName: String? = null, val driverPhone: String? = null,
+    val boardingQrToken: String? = null, val driverName: String? = null, val driverPhone: String? = null,
     val vehicleModel: String? = null, val vehiclePlate: String? = null, val vehicleType: String? = null,
     val passengerName: String? = null, val passengerPhone: String? = null, val location: MobilityLocation? = null,
     val routeGeometry: MobilityRoadGeometry? = null, val createdAt: String? = null,
@@ -49,7 +49,7 @@ data class TaxiRide(val id: String, val passengerId: String? = null, val driverI
 @JsonClass(generateAdapter = true)
 data class SharedRideBooking(val id: String, val tripId: String = "", val passengerId: String? = null,
     val seats: Int = 1, val seatNumbers: List<Int> = emptyList(), val farePerSeatEtb: Double = 0.0,
-    val totalEtb: Double = 0.0, val status: String = "CONFIRMED", val boardingPin: String? = null, val boardingQrToken: String? = null,
+    val totalEtb: Double = 0.0, val status: String = "CONFIRMED", val boardingQrToken: String? = null,
     val passengerName: String? = null, val passengerPhone: String? = null)
 @JsonClass(generateAdapter = true)
 data class SharedRideTrip(val id: String, val initiatorRole: String = "DRIVER", val passengerId: String? = null,

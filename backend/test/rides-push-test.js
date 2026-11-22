@@ -19,7 +19,7 @@ test('taxi and shared notifications use encrypted account bindings, deduplicatio
   for (const user of [driver, rider, another]) await DB.prepare("INSERT INTO users(id,role,fullName,phone,passwordHash,status) VALUES(?,?,?,?,?,'ACTIVE')").run(user.id, user.role, 'Private fixture name', user.id, 'unused');
   const clock = Date.now(), at = new Date(clock).toISOString();
   await DB.prepare('INSERT INTO ride_availability(driver_id,online,latitude,longitude,recorded_at,updated_at) VALUES(?,1,9,38.75,?,?)').run(driver.id, at, at);
-  let ride = { id: 'ride_fixture', status: 'REQUESTED', passengerPhone: 'PRIVATE_PHONE', boardingPin: 'PRIVATE_PIN' };
+  let ride = { id: 'ride_fixture', status: 'REQUESTED', passengerPhone: 'PRIVATE_PHONE', boardingQrToken: 'PRIVATE_QR_TOKEN' };
   const dashboard = { eligible: true, online: true, calls: [ride], ride: null, sharedTrips: [], sharedRequests: [] };
   const own = { ride, rides: [ride], sharedTrips: [], bookings: [] };
   let snapshotHook = async () => {};
@@ -42,7 +42,7 @@ test('taxi and shared notifications use encrypted account bindings, deduplicatio
   await push.flush(); assert.equal(deliveries.some(value => value.data.requestId === 'must_not_notify'), false, 'An on-job driver gets no new calls');
   assert.equal(deliveries.filter(value => value.data.eventType === 'STATUS_AT_PICKUP').length, 2);
   for (const delivery of deliveries) assert.deepEqual(Object.keys(delivery.data).sort(), ['eventType', 'kind', 'requestId', 'scope']);
-  assert.doesNotMatch(JSON.stringify(deliveries), /PRIVATE_|Private fixture|boardingPin|passengerPhone/);
+  assert.doesNotMatch(JSON.stringify(deliveries), /PRIVATE_|Private fixture|boardingQrToken|passengerPhone/);
   dashboard.sharedTrips = [{ id: 'shared_fixture', status: 'OPEN', bookings: [] }]; await push.flush();
   dashboard.sharedTrips[0].bookings = [{ id: 'booking_fixture', status: 'CONFIRMED', passengerPhone: 'PRIVATE_PHONE' }]; await push.flush();
   assert.ok(deliveries.some(value => value.data.kind === 'SHARED' && value.data.eventType === 'BOOKING_UPDATED'));

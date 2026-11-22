@@ -369,7 +369,7 @@ private fun cargoPhoneLocal(phone: String): String {
     Box(modifier) {
         BasicTextField(value = value, onValueChange = { onChange(it.filter(Char::isDigit).take(6)) }, enabled = enabled,
             singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), cursorBrush = SolidColor(CommuteTeal),
-            modifier = Modifier.size(1.dp).alpha(.01f).focusRequester(focusRequester))
+            modifier = Modifier.size(1.dp).alpha(.01f).focusRequester(focusRequester).testTag("cargo_guest_otp_input"))
         Row(Modifier.fillMaxWidth().clickable(enabled = enabled) { focusRequester.requestFocus() }, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             repeat(6) { index ->
                 val focused = index == value.length && value.length < 6
