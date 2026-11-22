@@ -314,7 +314,8 @@ function createMobilityService({ db = DB, now = Date.now, provider = require('./
     const key = id('mrq_'), capability = secret();
     const otpPurpose = input.kind === 'CARGO' ? 'CARGO_REQUEST' : 'GROUP_REQUEST';
     const otpVerificationToken = typeof input.otpVerificationToken === 'string' ? input.otpVerificationToken : '';
-    if(input.estimatedWeightKg!=null&&input.estimatedWeightKg!==''&&(!Number.isFinite(Number(input.estimatedWeightKg))||Number(input.estimatedWeightKg)<=0||Number(input.estimatedWeightKg)>100000))fail(400,'Enter a valid estimated weight in kilograms.');
+    if(input.estimatedWeightQuintals!=null&&input.estimatedWeightQuintals!==''&&(!Number.isFinite(Number(input.estimatedWeightQuintals))||Number(input.estimatedWeightQuintals)<=0||Number(input.estimatedWeightQuintals)>1000))fail(400,'Enter a valid estimated cargo weight in quintals.');
+    if(input.estimatedWeightKg!=null&&input.estimatedWeightKg!==''&&(!Number.isFinite(Number(input.estimatedWeightKg))||Number(input.estimatedWeightKg)<=0||Number(input.estimatedWeightKg)>100000))fail(400,'Enter a valid estimated cargo weight.');
     if(input.travelTime&&(!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.travelTime)))fail(400,'Choose a valid pickup time.');
     await write(async tx=>{
       if (!principal) {

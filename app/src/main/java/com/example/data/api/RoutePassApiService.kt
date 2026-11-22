@@ -22,6 +22,8 @@ interface RoutePassApiService {
 
     @POST("api/onboarding/register")
     suspend fun registerDriverApplication(@Body request: DriverApplicationInput): Response<DriverApplicationResponse>
+    @POST("api/onboarding/register-otp")
+    suspend fun registerDriverApplicationWithOtp(@Body request: DriverApplicationInput): Response<DriverApplicationResponse>
     @POST("api/onboarding/login")
     suspend fun loginDriverApplication(@Body request: LoginRequest): Response<DriverApplicationResponse>
     @POST("api/onboarding/login-otp")

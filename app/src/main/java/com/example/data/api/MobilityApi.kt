@@ -32,7 +32,8 @@ data class MobilityRequest(val id: String, val kind: String, val origin: String,
     val photoUrl: String? = null, val originLatitude: Double? = null, val originLongitude: Double? = null,
     val destinationLatitude: Double? = null, val destinationLongitude: Double? = null, val reviewNote: String = "",
     val travelTime: String = "", val estimatedWeightKg: Double? = null, val routeDistanceKm: Double? = null,
-    val quotesCount: Int = 0, val commissionEtb: Double? = null, val review: MobilityReview? = null)
+    val quotesCount: Int = 0, val commissionEtb: Double? = null, val review: MobilityReview? = null,
+    val estimatedWeightQuintals: Double? = null)
 @JsonClass(generateAdapter = true)
 data class MobilityTripsResponse(val success: Boolean, val trips: List<MobilityTrip> = emptyList(), val error: String? = null)
 @JsonClass(generateAdapter = true)
@@ -55,7 +56,8 @@ data class MobilityRequestInput(val kind: String, val origin: String, val destin
     val customerName: String, val customerPhone: String, val adultConfirmed: Boolean,
     val originLatitude: Double? = null, val originLongitude: Double? = null,
     val destinationLatitude: Double? = null, val destinationLongitude: Double? = null,
-    val estimatedWeightKg: Double? = null, val travelTime: String = "", val otpVerificationToken: String? = null)
+    val estimatedWeightKg: Double? = null, val travelTime: String = "", val otpVerificationToken: String? = null,
+    val estimatedWeightQuintals: Double? = null)
 @JsonClass(generateAdapter = true)
 data class MobilityTripInput(val vehicleId: String, val origin: String, val destination: String,
     val departureAt: String, val seats: Int, val fareEtb: Double, val latitude: Double, val longitude: Double)
@@ -88,7 +90,7 @@ data class MobilityOpportunity(val id: String, val kind: String, val origin: Str
     val travelDate: String = "", val travelTime: String = "", val people: Int? = null, val vehicleType: String = "",
     val details: String? = null, val estimatedWeightKg: Double? = null, val routeDistanceKm: Double? = null,
     val pickupDistanceKm: Double? = null, val estimatedCargoPriceEtb: Double? = null, val myQuote: MobilityQuote? = null,
-    val nearby: Boolean = false)
+    val nearby: Boolean = false, val estimatedWeightQuintals: Double? = null, val photoUrl: String? = null)
 @JsonClass(generateAdapter = true)
 data class MobilityOpportunitiesResponse(val success: Boolean, val requests: List<MobilityOpportunity> = emptyList(),
     val wallet: MobilityWallet = MobilityWallet(), val busy: Boolean = false, val error: String? = null)

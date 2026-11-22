@@ -12,7 +12,7 @@ data class DriverApplicationInput(
     val proposedDeparture: String? = null, val proposedDestination: String? = null,
     val proposedMonthlyFeeEtb: Double? = null, val proposedMonthlyFeeBasis: String? = null,
     val emergencyContactName: String? = null, val emergencyContactPhone: String? = null,
-    val vehicleColor: String? = null
+    val vehicleColor: String? = null, val verificationToken: String? = null
 )
 
 @JsonClass(generateAdapter = true)

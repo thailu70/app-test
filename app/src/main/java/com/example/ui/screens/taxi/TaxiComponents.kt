@@ -178,6 +178,31 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
     } }
 }
 
+/** Driver actions use the same compact, top-right dropdown used by passengers. */
+@Composable internal fun TaxiDriverTopMenu(expanded: Boolean, onExpandedChange: (Boolean) -> Unit,
+    onHome: () -> Unit, onTrips: () -> Unit, onCredit: () -> Unit, onAlertSound: () -> Unit,
+    onDailyCommute: () -> Unit) {
+    Box {
+        IconButton(onClick = { onExpandedChange(!expanded) }, modifier = Modifier.testTag("taxi_menu_top")) {
+            Icon(Icons.Default.Menu, contentDescription = "Open menu", tint = CommuteInk, modifier = Modifier.size(27.dp))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) },
+            modifier = Modifier.background(Color.White).width(238.dp)) {
+            listOf(
+                Triple("Ride calls", Icons.Default.Home, onHome),
+                Triple("My trips", Icons.Default.LocalTaxi, onTrips),
+                Triple("Driver credit", Icons.Default.AccountBalanceWallet, onCredit),
+                Triple("Alert sound", Icons.Default.NotificationsActive, onAlertSound),
+                Triple("Daily Commute", Icons.Default.DirectionsBus, onDailyCommute)
+            ).forEach { (label, icon, action) ->
+                DropdownMenuItem(text = { Text(label, color = CommuteInk, fontWeight = FontWeight.Medium) },
+                    leadingIcon = { Icon(icon, null, tint = CommuteTeal) },
+                    onClick = { onExpandedChange(false); action() })
+            }
+        }
+    }
+}
+
 @Composable internal fun TaxiPrimary(text: String, enabled: Boolean = true, tag: String = "taxi_primary", onClick: () -> Unit) {
     Button(onClick, Modifier.fillMaxWidth().heightIn(min = 54.dp).testTag(tag), enabled = enabled,
         shape = RoundedCornerShape(28.dp), colors = ButtonDefaults.buttonColors(containerColor = TaxiBrandEmerald, disabledContainerColor = Color(0xFFB7C4BF)), contentPadding = PaddingValues(13.dp)) {

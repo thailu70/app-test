@@ -82,8 +82,8 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
     if (draft.destination.isBlank() || draft.delivery == null) add("delivery")
     if (draft.pickup != null && draft.pickup == draft.delivery) add("same_location")
     if (mobilityDepartureIso(draft.date, draft.time) == null) add("time")
-    val kg = draft.weight.toDoubleOrNull()
-    if (kg == null || !kg.isFinite() || kg <= 0) add("weight")
+    val quintals = draft.weight.toDoubleOrNull()
+    if (quintals == null || !quintals.isFinite() || quintals <= 0 || quintals > 1000) add("weight")
     if (draft.vehicleType.isBlank()) add("vehicle")
     if (draft.details.isBlank()) add("details")
     if (photo.bytes == null || photo.type !in setOf("image/jpeg", "image/png", "image/webp")) add("photo")
@@ -123,7 +123,7 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
             customerPhone = draft.phone.trim(), adultConfirmed = state.adultConfirmed,
             originLatitude = draft.pickup?.first, originLongitude = draft.pickup?.second,
             destinationLatitude = draft.delivery?.first, destinationLongitude = draft.delivery?.second,
-            estimatedWeightKg = draft.weight.toDoubleOrNull(), travelTime = draft.time, otpVerificationToken = token), photo.bytes, photo.type)
+            estimatedWeightQuintals = draft.weight.toDoubleOrNull(), travelTime = draft.time, otpVerificationToken = token), photo.bytes, photo.type)
     }
     LaunchedEffect(draft.pickup, draft.delivery) {
         val from = draft.pickup; val to = draft.delivery
@@ -181,7 +181,7 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
             { expanded = if (expanded == 2) 0 else 2 }, enabled) {
             if (expanded == 2) {
                 CargoInput(draft.weight, { draft = draft.copy(weight = it.filter { char -> char.isDigit() || char == '.' }.take(12)) },
-                    t("Estimated weight (kg)", "ግምታዊ ክብደት (ኪ.ግ)", "Ulfaatina tilmaamaa (kg)"), "cargo_weight", showErrors && "weight" in errors, enabled, number = true)
+                    t("Estimated weight (quintals)", "ግምታዊ ክብደት (ኩንታል)", "Ulfaatina tilmaamaa (quintal)"), "cargo_weight", showErrors && "weight" in errors, enabled, number = true)
                 MobilityVehicleChoice(draft.vehicleType, state.types, { draft = draft.copy(vehicleType = it) }, enabled)
                 if (showErrors && "vehicle" in errors) CargoError(t("Choose a vehicle type.", "የተሽከርካሪ አይነት ይምረጡ።", "Gosa konkolaataa filadhu."))
                 OutlinedTextField(draft.details, { draft = draft.copy(details = it.take(4000)) }, label = { Text(t("Cargo details & handling needs", "የጭነት ዝርዝር እና አያያዝ", "Ibsa fe'umsaa fi kunuunsa barbaachisu")) },
@@ -197,7 +197,7 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
                 if (photo.bytes != null) CargoPhotoPreview(photo, Modifier.size(62.dp))
                 else Icon(Icons.Default.LocalShipping, null, tint = PassoMobilityPalette.brand, modifier = Modifier.size(25.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(if (typeName.isBlank()) t("Choose cargo and vehicle", "ጭነት እና ተሽከርካሪ ይምረጡ", "Fe'umsaa fi konkolaataa filadhu") else "$typeName${draft.weight.takeIf { it.isNotBlank() }?.let { " · $it kg" }.orEmpty()}", fontSize = 13.sp, color = PassoMobilityPalette.text)
+                    Text(if (typeName.isBlank()) t("Choose cargo and vehicle", "ጭነት እና ተሽከርካሪ ይምረጡ", "Fe'umsaa fi konkolaataa filadhu") else "$typeName${draft.weight.takeIf { it.isNotBlank() }?.let { " · $it quintals" }.orEmpty()}", fontSize = 13.sp, color = PassoMobilityPalette.text)
                     draft.details.takeIf { it.isNotBlank() }?.let { Text(it, maxLines = 1, fontSize = 12.sp, color = Color(0xFF617285)) }
                 }
             }
@@ -237,7 +237,7 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
             Text("${draft.origin} → ${draft.destination}", fontWeight = FontWeight.Bold, color = CommuteInk)
             Text("${draft.date} · ${draft.time} · ${t("Ethiopia time", "የኢትዮጵያ ሰዓት", "Yeroo Itoophiyaa")}")
             road?.let { Text(it, color = CommuteTeal) }
-            HorizontalDivider(); Text("$typeName · ${draft.weight} kg", fontWeight = FontWeight.Bold); Text(draft.details)
+            HorizontalDivider(); Text("$typeName · ${draft.weight} quintals", fontWeight = FontWeight.Bold); Text(draft.details)
             CargoPhotoPreview(photo, Modifier.fillMaxWidth().height(120.dp))
             HorizontalDivider(); Text(draft.name); Text(draft.phone)
             Text(t("Available drivers can send offers. You choose your driver and agreed price. No payment is collected when you send this request.", "ያሉ አሽከርካሪዎች ዋጋ ማቅረብ ይችላሉ። አሽከርካሪዎን እና ዋጋዎን እርስዎ ይምረጡ። ይህን ጥያቄ ሲልኩ ክፍያ አይሰበሰብም።", "Konkolaachiftoonni gatii kennu. Konkolaachisaa fi gatii filatta. Gaaffii kana erguuf kaffaltiin hin jiru."), fontSize = 12.sp)

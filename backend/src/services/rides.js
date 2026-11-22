@@ -1146,14 +1146,25 @@ function createRidesService({
         "Taxi and shared ride bookings are not enabled yet.",
         "SERVICE_NOT_ENABLED",
       );
+    const heartbeatOnly = input.online && input.heartbeatOnly === true;
     const p = input.latitude == null ? null : position(input);
-    if (input.online && !p)
+    if (input.online && !p && !heartbeatOnly)
       fail(400, "Turn on GPS to receive nearby ride requests.");
     await db.transaction(async (tx) => {
       if (input.online) {
         await approvedVehicle(user.id, input.vehicleId, tx, true);
         if (await busy(user.id, input.vehicleId, tx))
           fail(409, "Finish your current job before going online.");
+        if (heartbeatOnly) {
+          const current = await tx
+            .prepare("SELECT vehicle_id,online FROM ride_availability WHERE driver_id=?")
+            .get(user.id);
+          if (Number(current?.online) !== 1 || current?.vehicle_id !== input.vehicleId)
+            fail(409, "Driver availability changed. Reopen the driver portal.");
+          await tx.prepare("UPDATE ride_availability SET updated_at=? WHERE driver_id=?")
+            .run(instant(), user.id);
+          return;
+        }
       } else await activeUser(tx, user.id, "DRIVER", true);
       await saveAvailability(
         tx,
@@ -1195,12 +1206,16 @@ function createRidesService({
         "SELECT * FROM ride_jobs WHERE driver_id=? AND status IN ('ACCEPTED','AT_PICKUP','IN_PROGRESS') ORDER BY created_at DESC LIMIT 1",
       )
       .get(user.id);
-    const available =
+    const onlineSession =
       (cfg.enabled || cfg.sharedEnabled) &&
       vehicles.some((v) => v.id === a?.vehicle_id) &&
       Number(a?.online) === 1 &&
-      a?.recorded_at &&
-      now() - Date.parse(a.recorded_at) <= 120000;
+      a?.updated_at &&
+      now() - Date.parse(a.updated_at) <= 120000;
+    // A live heartbeat keeps the driver online while the phone is locked.
+    // Dispatch still requires a fresh GPS fix; old coordinates are never used
+    // to match a driver to a new request.
+    const available = onlineSession && a?.recorded_at && now() - Date.parse(a.recorded_at) <= 120000;
     const currentBusy = await busy(
       user.id,
       a?.vehicle_id || vehicles[0]?.id || "",
@@ -1246,7 +1261,7 @@ function createRidesService({
           : [];
     return {
       eligible: vehicles.length > 0,
-      online: available,
+      online: onlineSession,
       vehicles,
       wallet: walletView(await wallet(user.id)),
       calls,
@@ -2906,7 +2921,7 @@ function createRidesService({
       )
       .run(new Date(now() - retentionDays * 86400000).toISOString());
     await db
-      .prepare("UPDATE ride_availability SET online=0 WHERE recorded_at<?")
+      .prepare("UPDATE ride_availability SET online=0 WHERE updated_at<?")
       .run(new Date(now() - 120000).toISOString());
     await db
       .prepare(

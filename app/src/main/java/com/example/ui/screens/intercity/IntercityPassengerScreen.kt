@@ -56,7 +56,8 @@ import java.util.TimeZone
 internal fun IntercityPassengerScreen(
     language: AppLanguage, onLanguage: (AppLanguage) -> Unit, onExit: () -> Unit,
     modifier: Modifier = Modifier, providedViewModel: IntercityPassengerViewModel? = null,
-    providedMobilityViewModel: MobilityViewModel? = null
+    providedMobilityViewModel: MobilityViewModel? = null,
+    accountName: String = "", accountPhone: String = ""
 ) {
     val context = LocalContext.current
     val factory = remember(context.applicationContext) {
@@ -71,7 +72,8 @@ internal fun IntercityPassengerScreen(
     val state by model.state.collectAsState()
     if (state.phase == IntercityPhase.BROWSE && state.serviceTab != 0) {
         MobilityPassengerScreen("GROUP", language,
-            onBack = { model.setTab(0) }, modifier = modifier, providedModel = providedMobilityViewModel)
+            onBack = { model.setTab(0) }, modifier = modifier, providedModel = providedMobilityViewModel,
+            accountName = accountName, accountPhone = accountPhone)
         return
     }
     val contentListState = rememberLazyListState()

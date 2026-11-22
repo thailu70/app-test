@@ -49,7 +49,10 @@ class DriverApplicationRepository(private val api: RoutePassApiService) {
         }
     }
 
-    suspend fun register(input: DriverApplicationInput) = action("Your details were saved. Upload your documents to complete your application.", true) { api.registerDriverApplication(input) }
+    suspend fun register(input: DriverApplicationInput) = action("Your details were saved. Upload your documents to complete your application.", true) {
+        require(!input.verificationToken.isNullOrBlank()) { "Verify your phone number before continuing." }
+        api.registerDriverApplicationWithOtp(input)
+    }
     suspend fun login(phone: String, password: String) = action(newSession = true) { api.loginDriverApplication(LoginRequest(phone.trim(), password, "DRIVER")) }
     suspend fun loginWithOtp(phone: String, verificationToken: String) = action(newSession = true) {
         api.loginDriverApplicationWithOtp(mapOf("phone" to phone.trim(), "verificationToken" to verificationToken))

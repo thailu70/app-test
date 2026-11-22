@@ -421,7 +421,17 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
     if (!REQUIRED[role]) fail(400, 'Choose DRIVER or COMPANY.');
     const fullName = text(input.fullName, 'full name', 120), phone = normalizePhone(input.phone);
     if (!phone) fail(400, 'Enter a valid Ethiopian phone number.');
-    if (typeof input.password !== 'string' || input.password.length < 10 || Buffer.byteLength(input.password, 'utf8') > 72) fail(400, 'Use a password with at least 10 characters and at most 72 bytes.');
+    const requireVerifiedPhone = input.requireVerifiedPhone === true;
+    if (requireVerifiedPhone && role !== 'DRIVER') fail(400, 'Phone-code registration is available for drivers only.');
+    const submittedPhone = String(input.phone || '').trim();
+    const verificationToken = typeof input.verificationToken === 'string' ? input.verificationToken : '';
+    const verificationDigest = verificationToken ? crypto.createHash('sha256').update(verificationToken).digest('hex') : '';
+    const registrationOtp = requireVerifiedPhone && verificationDigest
+      ? await db.prepare("SELECT id FROM auth_otps WHERE phone IN (?,?) AND purpose='REGISTRATION' AND verification_token_hash=? AND verified_at IS NOT NULL AND expires_at>CURRENT_TIMESTAMP ORDER BY created_at DESC LIMIT 1")
+          .get(phone, submittedPhone, verificationDigest)
+      : null;
+    if (requireVerifiedPhone && !registrationOtp) fail(401, 'Verify your phone number with the latest SMS code, then try again.');
+    if (!requireVerifiedPhone && (typeof input.password !== 'string' || input.password.length < 10 || Buffer.byteLength(input.password, 'utf8') > 72)) fail(400, 'Use a password with at least 10 characters and at most 72 bytes.');
     let name = '', company = null, plate = '', model = '', type = null, preference = null, service = role === 'COMPANY' ? 'COMPANY' : String(input.serviceType || 'DAILY_COMMUTE').toUpperCase();
     if (role === 'COMPANY') name = text(input.companyName, 'company name', 100);
     else {
@@ -444,7 +454,11 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
       if (!emergencyContactPhone) fail(400, 'Enter a valid emergency contact phone number.');
       driverProfile = { emergencyContactName, emergencyContactPhone, vehicleColor: text(input.vehicleColor, 'vehicle colour', 40) };
     }
-    const hash = await bcrypt.hash(input.password, 12), id = (role === 'COMPANY' ? 'company_' : 'usr_drv_') + crypto.randomUUID().replace(/-/g, '').slice(0, 20);
+    // Drivers use phone-code sign-in. Keep a random, undisclosed credential in
+    // the legacy password column for schema compatibility; it cannot be used
+    // to sign in and is never returned to the app.
+    const storedCredential = requireVerifiedPhone ? crypto.randomBytes(48).toString('base64url') : input.password;
+    const hash = await bcrypt.hash(storedCredential, 12), id = (role === 'COMPANY' ? 'company_' : 'usr_drv_') + crypto.randomUUID().replace(/-/g, '').slice(0, 20);
     await transact(async tx => {
       if (tx.isPostgres) await tx.prepare("SELECT pg_advisory_xact_lock(hashtext('routepass-onboarding-phone:' || ?))").get(phone);
       const previous = await tx.prepare('SELECT account_id,role FROM onboarding_accounts WHERE normalized_phone=?').get(phone);
@@ -462,6 +476,11 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
       }
       if (previous && !reclaimed) fail(409, 'This phone number is already registered. Sign in to your account.');
       if (!(await phoneAvailable(phone, null, tx))) fail(409, 'This phone number is already registered. Sign in to your account.');
+      if (requireVerifiedPhone) {
+        const consumed = await tx.prepare("UPDATE auth_otps SET verification_token_hash=NULL WHERE id=? AND purpose='REGISTRATION' AND verification_token_hash=? AND verified_at IS NOT NULL AND expires_at>CURRENT_TIMESTAMP")
+          .run(registrationOtp.id, verificationDigest);
+        if (consumed.changes !== 1) fail(401, 'That verification code has expired or was already used. Request a new code.');
+      }
       if (role === 'COMPANY') {
         if (await tx.prepare('SELECT id FROM transport_companies WHERE LOWER(name)=LOWER(?)').get(name)) fail(409, 'This company name is already registered.');
         await tx.prepare("INSERT INTO transport_companies(id,name,phone,representative_name,password_hash,status) VALUES(?,?,?,?,?,'PENDING')").run(id, name, phone, fullName, hash);

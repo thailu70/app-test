@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -126,9 +127,14 @@ import java.util.*
 /** Same location search/map controls for street pickup and both shared-trip initiation paths. */
 @Composable internal fun TaxiTripForm(state: TaxiUiState, driver: Boolean, street: Boolean, model: TaxiViewModel,
     onClose: () -> Unit, acceptRequest: SharedRideTrip? = null, passengerGroupRequest: Boolean = false,
-    initialPickup: Pair<Double, Double>? = null, initialOrigin: String = "Your location", onSubmit: (TaxiRouteInput) -> Unit) {
+    initialPickup: Pair<Double, Double>? = null, initialOrigin: String = "Your location",
+    mapTiles: Boolean = true, mapApi: MobilityApi? = null,
+    onAvailabilityChange: (Boolean, String) -> Unit = { _, _ -> }, onCreditClick: () -> Unit = {},
+    onSubmit: (TaxiRouteInput) -> Unit) {
     val context = LocalContext.current
-    var origin by remember(acceptRequest?.id, initialOrigin) { mutableStateOf(acceptRequest?.origin ?: if (passengerGroupRequest) initialOrigin else "") }
+    var origin by remember(acceptRequest?.id, initialOrigin, street, passengerGroupRequest) {
+        mutableStateOf(acceptRequest?.origin ?: if (passengerGroupRequest || street) initialOrigin else "")
+    }
     var destination by remember(acceptRequest?.id) { mutableStateOf(acceptRequest?.destination.orEmpty()) }
     var pickup by remember(acceptRequest?.id, initialPickup) { mutableStateOf(acceptRequest?.let { it.originLatitude to it.originLongitude } ?: initialPickup) }
     var dropoff by remember(acceptRequest?.id) { mutableStateOf(acceptRequest?.let { it.destinationLatitude to it.destinationLongitude }) }
@@ -138,7 +144,6 @@ import java.util.*
     var vehicleMenu by remember { mutableStateOf(false) }
     var count by remember { mutableIntStateOf(acceptRequest?.seats ?: 1) }
     var fare by remember { mutableStateOf("") }
-    var consent by remember { mutableStateOf(false) }
     var streetPassengerName by remember { mutableStateOf("") }
     var streetPassengerPhone by remember { mutableStateOf("") }
     var lastEstimatedRouteKey by remember(acceptRequest?.id) { mutableStateOf<String?>(null) }
@@ -153,7 +158,7 @@ import java.util.*
     val from = pickup; val to = dropoff
     val base = if (from != null && to != null && from != to && origin.isNotBlank() && destination.isNotBlank())
         TaxiRouteInput(origin, destination, from.first, from.second, to.first, to.second, if (driver) vehicle?.tier ?: tier else tier,
-            vehicleId = vehicleId.takeIf { driver }, passengerConsent = if (street) consent else null,
+        vehicleId = vehicleId.takeIf { driver }, passengerConsent = if (street) true else null,
             departureAt = if (!street) departure else null, seats = if (!street) count else null,
             farePerSeatEtb = if (driver && !street) fare.toDoubleOrNull()?.takeIf { it.isFinite() && it > 0 } else null,
             passengerName = null, passengerPhone = streetPassengerPhone.takeIf { street }) else null
@@ -176,14 +181,48 @@ import java.util.*
     picker?.let { type -> TaxiLocationDialog(type == "destination", if (type == "destination") dropoff else pickup,
         if (type == "destination") destination else origin, { picker = null }) { name, point ->
         if (type == "destination") { destination = name; dropoff = point } else { origin = name; pickup = point }
-        model.clearEstimate(); consent = false; picker = null
+        model.clearEstimate(); picker = null
     } }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { Text(when { street -> "Start a street pickup"; acceptRequest != null -> "Offer this requested route"; driver -> "Offer a group ride"; else -> "Start a group ride" }, Modifier.weight(1f), color = CommuteInk, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold); IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Close form") } }
         if (!driver) Text(if (passengerGroupRequest) "Choose your destination. Your current location is used as the pickup." else "Separate passengers can join this route and pay per seat.", color = Color(0xFF627385), fontSize = 13.sp)
-        if (pickup != null && dropoff != null) TaxiMap(pickup, dropoff, height = 180, pickupLabel = origin, destinationLabel = destination, routeGeometry = if (street) state.estimate?.routeGeometry else null, routeGeometryQuality = if (street) state.estimate?.routeGeometryQuality else null)
-        if (!passengerGroupRequest) TaxiRouteRow("Pickup", origin.ifBlank { "Your location" }, true, !state.busy && !driver && !street && acceptRequest == null) { if (!driver && !street && acceptRequest == null) picker = "pickup" }
-        TaxiRouteRow("Destination", destination.ifBlank { "Where to?" }, false, !state.busy && acceptRequest == null) { if (acceptRequest == null) picker = "destination" }
+        if (street) {
+            Box(Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(23.dp))) {
+                val driverMarker = pickup?.let { MobilityLocation(it.first, it.second, stale = false) }
+                TaxiMap(pickup, dropoff, driver = driverMarker, height = 300, pickupLabel = origin.ifBlank { "Your location" }, destinationLabel = destination,
+                    tileDownloadsEnabled = mapTiles, providedApi = mapApi, routeGeometry = state.estimate?.routeGeometry,
+                    routeGeometryQuality = state.estimate?.routeGeometryQuality, showPickupMarker = false, modifier = Modifier.fillMaxSize())
+                state.dashboard?.let { dashboard ->
+                    Surface(Modifier.align(Alignment.TopStart).padding(10.dp), color = PassoMobilityPalette.card.copy(alpha = .97f),
+                        shape = RoundedCornerShape(18.dp), shadowElevation = 3.dp) {
+                        Row(Modifier.padding(start = 8.dp, end = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (dashboard.online) "Online" else "Offline", color = PassoMobilityPalette.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Switch(checked = dashboard.online, onCheckedChange = { onAvailabilityChange(it, vehicleId) },
+                                enabled = !state.busy && vehicleId.isNotBlank(), modifier = Modifier.size(width = 46.dp, height = 32.dp))
+                        }
+                    }
+                    Surface(Modifier.align(Alignment.TopEnd).padding(10.dp).clickable(onClick = onCreditClick), color = PassoMobilityPalette.card.copy(alpha = .97f),
+                        shape = RoundedCornerShape(18.dp), shadowElevation = 3.dp) {
+                        Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.AccountBalanceWallet, null, tint = PassoMobilityPalette.brand, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(5.dp)); Text(taxiMoney(dashboard.wallet.availableEtb), color = PassoMobilityPalette.brand, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
+                }
+            }
+            Surface(color = PassoMobilityPalette.card.copy(alpha = .97f), contentColor = PassoMobilityPalette.text,
+                shape = RoundedCornerShape(19.dp), border = BorderStroke(1.dp, PassoMobilityPalette.border), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 3.dp)) {
+                    TaxiRouteRow("Pickup location", origin.ifBlank { "Your location" }, true)
+                    HorizontalDivider(color = PassoMobilityPalette.border)
+                    TaxiRouteRow("Destination", destination.ifBlank { "Choose destination" }, false, !state.busy) { picker = "destination" }
+                }
+            }
+        } else {
+            if (pickup != null && dropoff != null) TaxiMap(pickup, dropoff, height = 180, pickupLabel = origin, destinationLabel = destination, routeGeometry = if (street) state.estimate?.routeGeometry else null, routeGeometryQuality = if (street) state.estimate?.routeGeometryQuality else null)
+            if (!passengerGroupRequest) TaxiRouteRow("Pickup", origin.ifBlank { "Your location" }, true, !state.busy && !driver && !street && acceptRequest == null) { if (!driver && !street && acceptRequest == null) picker = "pickup" }
+            TaxiRouteRow("Destination", destination.ifBlank { "Where to?" }, false, !state.busy && acceptRequest == null) { if (acceptRequest == null) picker = "destination" }
+        }
         if (street) {
             OutlinedTextField(streetPassengerPhone, { streetPassengerPhone = it.filter { ch -> ch.isDigit() || ch == '+' }.take(16) }, label = { Text("Passenger phone") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true, enabled = !state.busy, modifier = Modifier.fillMaxWidth())
         }
@@ -196,7 +235,7 @@ import java.util.*
                     Icon(Icons.Default.ArrowDropDown, "Choose vehicle", tint = CommuteTeal)
                 }
             }
-            DropdownMenu(vehicleMenu, { vehicleMenu = false }) { vehicles.forEach { item -> DropdownMenuItem(text = { Text("${item.model} · ${item.plateNumber} · ${item.capacityLimit} seats") }, onClick = { vehicleId = item.id; vehicleMenu = false; count = count.coerceAtMost(item.capacityLimit.coerceAtLeast(1)); model.clearEstimate(); consent = false }) } }
+            DropdownMenu(vehicleMenu, { vehicleMenu = false }) { vehicles.forEach { item -> DropdownMenuItem(text = { Text("${item.model} · ${item.plateNumber} · ${item.capacityLimit} seats") }, onClick = { vehicleId = item.id; vehicleMenu = false; count = count.coerceAtMost(item.capacityLimit.coerceAtLeast(1)); model.clearEstimate() }) } }
         }
         if (!street) {
             if (!passengerGroupRequest && acceptRequest == null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -215,16 +254,17 @@ import java.util.*
         } else {
             state.estimate?.let { estimate ->
                 Text("Estimated fare", color = Color(0xFF627385)); Text(taxiMoney(estimate.estimatedFareEtb), color = CommuteTeal, fontWeight = FontWeight.ExtraBold, fontSize = 28.sp)
-                Text("Final fare follows the meter. Passenger pays you directly.", color = Color(0xFF627385), fontSize = 13.sp)
-                Text("Passo fee reserved on start: ${taxiMoney(state.settings.fixedCommissionEtb)}", color = CommuteTeal, fontSize = 13.sp)
-                Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(consent, { consent = it }, enabled = !state.busy); Text("Passenger agrees to this estimate", color = CommuteInk, fontSize = 14.sp) }
-                TaxiPrimary("Start meter", !state.busy && consent && streetContactReady && base != null && vehicle != null && state.settings.enabled, "street_start_meter") { base?.let(onSubmit) }
+                Text("Confirm this fare with the passenger. Passo will text this number and start the meter.", color = Color(0xFF627385), fontSize = 13.sp)
+                Text("Passo fee: ${taxiMoney(state.settings.fixedCommissionEtb)}", color = CommuteTeal, fontSize = 13.sp)
+                TaxiPrimary("Text passenger & start · ${taxiMoney(estimate.estimatedFareEtb)}",
+                    !state.busy && streetContactReady && base != null && vehicle != null && state.settings.enabled,
+                    "street_start_meter") { base?.let(onSubmit) }
             } ?: run {
                 if (state.busy) Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = CommuteTeal)
                     Spacer(Modifier.width(8.dp)); Text("Calculating estimated fare…", color = CommuteTeal, fontWeight = FontWeight.SemiBold)
                 }
-                TaxiPrimary(if (state.busy) "Calculating fare…" else "Retry fare estimate",
+                TaxiPrimary(if (state.busy) "Calculating fare…" else "Get fare estimate",
                     !state.busy && base != null && vehicle != null && state.settings.enabled, "street_estimate") { base?.let { model.estimate(it.copy(farePerSeatEtb = null)) } }
             }
         }

@@ -198,14 +198,10 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
                 current?.let { job -> DriverJobCard(api, job, working, permission, onPhoto,
                     enableLocation = { permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) },
                     progress = { action -> act { val response = mobilityBody(api.progress(job.id, MobilityProgressInput(action))); check(response.success) { response.error ?: "Could not update this task." } } }, driverLocation = ownLocation) }
-                    ?: MobilityCard { Icon(Icons.Default.LocalShipping, null, tint = CommuteTeal); Text("Ready for your next job", color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 20.sp); Text("Choose a request and send your quote. The customer chooses their driver.", color = CommuteInk, fontSize = 13.sp) }
+                    ?: Unit
                 if (active == null && result?.busy != true) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.LocalShipping, null, tint = CommuteTeal, modifier = Modifier.size(22.dp)); Spacer(Modifier.width(8.dp))
-                        Text("You can now quote on new requests.", fontSize = 12.sp, color = CommuteInk, modifier = Modifier.weight(1f))
-                    }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text("Available requests", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = CommuteInk, modifier = Modifier.weight(1f)); TextButton(onClick = { tab = "Requests" }) { Text("View all"); Icon(Icons.Default.ArrowForward, null, Modifier.size(16.dp)) } }
-                    result?.requests?.take(2)?.forEach { job -> DriverOpportunityCard(job, !working && dashboard.vehicles.isNotEmpty(), compact = true) { quoting = job } }
+                    result?.requests?.take(2)?.forEach { job -> DriverOpportunityCard(api, job, !working && dashboard.vehicles.isNotEmpty(), compact = true, onPhoto = onPhoto) { quoting = job } }
                     if (result == null) Text("Finding available requests…", fontSize = 13.sp, color = CommuteInk)
                     else if (result?.requests?.isEmpty() == true) Text("No matching requests yet. We’ll refresh this list automatically.", fontSize = 13.sp, color = CommuteInk)
                 }
@@ -218,7 +214,7 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
                 else {
                     if (result == null) Text("Finding available requests…", color = CommuteInk)
                     else if (result?.requests?.isEmpty() == true) MobilityCard { Text("No matching requests yet", fontWeight = FontWeight.Bold, color = CommuteInk); Text("Your matching requests will appear here automatically.", fontSize = 13.sp, color = CommuteInk) }
-                    result?.requests?.forEach { job -> DriverOpportunityCard(job, !working && dashboard.vehicles.isNotEmpty()) { quoting = job } }
+                    result?.requests?.forEach { job -> DriverOpportunityCard(api, job, !working && dashboard.vehicles.isNotEmpty(), onPhoto = onPhoto) { quoting = job } }
                 }
                 TextButton(enabled = !working, onClick = { act {} }) { Icon(Icons.Default.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Refresh requests") }
             }
@@ -231,7 +227,8 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
     }
 }
 
-@Composable private fun DriverOpportunityCard(job: MobilityOpportunity, enabled: Boolean, compact: Boolean = false, quote: () -> Unit) {
+@Composable private fun DriverOpportunityCard(api: MobilityApi, job: MobilityOpportunity, enabled: Boolean, compact: Boolean = false,
+    onPhoto: (String) -> Unit, quote: () -> Unit) {
     var expanded by remember(job.id) { mutableStateOf(!compact) }
     Surface(color = Color.White, shape = RoundedCornerShape(17.dp), border = BorderStroke(1.dp, Color(0xFFE7E3DB)), modifier = Modifier.fillMaxWidth().animateContentSize()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -241,7 +238,12 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
                 Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ChevronRight, if (expanded) "Collapse request" else "View request", tint = CommuteTeal)
             }
             if (expanded) {
-                Text(listOfNotNull(job.vehicleType.replace('_', ' '), job.people?.let { "$it people" }, job.estimatedWeightKg?.let { "${formatIntercityFare(it)} kg" }).joinToString(" · "), color = CommuteInk, fontSize = 13.sp)
+                if (job.kind == "CARGO" && job.photoUrl != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                    MobilityCargoPhotoPreview(api, job.id) { onPhoto(job.id) }
+                    Spacer(Modifier.width(9.dp)); Text("Cargo photo · tap to enlarge", fontSize = 12.sp, color = CommuteTeal)
+                }
+                Text(listOfNotNull(job.vehicleType.replace('_', ' '), job.people?.let { "$it people" },
+                    (job.estimatedWeightQuintals ?: job.estimatedWeightKg?.div(100.0))?.let { "${formatIntercityFare(it)} quintals" }).joinToString(" · "), color = CommuteInk, fontSize = 13.sp)
                 job.details?.takeIf { it.isNotBlank() }?.let { Text(it, color = CommuteInk, fontSize = 13.sp) }
                 val distances = listOfNotNull(job.pickupDistanceKm?.let { "${formatIntercityFare(it)} km to pickup" }, job.routeDistanceKm?.let { "${formatIntercityFare(it)} km journey" })
                 if (distances.isNotEmpty()) Text(distances.joinToString(" · "), fontSize = 12.sp, color = CommuteTeal)
@@ -285,7 +287,9 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
                 if (job.kind == "CARGO" && job.photoUrl != null) { MobilityCargoPhotoPreview(api, job.id) { onPhoto(job.id) }; Spacer(Modifier.width(12.dp)) }
                 else { Icon(if (job.kind == "CARGO") Icons.Default.Inventory2 else Icons.Default.Groups, null, tint = CommuteTeal, modifier = Modifier.size(35.dp)); Spacer(Modifier.width(12.dp)) }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text(listOfNotNull(job.cargoDetails?.takeIf { it.isNotBlank() }, job.estimatedWeightKg?.let { "${formatIntercityFare(it)} kg" }, job.people?.let { "$it travelers" }).joinToString(" · ").ifBlank { job.vehicleType.replace('_', ' ') }, maxLines = 3, overflow = TextOverflow.Ellipsis, color = CommuteInk, fontSize = 13.sp)
+                    Text(listOfNotNull(job.cargoDetails?.takeIf { it.isNotBlank() },
+                        (job.estimatedWeightQuintals ?: job.estimatedWeightKg?.div(100.0))?.let { "${formatIntercityFare(it)} quintals" },
+                        job.people?.let { "$it travelers" }).joinToString(" · ").ifBlank { job.vehicleType.replace('_', ' ') }, maxLines = 3, overflow = TextOverflow.Ellipsis, color = CommuteInk, fontSize = 13.sp)
                     job.quoteEtb?.let { Text("Agreed total  ETB ${formatIntercityFare(it)}", color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 15.sp) }
                 }
             }

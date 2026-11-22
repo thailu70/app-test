@@ -73,11 +73,19 @@ function createMarketplace({ db, now, fail, money, text, coordinates, vehicleDri
     const meta=await db.prepare('SELECT * FROM mobility_request_market WHERE request_id=?').get(row.id);
     const count=await db.prepare("SELECT COUNT(*) AS count FROM mobility_quotes WHERE request_id=? AND status='OPEN'").get(row.id);
     const review=await db.prepare('SELECT rating,comment,status FROM mobility_reviews WHERE request_id=?').get(row.id);
-    return {estimatedWeightKg:meta?.estimated_weight_kg==null?null:Number(meta.estimated_weight_kg),travelTime:meta?.travel_time||'',routeDistanceKm:meta?.route_distance_km==null?null:Number(meta.route_distance_km),commissionEtb:Number(meta?.commission_etb||0),settlement:meta?.settlement||'NONE',completedAt:meta?.completed_at||null,confirmedAt:meta?.confirmed_at||null,disputeNote:meta?.dispute_note||'',quotesCount:Number(count.count),review:review?{rating:Number(review.rating),comment:review.comment,status:review.status}:null,paymentMode:'DIRECT_TO_DRIVER',paymentVerified:false};
+    const weightKg=meta?.estimated_weight_kg==null?null:Number(meta.estimated_weight_kg);
+    return {estimatedWeightKg:weightKg,estimatedWeightQuintals:weightKg==null?null:weightKg/100,travelTime:meta?.travel_time||'',routeDistanceKm:meta?.route_distance_km==null?null:Number(meta.route_distance_km),commissionEtb:Number(meta?.commission_etb||0),settlement:meta?.settlement||'NONE',completedAt:meta?.completed_at||null,confirmedAt:meta?.confirmed_at||null,disputeNote:meta?.dispute_note||'',quotesCount:Number(count.count),review:review?{rating:Number(review.rating),comment:review.comment,status:review.status}:null,paymentMode:'DIRECT_TO_DRIVER',paymentVerified:false};
   }
   async function createMeta(key,input,tx=db) {
     let weight=null,distance=null,time=null;
-    if(input.estimatedWeightKg!=null&&input.estimatedWeightKg!==''){weight=Number(input.estimatedWeightKg);if(!Number.isFinite(weight)||weight<=0||weight>100000)fail(400,'Enter estimated cargo weight between 0 and 100,000 kg.');}
+    if(input.estimatedWeightQuintals!=null&&input.estimatedWeightQuintals!==''){
+      const quintals=Number(input.estimatedWeightQuintals);
+      if(!Number.isFinite(quintals)||quintals<=0||quintals>1000)fail(400,'Enter estimated cargo weight between 0 and 1,000 quintals.');
+      weight=quintals*100;
+    } else if(input.estimatedWeightKg!=null&&input.estimatedWeightKg!==''){
+      // Backward compatibility for previously installed clients that send kg.
+      weight=Number(input.estimatedWeightKg);if(!Number.isFinite(weight)||weight<=0||weight>100000)fail(400,'Enter a valid estimated cargo weight.');
+    }
     if(input.travelTime){if(typeof input.travelTime!=='string'||!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.travelTime))fail(400,'Choose a valid pickup time.');time=input.travelTime;}
     if(input.originLatitude!=null&&input.destinationLatitude!=null)try {const result=await require('./mobility-geo').getGeoService().route(input);if(Number(result.distanceKm)>0)distance=Number(result.distanceKm);}catch(_error){/* Quotes remain available when road routing is unavailable. */}
     await tx.prepare('INSERT INTO mobility_request_market(request_id,estimated_weight_kg,travel_time,route_distance_km,updated_at) VALUES(?,?,?,?,?)').run(key,weight,time,distance,instant());

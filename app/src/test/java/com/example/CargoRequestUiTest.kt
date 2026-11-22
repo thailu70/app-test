@@ -36,7 +36,7 @@ import java.lang.reflect.Proxy
 class CargoRequestUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val types = listOf(MobilityVehicleType("TRUCK", "Truck", 1))
-    private val complete = CargoRequestDraft("Bole, Addis Ababa", "Sendafa", intercityToday(), "10:30", "2000", "TRUCK",
+    private val complete = CargoRequestDraft("Bole, Addis Ababa", "Sendafa", intercityToday(), "10:30", "20", "TRUCK",
         "Cement bags · loading help required", "Demo Customer", "0912000111", 9.00 to 38.78, 9.15 to 39.03)
     private val pickup = MobilityPlace("Bole Medhanialem, Addis Ababa", 8.9952, 38.7860)
     private val delivery = MobilityPlace("Sendafa, Oromia", 9.1523, 39.0330)
@@ -73,7 +73,7 @@ class CargoRequestUiTest {
                 Column(Modifier.fillMaxSize().background(CommuteCream).verticalScroll(rememberScrollState()).padding(16.dp)) {
                     CargoRequestForm(MobilityUiState(types = types, adultConfirmed = confirmed), AppLanguage.ENGLISH,
                         { confirmed = it }, submit, initialDraft = draft, providedPhoto = photo, providedApi = locationApi,
-                        pickerTileDownloadsEnabled = false)
+                        pickerTileDownloadsEnabled = false, hideContactDetails = true)
                 }
             }
         }
@@ -124,7 +124,8 @@ class CargoRequestUiTest {
         compose.onNodeWithTag("mobility_send_request").performClick()
         compose.runOnIdle {
             assertEquals("Updated Customer", sent!!.customerName)
-            assertEquals(250.5, sent!!.estimatedWeightKg!!, 0.001)
+            assertEquals(250.5, sent!!.estimatedWeightQuintals!!, 0.001)
+            assertNull(sent!!.estimatedWeightKg)
             assertEquals(9.0, sent!!.originLatitude!!, 0.001)
             assertEquals("CARGO", sent!!.kind)
         }

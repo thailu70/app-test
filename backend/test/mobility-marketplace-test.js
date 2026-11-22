@@ -32,6 +32,11 @@ test('marketplace customer selection, private feed, commission and completion ar
   const service=createMobilityService({now:()=>clock,sendSms:async()=>({sent:false})});await service.init();
   const createVerifiedRequest = async input => service.createRequest(await verifiedMobilityRequest(DB,input));
   const base={kind:'GROUP',people:4,origin:'Addis Ababa',destination:'Adama',travelDate:new Date(clock+86400000).toISOString().slice(0,10),travelTime:'10:30',vehicleType:'MINIVAN_8',customerName:'Private customer',customerPhone:'0911000301',adultConfirmed:true};
+  const cargoWeight=await createVerifiedRequest({...base,kind:'CARGO',people:undefined,cargoDetails:'Cement bags',estimatedWeightQuintals:2.5});
+  assert.equal(cargoWeight.request.estimatedWeightQuintals,2.5);
+  assert.equal(cargoWeight.request.estimatedWeightKg,250,'quintals convert to kilograms only in storage and pricing');
+  assert.equal(Number((await DB.prepare('SELECT estimated_weight_kg FROM mobility_request_market WHERE request_id=?').get(cargoWeight.request.id)).estimated_weight_kg),250);
+  await assert.rejects(createVerifiedRequest({...base,kind:'CARGO',people:undefined,cargoDetails:'Invalid load',estimatedWeightQuintals:1001}),e=>e.status===400);
   const guest=await createVerifiedRequest(base),key=guest.request.id,cap=guest.requestSecret;
   await service.marketplace.updateSettings('usr_adm_root',{groupCommissionPercent:5});
   const feed=await service.marketplace.opportunities('marketplace-group');assert.equal(feed.requests.length,1);assert.equal(JSON.stringify(feed).includes('Private customer'),false);assert.equal(JSON.stringify(feed).includes('+251911000301'),false);

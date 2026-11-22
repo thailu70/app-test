@@ -651,7 +651,8 @@ fun MainTransportApp(viewModel: MainViewModel) {
                             TextButton(onClick = { showDailyCommute = false; passengerService = "TAXI" }, modifier = Modifier.align(Alignment.Start)) { Icon(Icons.Default.ArrowBack, null); Spacer(Modifier.width(7.dp)); Text("Meter Taxi") }
                             Box(Modifier.weight(1f)) { PassengerDashboardScreen(viewModel = viewModel, onOpenProfile = { showProfile = true }) }
                         } else if (passengerService == "INTERCITY") IntercityPassengerScreen(currentLang, { viewModel.setLanguage(it) },
-                            onExit = { passengerService = "TAXI" })
+                            onExit = { passengerService = "TAXI" }, accountName = currentUser?.fullName.orEmpty(),
+                            accountPhone = currentUser?.phone.orEmpty())
                         else if (passengerService == "CARGO" || passengerService == "GROUP") MobilityPassengerScreen(
                             kind = passengerService, language = currentLang, onBack = { passengerService = "TAXI" },
                             startCargoRequest = passengerService == "CARGO", modifier = Modifier.fillMaxSize(),

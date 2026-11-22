@@ -102,26 +102,29 @@ import kotlinx.coroutines.launch
         if (target != null && target.driverId.isNotBlank() && target.vehicleId.isNotBlank()) TaxiTracking.start(context, target)
         else if (TaxiTracking.session?.target?.driverId == userId) TaxiTracking.stop()
     }
-    if (driverMenu) AlertDialog(onDismissRequest = { driverMenu = false }, title = { Text("Driver menu") }, text = {
-        Column {
-            TextButton(onClick = { driverMenu = false; page = "calls"; model.closeTrip() }) { Text("Ride calls") }
-            TextButton(onClick = { driverMenu = false; page = "trips"; model.closeTrip() }) { Text("My trips") }
-            TextButton(onClick = { driverMenu = false; page = "credit"; model.closeTrip() }) { Text("Driver credit") }
-            TextButton(onClick = { driverMenu = false; page = "settings"; model.closeTrip() }) { Text("Alert sound settings") }
-            TextButton(onClick = { driverMenu = false; onExit() }) { Text("Daily commute portal") }
-        }
-    }, confirmButton = { TextButton(onClick = { driverMenu = false }) { Text("Close") } })
     BackHandler { when { driverMenu -> driverMenu = false; state.selectedTrip != null -> model.closeTrip(); page != "calls" -> { page = "calls"; requested = null }; else -> onExit() } }
     Column(Modifier.fillMaxSize().background(CommuteCream)) {
-        TaxiHeader(onMenu = { driverMenu = true }, onDailyCommute = onExit)
+        TaxiHeader(trailing = {
+            TaxiDriverTopMenu(expanded = driverMenu, onExpandedChange = { driverMenu = it },
+                onHome = { page = "calls"; model.closeTrip() },
+                onTrips = { page = "trips"; model.closeTrip() },
+                onCredit = { page = "credit"; model.closeTrip() },
+                onAlertSound = { page = "settings"; model.closeTrip() },
+                onDailyCommute = onExit)
+        })
         TaxiNotice(notice ?: state.message) { notice = null; model.clearMessage() }
         if (state.busy || locating) LinearProgressIndicator(Modifier.fillMaxWidth(), color = CommuteTeal)
         Box(Modifier.weight(1f).smoothPortalMotion("$page:${state.ride?.status}:${state.selectedTrip?.status}")) {
             when {
                 state.selectedTrip != null -> SharedDriverTrip(model, state, ::withFix)
                 state.ride != null -> DriverCurrentRide(model, state, ::withFix, mapTiles, mapApi)
-                page in setOf("street", "offer") -> TaxiTripForm(state, true, page == "street", model, { page = "calls"; requested = null }, acceptRequest = requested,
-                    initialPickup = formPickup, initialOrigin = formPickupName) { input ->
+                page in setOf("street", "offer") -> TaxiTripForm(state = state, driver = true, street = page == "street", model = model,
+                    onClose = { page = "calls"; requested = null }, acceptRequest = requested,
+                    initialPickup = formPickup, initialOrigin = formPickupName, mapTiles = mapTiles, mapApi = mapApi,
+                    onAvailabilityChange = { online, selectedVehicle ->
+                        if (online) withFix { model.online(true, selectedVehicle, it) }
+                        else model.online(false, selectedVehicle, emptyMap())
+                    }, onCreditClick = { page = "credit" }) { input ->
                     if (allowed()) when { page == "street" -> withFix { model.street(input, it) }; requested != null -> model.acceptShared(requested!!.id, input.vehicleId.orEmpty(), input.seats ?: 1, input.farePerSeatEtb ?: 0.0); else -> model.offer(input) }
                 }
                 page == "settings" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(15.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

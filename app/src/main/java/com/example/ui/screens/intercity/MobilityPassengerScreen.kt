@@ -129,12 +129,14 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
                     if (requests.isNotEmpty()) item { Text(t("Your requests", "ጥያቄዎችዎ", "Gaaffilee kee"), color = CommuteInk, fontWeight = FontWeight.Bold) }
                     items(requests, key = { "request:${it.id}" }) { request -> MobilityRequestCard(request) { model.openRequest(request.id) } }
                 }
-                MobilityPhase.SEATS -> item { state.selected?.let { trip -> GroupSeatForm(trip, state, language, model::toggleSeat, model::setAdult, model::book) } }
+                MobilityPhase.SEATS -> item { state.selected?.let { trip -> GroupSeatForm(trip, state, language,
+                    accountName, accountPhone, model::toggleSeat, model::setAdult, model::book) } }
                 MobilityPhase.BOOKING -> item { state.booking?.let { GroupBookingCard(it, state.busy, state.adultConfirmed, model::setAdult, model::checkout, model::checkPayment) } }
                 MobilityPhase.REQUEST -> item {
                      if (kind == "CARGO") CargoRequestForm(state, language, model::setAdult, model::sendRequest,
                          initialDraft = CargoRequestDraft(name = accountName, phone = accountPhone), hideContactDetails = accountName.isNotBlank() && accountPhone.isNotBlank())
-                    else MobilityRequestForm(kind, state, language, model::setAdult, model::sendRequest)
+                    else MobilityRequestForm(kind, state, language, model::setAdult, model::sendRequest,
+                        accountName = accountName, accountPhone = accountPhone)
                 }
                 MobilityPhase.REQUEST_STATUS -> item { state.request?.let { request ->
                     com.example.core.notifications.MobilityNotificationOptIn(driver = false, language = language)
@@ -209,9 +211,21 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
     }
 }
 @Composable private fun GroupSeatForm(trip: MobilityTrip, state: MobilityUiState, language: AppLanguage,
-    toggle: (Int) -> Unit, adult: (Boolean) -> Unit, onBook: (String, String, List<MobilityTraveler>) -> Unit) {
-    var buyerName by remember(trip.id) { mutableStateOf("") }; var buyerPhone by remember(trip.id) { mutableStateOf("") }
+    accountName: String, accountPhone: String, toggle: (Int) -> Unit, adult: (Boolean) -> Unit,
+    onBook: (String, String, List<MobilityTraveler>) -> Unit) {
+    val signedIn = accountName.isNotBlank() && accountPhone.isNotBlank()
+    var buyerName by remember(trip.id, accountName) { mutableStateOf(accountName) }
+    var buyerPhone by remember(trip.id, accountPhone) { mutableStateOf(accountPhone) }
     val names = remember(trip.id) { mutableStateMapOf<Int, String>() }; val phones = remember(trip.id) { mutableStateMapOf<Int, String>() }
+    var useAccountForFirstTraveler by remember(trip.id, accountName, accountPhone) { mutableStateOf(signedIn) }
+    LaunchedEffect(state.seats, accountName, accountPhone, useAccountForFirstTraveler) {
+        val firstSeat = state.seats.firstOrNull()
+        if (signedIn && useAccountForFirstTraveler && firstSeat != null &&
+            names[firstSeat].isNullOrBlank() && phones[firstSeat].isNullOrBlank()) {
+            names[firstSeat] = accountName
+            phones[firstSeat] = accountPhone
+        }
+    }
     MobilityCard {
         Text(intercityText(language, "Choose your seats", "መቀመጫዎችን ይምረጡ", "Teessoo filadhu"), color = PassoMobilityPalette.text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text("${trip.origin} → ${trip.destination}\n${formatIntercityTime(trip.departureAt)}", color = CommuteTeal)
@@ -230,13 +244,35 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
                 repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
-        MobilityField(buyerName, { buyerName = it }, "Buyer’s full name", "group_buyer_name")
-        MobilityField(buyerPhone, { buyerPhone = it }, "Buyer’s phone number", "group_buyer_phone", number = true)
-        state.seats.forEach { seat ->
-            Text("Traveler · Seat $seat", fontWeight = FontWeight.Bold, color = PassoMobilityPalette.text)
-            MobilityField(names[seat].orEmpty(), { names[seat] = it }, "Traveler’s full name", "group_traveler_name_$seat")
-            MobilityField(phones[seat].orEmpty(), { phones[seat] = it }, "Traveler’s phone number", "group_traveler_phone_$seat", number = true)
-            if (state.seats.firstOrNull() == seat) TextButton(onClick = { names[seat] = buyerName; phones[seat] = buyerPhone }) { Text("Use buyer details for this traveler", color = CommuteTeal) }
+        if (signedIn) {
+            Surface(color = CommuteMint, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("Booking with your Passo account", color = CommuteTeal, fontWeight = FontWeight.Bold)
+                    Text("$accountName · $accountPhone", color = PassoMobilityPalette.text, fontSize = 13.sp)
+                }
+            }
+        } else {
+            MobilityField(buyerName, { buyerName = it }, "Buyer’s full name", "group_buyer_name")
+            MobilityField(buyerPhone, { buyerPhone = it }, "Buyer’s phone number", "group_buyer_phone", number = true)
+        }
+        state.seats.forEachIndexed { index, seat ->
+            val accountTraveler = signedIn && index == 0 && useAccountForFirstTraveler
+            Text(if (accountTraveler) "You · Seat $seat" else "Traveler · Seat $seat", fontWeight = FontWeight.Bold, color = PassoMobilityPalette.text)
+            if (accountTraveler) {
+                Text("$accountName · $accountPhone", color = PassoMobilityPalette.muted, fontSize = 13.sp)
+                TextButton(onClick = { useAccountForFirstTraveler = false; names[seat] = ""; phones[seat] = "" }) {
+                    Text("Use another traveler for this seat", color = CommuteTeal)
+                }
+            } else {
+                MobilityField(names[seat].orEmpty(), { names[seat] = it }, "Traveler’s full name", "group_traveler_name_$seat")
+                MobilityField(phones[seat].orEmpty(), { phones[seat] = it }, "Traveler’s phone number", "group_traveler_phone_$seat", number = true)
+                if (signedIn && index == 0) TextButton(onClick = {
+                    useAccountForFirstTraveler = true; names[seat] = accountName; phones[seat] = accountPhone
+                }) { Text("Use my Passo details", color = CommuteTeal) }
+                else if (!signedIn && index == 0) TextButton(onClick = { names[seat] = buyerName; phones[seat] = buyerPhone }) {
+                    Text("Use buyer details for this traveler", color = CommuteTeal)
+                }
+            }
         }
         Text("Total · ETB ${formatIntercityFare(trip.fareEtb * state.seats.size)}", fontSize = 23.sp, fontWeight = FontWeight.Bold, color = PassoMobilityPalette.text)
         MobilityAdult(state.adultConfirmed, !state.busy, adult)
@@ -289,8 +325,10 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
 
 @Composable internal fun MobilityRequestForm(kind: String, state: MobilityUiState, language: AppLanguage,
     onAdult: (Boolean) -> Unit, send: (MobilityRequestInput, ByteArray?, String?) -> Unit,
-    providedApi: MobilityApi? = null, pickerTileDownloadsEnabled: Boolean = true) {
-    var name by remember { mutableStateOf("") }; var phone by remember { mutableStateOf("") }
+    providedApi: MobilityApi? = null, pickerTileDownloadsEnabled: Boolean = true,
+    accountName: String = "", accountPhone: String = "") {
+    val signedIn = accountName.isNotBlank() && accountPhone.isNotBlank()
+    var name by remember(accountName) { mutableStateOf(accountName) }; var phone by remember(accountPhone) { mutableStateOf(accountPhone) }
     var origin by remember { mutableStateOf("") }; var destination by remember { mutableStateOf("") }
     var weight by remember { mutableStateOf("") }; var travelTime by remember { mutableStateOf("08:00") }
     var date by remember { mutableStateOf(intercityToday()) }; var people by remember { mutableStateOf("") }
@@ -315,6 +353,12 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
         }
     }
     val photo = rememberCargoPhoto()
+    fun requestInput(verificationToken: String? = null) = MobilityRequestInput(kind, origin.trim(), destination.trim(), date,
+        people.toIntOrNull(), type, details.trim().takeIf { kind == "CARGO" },
+        (if (signedIn) accountName else name).trim(), (if (signedIn) accountPhone else phone).trim(), state.adultConfirmed,
+        fromPoint?.first, fromPoint?.second, toPoint?.first, toPoint?.second,
+        travelTime = travelTime, otpVerificationToken = verificationToken,
+        estimatedWeightQuintals = weight.toDoubleOrNull().takeIf { kind == "CARGO" })
     if (picking != null && kind != "CARGO") {
         val pickup = picking == "origin"
         MobilityLocationPicker(
@@ -354,10 +398,7 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
                             val result = mobilityBody(locationApi.verifyContactOtp(mapOf("phone" to phone.trim(), "purpose" to purpose, "code" to phoneCode.trim())))
                             check(result.success) { result.error ?: "That code is incorrect or expired." }
                             val token = result.verificationToken?.takeIf { it.length >= 20 } ?: error("The code could not be confirmed. Try again.")
-                            val input = MobilityRequestInput(kind, origin.trim(), destination.trim(), date, people.toIntOrNull(), type,
-                                details.trim().takeIf { kind == "CARGO" }, name.trim(), phone.trim(), state.adultConfirmed,
-                                fromPoint?.first, fromPoint?.second, toPoint?.first, toPoint?.second,
-                                weight.toDoubleOrNull().takeIf { kind == "CARGO" }, travelTime, token)
+                            val input = requestInput(token)
                             showPhoneVerification = false
                             send(input, photo.bytes, photo.type)
                         }
@@ -376,8 +417,17 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
     MobilityCard {
         Text(if (kind == "GROUP") intercityText(language, "Plan a group journey", "የቡድን ጉዞ ይጠይቁ", "Imala garee karoorsi") else intercityText(language, "Tell us about your cargo", "ስለ ጭነትዎ ይግለጹ", "Waa'ee fe'umsa kee ibsi"), color = PassoMobilityPalette.text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text("Nearby available drivers can send quotes. Compare their offers and choose your driver. Sending a request does not collect payment.", color = PassoMobilityPalette.muted, fontSize = 12.sp)
-        MobilityField(name, { name = it }, "Your full name", "request_name")
-        MobilityField(phone, { phone = it }, "Phone number", "request_phone", number = true)
+        if (signedIn) {
+            Surface(color = CommuteMint, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("Using your Passo account", color = CommuteTeal, fontWeight = FontWeight.Bold)
+                    Text("$accountName · $accountPhone", color = PassoMobilityPalette.text, fontSize = 13.sp)
+                }
+            }
+        } else {
+            MobilityField(name, { name = it }, "Your full name", "request_name")
+            MobilityField(phone, { phone = it }, "Phone number", "request_phone", number = true)
+        }
         if (kind == "CARGO") {
             CargoAddressSearchField("Pickup location", origin, locationApi, !state.busy,
                 onValue = { origin = it; fromPoint = null }, onSelect = { origin = it.name; fromPoint = it.latitude to it.longitude }, tag = "request_origin")
@@ -393,14 +443,15 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
         if (kind == "GROUP") MobilityField(people, { people = it.filter(Char::isDigit).take(4) }, "Number of people", "request_people", number = true)
         MobilityVehicleChoice(type, state.types, { type = it }, !state.busy)
         if (kind == "CARGO") {
-            MobilityField(weight, { weight = it.filter { char -> char.isDigit() || char == '.' }.take(12) }, "Estimated cargo weight · kg", "cargo_weight", number = true)
+            MobilityField(weight, { weight = it.filter { char -> char.isDigit() || char == '.' }.take(12) }, "Estimated cargo weight · quintals", "cargo_weight", number = true)
             OutlinedTextField(details, { details = it.take(4000) }, label = { Text("Cargo details, weight, dimensions and handling needs") }, minLines = 3, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().testTag("cargo_details"))
             CargoPhotoChoice(photo, state.busy)
         }
         MobilityAdult(state.adultConfirmed, !state.busy, onAdult)
         val validCargo = kind != "CARGO" || (details.isNotBlank() && (weight.toDoubleOrNull() ?: 0.0) > 0 && photo.bytes != null && fromPoint != null && toPoint != null)
-        MobilityButton("Send request", !state.busy && !photo.busy && state.adultConfirmed && name.isNotBlank() && phone.isNotBlank() && origin.isNotBlank() && destination.isNotBlank() && type.isNotBlank() && validCargo && (kind != "GROUP" || ((people.toIntOrNull() ?: 0) > 0 && fromPoint != null && toPoint != null && fromPoint != toPoint)), "mobility_send_request") {
-            showPhoneVerification = true; otpSent = false; phoneCode = ""; otpMessage = null
+        MobilityButton("Send request", !state.busy && !photo.busy && state.adultConfirmed && (signedIn || (name.isNotBlank() && phone.isNotBlank())) && origin.isNotBlank() && destination.isNotBlank() && type.isNotBlank() && validCargo && (kind != "GROUP" || ((people.toIntOrNull() ?: 0) > 0 && fromPoint != null && toPoint != null && fromPoint != toPoint)), "mobility_send_request") {
+            if (signedIn) send(requestInput(), photo.bytes, photo.type)
+            else { showPhoneVerification = true; otpSent = false; phoneCode = ""; otpMessage = null }
         }
     }
 }
@@ -460,7 +511,7 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
         Text(request.status.replace('_', ' '), color = CommuteTeal, fontWeight = FontWeight.Bold)
         Text("${request.travelDate} · ${request.vehicleType}", fontSize = 13.sp)
         request.people?.let { Text("$it people") }; request.cargoDetails?.let { Text(it) }
-        request.estimatedWeightKg?.let { Text("Estimated weight: $it kg") }
+        (request.estimatedWeightQuintals ?: request.estimatedWeightKg?.div(100.0))?.let { Text("Estimated weight: ${formatIntercityFare(it)} quintals") }
         request.routeDistanceKm?.let { Text("Road distance: ${formatIntercityFare(it)} km") }
         request.driverName?.let { Text("Driver: $it") }; request.driverPhone?.let { Text("Driver phone: $it") }
         request.vehiclePlate?.let { Text("Vehicle: $it") }
