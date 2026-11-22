@@ -186,6 +186,18 @@ app.use('/join', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   next();
 }, express.static(path.join(__dirname, '..', 'public', 'join'), { index: 'index.html', maxAge: 0, etag: false }));
+// Versioned Android installers live in the persistent uploads volume so large APKs
+// do not bloat Git history or the application image.
+const appDownloadsDirectory = path.join(
+  process.env.UPLOAD_DIR || path.join(process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data'), 'uploads'),
+  'app-downloads'
+);
+app.use('/company/downloads', express.static(appDownloadsDirectory, {
+  index: false,
+  dotfiles: 'deny',
+  maxAge: '1d',
+  setHeaders(res) { res.setHeader('Cache-Control', 'public, max-age=86400, immutable'); }
+}));
 app.use('/company', (req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org; font-src 'self'; connect-src 'self' wss:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
