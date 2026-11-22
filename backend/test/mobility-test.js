@@ -145,7 +145,7 @@ test('group approval, multi-person paid tickets, cargo privacy and admin assignm
     const publicTrips=await(await fetch(base+'/trips')).json();assert.equal(publicTrips.success,true);
     const guestInput={...requestBase,kind:'GROUP',people:3};
     const missingOtp=await fetch(base+'/requests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(guestInput)});
-    assert.equal(missingOtp.status,400,'Unverified public requests are rejected.');
+    assert.equal(missingOtp.status,401,'Unverified public requests require phone verification.');
     const guest=await fetch(base+'/requests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(await verifiedMobilityRequest(DB,guestInput))});
     assert.equal(guest.status,201,'Group transport requests need no account or login after phone verification.');
     const cargoInput={...requestBase,kind:'CARGO',cargoDetails:'Guest cargo without registration'};
