@@ -41,9 +41,8 @@ router.post('/request-otp', authLimiter, async (req, res) => {
   const id = 'otp_' + crypto.randomUUID().replace(/-/g, '').slice(0, 20);
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
   let delivery = null;
-  const message = purpose === 'CARGO_REQUEST' || purpose === 'GROUP_REQUEST'
-    ? `PASSO ${purpose === 'CARGO_REQUEST' ? 'cargo' : 'group travel'} request verification code: ${code}. It expires in 10 minutes. Do not share it.`
-    : `PASSO sign-in verification code: ${code}. It expires in 10 minutes. Do not share it.`;
+  const label = purpose === 'CARGO_REQUEST' ? 'cargo request' : purpose === 'GROUP_REQUEST' ? 'group travel request' : purpose === 'REGISTRATION' ? 'registration' : 'sign-in';
+  const message = `PASSO ${label} verification code: ${code}. It expires in 10 minutes. Do not share it.`;
   let alreadySent = false;
   if (phoneGatewayMode && testMode) {
     const created = await DB.transaction(async tx => {

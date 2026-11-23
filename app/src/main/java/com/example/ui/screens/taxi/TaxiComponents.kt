@@ -181,7 +181,8 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
 /** Driver actions use the same compact, top-right dropdown used by passengers. */
 @Composable internal fun TaxiDriverTopMenu(expanded: Boolean, onExpandedChange: (Boolean) -> Unit,
     onHome: () -> Unit, onTrips: () -> Unit, onCredit: () -> Unit, onAlertSound: () -> Unit,
-    onDailyCommute: () -> Unit) {
+    onDailyCommute: (() -> Unit)? = null, onCargoPortal: (() -> Unit)? = null,
+    cargoPortalLabel: String = "Cargo portal", onSignOut: () -> Unit = {}) {
     Box {
         IconButton(onClick = { onExpandedChange(!expanded) }, modifier = Modifier.testTag("taxi_menu_top")) {
             Icon(Icons.Default.Menu, contentDescription = "Open menu", tint = CommuteInk, modifier = Modifier.size(27.dp))
@@ -192,9 +193,15 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
                 Triple("Ride calls", Icons.Default.Home, onHome),
                 Triple("My trips", Icons.Default.LocalTaxi, onTrips),
                 Triple("Driver credit", Icons.Default.AccountBalanceWallet, onCredit),
-                Triple("Alert sound", Icons.Default.NotificationsActive, onAlertSound),
-                Triple("Daily Commute", Icons.Default.DirectionsBus, onDailyCommute)
-            ).forEach { (label, icon, action) ->
+                Triple("Alert sound", Icons.Default.NotificationsActive, onAlertSound)
+            ).let { items ->
+                buildList {
+                    addAll(items)
+                    onDailyCommute?.let { add(Triple("Daily Commute", Icons.Default.DirectionsBus, it)) }
+                    onCargoPortal?.let { add(Triple(cargoPortalLabel, Icons.Default.LocalShipping, it)) }
+                    add(Triple("Sign out", Icons.Default.Logout, onSignOut))
+                }
+            }.forEach { (label, icon, action) ->
                 DropdownMenuItem(text = { Text(label, color = CommuteInk, fontWeight = FontWeight.Medium) },
                     leadingIcon = { Icon(icon, null, tint = CommuteTeal) },
                     onClick = { onExpandedChange(false); action() })

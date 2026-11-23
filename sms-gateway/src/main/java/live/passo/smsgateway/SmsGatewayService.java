@@ -29,7 +29,7 @@ public class SmsGatewayService extends Service {
     private static final String KEY_DEVICE_TOKEN = "device_token_enc";
     private static final String CHANNEL_ID = "passo_sms_gateway";
     private static final int NOTIFICATION_ID = 5091;
-    private static final Pattern OTP_TEXT = Pattern.compile("^PASSO (?:sign-in|cargo request|group travel request) verification code: \\d{6}\\. It expires in 10 minutes\\. Do not share it\\.$");
+    private static final Pattern OTP_TEXT = Pattern.compile("^PASSO (?:sign-in|registration|cargo request|group travel request) verification code: \\d{6}\\. It expires in 10 minutes\\. Do not share it\\.$");
     private static final Pattern PASSO_TRANSACTION_TEXT = Pattern.compile("^(?:PASSO(?:[\\p{L}\\p{N}]+|[ :])|RoutePass(?::| ))[^\\r\\n]{1,480}$");
     private static final Pattern ETHIOPIAN_PHONE = Pattern.compile("^\\+251[79]\\d{8}$");
 
@@ -87,7 +87,7 @@ public class SmsGatewayService extends Service {
             JSONObject response = post("/api/sms-gateway/claim", new JSONObject());
             JSONObject job = response.optJSONObject("job");
             if (job == null || job == JSONObject.NULL) {
-                updateNotification("Connected · waiting for a test sign-in code");
+                updateNotification("Connected · waiting for Passo messages");
                 return;
             }
             deliver(job);
@@ -131,8 +131,17 @@ public class SmsGatewayService extends Service {
             failureReason = "message_policy_rejected";
         } else {
             try {
-                SmsManager.getDefault().sendTextMessage(phone, null, message, null, null);
-                sent = true;
+                SmsManager smsManager = SmsManager.getDefault();
+                java.util.ArrayList<String> parts = smsManager.divideMessage(message);
+                if (parts == null || parts.isEmpty() || parts.size() > 10) {
+                    failureReason = "message_segment_limit";
+                } else if (parts.size() == 1) {
+                    smsManager.sendTextMessage(phone, null, parts.get(0), null, null);
+                    sent = true;
+                } else {
+                    smsManager.sendMultipartTextMessage(phone, null, parts, null, null);
+                    sent = true;
+                }
             } catch (SecurityException error) {
                 failureReason = "sms_permission_denied";
             } catch (IllegalArgumentException error) {

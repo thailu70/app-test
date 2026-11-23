@@ -74,6 +74,7 @@ test('phone gateway sends encrypted OTPs and trip SMS to any valid Ethiopian num
   assert.equal(await gateway.acknowledgeJob(device.deviceId, otpJob.id, otpJob.leaseToken, true, { db: DB }), true);
 
   for (const [purpose, label, id, code] of [
+    ['REGISTRATION', 'registration', 'otp_registration', '234567'],
     ['CARGO_REQUEST', 'cargo request', 'otp_cargo', '345678'],
     ['GROUP_REQUEST', 'group travel request', 'otp_group', '456789']
   ]) {

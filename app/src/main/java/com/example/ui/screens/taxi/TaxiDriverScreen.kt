@@ -42,15 +42,21 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /** Approved taxi and shared-seat work is available alongside the driver's existing services. */
-@Composable fun TaxiDriverScreen(main: MainViewModel, onExit: () -> Unit) {
+@Composable fun TaxiDriverScreen(main: MainViewModel, onExit: () -> Unit,
+    onCargoPortal: (() -> Unit)? = null, onSignOut: () -> Unit = {}) {
     val user by main.currentUser.collectAsState()
     val model = taxiViewModel(true, true)
-    TaxiDriverContent(user?.id.orEmpty(), model, onExit, main = main)
+    TaxiDriverContent(user?.id.orEmpty(), model, onExit, main = main,
+        showDailyCommute = user?.driverServiceType == "DAILY_COMMUTE",
+        onCargoPortal = onCargoPortal?.takeIf { user?.driverServiceType in setOf("CARGO", "GROUP_TRAVEL") },
+        cargoPortalLabel = if (user?.driverServiceType == "GROUP_TRAVEL") "Group travel portal" else "Cargo portal",
+        onSignOut = onSignOut)
 }
 
 @Composable internal fun TaxiDriverContent(userId: String, model: TaxiViewModel, onExit: () -> Unit,
     trackingEnabled: Boolean = true, mapTiles: Boolean = true, mapApi: MobilityApi? = null,
-    main: MainViewModel? = null) {
+    main: MainViewModel? = null, showDailyCommute: Boolean = true, onCargoPortal: (() -> Unit)? = null,
+    cargoPortalLabel: String = "Cargo portal", onSignOut: () -> Unit = {}) {
     val state by model.state.collectAsState()
     val context = LocalContext.current; val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf("calls") }
@@ -116,7 +122,9 @@ import kotlinx.coroutines.launch
         if (target != null && target.driverId.isNotBlank() && target.vehicleId.isNotBlank()) TaxiTracking.start(context, target)
         else if (TaxiTracking.session?.target?.driverId == userId) TaxiTracking.stop()
     }
-    BackHandler { when { driverMenu -> driverMenu = false; state.selectedTrip != null -> model.closeTrip(); page != "calls" -> { page = "calls"; requested = null }; else -> onExit() } }
+    BackHandler(enabled = driverMenu || state.selectedTrip != null || page != "calls" || onCargoPortal != null) {
+        when { driverMenu -> driverMenu = false; state.selectedTrip != null -> model.closeTrip(); page != "calls" -> { page = "calls"; requested = null }; else -> onExit() }
+    }
     Column(Modifier.fillMaxSize().background(CommuteCream)) {
         TaxiHeader(trailing = {
             TaxiDriverTopMenu(expanded = driverMenu, onExpandedChange = { driverMenu = it },
@@ -124,7 +132,10 @@ import kotlinx.coroutines.launch
                 onTrips = { page = "trips"; model.closeTrip() },
                 onCredit = { page = "credit"; model.closeTrip() },
                 onAlertSound = { page = "settings"; model.closeTrip() },
-                onDailyCommute = { page = "commute"; model.closeTrip() })
+                onDailyCommute = if (showDailyCommute) ({ page = "commute"; model.closeTrip() }) else null,
+                onCargoPortal = onCargoPortal,
+                cargoPortalLabel = cargoPortalLabel,
+                onSignOut = onSignOut)
         })
         TaxiNotice(notice ?: state.message) { notice = null; model.clearMessage() }
         if (state.busy || locating) LinearProgressIndicator(Modifier.fillMaxWidth(), color = CommuteTeal)

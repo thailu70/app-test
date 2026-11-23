@@ -88,7 +88,8 @@ fun DriverTripScreen(
     modifier: Modifier = Modifier,
     operationsApi: com.example.data.api.DriverOperationsApi? = null,
     providedProfileApi: com.example.data.api.ProfileApi? = null,
-    onPrivacy: (() -> Unit)? = null
+    onPrivacy: (() -> Unit)? = null,
+    onSignOut: (() -> Unit)? = null
 ) {
     val locationContext = LocalContext.current
     var locationPermissionGranted by remember { mutableStateOf(
@@ -309,6 +310,7 @@ fun DriverTripScreen(
                 item { DriverDocumentsOverview(completionProfile, profileLoading, profileError, language) { documentsOpen = true } }
                 item { DriverMenuRow(driverText(language, "Emergency contact", "የአደጋ ጊዜ ተጠሪ", "Nama yeroo balaa"), driverText(language, "Name, phone and profile details", "ስም፣ ስልክ እና የግል መረጃ", "Maqaa, bilbilaa fi odeeffannoo dhuunfaa"), Icons.Default.ContactPhone) { documentsOpen = true } }
                 item { DriverMenuRow(driverText(language, "Refresh assignments", "ምደባዎችን አድስ", "Ramaddii haaromsi"), driverText(language, "Update your route, vehicle and roster", "መስመር፣ ተሽከርካሪ እና ዝርዝር አድስ", "Karaa, konkolaataa fi tarree haaromsi"), Icons.Default.Refresh) { runAction { if (refreshAssignments()) notice = "Assignments and roster refreshed." } } }
+                onSignOut?.let { signOut -> item { DriverMenuRow(driverText(language, "Sign out", "ውጣ", "Ba'i"), driverText(language, "Sign out of this driver account", "ከዚህ የአሽከርካሪ መለያ ይውጡ", "Herrega oofaa kana keessaa ba'i"), Icons.Default.Logout, signOut) } }
             } else {
                 if (section == "Home" && selectedKey.isNotBlank()) item {
                     DriverBoardingBanner(boardingEnabled, journey?.status == "COMPLETED", driverHasPreciseFix(freshFix, clockNow), busy,

@@ -575,7 +575,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
             // and an operator ONLY sees their operator dashboard.
         ) { innerPadding ->
             androidx.activity.compose.BackHandler(
-                enabled = showPrivacy || showProfile || currentRole != AppRole.PASSENGER ||
+                enabled = showPrivacy || showProfile ||
                     (currentRole == AppRole.PASSENGER && passengerService in setOf("COMMUTE", "COMMUTE_BROWSE"))
             ) {
                 when {
@@ -585,7 +585,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                         passengerService = "TAXI"
                         showDailyCommute = false
                     }
-                    else -> viewModel.logout()
+                    else -> Unit
                 }
             }
             Box(
@@ -642,11 +642,14 @@ fun MainTransportApp(viewModel: MainViewModel) {
                             } })
                     }
                     AppRole.DRIVER -> {
-                        if (showTaxiDriver) com.example.ui.screens.taxi.TaxiDriverScreen(viewModel, onExit = { showTaxiDriver = false })
+                        if (showTaxiDriver) com.example.ui.screens.taxi.TaxiDriverScreen(viewModel,
+                            onExit = { showTaxiDriver = false },
+                            onCargoPortal = { showTaxiDriver = false },
+                            onSignOut = { viewModel.logout() })
                         else Column(Modifier.fillMaxSize()) {
                             TextButton(onClick = { showTaxiDriver = true }, modifier = Modifier.align(Alignment.Start)) { Icon(Icons.Default.LocalTaxi, null); Spacer(Modifier.width(7.dp)); Text("Taxi & shared-ride calls") }
-                            Box(Modifier.weight(1f)) { com.example.ui.screens.intercity.MobilityDriverPortal(viewModel, onPrivacy = { showPrivacy = true }) {
-                                DriverTripScreen(viewModel = viewModel, onPrivacy = { showPrivacy = true })
+                            Box(Modifier.weight(1f)) { com.example.ui.screens.intercity.MobilityDriverPortal(viewModel, onPrivacy = { showPrivacy = true }, onSignOut = { viewModel.logout() }) {
+                                DriverTripScreen(viewModel = viewModel, onPrivacy = { showPrivacy = true }, onSignOut = { viewModel.logout() })
                             } }
                         }
                     }

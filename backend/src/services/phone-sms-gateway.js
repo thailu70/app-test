@@ -235,14 +235,14 @@ async function queueOtp({ otpId, phone, code, db = DB, now = Date.now } = {}) {
   const otp = await db.prepare('SELECT code_hash,purpose,expires_at,verified_at FROM auth_otps WHERE id=? AND phone=? LIMIT 1').get(otpId, normalized);
   const staticTestRecord = isConfiguredTestOtpRecord(getTestLoginOtpConfig(), otp?.code_hash, normalized, 'LOGIN');
   const dynamicCodeMatches = otp?.code_hash === sha256(codeValue);
-  if (!otp || !['LOGIN', 'CARGO_REQUEST', 'GROUP_REQUEST'].includes(otp.purpose) || otp.verified_at || Date.parse(otp.expires_at) <= now() ||
+  if (!otp || !['LOGIN', 'REGISTRATION', 'CARGO_REQUEST', 'GROUP_REQUEST'].includes(otp.purpose) || otp.verified_at || Date.parse(otp.expires_at) <= now() ||
       (!staticTestRecord && !dynamicCodeMatches)) {
     return { queued: false, reason: 'Only active sign-in and public-request codes can use the phone gateway.' };
   }
   const device = await db.prepare('SELECT id,public_key FROM phone_sms_devices WHERE public_key IS NOT NULL AND revoked_at IS NULL AND last_seen_at>? ORDER BY last_seen_at DESC LIMIT 1')
     .get(new Date(now() - 2 * 60 * 1000).toISOString());
   if (!device) return { queued: false, reason: 'The phone SMS gateway is offline.' };
-  const label = otp.purpose === 'CARGO_REQUEST' ? 'cargo request' : otp.purpose === 'GROUP_REQUEST' ? 'group travel request' : 'sign-in';
+  const label = otp.purpose === 'CARGO_REQUEST' ? 'cargo request' : otp.purpose === 'GROUP_REQUEST' ? 'group travel request' : otp.purpose === 'REGISTRATION' ? 'registration' : 'sign-in';
   const payload = Buffer.from(JSON.stringify({
     phone: normalized,
     message: `PASSO ${label} verification code: ${codeValue}. It expires in 10 minutes. Do not share it.`

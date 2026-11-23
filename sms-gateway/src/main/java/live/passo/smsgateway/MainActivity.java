@@ -224,7 +224,7 @@ public class MainActivity extends Activity {
         if (requestCode != REQUEST_GATEWAY_PERMISSIONS) return;
         boolean smsGranted = checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED;
         if (!smsGranted) {
-            statusLabel.setText("SMS permission is needed to send test sign-in codes.");
+            statusLabel.setText("SMS permission is needed to send Passo codes and trip updates.");
             return;
         }
         startGateway();

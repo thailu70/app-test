@@ -56,7 +56,7 @@ import kotlin.coroutines.resumeWithException
 
 /** Resolve service once per authenticated session; daily and company intercity retain their existing portal. */
 @Composable internal fun MobilityDriverPortal(viewModel: MainViewModel, onPrivacy: () -> Unit,
-    fallback: @Composable () -> Unit) {
+    onSignOut: () -> Unit = {}, fallback: @Composable () -> Unit) {
     val user by viewModel.currentUser.collectAsState(); val language by viewModel.currentLanguage.collectAsState()
     val api = remember(user?.id) { ApiClient.getAuthToken()?.takeIf { it.isNotBlank() }?.let { ApiClient.createSessionService(MobilityApi::class.java, it) } ?: ApiClient.createFeatureService(MobilityApi::class.java) }
     var dashboard by remember(user?.id) { mutableStateOf<MobilityDriverDashboard?>(null) }
@@ -71,7 +71,7 @@ import kotlin.coroutines.resumeWithException
     val result = dashboard
     if (result != null && result.serviceType !in setOf("GROUP_TRAVEL", "CARGO")) { fallback(); return }
     if (result != null) {
-        MobilityDriverScreen(api, result, language, { refresh++ }, onPrivacy)
+        MobilityDriverScreen(api, result, language, { refresh++ }, onPrivacy, onSignOut)
     } else Column(Modifier.fillMaxSize().background(CommuteCream).padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         if (error == null) { CircularProgressIndicator(color = CommuteTeal); Text("Opening your driver portal…", Modifier.padding(top = 14.dp), color = CommuteInk) }
         else { Text(error.orEmpty(), color = CommuteInk); TextButton(onClick = { refresh++ }) { Text("Try again") } }
@@ -79,7 +79,7 @@ import kotlin.coroutines.resumeWithException
 }
 
 @Composable internal fun MobilityDriverScreen(api: MobilityApi, initial: MobilityDriverDashboard,
-    language: AppLanguage, refreshParent: () -> Unit, onPrivacy: () -> Unit) {
+    language: AppLanguage, refreshParent: () -> Unit, onPrivacy: () -> Unit, onSignOut: () -> Unit = {}) {
     var dashboard by remember(initial) { mutableStateOf(initial) }
     var busy by remember { mutableStateOf(false) }; var notice by remember { mutableStateOf<String?>(null) }
     var proposing by remember { mutableStateOf(false) }; var selectedTrip by remember { mutableStateOf<MobilityTrip?>(null) }
@@ -148,6 +148,7 @@ import kotlin.coroutines.resumeWithException
             if (proposing || selectedTrip != null) IconButton(onClick = { proposing = false; selectedTrip = null }) { Icon(Icons.Default.ArrowBack, "Back", tint = CommuteInk) }
             Text(when { proposing -> "New group journey"; selectedTrip != null -> "Trip & travelers"; group -> intercityText(language, "Your group jobs", "የቡድን ጉዞ ሥራዎችዎ", "Hojii imala garee kee"); else -> intercityText(language, "Your cargo jobs", "የጭነት ሥራዎችዎ", "Hojii fe'umsaa kee") }, fontWeight = FontWeight.Bold, fontSize = 25.sp, color = CommuteInk, modifier = Modifier.weight(1f).padding(start = if (proposing || selectedTrip != null) 0.dp else 4.dp))
             IconButton(onClick = { runAction { refresh(); refreshParent() } }, enabled = !busy) { Icon(Icons.Default.Refresh, "Refresh", tint = CommuteTeal) }
+            IconButton(onClick = onSignOut, modifier = Modifier.testTag("mobility_driver_sign_out")) { Icon(Icons.Default.Logout, "Sign out", tint = CommuteTeal) }
         }
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = CommuteTeal)
         LazyColumn(Modifier.weight(1f).testTag("mobility_driver_content"), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

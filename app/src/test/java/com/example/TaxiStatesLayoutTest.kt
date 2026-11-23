@@ -130,6 +130,34 @@ class TaxiStatesLayoutTest {
         compose.onNodeWithText("Daily commute routes").assertIsDisplayed()
         compose.runOnIdle { check(!exited) { "Daily commute must stay inside the driver portal." } }
     }
+    @Test fun `taxi driver menu exposes cargo return and explicit sign out`() {
+        var exited = false
+        var signedOut = false
+        compose.setContent { MyApplicationTheme {
+            val vm = remember { TaxiViewModel(api(), true, true) }
+            TaxiDriverContent("driver-fixture", vm, { exited = true }, trackingEnabled = false, mapTiles = false,
+                onCargoPortal = { exited = true }, onSignOut = { signedOut = true })
+        } }
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("taxi_menu_top").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("taxi_menu_top").performClick()
+        compose.onNodeWithText("Cargo portal").assertIsDisplayed().performClick()
+        compose.runOnIdle { check(exited && !signedOut) }
+        compose.onNodeWithTag("taxi_menu_top").performClick()
+        compose.onNodeWithText("Sign out").assertIsDisplayed().performClick()
+        compose.runOnIdle { check(signedOut) }
+    }
+    @Test fun `taxi portal hides services not approved for this driver`() {
+        compose.setContent { MyApplicationTheme {
+            val vm = remember { TaxiViewModel(api(), true, true) }
+            TaxiDriverContent("driver-fixture", vm, {}, trackingEnabled = false, mapTiles = false,
+                showDailyCommute = false, onCargoPortal = {}, cargoPortalLabel = "Cargo portal")
+        } }
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("taxi_menu_top").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("taxi_menu_top").performClick()
+        compose.onNodeWithText("Cargo portal").assertIsDisplayed()
+        compose.onNodeWithText("Daily Commute").assertDoesNotExist()
+        compose.onNodeWithText("Sign out").assertIsDisplayed()
+    }
     private fun shared() {
         compose.setContent { MyApplicationTheme { val vm = remember { TaxiViewModel(api(), false, false) }
             Column(Modifier.fillMaxSize().background(CommuteCream)) { TaxiHeader("Group Ride")
