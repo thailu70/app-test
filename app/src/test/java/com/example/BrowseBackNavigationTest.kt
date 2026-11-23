@@ -53,11 +53,9 @@ class BrowseBackNavigationTest {
     }
 
     private fun enterDailyRoutes() {
-        compose.onNodeWithTag("welcome_service_PASSENGER").performClick()
-        compose.onNodeWithTag("welcome_continue").performClick()
-        // Passenger now opens taxi discovery; Daily Commute remains an explicit destination.
+        // The taxi meter is the passenger landing page; Daily Commute is a service inside it.
         compose.onNodeWithTag("taxi_where_to").assertIsDisplayed()
-        compose.onNodeWithTag("taxi_daily_commute").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("taxi_service_COMMUTE").assertIsDisplayed().performClick()
         assertDailyRoutes()
     }
 

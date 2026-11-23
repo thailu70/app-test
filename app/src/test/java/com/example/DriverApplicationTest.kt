@@ -23,14 +23,15 @@ class DriverApplicationTest {
         arrayOf(RoutePassApiService::class.java)) { _, method, args -> block(method.name, args) } as RoutePassApiService
     @After fun clearToken() { ApiClient.setAuthToken(null) }
 
-    @Test fun `driver signup uses shared application contract and cannot create an operational session`() = runBlocking {
+    @Test fun `driver signup uses OTP application contract and cannot create an operational session`() = runBlocking {
         ApiClient.setAuthToken("existing-operational-session")
-        val input = DriverApplicationInput("Fixture Driver", "0912000111", "fixture-password", "LIC-1",
+        val input = DriverApplicationInput("Fixture Driver", "0912000111", "", "LIC-1",
             assignedVehiclePlate = "FIXTURE-1", vehicleModel = "Minivan", vehicleType = "MINIVAN_8", routeChoice = "PROPOSED",
-            proposedDeparture = "Bole", proposedDestination = "CMC", proposedMonthlyFeeEtb = 20000.0, proposedMonthlyFeeBasis = "PER_VEHICLE")
+            proposedDeparture = "Bole", proposedDestination = "CMC", proposedMonthlyFeeEtb = 20000.0,
+            proposedMonthlyFeeBasis = "PER_VEHICLE", verificationToken = "verified-driver-phone-token")
         var captured: DriverApplicationInput? = null
         val applications = DriverApplicationRepository(fake { method, args ->
-            assertEquals("registerDriverApplication", method); captured = args!![0] as DriverApplicationInput
+            assertEquals("registerDriverApplicationWithOtp", method); captured = args!![0] as DriverApplicationInput
             Response.success(snapshot())
         })
         applications.register(input)
@@ -40,8 +41,8 @@ class DriverApplicationTest {
         assertNull("The private scoped capability is not exposed as UI state", applications.state.value.application!!.token)
         assertFalse(applications.state.value.application!!.approved)
         assertEquals("existing-operational-session", ApiClient.getAuthToken())
-        val method = RoutePassApiService::class.java.methods.single { it.name == "registerDriverApplication" }
-        assertEquals("api/onboarding/register", method.getAnnotation(POST::class.java).value)
+        val method = RoutePassApiService::class.java.methods.single { it.name == "registerDriverApplicationWithOtp" }
+        assertEquals("api/onboarding/register-otp", method.getAnnotation(POST::class.java).value)
     }
 
     @Test fun `pending application credentials stay scoped across profile documents submit and approval refresh`() = runBlocking {
