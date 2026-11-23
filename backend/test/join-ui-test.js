@@ -57,7 +57,7 @@ test('public forms always send daily commute driver ownership fields despite sta
   const input={fullName:' Applicant ',phone:'0912345678',password:'secret password',companyName:'Company',companyId:'existing-company',serviceType:'INTERCITY',licenseNumber:'LICENCE',assignedVehiclePlate:'HIDDEN',vehicleModel:'HIDDEN',vehicleType:'MINIBUS_14'};
   for(const role of ['DRIVER','COMPANY','PASSENGER']){
     const actual=portal.accountPayload(role,'register',input);assert.equal(actual.role,'DRIVER');assert.equal(actual.serviceType,'DAILY_COMMUTE');assert.equal(actual.assignedVehiclePlate,'HIDDEN');assert.equal(actual.companyId,undefined);assert.equal(actual.companyName,undefined);
-    assert.deepEqual(portal.accountPayload(role,'login',input),{role:'DRIVER',phone:'0912345678',password:'secret password'});
+    assert.deepEqual(portal.accountPayload(role,'login',input),{role:'DRIVER',phone:'0912345678'});
   }
   assert.equal(portal.isDailyDriverAccount({role:'DRIVER',companyId:''}),true);
   for(const account of [{role:'COMPANY'},{role:'DRIVER',companyId:'company'},{role:'PASSENGER'},null])assert.equal(portal.isDailyDriverAccount(account),false);
@@ -120,7 +120,7 @@ test('daily-driver controls cannot be switched to a different role or service an
     for(const name of ['proposedDeparture','proposedDestination','proposedMonthlyFeeEtb','vehicleType'])assert.equal(control(name).required,true,name);
   }
   portal.applyRegistrationFields(controls,'DRIVER','login','DAILY_COMMUTE');
-  assert.deepEqual(controls.filter(item=>!item.disabled).map(item=>item.name).sort(),['password','phone']);
+  assert.deepEqual(controls.filter(item=>!item.disabled).map(item=>item.name).sort(),['phone']);
 });
 
 test('adult registration acknowledgement is explicit, translated, reset between access modes and never posted as an age-verification claim',()=>{
@@ -267,7 +267,8 @@ test('frontend API client completes driver details and immediate uploads before 
   assert.equal(portal.onboardingAccess(daily.onboarding).locked,false);assert.equal(daily.onboarding.profile.emergencyContactName,'Local Contact');assert.equal(daily.onboarding.profile.vehicleColor,'Teal');
   await api('/request-otp',{method:'POST',body:{}});
   await api('/documents/PHOTO',{method:'PUT',raw:new Blob([png],{type:'image/png'})});
-  assert.ok((await api('/login',{method:'POST',anonymous:true,body:portal.accountPayload('DRIVER','login',dailyInput)})).token,'Waiting drivers can sign in without requesting OTP.');
+  assert.deepEqual(portal.accountPayload('DRIVER','login',dailyInput),{role:'DRIVER',phone:'0912346703'},'Driver portal login submits the phone only and uses the OTP flow.');
+  assert.ok(daily.token,'Registration keeps the driver signed in while the application is completed.');
   const unlocked=await api('/me');assert.equal(portal.onboardingAccess(unlocked.onboarding).locked,false);assert.equal(unlocked.onboarding.reviewStatus,'DRAFT');
   await api('/verify-otp',{method:'POST',body:{code:sent.at(-1).code}});
   for(const kind of unlocked.onboarding.requiredDocuments)await api('/documents/'+kind,{method:'PUT',raw:new Blob([png],{type:'image/png'})});

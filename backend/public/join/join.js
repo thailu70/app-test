@@ -113,6 +113,9 @@
     taxiStepAccountBody:['Add your licence and vehicle details.','የመንጃ ፈቃድና የተሽከርካሪ መረጃዎን ያስገቡ።','Odeeffannoo hayyamaa fi konkolaataa galchaa.'],
     dailyOnly:['This page supports independent Meter Taxi, daily commute, group travel and cargo drivers. Contact support for company accounts.','ይህ ገጽ የሜትር ታክሲ፣ የዕለታዊ፣ የቡድን እና የጭነት ሹፌሮችን ይደግፋል። ለኩባንያ መለያ ድጋፍን ያግኙ።','Fuulli kun konkolaachistoota dhuunfaa taaksii meetiraa, imala guyyaa, garee fi feʼumsaa deeggara. Herrega dhaabbataaf deeggarsa qunnamaa.']
   });
+  Object.assign(words, {
+    loginOtpHelp:['We’ll text a one-time code to this number.','የአንድ ጊዜ ኮድ ወደዚህ ቁጥር በSMS እንልካለን።','Koodii yeroo tokkoo gara lakkoofsa kanaatti SMS erginna.']
+  });
   const DRIVER_SERVICES=['DAILY_COMMUTE','TAXI','GROUP_TRAVEL','CARGO'];
   const driverService=value=>DRIVER_SERVICES.includes(value)?value:'DAILY_COMMUTE';
   const uploadProblem = (file, kind) => !file || !Number.isFinite(file.size) || file.size <= 0 || file.size > 5*1024*1024 ? 'fileSize' : !(kind === 'PHOTO' ? ['image/jpeg','image/png'] : ['image/jpeg','image/png','application/pdf']).includes(file.type) ? kind === 'PHOTO' ? 'photoType' : 'fileType' : null;
@@ -243,7 +246,7 @@
     const recover=createRecoveryClient({fetchFn:window.fetch.bind(window)});
     try { token=window.sessionStorage.getItem(TOKEN_KEY)||''; language=window.sessionStorage.getItem('passo.join.language')||'en'; } catch (_) {}
     if (!(language in languageIndex)) language='en';
-    const loginOtpCopy={loginOtpHelp:['We’ll text a one-time code to this number.','የአንድ ጊዜ ኮድ ወደዚህ ቁጥር በSMS እንልካለን።','Koodii yeroo tokkoo gara lakkoofsa kanaatti SMS erginna.'],verifyLogin:['Verify and sign in','አረጋግጥ እና ግባ','Mirkaneessiitii seeni.'],sendLoginCode:['Send sign-in code','የመግቢያ ኮድ ላክ','Koodii seensaa ergi.']};
+    const loginOtpCopy={verifyLogin:['Verify and sign in','አረጋግጥ እና ግባ','Mirkaneessiitii seeni.'],sendLoginCode:['Send sign-in code','የመግቢያ ኮድ ላክ','Koodii seensaa ergi.']};
     const t=key=>loginOtpCopy[key]?.[['en','am','om'].indexOf(language)]||translate(key,language);
     function message(selector,text,error=false) { const element=$(selector); element.textContent=text||''; element.classList.toggle('error',error); }
     function errorMessage(error) { return error.network?t('networkError'):error.server?error.message:t('genericError'); }

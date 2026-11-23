@@ -67,6 +67,30 @@ class TaxiLayoutTest {
             else -> error("Unexpected ${method.name}")
         }
     } as TaxiApi
+    @Test fun `sign-in chooser uses OTP-style role cards before passenger phone prompt`() {
+        compose.setContent { MyApplicationTheme {
+            val vm = androidx.compose.runtime.remember { TaxiViewModel(api(), false, false) }
+            TaxiPassengerContent(main, false, vm, {}, {}, {}, onDriverSignIn = {}, mapTiles = false)
+        } }
+        compose.onNodeWithTag("taxi_sign_in").performClick()
+        compose.onNodeWithTag("taxi_sign_in_chooser").assertIsDisplayed()
+        compose.onNodeWithTag("taxi_sign_in_continue").assertIsNotEnabled()
+        compose.onNodeWithTag("taxi_sign_in_passenger").performClick()
+        compose.onNodeWithTag("taxi_sign_in_continue").assertIsEnabled().performClick()
+        compose.onNodeWithTag("taxi_phone_dialog").assertIsDisplayed()
+    }
+
+    @Test fun `sign-in chooser continues to driver authentication`() {
+        var openedDriver = false
+        compose.setContent { MyApplicationTheme {
+            val vm = androidx.compose.runtime.remember { TaxiViewModel(api(), false, false) }
+            TaxiPassengerContent(main, false, vm, {}, {}, {}, onDriverSignIn = { openedDriver = true }, mapTiles = false)
+        } }
+        compose.onNodeWithTag("taxi_sign_in").performClick()
+        compose.onNodeWithTag("taxi_sign_in_driver").performClick()
+        compose.onNodeWithTag("taxi_sign_in_continue").performClick()
+        compose.runOnIdle { check(openedDriver) { "Driver selection must continue to driver authentication." } }
+    }
     @Test fun `taxi landing keeps destination first, group ad and services visible before ride tiers`() {
         var commute = 0
         compose.setContent { MyApplicationTheme { val vm = androidx.compose.runtime.remember { TaxiViewModel(api(), false, false) }

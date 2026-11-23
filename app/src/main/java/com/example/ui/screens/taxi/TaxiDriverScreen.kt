@@ -10,6 +10,8 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -27,6 +29,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import com.example.data.api.*
+import com.example.data.entity.RouteEntity
+import com.example.data.entity.monthlyFareForClass
 import com.example.ui.components.PassoMobilityPalette
 import com.example.ui.screens.driver.DriverQrScannerDialog
 import com.example.ui.screens.intercity.freshMobilityLocation
@@ -41,11 +45,12 @@ import kotlinx.coroutines.launch
 @Composable fun TaxiDriverScreen(main: MainViewModel, onExit: () -> Unit) {
     val user by main.currentUser.collectAsState()
     val model = taxiViewModel(true, true)
-    TaxiDriverContent(user?.id.orEmpty(), model, onExit)
+    TaxiDriverContent(user?.id.orEmpty(), model, onExit, main = main)
 }
 
 @Composable internal fun TaxiDriverContent(userId: String, model: TaxiViewModel, onExit: () -> Unit,
-    trackingEnabled: Boolean = true, mapTiles: Boolean = true, mapApi: MobilityApi? = null) {
+    trackingEnabled: Boolean = true, mapTiles: Boolean = true, mapApi: MobilityApi? = null,
+    main: MainViewModel? = null) {
     val state by model.state.collectAsState()
     val context = LocalContext.current; val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf("calls") }
@@ -55,6 +60,7 @@ import kotlinx.coroutines.launch
     var locating by remember { mutableStateOf(false) }
     var requested by remember { mutableStateOf<SharedRideTrip?>(null) }
     var driverLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var driverFix by remember { mutableStateOf<MobilityLocation?>(null) }
     var formPickup by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var formPickupName by remember { mutableStateOf("Your location") }
     var requestPool by remember { mutableStateOf("TAXI") }
@@ -81,7 +87,15 @@ import kotlinx.coroutines.launch
     fun withFix(action: (Map<String, Any>) -> Unit) {
         if (locating || !allowed()) return
         locating = true; scope.launch {
-            try { val location = freshMobilityLocation(context); check(usableTaxiFix(location)) { "Use a fresh, precise, non-simulated GPS location." }; driverLocation = location.latitude to location.longitude; action(location.taxiBody()) }
+            try {
+                val location = freshMobilityLocation(context)
+                check(usableTaxiFix(location)) { "Use a fresh, precise, non-simulated GPS location." }
+                driverLocation = location.latitude to location.longitude
+                driverFix = MobilityLocation(location.latitude, location.longitude,
+                    java.time.Instant.ofEpochMilli(location.time).toString(),
+                    if (location.hasAccuracy()) location.accuracy.toDouble() else null)
+                action(location.taxiBody())
+            }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { notice = e.message ?: "A fresh GPS location is required." }
             finally { locating = false }
@@ -110,7 +124,7 @@ import kotlinx.coroutines.launch
                 onTrips = { page = "trips"; model.closeTrip() },
                 onCredit = { page = "credit"; model.closeTrip() },
                 onAlertSound = { page = "settings"; model.closeTrip() },
-                onDailyCommute = onExit)
+                onDailyCommute = { page = "commute"; model.closeTrip() })
         })
         TaxiNotice(notice ?: state.message) { notice = null; model.clearMessage() }
         if (state.busy || locating) LinearProgressIndicator(Modifier.fillMaxWidth(), color = CommuteTeal)
@@ -118,6 +132,7 @@ import kotlinx.coroutines.launch
             when {
                 state.selectedTrip != null -> SharedDriverTrip(model, state, ::withFix)
                 state.ride != null -> DriverCurrentRide(model, state, ::withFix, mapTiles, mapApi)
+                page == "commute" -> DriverDailyCommuteBrowse(main = main, onBack = { page = "calls" })
                 page in setOf("street", "offer") -> TaxiTripForm(state = state, driver = true, street = page == "street", model = model,
                     onClose = { page = "calls"; requested = null }, acceptRequest = requested,
                     initialPickup = formPickup, initialOrigin = formPickupName, mapTiles = mapTiles, mapApi = mapApi,
@@ -152,7 +167,7 @@ import kotlinx.coroutines.launch
                             val requestMarkers = dashboard.calls.map { TaxiNearbyCar(it.originLatitude, it.originLongitude, it.tier) } +
                                 dashboard.sharedRequests.map { TaxiNearbyCar(it.originLatitude, it.originLongitude, "GROUP") }
                             Box(Modifier.fillMaxWidth().height(250.dp).clip(RoundedCornerShape(22.dp))) {
-                                TaxiMap(driverLocation, null, height = 250, pickupLabel = "Your location", destinationLabel = "",
+                            TaxiMap(null, null, driver = driverFix, height = 250, pickupLabel = "Your location", destinationLabel = "",
                                     tileDownloadsEnabled = mapTiles, providedApi = mapApi, nearbyCars = requestMarkers)
                                 Surface(Modifier.align(Alignment.TopStart).padding(10.dp), color = PassoMobilityPalette.card.copy(alpha = .96f),
                                     shape = RoundedCornerShape(18.dp), shadowElevation = 3.dp) {
@@ -251,6 +266,96 @@ import kotlinx.coroutines.launch
                             }
                         }
                     } else { CircularProgressIndicator(color = CommuteTeal); TextButton(onClick = { model.refresh() }) { Text("Refresh driver access") } }
+                }
+            }
+        }
+    }
+}
+
+@Composable private fun DriverDailyCommuteBrowse(main: MainViewModel?, onBack: () -> Unit) {
+    if (main == null) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("driver_daily_commute_routes"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Daily commute routes", color = CommuteInk, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp)
+            Text("Route listings are unavailable right now.", color = CommuteInk)
+        }
+        return
+    }
+    val routes by main.activeRoutes.collectAsState()
+    val loading by main.publicRoutesLoading.collectAsState()
+    val error by main.publicRoutesError.collectAsState()
+    LaunchedEffect(main) { main.refreshPublicRoutes() }
+    val available = routes.filter { it.active }
+    Column(Modifier.fillMaxSize().background(CommuteCream).testTag("driver_daily_commute_routes")) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack, modifier = Modifier.testTag("driver_commute_back")) {
+                Icon(Icons.Default.ArrowBack, "Back to taxi calls", tint = CommuteInk)
+            }
+            Column(Modifier.weight(1f)) {
+                Text("Daily commute routes", color = CommuteInk, fontWeight = FontWeight.ExtraBold, fontSize = 21.sp)
+                Text("Available routes", color = CommuteTeal, fontSize = 12.sp)
+            }
+            IconButton(onClick = main::refreshPublicRoutes, enabled = !loading, modifier = Modifier.testTag("driver_commute_refresh")) {
+                Icon(Icons.Default.Refresh, "Refresh routes", tint = CommuteTeal)
+            }
+        }
+        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = CommuteTeal)
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 15.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            error?.let { message -> item {
+                Surface(color = Color.White, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(message, color = CommuteInk)
+                        TextButton(onClick = main::refreshPublicRoutes, enabled = !loading) { Text("Try again", color = CommuteTeal) }
+                    }
+                }
+            } }
+            if (!loading && error == null && available.isEmpty()) item {
+                Surface(color = Color.White, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                    Text("No daily commute routes are available yet.", Modifier.padding(16.dp), color = CommuteInk)
+                }
+            }
+            items(available, key = { it.id }) { route -> DriverCommuteRouteCard(route) }
+        }
+    }
+}
+
+@Composable private fun DriverCommuteRouteCard(route: RouteEntity) {
+    Surface(color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, shape = RoundedCornerShape(18.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, PassoMobilityPalette.border), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.DirectionsBus, null, tint = PassoMobilityPalette.brand)
+                Spacer(Modifier.width(9.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(route.name, color = PassoMobilityPalette.text, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                    if (route.nameAm.isNotBlank()) Text(route.nameAm, color = PassoMobilityPalette.muted, fontSize = 13.sp)
+                }
+                Surface(color = CommuteMint, shape = RoundedCornerShape(20.dp)) {
+                    Text("Active", Modifier.padding(horizontal = 10.dp, vertical = 5.dp), color = PassoMobilityPalette.brand, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            HorizontalDivider(color = PassoMobilityPalette.border)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text("Morning pickup", color = PassoMobilityPalette.muted, fontSize = 11.sp)
+                    Text(route.morningDeparture.ifBlank { "Not set" }, color = PassoMobilityPalette.text, fontWeight = FontWeight.SemiBold)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("Evening return", color = PassoMobilityPalette.muted, fontSize = 11.sp)
+                    Text(route.eveningDeparture.ifBlank { "Not set" }, color = PassoMobilityPalette.text, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            val fares = listOf("Economy", "Deluxe", "VIP").mapNotNull { tier -> route.monthlyFareForClass(tier)?.let { tier to it } }
+            if (fares.isNotEmpty()) {
+                Text("Passenger monthly fares", color = PassoMobilityPalette.muted, fontSize = 11.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    fares.forEach { (tier, fare) ->
+                        Surface(color = CommuteMint, shape = RoundedCornerShape(10.dp), modifier = Modifier.weight(1f)) {
+                            Column(Modifier.padding(8.dp)) {
+                                Text(tier, color = PassoMobilityPalette.muted, fontSize = 10.sp)
+                                Text(taxiMoney(fare), color = PassoMobilityPalette.brand, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
             }
         }

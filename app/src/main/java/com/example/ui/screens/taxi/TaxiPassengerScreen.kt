@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -146,6 +147,7 @@ private fun isGenericTaxiPickupLabel(value: String): Boolean =
     var showNamePrompt by remember { mutableStateOf(false) }
     var showDestinationSearch by remember { mutableStateOf(false) }
     var showSignInChooser by remember { mutableStateOf(false) }
+    var selectedSignInRole by remember { mutableStateOf<AppRole?>(null) }
     var destinationQuery by remember { mutableStateOf("") }
     var continueRequestAfterSignIn by remember { mutableStateOf(pending?.requestAfterSignIn == true) }
     var requestSubmittedAfterSignIn by remember { mutableStateOf(false) }
@@ -168,7 +170,7 @@ private fun isGenericTaxiPickupLabel(value: String): Boolean =
             com.example.core.notifications.RideNotificationNavigation.consumeFocus()
         }
     }
-    val chooseSignIn: () -> Unit = { showSignInChooser = true }
+    val chooseSignIn: () -> Unit = { selectedSignInRole = null; showSignInChooser = true }
     fun locatePickup() {
         if (locating) return
         if (!taxiLocationPermission(context)) { localNotice = "Turn on location to estimate your fare."; return }
@@ -376,23 +378,56 @@ private fun isGenericTaxiPickupLabel(value: String): Boolean =
             }
         }
     }
-    if (showSignInChooser) AlertDialog(
-        onDismissRequest = { showSignInChooser = false },
-        title = { Text("Sign in as", color = CommuteInk, fontWeight = FontWeight.ExtraBold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Choose your Passo account type.", color = Color(0xFF627385), fontSize = 14.sp)
-                OutlinedButton(onClick = { showSignInChooser = false; showPhonePrompt = true }, modifier = Modifier.fillMaxWidth().testTag("taxi_sign_in_passenger")) {
-                    Icon(Icons.Default.DirectionsBus, null, tint = CommuteTeal); Spacer(Modifier.width(9.dp)); Text("Passenger", color = CommuteInk, fontWeight = FontWeight.Bold)
+    if (showSignInChooser) Dialog(
+        onDismissRequest = { showSignInChooser = false; selectedSignInRole = null },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(color = Color.White, shape = RoundedCornerShape(30.dp), tonalElevation = 0.dp,
+            modifier = Modifier.fillMaxWidth(.92f).testTag("taxi_sign_in_chooser")) {
+            Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(color = CommuteMint, shape = RoundedCornerShape(16.dp), modifier = Modifier.size(52.dp)) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.PhoneAndroid, null, tint = TaxiBrandEmerald, modifier = Modifier.size(27.dp))
+                            Icon(Icons.Default.VerifiedUser, null, tint = TaxiBrandEmerald, modifier = Modifier.size(15.dp).align(Alignment.BottomEnd).padding(1.dp))
+                        }
+                    }
+                    Text("Sign in to Passo", Modifier.weight(1f).padding(start = 12.dp), color = CommuteInk, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
+                    IconButton(onClick = { showSignInChooser = false; selectedSignInRole = null }, modifier = Modifier.testTag("taxi_sign_in_close")) {
+                        Icon(Icons.Default.Close, "Close", tint = Color(0xFF55656C))
+                    }
                 }
-                OutlinedButton(onClick = { showSignInChooser = false; onDriverSignIn() }, modifier = Modifier.fillMaxWidth().testTag("taxi_sign_in_driver")) {
-                    Icon(Icons.Default.Person, null, tint = CommuteTeal); Spacer(Modifier.width(9.dp)); Text("Driver", color = CommuteInk, fontWeight = FontWeight.Bold)
+                Text("Choose how you use Passo.", color = Color(0xFF586870), fontSize = 14.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    SignInRoleCard("Passenger", "Book rides", Icons.Default.PersonOutline,
+                        selected = selectedSignInRole == AppRole.PASSENGER, tag = "taxi_sign_in_passenger",
+                        modifier = Modifier.weight(1f)) { selectedSignInRole = AppRole.PASSENGER }
+                    SignInRoleCard("Driver", "Manage trips", Icons.Default.DriveEta,
+                        selected = selectedSignInRole == AppRole.DRIVER, tag = "taxi_sign_in_driver",
+                        modifier = Modifier.weight(1f)) { selectedSignInRole = AppRole.DRIVER }
+                }
+                Button(
+                    onClick = {
+                        when (selectedSignInRole) {
+                            AppRole.PASSENGER -> { showSignInChooser = false; showPhonePrompt = true }
+                            AppRole.DRIVER -> { showSignInChooser = false; onDriverSignIn() }
+                            else -> Unit
+                        }
+                        selectedSignInRole = null
+                    },
+                    enabled = selectedSignInRole != null,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("taxi_sign_in_continue"),
+                    shape = RoundedCornerShape(22.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = TaxiBrandEmerald, disabledContainerColor = Color(0xFFB7C4BF))
+                ) { Text("Continue", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                    Icon(Icons.Default.VerifiedUser, null, tint = TaxiBrandEmerald, modifier = Modifier.size(19.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Use phone number and OTP", color = Color(0xFF586870), fontSize = 13.sp)
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = { showSignInChooser = false }) { Text("Cancel", color = CommuteTeal) } },
-        containerColor = Color.White.copy(alpha = .95f), tonalElevation = 0.dp, shape = RoundedCornerShape(26.dp)
-    )
+        }
+    }
     if (showPhonePrompt) Dialog(
         onDismissRequest = { if (!sendingSignInCode) { showPhonePrompt = false; continueRequestAfterSignIn = false; TaxiPendingNavigation.clear() } },
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -1052,5 +1087,42 @@ private fun TaxiGuestTopMenu(expanded: Boolean, onExpandedChange: (Boolean) -> U
             if (state.rides.isEmpty() && state.bookings.isEmpty() && state.myTrips.isEmpty()) Text("Your taxi and shared-seat trips will appear here.", color = Color(0xFF627385))
         }
         TextButton(onClick = onShared) { Text("Find a Group Ride") }
+    }
+}
+
+@Composable private fun SignInRoleCard(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean,
+    tag: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val surfaceColor by animateColorAsState(
+        targetValue = if (selected) Color(0xFFE5F4EB) else Color.White,
+        animationSpec = tween(180), label = "Sign-in role surface"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (selected) TaxiBrandEmerald else Color(0xFFD9DFDE),
+        animationSpec = tween(180), label = "Sign-in role border"
+    )
+    Surface(
+        color = surfaceColor,
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(if (selected) 2.dp else 1.dp, borderColor),
+        modifier = modifier.heightIn(min = 142.dp).clickable(onClick = onClick).testTag(tag)
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 13.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Surface(color = CommuteMint, shape = RoundedCornerShape(14.dp), modifier = Modifier.size(47.dp)) {
+                Box(contentAlignment = Alignment.Center) { Icon(icon, null, tint = TaxiBrandDeepEmerald, modifier = Modifier.size(27.dp)) }
+            }
+            Text(title, color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(subtitle, color = Color(0xFF627385), fontSize = 12.sp)
+        }
     }
 }

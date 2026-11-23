@@ -48,8 +48,6 @@ import com.example.data.database.TransportDatabase
 import com.example.data.repository.TransportRepository
 import com.example.ui.components.NotificationTrayDialog
 import com.example.ui.components.LocalEnvironmentSettings
-import com.example.ui.components.EnvironmentChooser
-import com.example.ui.components.DemoEnvironmentBanner
 import com.example.core.environment.AppEnvironment
 import com.example.core.environment.EnvironmentPreferences
 import com.example.core.location.DriverLocationSharing
@@ -86,7 +84,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        ApiClient.setBaseUrl(EnvironmentPreferences.selected(this).baseUrl())
+        // The public APK always connects to the production service. Demo/review
+        // environments are intentionally not user-selectable in this build.
+        EnvironmentPreferences.save(this, AppEnvironment.PRODUCTION)
+        ApiClient.setBaseUrl(AppEnvironment.PRODUCTION.baseUrl())
         com.example.core.notifications.MobilityPush.initialize(this)
 
         val database = TransportDatabase.getDatabase(this, lifecycleScope)
@@ -97,50 +98,9 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MyApplicationTheme {
-                var environmentSettings by remember { mutableStateOf(false) }
-                var pendingEnvironment by remember { mutableStateOf<AppEnvironment?>(null) }
-                var environmentError by remember { mutableStateOf<String?>(null) }
-                var reviewTravelOpen by remember { mutableStateOf(false) }
-                LaunchedEffect(pendingEnvironment) {
-                    pendingEnvironment?.let { target ->
-                        try {
-                            // The old composition is removed before changing its endpoint. Its
-                            // guest stores remain intact, and all Activity-owned VMs are cancelled.
-                            EnvironmentPreferences.save(this@MainActivity, target)
-                            com.example.ui.screens.home.CompanyPortalSessions.closeAll()
-                            DriverLocationSharing.stop("Environment changed. Location sharing stopped.")
-                            LiveTrackingWebSocket.disconnect()
-                            ApiClient.cancelRequests()
-                            viewModel.prepareForEnvironmentChange()
-                            viewModelStore.clear()
-                            ApiClient.setBaseUrl(target.baseUrl())
-                            recreate()
-                        } catch (_: Exception) {
-                            environmentError = "The environment could not be changed. Please try again."
-                            pendingEnvironment = null
-                        }
-                    }
-                }
-                CompositionLocalProvider(LocalEnvironmentSettings provides { environmentSettings = true }) {
-                    AppLocationPrompt(enabled = ApiClient.environment() != AppEnvironment.DEMO)
-                    Column(Modifier.fillMaxSize().background(Color(0xFFFFFBF4))) {
-                        if (ApiClient.environment() == AppEnvironment.DEMO) DemoEnvironmentBanner { environmentSettings = true }
-                        if (pendingEnvironment == null) Box(Modifier.weight(1f)) {
-                            key(ApiClient.environment()) {
-                            if (reviewTravelOpen && ApiClient.environment() == AppEnvironment.DEMO) {
-                                val language by viewModel.currentLanguage.collectAsState()
-                                IntercityPassengerScreen(language, { viewModel.setLanguage(it) }, onExit = { reviewTravelOpen = false })
-                            } else MainTransportApp(viewModel = viewModel)
-                            }
-                        }
-                        else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                    }
-                    if (environmentSettings && pendingEnvironment == null) EnvironmentChooser(
-                        onDismiss = { environmentSettings = false },
-                        onSwitch = { environmentSettings = false; pendingEnvironment = it },
-                        onOpenTravel = { environmentSettings = false; reviewTravelOpen = true })
-                    environmentError?.let { message -> AlertDialog(onDismissRequest = { environmentError = null },
-                        text = { Text(message) }, confirmButton = { TextButton(onClick = { environmentError = null }) { Text("Close") } }) }
+                AppLocationPrompt(enabled = true)
+                Column(Modifier.fillMaxSize().background(Color(0xFFFFFBF4))) {
+                    Box(Modifier.weight(1f)) { MainTransportApp(viewModel = viewModel) }
                 }
             }
         }
@@ -360,7 +320,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
                 showDailyCommute = false
                 showWelcome = false
                 showTaxi = true
-            })
+            }, accountName = currentUser?.fullName.orEmpty(), accountPhone = currentUser?.phone.orEmpty())
         } else if (showCompanyPortal) {
             CompanyPortalScreen(onExit = {
                 ApiClient.setAuthToken(null)
@@ -370,7 +330,8 @@ fun MainTransportApp(viewModel: MainViewModel) {
         } else if (showTaxi) {
             if (guestMobilityKind != null) {
                 com.example.ui.screens.intercity.MobilityPassengerScreen(guestMobilityKind!!, currentLang,
-                    onBack = { guestMobilityKind = null }, startCargoRequest = guestMobilityKind == "CARGO")
+                    onBack = { guestMobilityKind = null }, startCargoRequest = guestMobilityKind == "CARGO",
+                    accountName = currentUser?.fullName.orEmpty(), accountPhone = currentUser?.phone.orEmpty())
             } else com.example.ui.screens.taxi.TaxiPassengerScreen(viewModel,
                 onDailyCommute = { showTaxi = false; showPublicHome = true; showDailyCommute = true },
                 onSignIn = { authReturnsToTaxi = true; showDailyCommute = false; requestedAuthPortal = AppRole.PASSENGER; requestedRegisterFirst = false; showTaxi = false; showPublicHome = false },

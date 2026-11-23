@@ -259,7 +259,6 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
             val accountTraveler = signedIn && index == 0 && useAccountForFirstTraveler
             Text(if (accountTraveler) "You · Seat $seat" else "Traveler · Seat $seat", fontWeight = FontWeight.Bold, color = PassoMobilityPalette.text)
             if (accountTraveler) {
-                Text("$accountName · $accountPhone", color = PassoMobilityPalette.muted, fontSize = 13.sp)
                 TextButton(onClick = { useAccountForFirstTraveler = false; names[seat] = ""; phones[seat] = "" }) {
                     Text("Use another traveler for this seat", color = CommuteTeal)
                 }

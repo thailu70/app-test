@@ -10,7 +10,7 @@ const { DB } = require('../src/db');
 const bcrypt = require('bcryptjs');
 const { initAccountRecoverySchema, createAccountRecoveryService, REQUEST_MESSAGE } = require('../src/services/account-recovery');
 const { getSessionVersion, sessionIsCurrent } = require('../src/services/account-sessions');
-test('password recovery requires delivered account-bound ownership proof without changing onboarding approval', async t => {
+test('account recovery revokes sessions without restoring password sign-in or changing approval', async t => {
   await require('../src/services/onboarding').initOnboardingSchema();
   await require('../src/services/account-deletion').initAccountDeletionSchema();
   await initAccountRecoverySchema();
@@ -95,7 +95,7 @@ test('password recovery requires delivered account-bound ownership proof without
       for(let index=0;index<3;index++){const response=await fetch(base+'/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:'DRIVER',phone:'0912345999',code:'000000',newPassword:'Valid fixture password'})});assert.equal(response.status,index===2?429:400);}
     } finally { server.closeAllConnections(); await new Promise(resolve=>server.close(resolve)); }
   });
-  await t.test('password reset revokes normal, onboarding and account-management tokens while fresh logins work', async () => {
+  await t.test('password reset revokes normal, onboarding and account-management tokens while password sign-in stays retired', async () => {
     const express=require('express'),jwt=require('jsonwebtoken'),app=express();app.use(express.json());
     const {signToken,JWT_SECRET}=require('../src/middleware/auth');
     app.use('/api/auth',require('../src/routes/auth'));
@@ -116,9 +116,9 @@ test('password recovery requires delivered account-bound ownership proof without
       assert.equal((await call('/api/account/deletion',passengerToken)).status,401);
       assert.equal((await call('/api/onboarding/me',driverToken)).status,401);
       const passengerLogin=await call('/api/auth/login',null,{role:'PASSENGER',phone:'0912345611',password:'Recovered passenger password'});
-      assert.equal(passengerLogin.status,200);assert.equal((await call('/api/auth/me',passengerLogin.data.token)).status,200);
+      assert.equal(passengerLogin.status,410);assert.equal(passengerLogin.data.code,'OTP_REQUIRED');
       const driverLogin=await call('/api/onboarding/login',null,{role:'DRIVER',phone:'0912345610',password:'Recovered driver password'});
-      assert.equal(driverLogin.status,200);assert.equal((await call('/api/onboarding/me',driverLogin.data.token)).status,200);
+      assert.equal(driverLogin.status,410);
     } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
   });
 });

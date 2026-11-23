@@ -8,12 +8,25 @@ process.env.NODE_ENV = 'test';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'passo-driver-contract-'));
 process.env.JWT_SECRET = 'isolated-driver-registration-contract-secret';
 process.env.ADMIN_REGISTRATION_SECRET = 'isolated-driver-registration-admin-secret';
+process.env.PASSO_TEST_OTP_ENABLED = 'true';
+process.env.PASSO_TEST_OTP_CODE = '123456';
+process.env.PASSO_TEST_OTP_PASSENGER_PHONE = '0912400323';
+process.env.PASSO_TEST_OTP_DRIVER_PHONE = '0912400321';
+process.env.PASSO_TEST_OTP_EXPIRES_AT = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+process.env.PASSO_TEST_OTP_DELIVERY = 'AFRO_SMS';
+process.env.AFRO_SMS_API_TOKEN = 'isolated-test-token';
+const networkFetch = global.fetch;
+global.fetch = async (input, init) => String(input).startsWith('https://api.afromessage.com/api/send')
+  ? { ok: true, status: 200, json: async () => ({ acknowledge: 'success' }) }
+  : networkFetch(input, init);
 const { DB } = require('../src/db');
 
 test('driver and passenger phone spellings preserve the shared application and operational boundaries', async t => {
   await DB.ready;
   await require('../src/services/onboarding').initOnboardingSchema();
   await require('../src/services/master-data').initMasterDataSchema();
+  await DB.exec('CREATE TABLE IF NOT EXISTS app_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT DEFAULT CURRENT_TIMESTAMP)');
+  await DB.exec('CREATE TABLE IF NOT EXISTS auth_otps(id TEXT PRIMARY KEY,phone TEXT,purpose TEXT,code_hash TEXT,verification_token_hash TEXT,expires_at TIMESTAMP,verified_at TIMESTAMP,attempts INTEGER DEFAULT 0,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)');
   const express = require('express'), app = express();
   app.use(express.json());
   app.use('/api/auth', require('../src/routes/auth'));
@@ -27,6 +40,21 @@ test('driver and passenger phone spellings preserve the shared application and o
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     return { status: response.status, body: await response.json() };
+  };
+  const loginWithOtp = async (role, phone) => {
+    const sent = await request('/api/auth/request-otp', { phone, purpose: 'LOGIN' });
+    assert.equal(sent.status, 200, JSON.stringify(sent.body));
+    const verified = await request('/api/auth/verify-otp', { phone, purpose: 'LOGIN', code: sent.body.testCode || '123456' });
+    assert.equal(verified.status, 200, JSON.stringify(verified.body));
+    const payload = { phone, role, verificationToken: verified.body.verificationToken };
+    let loggedIn = await request('/api/auth/login-otp', payload);
+    // The app first tries normal sign-in. Only an application that still needs
+    // onboarding is continued through the application-scoped endpoint.
+    if (role === 'DRIVER' && loggedIn.status === 403 &&
+        ['PENDING', 'ONBOARDING_REQUIRED'].includes(loggedIn.body.code)) {
+      loggedIn = await request('/api/onboarding/login-otp', payload);
+    }
+    return loggedIn;
   };
   const password = 'Isolated driver contract password';
   const driver = { role: 'DRIVER', fullName: 'Driver Contract Fixture', phone: '0912 400321', password,
@@ -48,9 +76,9 @@ test('driver and passenger phone spellings preserve the shared application and o
   await t.test('pending drivers can open only the scoped application using equivalent phone spellings', async () => {
     for (const phone of ['0912400321', '+251 912 400321', '251912400321']) {
       const pending = await request('/api/auth/login', { phone, password, role: 'DRIVER' });
-      assert.equal(pending.status, 403, JSON.stringify(pending.body));
-      assert.equal(pending.body.code, 'PENDING');
-      const application = await request('/api/onboarding/login', { phone, password, role: 'DRIVER' });
+      assert.equal(pending.status, 410, JSON.stringify(pending.body));
+      assert.equal(pending.body.code, 'OTP_REQUIRED');
+      const application = await loginWithOtp('DRIVER', phone);
       assert.equal(application.status, 200, JSON.stringify(application.body));
       assert.equal(application.body.account.id, driverId);
       assert.equal((await request('/api/auth/me', undefined, application.body.token)).status, 401);
@@ -71,14 +99,19 @@ test('driver and passenger phone spellings preserve the shared application and o
     assert.equal(result.status, 201, JSON.stringify(result.body));
     assert.equal(result.body.user.phone, '+251912400323');
     assert.ok(result.body.token);
-    const credentials = { phone: '0912400323', password, role: 'PASSENGER' };
-    assert.equal((await request('/api/auth/login', credentials)).status, 200);
-    assert.equal((await request('/api/auth/login', { ...credentials, role: 'DRIVER' })).status, 403);
+    const legacy = await request('/api/auth/login', { phone: '0912400323', password, role: 'PASSENGER' });
+    assert.equal(legacy.status, 410); assert.equal(legacy.body.code, 'OTP_REQUIRED');
+    const passengerLogin = await loginWithOtp('PASSENGER', '0912400323');
+    assert.equal(passengerLogin.status, 200, JSON.stringify(passengerLogin.body));
+    assert.equal(passengerLogin.body.user.id, result.body.user.id);
+    assert.equal((await loginWithOtp('DRIVER', '0912400323')).status, 401);
   });
   await t.test('approved legacy drivers with spaced stored phones retain sign-in access', async () => {
     const hash = await require('bcryptjs').hash(password, 4);
     await DB.prepare("INSERT INTO users(id,role,fullName,phone,passwordHash,status) VALUES('contract_legacy','DRIVER','Legacy Fixture','0912 400324',?,'ACTIVE')").run(hash);
-    const result = await request('/api/auth/login', { phone: '0912400324', password, role: 'DRIVER' });
+    const legacy = await request('/api/auth/login', { phone: '0912400324', password, role: 'DRIVER' });
+    assert.equal(legacy.status, 410); assert.equal(legacy.body.code, 'OTP_REQUIRED');
+    const result = await loginWithOtp('DRIVER', '0912400324');
     assert.equal(result.status, 200, JSON.stringify(result.body));
     assert.equal(result.body.user.id, 'contract_legacy');
     assert.equal((await request('/api/auth/me', undefined, result.body.token)).status, 200);

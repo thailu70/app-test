@@ -117,6 +117,19 @@ class TaxiStatesLayoutTest {
         else compose.onNodeWithTag("taxi_accept_ride-fixture").performScrollTo().assertIsEnabled()
         capture(if (meter) "driver-meter-action" else "driver-calls-action")
     }
+    @Test fun `daily commute menu opens route browser instead of exiting to service portal`() {
+        var exited = false
+        compose.setContent { MyApplicationTheme {
+            val vm = remember { TaxiViewModel(api(), true, true) }
+            TaxiDriverContent("driver-fixture", vm, { exited = true }, trackingEnabled = false, mapTiles = false)
+        } }
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("taxi_menu_top").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("taxi_menu_top").performClick()
+        compose.onNodeWithText("Daily Commute").performClick()
+        compose.onNodeWithTag("driver_daily_commute_routes").assertIsDisplayed()
+        compose.onNodeWithText("Daily commute routes").assertIsDisplayed()
+        compose.runOnIdle { check(!exited) { "Daily commute must stay inside the driver portal." } }
+    }
     private fun shared() {
         compose.setContent { MyApplicationTheme { val vm = remember { TaxiViewModel(api(), false, false) }
             Column(Modifier.fillMaxSize().background(CommuteCream)) { TaxiHeader("Group Ride")

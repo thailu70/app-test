@@ -12,6 +12,17 @@ process.env.UPLOAD_DIR = path.join(process.env.DATA_DIR, "private-uploads");
 process.env.JWT_SECRET = "isolated-taxi-registration-fixture-secret";
 process.env.ADMIN_REGISTRATION_SECRET =
   "isolated-taxi-registration-admin-secret";
+process.env.PASSO_TEST_OTP_ENABLED = "true";
+process.env.PASSO_TEST_OTP_CODE = "123456";
+process.env.PASSO_TEST_OTP_PASSENGER_PHONE = "0912423002";
+process.env.PASSO_TEST_OTP_DRIVER_PHONE = "0912423001";
+process.env.PASSO_TEST_OTP_EXPIRES_AT = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+process.env.PASSO_TEST_OTP_DELIVERY = "AFRO_SMS";
+process.env.AFRO_SMS_API_TOKEN = "isolated-test-token";
+const networkFetch = global.fetch;
+global.fetch = async (input, init) => String(input).startsWith("https://api.afromessage.com/api/send")
+  ? { ok: true, status: 200, json: async () => ({ acknowledge: "success" }) }
+  : networkFetch(input, init);
 if (process.env.MOBILITY_TEST_POSTGRES === "true") {
   if (process.env.CI !== "true" || !process.env.DATABASE_URL)
     throw Error("Disposable CI PostgreSQL required.");
@@ -29,6 +40,7 @@ const {
 test("Meter Taxi registration uploads documents before final approval and remains outside daily commute assignments", async (t) => {
   await initOnboardingSchema();
   await require("../src/services/master-data").initMasterDataSchema();
+  await DB.prepare("CREATE TABLE IF NOT EXISTS auth_otps (id TEXT PRIMARY KEY, phone TEXT NOT NULL, purpose TEXT NOT NULL, code_hash TEXT NOT NULL, verification_token_hash TEXT, expires_at TIMESTAMP NOT NULL, verified_at TIMESTAMP, attempts INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)").run();
   await DB.prepare(
     "INSERT INTO vehicle_types(code,name,capacity,active) VALUES('TAXI_SEDAN','Fixture sedan',4,TRUE) ON CONFLICT(code) DO NOTHING",
   ).run();
@@ -88,6 +100,13 @@ test("Meter Taxi registration uploads documents before final approval and remain
     });
     return { status: r.status, body: await r.json() };
   };
+  const signInWithOtp = async (phone, role) => {
+    const sent = await request("/api/auth/request-otp", "POST", null, { phone, purpose: "LOGIN" });
+    assert.equal(sent.status, 200, JSON.stringify(sent.body));
+    const verified = await request("/api/auth/verify-otp", "POST", null, { phone, purpose: "LOGIN", code: "123456" });
+    assert.equal(verified.status, 200, JSON.stringify(verified.body));
+    return request("/api/auth/login-otp", "POST", null, { phone, role, verificationToken: verified.body.verificationToken });
+  };
   const input = {
     role: "DRIVER",
     serviceType: "TAXI",
@@ -132,16 +151,11 @@ test("Meter Taxi registration uploads documents before final approval and remain
         401,
         "Application credential cannot enter operations.",
       );
-      assert.equal(
-        (
-          await request("/api/auth/login", "POST", null, {
-            role: "DRIVER",
-            phone: input.phone,
-            password: input.password,
-          })
-        ).status,
-        403,
-      );
+      const legacyLogin = await request("/api/auth/login", "POST", null, {
+        role: "DRIVER", phone: input.phone, password: input.password,
+      });
+      assert.equal(legacyLogin.status, 410);
+      assert.equal(legacyLogin.body.code, "OTP_REQUIRED");
       assert.equal(
         (
           await request(
@@ -218,11 +232,7 @@ test("Meter Taxi registration uploads documents before final approval and remain
       );
       assert.equal(v.status, "IN_SERVICE");
       assert.equal(v.assignedRouteId, null);
-      const login = await request("/api/auth/login", "POST", null, {
-        role: "DRIVER",
-        phone: input.phone,
-        password: input.password,
-      });
+      const login = await signInWithOtp(input.phone, "DRIVER");
       assert.equal(login.status, 200, JSON.stringify(login.body));
       assert.equal(login.body.user.driverServiceType, "TAXI");
       driverToken = login.body.token;

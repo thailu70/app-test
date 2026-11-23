@@ -7,6 +7,11 @@ delete process.env.DATABASE_URL;
 process.env.JWT_SECRET = 'isolated-approval-lifecycle-secret';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'passo-approval-lifecycle-'));
 process.env.UPLOAD_DIR = path.join(process.env.DATA_DIR, 'uploads');
+process.env.AFRO_SMS_API_TOKEN = 'isolated-test-token';
+const networkFetch = global.fetch;
+global.fetch = async (input, init) => String(input).startsWith('https://api.afromessage.com/api/send')
+  ? { ok: true, status: 200, json: async () => ({ acknowledge: 'success' }) }
+  : networkFetch(input, init);
 const { DB } = require('../src/db');
 const { signToken, authenticate } = require('../src/middleware/auth');
 const { initOnboardingSchema, getOnboardingReadiness, isOperationallyEligible, REQUIRED } = require('../src/services/onboarding');
@@ -21,6 +26,8 @@ test('driver application approval, corrections and suspension have separate life
   ]) await DB.prepare("INSERT INTO users(id,role,fullName,phone,passwordHash,status,companyId) VALUES(?,'DRIVER',?,?,?,?,?)")
     .run(id, id, phone, hash, status, company);
   await initOnboardingSchema();
+  await DB.exec('CREATE TABLE IF NOT EXISTS app_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT DEFAULT CURRENT_TIMESTAMP)');
+  await DB.exec('CREATE TABLE IF NOT EXISTS auth_otps(id TEXT PRIMARY KEY,phone TEXT,purpose TEXT,code_hash TEXT,verification_token_hash TEXT,expires_at TIMESTAMP,verified_at TIMESTAMP,attempts INTEGER DEFAULT 0,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)');
   await require('../src/services/master-data').initMasterDataSchema();
   for (const [id, phone] of [['lifecycle_company', '+251911770004'], ['lifecycle_other_company', '+251911770005']]) {
     await DB.prepare("INSERT INTO transport_companies(id,name,phone,status) VALUES(?,?,?,'ACTIVE')").run(id, id, phone);
@@ -51,7 +58,12 @@ test('driver application approval, corrections and suspension have separate life
   const stored = id => DB.prepare('SELECT * FROM onboarding_accounts WHERE account_id=?').get(id);
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aB9sAAAAASUVORK5CYII=', 'base64');
   async function login(phone) {
-    const result = await request('/api/onboarding/login', 'POST', null, { role: 'DRIVER', phone, password });
+    const issued = await request('/api/auth/request-otp', 'POST', null, { phone, purpose: 'LOGIN' });
+    assert.equal(issued.status, 200, JSON.stringify(issued.data));
+    const verified = await request('/api/auth/verify-otp', 'POST', null, { phone, purpose: 'LOGIN', code: issued.data.testCode });
+    assert.equal(verified.status, 200, JSON.stringify(verified.data));
+    const result = await request('/api/onboarding/login-otp', 'POST', null,
+      { role: 'DRIVER', phone, verificationToken: verified.data.verificationToken });
     assert.equal(result.status, 200, JSON.stringify(result.data));
     return result.data.token;
   }
@@ -71,7 +83,7 @@ test('driver application approval, corrections and suspension have separate life
     }
     assert.equal((await getOnboardingReadiness('repair_pending_daily', 'DRIVER')).acceptanceRequired, false);
     assert.equal((await getOnboardingReadiness('repair_pending_company', 'DRIVER')).acceptanceRequired, false);
-    assert.equal((await request('/api/onboarding/login', 'POST', null, { role: 'DRIVER', phone: '0911770001', password })).status, 200);
+    assert.ok(await login('0911770001'));
     const legacyState = await getOnboardingReadiness('retain_active_legacy', 'DRIVER');
     assert.equal(legacyState.tracked, false); assert.equal(await isOperationallyEligible('retain_active_legacy', 'DRIVER'), true);
     await DB.prepare("INSERT INTO users(id,role,fullName,phone,passwordHash,status) VALUES('late_untracked_pending','DRIVER','Late fixture','+251911770006','unused','PENDING')").run();

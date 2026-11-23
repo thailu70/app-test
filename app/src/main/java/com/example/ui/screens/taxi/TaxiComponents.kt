@@ -294,7 +294,7 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
                 map.alpha = 1f
                 replaceRoadOverlays(map, emptyList(), emptyList(), if (showPickupMarker) pickup else null, destination, driver, driver != null && !driver.stale,
                     false, pickupLabel, destinationLabel, R.drawable.taxi_car_top, nearby)
-                val targetCenter = pickup ?: (9.0108 to 38.7613)
+                val targetCenter = pickup ?: driver?.let { it.latitude to it.longitude } ?: (9.0108 to 38.7613)
                 if (lastCenter != targetCenter) {
                     map.controller.setCenter(GeoPoint(targetCenter.first, targetCenter.second))
                     lastCenter = targetCenter

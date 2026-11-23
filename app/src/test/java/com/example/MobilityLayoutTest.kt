@@ -57,7 +57,7 @@ class MobilityLayoutTest {
         val model = MobilityViewModel(api, store, Dispatchers.Unconfined)
         compose.setContent { MyApplicationTheme { MobilityPassengerScreen("GROUP", AppLanguage.ENGLISH, {}, providedModel = model) } }
         compose.waitUntil(10_000) { !model.state.value.busy && model.state.value.trips.isNotEmpty() }
-        compose.onNodeWithTag("mobility_search").assertExists()
+        compose.onNodeWithText("Upcoming group trips").assertExists()
         capture("01-group-discovery")
         compose.onNodeWithTag("group_trip_native-group").performScrollTo().performClick()
         compose.waitUntil(5_000) { !model.state.value.busy && model.state.value.phase == MobilityPhase.SEATS }
@@ -84,5 +84,40 @@ class MobilityLayoutTest {
         compose.onNodeWithTag("cargo_photo").performScrollTo().assertIsEnabled()
         compose.onNodeWithTag("mobility_send_request").assertDoesNotExist()
         capture("04-cargo-photo")
+    }
+
+    @Test fun `signed-in cargo request does not ask for the passenger phone again`() {
+        val model = MobilityViewModel(api, store, Dispatchers.Unconfined)
+        compose.setContent {
+            MyApplicationTheme {
+                MobilityPassengerScreen("CARGO", AppLanguage.ENGLISH, {}, providedModel = model,
+                    accountName = "Signed-in Passenger", accountPhone = "+251911234567")
+            }
+        }
+        compose.waitUntil(10_000) { !model.state.value.busy }
+        compose.onNodeWithTag("mobility_new_request").performScrollTo().performClick()
+        compose.waitUntil(5_000) { !model.state.value.busy && model.state.value.phase == MobilityPhase.REQUEST }
+        compose.onNodeWithTag("request_name").assertDoesNotExist()
+        compose.onNodeWithTag("request_phone").assertDoesNotExist()
+    }
+
+    @Test fun `signed-in group booking uses the passenger account instead of asking again`() {
+        val model = MobilityViewModel(api, store, Dispatchers.Unconfined)
+        compose.setContent {
+            MyApplicationTheme {
+                MobilityPassengerScreen("GROUP", AppLanguage.ENGLISH, {}, providedModel = model,
+                    accountName = "Signed-in Passenger", accountPhone = "+251911234567")
+            }
+        }
+        compose.waitUntil(10_000) { !model.state.value.busy && model.state.value.trips.isNotEmpty() }
+        compose.onNodeWithTag("group_trip_native-group").performScrollTo().performClick()
+        compose.waitUntil(5_000) { !model.state.value.busy && model.state.value.phase == MobilityPhase.SEATS }
+        compose.onNodeWithTag("group_seat_2").performClick()
+        compose.onNodeWithText("Booking with your Passo account").assertIsDisplayed()
+        compose.onNodeWithText("Signed-in Passenger · +251911234567").assertIsDisplayed()
+        compose.onNodeWithTag("group_buyer_name").assertDoesNotExist()
+        compose.onNodeWithTag("group_buyer_phone").assertDoesNotExist()
+        compose.onNodeWithTag("group_traveler_name_2").assertDoesNotExist()
+        compose.onNodeWithTag("group_traveler_phone_2").assertDoesNotExist()
     }
 }
