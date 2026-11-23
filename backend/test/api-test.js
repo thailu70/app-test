@@ -27,6 +27,18 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'routepass-api-inte
 process.env.PAYMENT_MODE = 'TEST';
 // Simulator access is opt-in, even in this isolated automated-test database.
 process.env.PAYMENT_TESTS_ENABLED = 'false';
+// OTP delivery is exercised against a local AfroMessage stub; this suite must
+// never send a real SMS or depend on live provider credentials.
+process.env.AFRO_SMS_API_TOKEN = 'local-api-test-token';
+const originalFetch = global.fetch.bind(global);
+global.fetch = async (url, options) => {
+  if (String(url).startsWith('https://api.afromessage.com/api/send')) {
+    return new Response(JSON.stringify({ acknowledge: 'success', response: { message_id: 'local-api-test' } }), {
+      status: 200, headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  return originalFetch(url, options);
+};
 
 const { server, initializeFeatureSchemas } = require('../src/server');
 const { DB } = require('../src/db');
@@ -64,6 +76,22 @@ function makeRequest(method, path, body = null, token = null, headers = {}) {
   });
 }
 
+async function loginWithOtp(phone, role) {
+  const requested = await makeRequest('POST', '/api/auth/request-otp', { phone, purpose: 'LOGIN' });
+  if (requested.status !== 200 || !/^\d{6}$/.test(String(requested.data?.testCode || ''))) {
+    throw new Error(`${role} OTP request failed: ${JSON.stringify(requested.data)}`);
+  }
+  const verified = await makeRequest('POST', '/api/auth/verify-otp', {
+    phone, purpose: 'LOGIN', code: requested.data.testCode
+  });
+  if (verified.status !== 200 || !verified.data?.verificationToken) {
+    throw new Error(`${role} OTP verification failed: ${JSON.stringify(verified.data)}`);
+  }
+  return makeRequest('POST', '/api/auth/login-otp', {
+    phone, role, verificationToken: verified.data.verificationToken
+  });
+}
+
 async function runTests() {
   console.log('\n============================================================');
   console.log('   ROUTEPASS PRODUCTION VPS BACKEND TEST SUITE');
@@ -90,20 +118,12 @@ async function runTests() {
     console.log('✓ [1/13] Health check verified: HEALTHY');
 
     // 2. Authentication with seeded accounts
-    const pasLogin = await makeRequest('POST', '/api/auth/login', {
-      phone: '+251911223344',
-      password: '123456',
-      role: 'PASSENGER'
-    });
+    const pasLogin = await loginWithOtp('+251911223344', 'PASSENGER');
     if (!pasLogin.data.success) throw new Error('Passenger login failed: ' + JSON.stringify(pasLogin.data));
     passengerToken = pasLogin.data.token;
     console.log('✓ [2/13] Passenger login passed:', pasLogin.data.user.fullName);
 
-    const driLogin = await makeRequest('POST', '/api/auth/login', {
-      phone: '+251911998877',
-      password: '123456',
-      role: 'DRIVER'
-    });
+    const driLogin = await loginWithOtp('+251911998877', 'DRIVER');
     if (!driLogin.data.success) throw new Error('Driver login failed: ' + JSON.stringify(driLogin.data));
     driverToken = driLogin.data.token;
     console.log('✓ [3/13] Driver login passed:', driLogin.data.user.fullName, `(Plate: ${driLogin.data.user.assignedVehiclePlate})`);
