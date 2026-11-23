@@ -153,10 +153,11 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       await available(drivers[0]);
       await DB.prepare("UPDATE ride_availability SET recorded_at=?,updated_at=? WHERE driver_id=?")
         .run(new Date(Date.now() - 180000).toISOString(), new Date().toISOString(), drivers[0].id);
+      await DB.prepare("UPDATE ride_availability SET online=0 WHERE driver_id=?").run(drivers[0].id);
       const heartbeat = await service.availability(drivers[0], {
         online: true, heartbeatOnly: true, vehicleId: drivers[0].id + "vehicle",
       });
-      assert.equal(heartbeat.online, true, "a fresh background heartbeat preserves online state");
+      assert.equal(heartbeat.online, true, "a background heartbeat restores online intent after stale cleanup");
       assert.equal(heartbeat.calls.length, 0, "a stale GPS fix is never used to match new calls");
       await assert.rejects(service.availability(drivers[1], {
         online: true, heartbeatOnly: true, vehicleId: drivers[1].id + "vehicle",

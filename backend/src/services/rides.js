@@ -1158,9 +1158,13 @@ function createRidesService({
           const current = await tx
             .prepare("SELECT vehicle_id,online FROM ride_availability WHERE driver_id=?")
             .get(user.id);
-          if (Number(current?.online) !== 1 || current?.vehicle_id !== input.vehicleId)
-            fail(409, "Driver availability changed. Reopen the driver portal.");
-          await tx.prepare("UPDATE ride_availability SET updated_at=? WHERE driver_id=?")
+          if (!current || current.vehicle_id !== input.vehicleId)
+            fail(409, "Choose your approved vehicle and get a GPS fix before going online.");
+          // A foreground location service may keep running while GPS is briefly
+          // unavailable. Restore the driver's explicit online intent after the
+          // stale-session sweeper expires it, without refreshing stale coordinates.
+          // Dispatch still requires a recent recorded_at GPS fix below.
+          await tx.prepare("UPDATE ride_availability SET online=1,updated_at=? WHERE driver_id=?")
             .run(instant(), user.id);
           return;
         }
