@@ -7,6 +7,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.room.Room
 import com.example.data.api.*
+import com.example.data.api.ApiClient
 import com.example.data.database.TransportDatabase
 import com.example.data.repository.TransportRepository
 import com.example.ui.screens.taxi.*
@@ -50,31 +51,52 @@ class TaxiLayoutTest {
 
     @After fun closeDatabase() {
         compose.runOnIdle { compose.activity.viewModelStore.clear() }
+        TaxiPendingNavigation.clear()
+        ApiClient.setAuthToken(null)
         database.close()
     }
 
     private fun api(): TaxiApi = Proxy.newProxyInstance(TaxiApi::class.java.classLoader, arrayOf(TaxiApi::class.java)) { _, method, _ ->
         when (method.name) {
-            "catalog" -> Response.success(TaxiResponse(true, settings = TaxiSettings(enabled = true, sharedEnabled = true)))
+            "catalog" -> Response.success(TaxiResponse(true,
+                settings = TaxiSettings(enabled = true, sharedEnabled = true, baseFareEtb = 35.0, perKmEtb = 18.0, minimumFareEtb = 120.0),
+                tiers = listOf(TaxiTier("ECONOMY", "Economy"), TaxiTier("COMFORT", "Comfort", 1.25), TaxiTier("MINI_VAN", "Mini-Van", 1.5))))
             "shared" -> Response.success(TaxiResponse(true))
+            "nearby" -> Response.success(TaxiNearbyResponse(true))
+            "estimate" -> Response.success(TaxiResponse(true, estimate = TaxiEstimate(5.0, 12.0, 125.0, "ECONOMY")))
             else -> error("Unexpected ${method.name}")
         }
     } as TaxiApi
-    @Test fun `destination first home fits phone and daily commute stays independently reachable`() {
+    @Test fun `taxi landing keeps destination first, group ad and services visible before ride tiers`() {
         var commute = 0
         compose.setContent { MyApplicationTheme { val vm = androidx.compose.runtime.remember { TaxiViewModel(api(), false, false) }
             TaxiPassengerContent(main, false, vm, { commute++ }, {}, {}, mapTiles = false)
         } }
         compose.onNodeWithTag("taxi_where_to").assertIsDisplayed()
-        compose.onNodeWithTag("taxi_tier_ECONOMY").assertIsDisplayed()
-        compose.onNodeWithTag("taxi_tier_COMFORT").assertIsDisplayed().performClick()
-        compose.onNodeWithTag("taxi_tier_MINI_VAN").assertIsDisplayed()
+        compose.onNodeWithTag("taxi_tier_ECONOMY").assertDoesNotExist()
+        compose.onNodeWithTag("taxi_tier_COMFORT").assertDoesNotExist()
+        compose.onNodeWithTag("taxi_tier_MINI_VAN").assertDoesNotExist()
+        compose.onNodeWithTag("taxi_travel_together").assertIsDisplayed()
+        compose.onNodeWithTag("taxi_services_footer").assertIsDisplayed()
         compose.onNodeWithText("Current location").assertDoesNotExist()
-        compose.onNodeWithText("Daily Commute").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("taxi_service_COMMUTE").assertIsDisplayed().performClick()
         assertEquals(1, commute)
         compose.runOnIdle { val view = compose.activity.window.decorView; val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888); view.draw(Canvas(bitmap))
             val dir = File("build/taxi-previews").apply { mkdirs() }; File(dir, "01-passenger-home.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
+    }
+
+    @Test fun `ride choices appear after a destination and service footer collapses`() {
+        TaxiPendingNavigation.route(TaxiRouteInput("Bole", "Bole Atlas", 9.0, 38.7, 9.02, 38.75))
+        compose.setContent { MyApplicationTheme { val vm = androidx.compose.runtime.remember { TaxiViewModel(api(), false, false) }
+            TaxiPassengerContent(main, false, vm, {}, {}, {}, mapTiles = false)
+        } }
+        compose.onNodeWithTag("taxi_clear_destination").assertIsDisplayed()
+        compose.onNodeWithTag("taxi_travel_together").assertDoesNotExist()
+        compose.onNodeWithTag("taxi_services_footer").assertDoesNotExist()
+        compose.onNodeWithTag("taxi_tier_ECONOMY").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("taxi_tier_COMFORT").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("taxi_tier_MINI_VAN").performScrollTo().assertIsDisplayed()
     }
     @Test @Config(qualifiers = "w320dp-h740dp-xhdpi") fun `daily commute shortcut stays compact on a narrow phone`() {
         var commute = 0
