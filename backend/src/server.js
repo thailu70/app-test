@@ -169,7 +169,7 @@ app.use('/api/sync', require('./routes/sync'));
 
 // Browser portals are same-origin. External scripts let their route-specific CSP reject inline JS.
 app.use('/home', homeHeaders, express.static(path.join(__dirname, '..', 'public', 'home'), {
-  index: false, maxAge: 0, etag: false,
+  index: 'index.html', maxAge: 0, etag: false,
   setHeaders(res, filename) { if (/\.(?:webp|svg|png|ttf)$/.test(filename)) res.setHeader('Cache-Control', 'public, max-age=86400'); }
 }));
 for (const page of ['privacy', 'delete-account']) {
