@@ -102,7 +102,7 @@ function createGeoService({ fetchImpl = globalThis.fetch, db, env = process.env,
     const cached = cacheGet(reverseCache, key);
     if (cached) return cached;
     try {
-      const data = await json(photon, '/reverse/', { lat: latitude, lon: longitude, lang: 'en', countrycode: 'ET' });
+      const data = await json(photon, '/reverse/', { lat: latitude, lon: longitude, lang: 'en' });
       const properties = data.features?.[0]?.properties || {};
       const meaningful = value => {
         const label = String(value || '').trim();

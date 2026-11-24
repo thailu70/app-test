@@ -62,6 +62,7 @@ test('reverse geocoding labels pickup by nearby district and city with a short c
   assert.equal(first.name, 'Arat Kilo, Addis Ababa');
   assert.equal(url.pathname, '/reverse/');
   assert.equal(url.searchParams.get('lang'), 'en');
+  assert.equal(url.searchParams.has('countrycode'), false, 'Self-hosted Photon does not support the countrycode parameter.');
   assert.equal(await geo.reverse(input).then(value => value.name), first.name);
   assert.equal(count, 1, 'Repeated nearby fixes reuse the reverse-geocode cache.');
   await assert.rejects(geo.reverse({ lat: '', lon: 38.77 }), error => error.status === 400);
