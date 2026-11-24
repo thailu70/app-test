@@ -344,17 +344,19 @@ async function claimNextJob(deviceId, { db = DB, now = Date.now } = {}) {
 
 async function acknowledgeJob(deviceId, jobId, leaseToken, success, { db = DB, now = Date.now } = {}) {
   await initPhoneSmsGatewaySchema(db);
+  const timestampParameter = db.isPostgres ? 'CAST(? AS TIMESTAMP)' : '?';
+  const sentAt = success ? new Date(now()).toISOString() : null;
   const result = await db.prepare(
     "UPDATE phone_sms_jobs SET status=CASE WHEN ?=1 THEN 'SENT' WHEN attempts>=3 THEN 'FAILED' ELSE 'PENDING' END," +
     "message='',encrypted_payload=CASE WHEN ?=1 OR attempts>=3 THEN NULL ELSE encrypted_payload END," +
-    'sent_at=CASE WHEN ?=1 THEN ? ELSE NULL END,lease_token=NULL,lease_until=NULL,leased_by=NULL ' +
+    `sent_at=${timestampParameter},lease_token=NULL,lease_until=NULL,leased_by=NULL ` +
     "WHERE id=? AND leased_by=? AND lease_token=? AND status='SENDING'"
-  ).run(success ? 1 : 0, success ? 1 : 0, success ? 1 : 0, success ? new Date(now()).toISOString() : null,
+  ).run(success ? 1 : 0, success ? 1 : 0, sentAt,
     jobId, deviceId, String(leaseToken || ''));
   if (result.changes === 1) return true;
   if (success) {
-    const sent = await db.prepare("UPDATE phone_sms_message_jobs SET status='SENT',encrypted_payload='',sent_at=?,lease_token=NULL,lease_until=NULL WHERE id=? AND leased_by=? AND lease_token=? AND status='SENDING'")
-      .run(new Date(now()).toISOString(), jobId, deviceId, String(leaseToken || ''));
+    const sent = await db.prepare(`UPDATE phone_sms_message_jobs SET status='SENT',encrypted_payload='',sent_at=${timestampParameter},lease_token=NULL,lease_until=NULL WHERE id=? AND leased_by=? AND lease_token=? AND status='SENDING'`)
+      .run(sentAt, jobId, deviceId, String(leaseToken || ''));
     return sent.changes === 1;
   }
   const failed = await db.prepare("UPDATE phone_sms_message_jobs SET status=CASE WHEN attempts>=3 THEN 'FAILED' ELSE 'PENDING' END,next_attempt_at=?,lease_token=NULL,lease_until=NULL,leased_by=NULL WHERE id=? AND leased_by=? AND lease_token=? AND status='SENDING'")

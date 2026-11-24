@@ -121,9 +121,9 @@ test('phone gateway sends encrypted OTPs and trip SMS to any valid Ethiopian num
   assert.ok(nextClaim);
   assert.notEqual(nextClaim.id, claimed.id);
   assert.equal(await gateway.acknowledgeJob(device.deviceId, nextClaim.id, nextClaim.leaseToken, true, { db: DB }), true);
-  const final = await DB.prepare('SELECT status,encrypted_payload FROM phone_sms_message_jobs').all();
+  const final = await DB.prepare('SELECT status,encrypted_payload,sent_at FROM phone_sms_message_jobs').all();
   assert.equal(final.length, 2);
-  assert.ok(final.every(row => row.status === 'SENT' && row.encrypted_payload === ''));
+  assert.ok(final.every(row => row.status === 'SENT' && row.encrypted_payload === '' && row.sent_at));
 
   await gateway.savePilotSettings({ deliveryMode: 'AFRO_SMS', pilotNumbers: [] }, { db: DB });
   const fallbackPhone = '+251912000005', fallbackCode = '567890', fallbackId = 'otp_afro_fallback';
