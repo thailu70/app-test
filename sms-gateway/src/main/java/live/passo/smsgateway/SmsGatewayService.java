@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
 import android.telephony.SmsManager;
+import android.telephony.SubscriptionManager;
 
 import org.json.JSONObject;
 
@@ -150,7 +151,12 @@ public class SmsGatewayService extends Service {
                 failureReason = sendAndConfirmWithSim(phone, message, id, lease);
                 sent = failureReason.isEmpty();
             } catch (SecurityException error) {
-                failureReason = "sms_permission_denied";
+                boolean permissionGranted = checkSelfPermission(android.Manifest.permission.SEND_SMS)
+                        == android.content.pm.PackageManager.PERMISSION_GRANTED;
+                failureReason = permissionGranted ? "sms_android_blocked" : "sms_permission_denied";
+                android.util.Log.w("PassoSmsGateway", "Android blocked SMS operation at " +
+                        (error instanceof SmsSendSecurityException ? ((SmsSendSecurityException) error).stage : "manager") +
+                        "; smsPermissionGranted=" + permissionGranted);
             } catch (IllegalArgumentException error) {
                 failureReason = "sms_arguments_invalid";
             } catch (Exception error) {
@@ -176,7 +182,16 @@ public class SmsGatewayService extends Service {
     }
 
     private String sendAndConfirmWithSim(String phone, String message, String jobId, String lease) throws Exception {
-        SmsManager smsManager = SmsManager.getDefault();
+        SmsManager smsManager;
+        if (Build.VERSION.SDK_INT >= 31) {
+            int subscriptionId = SmsManager.getDefaultSmsSubscriptionId();
+            if (subscriptionId == SubscriptionManager.INVALID_SUBSCRIPTION_ID) return "sms_subscription_not_selected";
+            smsManager = getSystemService(SmsManager.class);
+            if (smsManager == null) return "sms_not_supported";
+            smsManager = smsManager.createForSubscriptionId(subscriptionId);
+        } else {
+            smsManager = SmsManager.getDefault();
+        }
         java.util.ArrayList<String> parts = smsManager.divideMessage(message);
         if (parts == null || parts.isEmpty() || parts.size() > 10) return "sms_parts_limit";
 
@@ -192,14 +207,22 @@ public class SmsGatewayService extends Service {
                         .putExtra(SmsSentReceiver.EXTRA_LEASE, lease)
                         .putExtra(SmsSentReceiver.EXTRA_PART_INDEX, index);
                 int requestCode = (jobId + ":" + lease + ":" + index).hashCode() & 0x7fffffff;
-                sentIntents.add(PendingIntent.getBroadcast(this, requestCode, callback,
-                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+                try {
+                    sentIntents.add(PendingIntent.getBroadcast(this, requestCode, callback,
+                            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+                } catch (SecurityException error) {
+                    throw new SmsSendSecurityException("callback", error);
+                }
             }
 
-            if (parts.size() == 1) {
-                smsManager.sendTextMessage(phone, null, parts.get(0), sentIntents.get(0), null);
-            } else {
-                smsManager.sendMultipartTextMessage(phone, null, parts, sentIntents, null);
+            try {
+                if (parts.size() == 1) {
+                    smsManager.sendTextMessage(phone, null, parts.get(0), sentIntents.get(0), null);
+                } else {
+                    smsManager.sendMultipartTextMessage(phone, null, parts, sentIntents, null);
+                }
+            } catch (SecurityException error) {
+                throw new SmsSendSecurityException("submit", error);
             }
 
             boolean completed = tracker.latch.await(SMS_RESULT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -207,6 +230,14 @@ public class SmsGatewayService extends Service {
             return tracker.allAccepted.get() ? "" : tracker.failureCode;
         } finally {
             pendingSms.remove(trackerKey, tracker);
+        }
+    }
+
+    private static final class SmsSendSecurityException extends SecurityException {
+        final String stage;
+        SmsSendSecurityException(String stage, SecurityException cause) {
+            super(cause);
+            this.stage = stage;
         }
     }
 
