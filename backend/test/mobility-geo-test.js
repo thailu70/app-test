@@ -51,6 +51,23 @@ test('saved route locations refresh during the geocoder cache lifetime', async (
   rows = [];
   assert.deepEqual((await geo.locations('Bole')).places, [after.places[1]], 'Deleted stops disappear from the next search');
 });
+test('reverse geocoding labels pickup by nearby district and city with a short cache', async () => {
+  let url, count = 0;
+  const geo = createGeoService({ fetchImpl: async input => {
+    url = input; count++;
+    return response({ features: [{ properties: { name: '111201', street: 'Lorenzo Taezaz Street', district: 'Arat Kilo', county: 'Arada', city: 'Addis Ababa' } }] });
+  } });
+  const input = { lat: 9.03, lon: 38.77 };
+  const first = await geo.reverse(input);
+  assert.equal(first.name, 'Arat Kilo, Addis Ababa');
+  assert.equal(url.pathname, '/reverse/');
+  assert.equal(url.searchParams.get('lang'), 'en');
+  assert.equal(await geo.reverse(input).then(value => value.name), first.name);
+  assert.equal(count, 1, 'Repeated nearby fixes reuse the reverse-geocode cache.');
+  await assert.rejects(geo.reverse({ lat: '', lon: 38.77 }), error => error.status === 400);
+  const fallback = createGeoService({ fetchImpl: async () => { throw Error('offline'); } });
+  await assert.rejects(fallback.reverse(input), error => error.status === 503);
+});
 test('road kilometres come from OSRM, validate coordinates and cache real routes', async () => {
   let count = 0;
   const geo = createGeoService({ db, fetchImpl: async url => { count++; assert.equal(url.hostname, 'osrm'); assert.match(url.pathname, /38.7,9;38.8,9.1/); return response({ code: 'Ok', routes: [{ distance: 15750, duration: 1680, geometry: { type: 'LineString', coordinates: [[38.7, 9], [38.8, 9.1]] } }] }); } });
@@ -102,7 +119,8 @@ test('road and place lookups give verified accounts separate budgets on a shared
   app.use('/api/mobility', createGeoRouter({ limit: 2,
     service: {
       async route() { lookups++; return { distanceKm: 3, geometry: { type: 'LineString', coordinates: [[38.78, 9], [38.79, 9.01]] } }; },
-      async locations() { lookups++; return { places: [] }; }
+      async locations() { lookups++; return { places: [] }; },
+      async reverse() { lookups++; return { name: 'Arat Kilo, Addis Ababa' }; }
     },
     authenticateRequest(req, res, next) {
       const token = req.get('Authorization');
@@ -121,10 +139,13 @@ test('road and place lookups give verified accounts separate budgets on a shared
   const passenger = { Authorization: 'Bearer active-passenger' };
   assert.equal((await request('/route')).status, 200);
   assert.equal((await request('/locations?q=Bole')).status, 200);
-  assert.equal((await request('/route', { 'X-Driver-Id': 'invented' })).status, 429);
+  const guestReverse = await request('/locations/reverse?lat=9.03&lon=38.77');
+  assert.equal(guestReverse.status, 429, 'Reverse geocoding shares the anonymous search budget.');
   assert.equal((await request('/route', driver)).status, 200, 'Guest traffic cannot exhaust a verified driver');
-  assert.equal((await request('/locations?q=Bole', driver)).status, 200);
-  const capped = await request('/route', driver);
+  const driverReverse = await request('/locations/reverse?lat=9.03&lon=38.77', driver);
+  assert.equal(driverReverse.status, 200);
+  assert.equal((await driverReverse.json()).name, 'Arat Kilo, Addis Ababa');
+  const capped = await request('/locations?q=Bole', driver);
   assert.equal(capped.status, 429, 'A driver cannot bypass the combined route/search budget');
   assert.ok(Number(capped.headers.get('retry-after')) > 0);
   assert.equal((await request('/route', passenger)).status, 200, 'Another account on the same network has its own budget');

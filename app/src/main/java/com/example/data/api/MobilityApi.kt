@@ -117,6 +117,8 @@ data class MobilityPlace(val name: String, val latitude: Double, val longitude: 
 @JsonClass(generateAdapter = true)
 data class MobilityPlacesResponse(val success: Boolean, val places: List<MobilityPlace> = emptyList(), val searchAvailable: Boolean = true, val error: String? = null)
 @JsonClass(generateAdapter = true)
+data class MobilityReverseResponse(val success: Boolean, val name: String? = null, val error: String? = null)
+@JsonClass(generateAdapter = true)
 data class MobilityRoadResponse(val success: Boolean, val distanceKm: Double? = null, val durationMinutes: Double? = null, val error: String? = null, val geometry: MobilityRoadGeometry? = null,
     val geometryQuality: String? = null, val geometryToleranceMeters: Double? = null,
     val originSnapMeters: Double? = null, val destinationSnapMeters: Double? = null)
@@ -128,6 +130,7 @@ interface MobilityApi {
     @POST("api/auth/request-otp") suspend fun requestContactOtp(@Body input: Map<String, String>): Response<OtpResponse>
     @POST("api/auth/verify-otp") suspend fun verifyContactOtp(@Body input: Map<String, String>): Response<OtpResponse>
     @GET("api/mobility/locations") suspend fun locations(@Query("q") query: String): Response<MobilityPlacesResponse>
+    @GET("api/mobility/locations/reverse") suspend fun reverseLocation(@Query("lat") latitude: Double, @Query("lon") longitude: Double): Response<MobilityReverseResponse>
     @GET("api/mobility/route") suspend fun road(@Query("originLatitude") originLatitude: Double,
         @Query("originLongitude") originLongitude: Double, @Query("destinationLatitude") destinationLatitude: Double,
         @Query("destinationLongitude") destinationLongitude: Double): Response<MobilityRoadResponse>

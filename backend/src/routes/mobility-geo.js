@@ -20,6 +20,7 @@ function createGeoRouter({ service = getGeoService(), limit = 180, authenticateR
     catch (error) { res.status(error instanceof GeoError ? error.status : 503).json({ success: false, error: error instanceof GeoError ? error.message : 'Location service is temporarily unavailable.' }); }
   };
   router.get('/locations', handle(req => service.locations(req.query.q)));
+  router.get('/locations/reverse', handle(req => service.reverse(req.query)));
   router.get('/route', handle(req => service.route(req.query)));
   return router;
 }

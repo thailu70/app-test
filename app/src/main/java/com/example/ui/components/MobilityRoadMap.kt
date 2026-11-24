@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -52,7 +53,8 @@ internal object PassoMobilityPalette {
     val text = Color(0xFF102F45)
     val muted = Color(0xFF627385)
     val brand = Color(0xFF008755)
-    val route = Color(0xFF91D3B5)
+    val route = Color(0xFF54B77B)
+    val activeRoute = Color(0xFF006B4E)
     val landmark = Color(0xFFF4C84A)
     val border = Color(0xFFDDE6E1)
 }
@@ -235,7 +237,7 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             if (!roadToDestination(stage) && movingPoints.isNotEmpty()) Text("┄ To pickup", fontSize = 11.sp, color = Color(0xFF248B9A))
-            if (plannedPoints.isNotEmpty() || movingPoints.isNotEmpty()) Text("━ To destination", fontSize = 11.sp, color = Color(0xFF00685C))
+            if (plannedPoints.isNotEmpty() || movingPoints.isNotEmpty()) Text("━ To destination", fontSize = 11.sp, color = PassoMobilityPalette.activeRoute)
         }
         val estimate = if (fresh && movingPoints.isNotEmpty()) moving else null
         if (estimate?.distanceKm != null && estimate.durationMinutes != null) Text(
@@ -265,8 +267,8 @@ internal fun replaceRoadOverlays(map: MapView, planned: List<Pair<Double, Double
         map.overlays.add(Polyline(map).apply { setGeodesic(false); setPoints(points.map { GeoPoint(it.first, it.second) }); outlinePaint.color = color; outlinePaint.strokeWidth = 8f
             if (dashed) outlinePaint.pathEffect = DashPathEffect(floatArrayOf(18f, 12f), 0f) })
     }
-    line(planned, 0xFF91D3B5.toInt(), false)
-    line(moving, 0xFF008755.toInt(), !inTransit)
+    line(planned, PassoMobilityPalette.route.toArgb(), false)
+    line(moving, PassoMobilityPalette.activeRoute.toArgb(), !inTransit)
     fun marker(point: Pair<Double, Double>?, title: String, letter: String, color: Int) {
         if (!validRoadPoint(point)) return
         map.overlays.add(Marker(map).apply {

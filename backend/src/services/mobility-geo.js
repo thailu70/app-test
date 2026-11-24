@@ -42,7 +42,7 @@ function detailedGeometry(value) {
   throw new GeoError('This road route is too complex. Choose a shorter route.');
 }
 function createGeoService({ fetchImpl = globalThis.fetch, db, env = process.env, now = Date.now } = {}) {
-  const searchCache = new Map(), routeCache = new Map();
+  const searchCache = new Map(), reverseCache = new Map(), routeCache = new Map();
   const photon = env.PHOTON_URL || 'http://photon:2322', osrm = env.OSRM_URL || 'http://osrm:5000';
   const timeoutMs = Math.min(10000, Math.max(500, Number(env.GEO_TIMEOUT_MS) || 3500));
   function cacheGet(cache, key) { const entry = cache.get(key); return entry && entry.until > now() ? entry.value : null; }
@@ -95,6 +95,30 @@ function createGeoService({ fetchImpl = globalThis.fetch, db, env = process.env,
       return { places: saved, source: 'saved', searchAvailable: false, message: 'Showing saved stops. You can also choose a map pin.', attribution: '© OpenStreetMap contributors' };
     }
   }
+  async function reverse(input) {
+    const latitude = coordinate(input.lat ?? input.latitude, true);
+    const longitude = coordinate(input.lon ?? input.longitude, false);
+    const key = `${latitude.toFixed(4)},${longitude.toFixed(4)}`;
+    const cached = cacheGet(reverseCache, key);
+    if (cached) return cached;
+    try {
+      const data = await json(photon, '/reverse/', { lat: latitude, lon: longitude, lang: 'en', countrycode: 'ET' });
+      const properties = data.features?.[0]?.properties || {};
+      const meaningful = value => {
+        const label = String(value || '').trim();
+        return label && !/^\d+$/.test(label) ? label : null;
+      };
+      const district = meaningful(properties.district || properties.neighbourhood || properties.suburb);
+      const county = meaningful(properties.county);
+      const city = meaningful(properties.city || properties.locality || properties.state);
+      const area = district || county;
+      const name = area && city && area.toLocaleLowerCase() !== city.toLocaleLowerCase()
+        ? `${area}, ${city}` : area || city || meaningful(properties.street);
+      return cachePut(reverseCache, key, { name: name || null, source: 'photon', attribution: '© OpenStreetMap contributors' }, 600);
+    } catch (_) {
+      throw new GeoError('Nearby area name is temporarily unavailable.');
+    }
+  }
   async function route(input) {
     const coordinates = [coordinate(input.originLongitude, false), coordinate(input.originLatitude, true), coordinate(input.destinationLongitude, false), coordinate(input.destinationLatitude, true)];
     const key = coordinates.map(n => n.toFixed(6)).join(','), cached = cacheGet(routeCache, key);
@@ -112,7 +136,7 @@ function createGeoService({ fetchImpl = globalThis.fetch, db, env = process.env,
     return cachePut(routeCache, key, { distanceKm: Math.round(result.distance / 10) / 100, durationMinutes: Math.ceil(result.duration / 60), ...detail,
       originSnapMeters: snapped(0), destinationSnapMeters: snapped(1), source: 'osrm', attribution: '© OpenStreetMap contributors' }, 1800);
   }
-  return { locations, route };
+  return { locations, reverse, route };
 }
 let instance;
 function getGeoService() { if (!instance) instance = createGeoService(); return instance; }

@@ -63,7 +63,16 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 
-private suspend fun nearestTaxiPickupArea(context: android.content.Context, point: Pair<Double, Double>, language: AppLanguage): String? {
+private suspend fun nearestTaxiPickupArea(api: MobilityApi, context: android.content.Context, point: Pair<Double, Double>, language: AppLanguage): String? {
+    try {
+        val response = api.reverseLocation(point.first, point.second)
+        val area = response.body()?.takeIf { response.isSuccessful && it.success }?.name?.trim()?.takeIf(String::isNotEmpty)
+        if (area != null) return area
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        // Keep Android's local geocoder as a fallback when the app cannot reach Photon.
+    }
     if (!Geocoder.isPresent()) return null
     val locale = when (language) {
         AppLanguage.AMHARIC -> Locale("am", "ET")
@@ -130,6 +139,7 @@ private fun isGenericTaxiPickupLabel(value: String): Boolean =
     val state by model.state.collectAsState()
     val pending = remember(authenticated) { if (authenticated) TaxiPendingNavigation.take() else TaxiPendingNavigation.peek() }
     val context = LocalContext.current; val scope = rememberCoroutineScope()
+    val locationApi = remember { ApiClient.createFeatureService(MobilityApi::class.java) }
     var page by remember { mutableStateOf(if (pending?.sharedId != null || pending?.sharedStart == true) "shared" else "home") }
     var startShared by remember { mutableStateOf(authenticated && pending?.sharedStart == true) }
     var pickup by remember { mutableStateOf(pending?.route?.let { it.originLatitude to it.originLongitude }) }
@@ -181,7 +191,7 @@ private fun isGenericTaxiPickupLabel(value: String): Boolean =
             val point = fix.latitude to fix.longitude
             pickup = point
             pickupName = taxiText(language, "Current location", "አሁን ያሉበት ቦታ", "Bakka amma jirtan")
-            nearestTaxiPickupArea(context, point, language)?.let { if (pickup == point) pickupName = it }
+            nearestTaxiPickupArea(locationApi, context, point, language)?.let { if (pickup == point) pickupName = it }
         }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { localNotice = e.message }
@@ -189,7 +199,7 @@ private fun isGenericTaxiPickupLabel(value: String): Boolean =
     }
     fun resolveGenericPickupName(point: Pair<Double, Double>) {
         scope.launch {
-            nearestTaxiPickupArea(context, point, language)?.let { if (pickup == point && isGenericTaxiPickupLabel(pickupName)) pickupName = it }
+            nearestTaxiPickupArea(locationApi, context, point, language)?.let { if (pickup == point && isGenericTaxiPickupLabel(pickupName)) pickupName = it }
         }
     }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
