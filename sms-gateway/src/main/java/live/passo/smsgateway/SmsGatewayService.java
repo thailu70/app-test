@@ -20,6 +20,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 
 public class SmsGatewayService extends Service {
@@ -29,6 +32,9 @@ public class SmsGatewayService extends Service {
     private static final String KEY_DEVICE_TOKEN = "device_token_enc";
     private static final String CHANNEL_ID = "passo_sms_gateway";
     private static final int NOTIFICATION_ID = 5091;
+    private static final int MAX_ENCRYPTED_PAYLOAD_CHARS = 16000;
+    private static final long SMS_RESULT_TIMEOUT_SECONDS = 90;
+    private static final ConcurrentHashMap<String, SmsSendTracker> pendingSms = new ConcurrentHashMap<>();
     private static final Pattern OTP_TEXT = Pattern.compile("^PASSO (?:sign-in|registration|cargo request|group travel request) verification code: \\d{6}\\. It expires in 10 minutes\\. Do not share it\\.$");
     private static final Pattern PASSO_TRANSACTION_TEXT = Pattern.compile("^(?:PASSO(?:[\\p{L}\\p{N}]+|[ :])|RoutePass(?::| ))[^\\r\\n]{1,1530}$");
     private static final Pattern ETHIOPIAN_PHONE = Pattern.compile("^\\+251[79]\\d{8}$");
@@ -110,7 +116,10 @@ public class SmsGatewayService extends Service {
         String phone = "";
         String message = "";
         try {
-            if (encryptedPayload.length() < 100 || encryptedPayload.length() > 3000) throw new IllegalArgumentException("Invalid encrypted payload.");
+            // Hybrid encryption expands multipart text substantially. The old
+            // 3 KB ceiling rejected valid messages near the carrier's 10-part
+            // limit before Android could split and send them.
+            if (encryptedPayload.length() < 100 || encryptedPayload.length() > MAX_ENCRYPTED_PAYLOAD_CHARS) throw new IllegalArgumentException("Invalid encrypted payload.");
             JSONObject secret = GatewayCrypto.decryptOtpPayload(encryptedPayload);
             phone = secret.optString("phone", "");
             message = secret.optString("message", "");
@@ -131,17 +140,8 @@ public class SmsGatewayService extends Service {
             failureReason = "message_policy_rejected";
         } else {
             try {
-                SmsManager smsManager = SmsManager.getDefault();
-                java.util.ArrayList<String> parts = smsManager.divideMessage(message);
-                if (parts == null || parts.isEmpty() || parts.size() > 10) {
-                    failureReason = "message_segment_limit";
-                } else if (parts.size() == 1) {
-                    smsManager.sendTextMessage(phone, null, parts.get(0), null, null);
-                    sent = true;
-                } else {
-                    smsManager.sendMultipartTextMessage(phone, null, parts, null, null);
-                    sent = true;
-                }
+                sent = sendAndConfirmWithSim(phone, message, id, lease);
+                if (!sent) failureReason = "sms_carrier_rejected_or_timeout";
             } catch (SecurityException error) {
                 failureReason = "sms_permission_denied";
             } catch (IllegalArgumentException error) {
@@ -165,6 +165,55 @@ public class SmsGatewayService extends Service {
             phone = "";
             message = "";
         }
+    }
+
+    private boolean sendAndConfirmWithSim(String phone, String message, String jobId, String lease) throws Exception {
+        SmsManager smsManager = SmsManager.getDefault();
+        java.util.ArrayList<String> parts = smsManager.divideMessage(message);
+        if (parts == null || parts.isEmpty() || parts.size() > 10) return false;
+
+        String trackerKey = jobId + ":" + lease;
+        SmsSendTracker tracker = new SmsSendTracker(parts.size());
+        pendingSms.put(trackerKey, tracker);
+        try {
+            java.util.ArrayList<PendingIntent> sentIntents = new java.util.ArrayList<>(parts.size());
+            for (int index = 0; index < parts.size(); index++) {
+                Intent callback = new Intent(this, SmsSentReceiver.class)
+                        .setAction(getPackageName() + ".SMS_SENT." + jobId + "." + index)
+                        .putExtra(SmsSentReceiver.EXTRA_JOB_ID, jobId)
+                        .putExtra(SmsSentReceiver.EXTRA_LEASE, lease)
+                        .putExtra(SmsSentReceiver.EXTRA_PART_INDEX, index);
+                int requestCode = (jobId + ":" + lease + ":" + index).hashCode() & 0x7fffffff;
+                sentIntents.add(PendingIntent.getBroadcast(this, requestCode, callback,
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+            }
+
+            if (parts.size() == 1) {
+                smsManager.sendTextMessage(phone, null, parts.get(0), sentIntents.get(0), null);
+            } else {
+                smsManager.sendMultipartTextMessage(phone, null, parts, sentIntents, null);
+            }
+
+            boolean completed = tracker.latch.await(SMS_RESULT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            return completed && tracker.allAccepted.get();
+        } finally {
+            pendingSms.remove(trackerKey, tracker);
+        }
+    }
+
+    static void recordSmsPartResult(String jobId, String lease, int partIndex, int resultCode) {
+        SmsSendTracker tracker = pendingSms.get(jobId + ":" + lease);
+        if (tracker == null || partIndex < 0 || partIndex >= tracker.partCount || !tracker.completedParts.add(partIndex)) return;
+        if (resultCode != android.app.Activity.RESULT_OK) tracker.allAccepted.set(false);
+        if (tracker.completedParts.size() == tracker.partCount) tracker.latch.countDown();
+    }
+
+    private static final class SmsSendTracker {
+        final int partCount;
+        final java.util.Set<Integer> completedParts = ConcurrentHashMap.newKeySet();
+        final AtomicBoolean allAccepted = new AtomicBoolean(true);
+        final CountDownLatch latch = new CountDownLatch(1);
+        SmsSendTracker(int partCount) { this.partCount = partCount; }
     }
 
     private JSONObject post(String path, JSONObject body) throws Exception {

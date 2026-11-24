@@ -90,6 +90,21 @@ test('phone gateway sends encrypted OTPs and trip SMS to any valid Ethiopian num
     assert.equal(await gateway.acknowledgeJob(device.deviceId, publicRequestOtp.id, publicRequestOtp.leaseToken, true, { db: DB, now: () => now + 2000 }), true);
   }
 
+  const retryPhone = '+251912000006', retryCode = '678901', retryId = 'otp_retry_after_sim_rejection';
+  await DB.prepare('INSERT INTO auth_otps(id,phone,purpose,code_hash,expires_at) VALUES(?,?,?,?,?)')
+    .run(retryId, retryPhone, 'LOGIN', crypto.createHash('sha256').update(retryCode).digest('hex'), otpExpiry);
+  await gateway.queueOtp({ otpId: retryId, phone: retryPhone, code: retryCode, db: DB, now: () => now + 2500 });
+  const rejectedAttempt = await gateway.claimNextJob(device.deviceId, { db: DB, now: () => now + 2500 });
+  assert.ok(rejectedAttempt);
+  assert.equal(await gateway.acknowledgeJob(device.deviceId, rejectedAttempt.id, rejectedAttempt.leaseToken, false, { db: DB, now: () => now + 2500 }), true);
+  const retryState = await DB.prepare('SELECT status,encrypted_payload,attempts FROM phone_sms_jobs WHERE id=?').get(rejectedAttempt.id);
+  assert.equal(retryState.status, 'PENDING', 'A transient SIM rejection remains retryable.');
+  assert.ok(retryState.encrypted_payload, 'The encrypted OTP is retained for the retry.');
+  const retryAttempt = await gateway.claimNextJob(device.deviceId, { db: DB, now: () => now + 3000 });
+  assert.equal(retryAttempt.id, rejectedAttempt.id);
+  assert.equal(await gateway.acknowledgeJob(device.deviceId, retryAttempt.id, retryAttempt.leaseToken, true, { db: DB, now: () => now + 3000 }), true);
+  assert.equal((await DB.prepare('SELECT status FROM phone_sms_jobs WHERE id=?').get(retryAttempt.id)).status, 'SENT');
+
   const additionalNumber = '+251912000004';
   const accepted = await gateway.queueServiceMessage({ eventKey: 'all-numbers-fixture', phone: additionalNumber, message, db: DB, now: () => now });
   assert.deepEqual(accepted, { queued: true }, 'Any valid Ethiopian number can use the selected phone gateway.');
@@ -128,9 +143,15 @@ test('phone gateway sends encrypted OTPs and trip SMS to any valid Ethiopian num
   const longGsm = 'PASSO ' + 'A'.repeat(1524);
   assert.equal(gateway.smsSegmentCount(longGsm), 10);
   assert.deepEqual(await gateway.queueServiceMessage({ eventKey: 'max-gsm-message', phone: fallbackPhone, message: longGsm, db: DB, now: () => now }), { queued: true });
+  const longGsmRow = await DB.prepare('SELECT LENGTH(encrypted_payload) AS length FROM phone_sms_message_jobs WHERE event_key=?')
+    .get(crypto.createHash('sha256').update('max-gsm-message').digest('hex'));
+  assert.ok(Number(longGsmRow.length) > 3000, 'A valid 10-part SMS expands beyond the companion app’s former payload ceiling.');
   const longUnicode = 'PASSO ' + 'ሀ'.repeat(661);
   assert.equal(gateway.smsSegmentCount(longUnicode), 10);
   assert.deepEqual(await gateway.queueServiceMessage({ eventKey: 'max-unicode-message', phone: fallbackPhone, message: longUnicode, db: DB, now: () => now }), { queued: true });
+  const longUnicodeRow = await DB.prepare('SELECT LENGTH(encrypted_payload) AS length FROM phone_sms_message_jobs WHERE event_key=?')
+    .get(crypto.createHash('sha256').update('max-unicode-message').digest('hex'));
+  assert.ok(Number(longUnicodeRow.length) > 3000, 'Valid multipart Amharic SMS also exceeds the old companion payload ceiling.');
   const tooLongUnicode = 'PASSO ' + 'ሀ'.repeat(665);
   assert.equal(gateway.smsSegmentCount(tooLongUnicode), 11);
   assert.deepEqual(await gateway.queueServiceMessage({ eventKey: 'too-long-unicode-message', phone: fallbackPhone, message: tooLongUnicode, db: DB, now: () => now }), { queued: false }, 'Messages beyond the phone carrier-safe ten-part limit are rejected before queuing.');

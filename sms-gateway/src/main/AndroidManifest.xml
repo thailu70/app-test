@@ -24,5 +24,8 @@
             android:exported="false"
             android:foregroundServiceType="remoteMessaging"
             android:stopWithTask="false" />
+        <receiver
+            android:name=".SmsSentReceiver"
+            android:exported="false" />
     </application>
 </manifest>

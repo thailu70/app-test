@@ -326,7 +326,7 @@ async function claimNextJob(deviceId, { db = DB, now = Date.now } = {}) {
     ).get(deviceId, timestamp, timestamp);
     if (row?.encrypted_payload) {
       const leaseToken = crypto.randomBytes(24).toString('hex');
-      const leaseUntil = new Date(now() + 60 * 1000).toISOString();
+      const leaseUntil = new Date(now() + 3 * 60 * 1000).toISOString();
       const updated = await tx.prepare("UPDATE phone_sms_jobs SET status='SENDING',attempts=attempts+1,lease_token=?,lease_until=?,leased_by=? WHERE id=? AND status='PENDING'")
         .run(leaseToken, leaseUntil, deviceId, row.id);
       if (updated.changes === 1) return { id: row.id, encryptedPayload: row.encrypted_payload, leaseToken };
@@ -336,7 +336,7 @@ async function claimNextJob(deviceId, { db = DB, now = Date.now } = {}) {
     if (!message?.encrypted_payload) return null;
     const leaseToken = crypto.randomBytes(24).toString('hex');
     const updated = await tx.prepare("UPDATE phone_sms_message_jobs SET status='SENDING',attempts=attempts+1,lease_token=?,lease_until=?,leased_by=? WHERE id=? AND status='PENDING'")
-      .run(leaseToken, new Date(now() + 60 * 1000).toISOString(), deviceId, message.id);
+      .run(leaseToken, new Date(now() + 3 * 60 * 1000).toISOString(), deviceId, message.id);
     if (updated.changes !== 1) return null;
     return { id: message.id, encryptedPayload: message.encrypted_payload, leaseToken };
   });
@@ -344,10 +344,13 @@ async function claimNextJob(deviceId, { db = DB, now = Date.now } = {}) {
 
 async function acknowledgeJob(deviceId, jobId, leaseToken, success, { db = DB, now = Date.now } = {}) {
   await initPhoneSmsGatewaySchema(db);
-  const status = success ? 'SENT' : 'FAILED';
   const result = await db.prepare(
-    "UPDATE phone_sms_jobs SET status=?,message='',encrypted_payload=NULL,sent_at=?,lease_token=NULL,lease_until=NULL WHERE id=? AND leased_by=? AND lease_token=? AND status='SENDING'"
-  ).run(status, success ? new Date(now()).toISOString() : null, jobId, deviceId, String(leaseToken || ''));
+    "UPDATE phone_sms_jobs SET status=CASE WHEN ?=1 THEN 'SENT' WHEN attempts>=3 THEN 'FAILED' ELSE 'PENDING' END," +
+    "message='',encrypted_payload=CASE WHEN ?=1 OR attempts>=3 THEN NULL ELSE encrypted_payload END," +
+    'sent_at=CASE WHEN ?=1 THEN ? ELSE NULL END,lease_token=NULL,lease_until=NULL,leased_by=NULL ' +
+    "WHERE id=? AND leased_by=? AND lease_token=? AND status='SENDING'"
+  ).run(success ? 1 : 0, success ? 1 : 0, success ? 1 : 0, success ? new Date(now()).toISOString() : null,
+    jobId, deviceId, String(leaseToken || ''));
   if (result.changes === 1) return true;
   if (success) {
     const sent = await db.prepare("UPDATE phone_sms_message_jobs SET status='SENT',encrypted_payload='',sent_at=?,lease_token=NULL,lease_until=NULL WHERE id=? AND leased_by=? AND lease_token=? AND status='SENDING'")
