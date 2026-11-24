@@ -21,7 +21,7 @@ if (process.env.MOBILITY_TEST_POSTGRES === 'true') {
 const { DB } = require('../src/db');
 const { initMasterDataSchema } = require('../src/services/master-data');
 const gateway = require('../src/services/phone-sms-gateway');
-const { sendTransactionalSms } = require('../src/services/afro-sms');
+const { sendOtpSms, sendTransactionalSms } = require('../src/services/afro-sms');
 
 test('phone gateway sends encrypted OTPs and trip SMS to any valid Ethiopian number', async () => {
   await initMasterDataSchema(DB);
@@ -109,4 +109,29 @@ test('phone gateway sends encrypted OTPs and trip SMS to any valid Ethiopian num
   const final = await DB.prepare('SELECT status,encrypted_payload FROM phone_sms_message_jobs').all();
   assert.equal(final.length, 2);
   assert.ok(final.every(row => row.status === 'SENT' && row.encrypted_payload === ''));
+
+  await gateway.savePilotSettings({ deliveryMode: 'AFRO_SMS', pilotNumbers: [] }, { db: DB });
+  const fallbackPhone = '+251912000005', fallbackCode = '567890', fallbackId = 'otp_afro_fallback';
+  await DB.prepare('INSERT INTO auth_otps(id,phone,purpose,code_hash,expires_at) VALUES(?,?,?,?,?)')
+    .run(fallbackId, fallbackPhone, 'LOGIN', crypto.createHash('sha256').update(fallbackCode).digest('hex'), otpExpiry);
+  const otpFallback = await sendOtpSms({ otpId: fallbackId, phone: fallbackPhone, code: fallbackCode,
+    message: `PASSO sign-in verification code: ${fallbackCode}. It expires in 10 minutes. Do not share it.` }, {
+    db: DB, fallbackSendSms: async () => ({ sent: false, error: 'Recipient is not on the provider trial allowlist.' })
+  });
+  assert.deepEqual(otpFallback, { sent: true, queued: true, phoneGateway: true }, 'A rejected provider recipient falls back to the paired SIM.');
+  const transactionFallback = await sendTransactionalSms('fallback-trip-message', fallbackPhone,
+    'PASSO taxi trip started: Bole to CMC. Open Passo to view your trip.', {
+      db: DB, fallbackSendSms: async () => ({ sent: false, error: 'Recipient is not on the provider trial allowlist.' })
+    });
+  assert.deepEqual(transactionFallback, { sent: true, queued: true, phoneGateway: true }, 'Rejected long-form provider delivery uses the paired SIM.');
+
+  const longGsm = 'PASSO ' + 'A'.repeat(1524);
+  assert.equal(gateway.smsSegmentCount(longGsm), 10);
+  assert.deepEqual(await gateway.queueServiceMessage({ eventKey: 'max-gsm-message', phone: fallbackPhone, message: longGsm, db: DB, now: () => now }), { queued: true });
+  const longUnicode = 'PASSO ' + 'ሀ'.repeat(661);
+  assert.equal(gateway.smsSegmentCount(longUnicode), 10);
+  assert.deepEqual(await gateway.queueServiceMessage({ eventKey: 'max-unicode-message', phone: fallbackPhone, message: longUnicode, db: DB, now: () => now }), { queued: true });
+  const tooLongUnicode = 'PASSO ' + 'ሀ'.repeat(665);
+  assert.equal(gateway.smsSegmentCount(tooLongUnicode), 11);
+  assert.deepEqual(await gateway.queueServiceMessage({ eventKey: 'too-long-unicode-message', phone: fallbackPhone, message: tooLongUnicode, db: DB, now: () => now }), { queued: false }, 'Messages beyond the phone carrier-safe ten-part limit are rejected before queuing.');
 });

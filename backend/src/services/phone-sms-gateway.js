@@ -6,6 +6,20 @@ const { normalizePhone, getTestLoginOtpConfig, testOtpRoleForPhone, isConfigured
 
 const schemas = new WeakMap();
 const sha256 = value => crypto.createHash('sha256').update(String(value)).digest('hex');
+const GSM7_BASIC = new Set(Array.from("@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà"));
+const GSM7_EXTENDED = new Set(Array.from("^{}\\[~]|€\f"));
+
+function smsSegmentCount(message) {
+  let septets = 0, gsm7 = true;
+  for (const character of message) {
+    if (GSM7_BASIC.has(character)) septets++;
+    else if (GSM7_EXTENDED.has(character)) septets += 2;
+    else { gsm7 = false; break; }
+  }
+  if (gsm7) return septets <= 160 ? 1 : Math.ceil(septets / 153);
+  const utf16Units = message.length;
+  return utf16Units <= 70 ? 1 : Math.ceil(utf16Units / 67);
+}
 const enabled = () => process.env.PASSO_SMS_GATEWAY_ENABLED !== 'false' &&
   !require('../review/isolation').getReviewRuntime();
 
@@ -269,11 +283,11 @@ async function queueOtp({ otpId, phone, code, db = DB, now = Date.now } = {}) {
 
 /** Queues encrypted, branded trip-update SMS for any valid Ethiopian mobile number. */
 async function queueServiceMessage({ eventKey, phone, message, db = DB, now = Date.now } = {}) {
-  if (!enabled() || await getDeliveryMode({ db }) !== 'PHONE_GATEWAY') return { queued: false };
+  if (!enabled()) return { queued: false };
   await initPhoneSmsGatewaySchema(db);
   const normalized = normalizePhone(phone), sourceKey = String(eventKey || '').trim(), body = String(message || '').trim();
-  if (!normalized || !sourceKey || sourceKey.length > 400 || /[\u0000-\u001f\u007f]/.test(sourceKey) || !body || body.length > 600 ||
-      !/^(?:PASSO(?:[\p{L}\p{N}]+|[ :])|RoutePass(?::| ))[^\r\n]{1,580}$/u.test(body)) return { queued: false };
+  if (!normalized || !sourceKey || sourceKey.length > 400 || /[\u0000-\u001f\u007f]/.test(sourceKey) || !body || body.length > 1530 ||
+      smsSegmentCount(body) > 10 || !/^(?:PASSO(?:[\p{L}\p{N}]+|[ :])|RoutePass(?::| ))[^\r\n]{1,1530}$/u.test(body)) return { queued: false };
   const device = await db.prepare('SELECT id,public_key FROM phone_sms_devices WHERE public_key IS NOT NULL AND revoked_at IS NULL AND last_seen_at>? ORDER BY last_seen_at DESC LIMIT 1')
     .get(new Date(now() - 2 * 60 * 1000).toISOString());
   if (!device) return { queued: false };
@@ -348,6 +362,6 @@ async function acknowledgeJob(deviceId, jobId, leaseToken, success, { db = DB, n
 module.exports = {
   initPhoneSmsGatewaySchema, createPairCode, pairDevice, authenticateDevice, adminStatus,
   getDeliveryMode, setDeliveryMode, getPilotPhoneNumbers, getAdditionalPilotPhoneNumbers,
-  savePilotPhoneNumbers, savePilotSettings, isPilotPhone,
+  savePilotPhoneNumbers, savePilotSettings, isPilotPhone, smsSegmentCount,
   revokeDevice, cancelUnsentForPhone, queueOtp, queueTestOtp: queueOtp, queueServiceMessage, claimNextJob, acknowledgeJob
 };

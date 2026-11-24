@@ -6,7 +6,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { DB } = require('../db');
 const { signToken, authenticate } = require('../middleware/auth');
-const { sendSms } = require('../services/afro-sms');
+const { sendOtpSms } = require('../services/afro-sms');
 const { accountPhonePolicy } = require('../services/account-phone-policy');
 const { createOnboardingService, OnboardingError, isOperationallyEligible, getDriverServiceType, normalizePhone: normalizeAccountPhone } = require('../services/onboarding');
 const { getTestLoginOtpConfig, testOtpRoleForPhone, storedTestOtpHash,
@@ -72,15 +72,8 @@ router.post('/request-otp', authLimiter, async (req, res) => {
     await DB.prepare("UPDATE auth_otps SET expires_at=CURRENT_TIMESTAMP WHERE phone=? AND purpose=? AND verified_at IS NULL").run(phone, purpose);
     await DB.prepare('INSERT INTO auth_otps(id,phone,purpose,code_hash,expires_at) VALUES(?,?,?,?,?)').run(id, phone, purpose, codeHash, expiresAt);
   }
-  if (phoneGatewayMode) {
-    try {
-      delivery = await phoneSmsGateway.queueOtp({ otpId: id, phone, code, expiresAt });
-      if (delivery?.queued) delivery = { sent: true, testMode: testMode || undefined, phoneGateway: true };
-      else delivery = null;
-    } catch (_) { delivery = null; }
-  } else {
-    try { delivery = await sendSms(phone, message); } catch (_) { delivery = null; }
-  }
+  try { delivery = await sendOtpSms({ otpId: id, phone, code, message }); } catch (_) { delivery = null; }
+  if (delivery?.sent && delivery.phoneGateway) delivery.testMode = testMode || undefined;
   if (!delivery?.sent) {
     await DB.prepare('DELETE FROM auth_otps WHERE id=? AND verified_at IS NULL').run(id);
     return res.status(503).json({ success: false, error: 'The SMS could not be sent. Please try again later.', delivery: 'FAILED' });

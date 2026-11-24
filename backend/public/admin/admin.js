@@ -170,12 +170,12 @@
       '</span><button class="btn btn-secondary" type="button" data-phone-gateway-revoke="' + esc(device.id) + '">Disconnect</button></div>'
     ).join("");
     const pilotPhoneText = asArray(gateway.additionalPilotNumbers).join("\n");
-    const pilotSmsSection = section("SMS delivery", "Choose the SMS provider for all valid Ethiopian phone numbers entered in Passo. The phone gateway is not restricted to a test-number list.",
+    const pilotSmsSection = section("SMS delivery", "Choose the preferred provider. If it rejects a number or message, the connected phone SIM automatically tries as backup for any valid Ethiopian number.",
       '<form id="pilot-sms-form" class="form-card" style="padding:0;border:0;box-shadow:none">' +
       '<fieldset style="border:0;padding:0;margin:0"><legend class="field-label">SMS provider</legend>' +
       '<div class="inline-actions" style="gap:18px;margin:10px 0 18px">' +
       '<label style="display:flex;gap:8px;align-items:center"><input type="radio" name="deliveryMode" value="AFRO_SMS"' + (gateway.deliveryMode === "AFRO_SMS" ? ' checked' : '') + '> Afro SMS</label>' +
-      '<label style="display:flex;gap:8px;align-items:center"><input type="radio" name="deliveryMode" value="PHONE_GATEWAY"' + (gateway.deliveryMode === "PHONE_GATEWAY" ? ' checked' : '') + (gateway.enabled ? '' : ' disabled') + '> Paired phone SIM (all numbers)</label>' +
+      '<label style="display:flex;gap:8px;align-items:center"><input type="radio" name="deliveryMode" value="PHONE_GATEWAY"' + (gateway.deliveryMode === "PHONE_GATEWAY" ? ' checked' : '') + (gateway.enabled ? '' : ' disabled') + '> Paired phone SIM first (all numbers)</label>' +
       '</div></fieldset>' +
       '<input type="hidden" id="pilot-sms-numbers" value="' + esc(pilotPhoneText) + '">' +
       '<p class="hint">Login codes, cargo/group verification codes, and trip updates can go to any valid number. The paired phone sends only encrypted, Passo-generated messages.</p>' +

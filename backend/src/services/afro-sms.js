@@ -63,18 +63,60 @@ function createAfroSmsService({ db = DB, fetchImpl = (...args) => fetch(...args)
   return { sendSms };
 }
 
-/** Non-OTP account and trip messages use the encrypted phone gateway when selected in Admin. */
-async function sendTransactionalSms(eventKey, phone, message, { db = DB, fallbackSendSms = smsService.sendSms } = {}) {
+async function sendWithPhoneGateway(queue) {
   try {
-    const gateway = require('./phone-sms-gateway');
-    if (await gateway.getDeliveryMode({ db }) === 'PHONE_GATEWAY') {
-      const queued = await gateway.queueServiceMessage({ eventKey, phone, message, db });
-      if (queued.queued) return { sent: true, queued: true };
-    }
-  } catch (_) { /* Fall back to the configured SMS provider if pilot delivery is unavailable. */ }
-  return fallbackSendSms(phone, message);
+    const result = await queue();
+    return result?.queued ? { sent: true, queued: true, phoneGateway: true } : null;
+  } catch (_) { return null; }
+}
+
+/**
+ * Deliver sign-in and public-request codes through the selected provider, then
+ * use the paired SIM if the provider rejects that recipient or message. This
+ * lets the service reach valid Ethiopian numbers that are not on an SMS
+ * provider's trial allowlist.
+ */
+async function sendOtpSms({ otpId, phone, code, message }, { db = DB, fallbackSendSms = smsService.sendSms } = {}) {
+  const gateway = require('./phone-sms-gateway');
+  let mode = 'AFRO_SMS';
+  try { mode = await gateway.getDeliveryMode({ db }); } catch (_) { /* Try the primary SMS provider. */ }
+  const queue = () => gateway.queueOtp({ otpId, phone, code, db });
+
+  if (mode === 'PHONE_GATEWAY') {
+    const queued = await sendWithPhoneGateway(queue);
+    if (queued) return queued;
+  }
+  let providerResult = null;
+  try { providerResult = await fallbackSendSms(phone, message); } catch (_) { /* Try the paired phone below. */ }
+  if (providerResult?.sent) return providerResult;
+  if (mode !== 'PHONE_GATEWAY') {
+    const queued = await sendWithPhoneGateway(queue);
+    if (queued) return queued;
+  }
+  return providerResult || { sent: false, error: 'The SMS could not be sent.' };
+}
+
+/** Account, trip and service messages can fall back between the configured provider and paired SIM. */
+async function sendTransactionalSms(eventKey, phone, message, { db = DB, fallbackSendSms = smsService.sendSms } = {}) {
+  const gateway = require('./phone-sms-gateway');
+  let mode = 'AFRO_SMS';
+  try { mode = await gateway.getDeliveryMode({ db }); } catch (_) { /* Try the primary SMS provider. */ }
+  const queue = () => gateway.queueServiceMessage({ eventKey, phone, message, db });
+
+  if (mode === 'PHONE_GATEWAY') {
+    const queued = await sendWithPhoneGateway(queue);
+    if (queued) return { sent: true, queued: true };
+  }
+  let providerResult = null;
+  try { providerResult = await fallbackSendSms(phone, message); } catch (_) { /* Try the paired phone below. */ }
+  if (providerResult?.sent) return providerResult;
+  if (mode !== 'PHONE_GATEWAY') {
+    const queued = await sendWithPhoneGateway(queue);
+    if (queued) return queued;
+  }
+  return providerResult || { sent: false, error: 'The SMS could not be sent.' };
 }
 
 const smsService = createAfroSmsService();
-module.exports = { sendSms: smsService.sendSms, sendTransactionalSms, normalizePhone, createAfroSmsService,
+module.exports = { sendSms: smsService.sendSms, sendOtpSms, sendTransactionalSms, normalizePhone, createAfroSmsService,
   AFROMESSAGE_SEND_URL };
