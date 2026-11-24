@@ -30,7 +30,7 @@ public class SmsGatewayService extends Service {
     private static final String CHANNEL_ID = "passo_sms_gateway";
     private static final int NOTIFICATION_ID = 5091;
     private static final Pattern OTP_TEXT = Pattern.compile("^PASSO (?:sign-in|registration|cargo request|group travel request) verification code: \\d{6}\\. It expires in 10 minutes\\. Do not share it\\.$");
-    private static final Pattern PASSO_TRANSACTION_TEXT = Pattern.compile("^(?:PASSO(?:[\\p{L}\\p{N}]+|[ :])|RoutePass(?::| ))[^\\r\\n]{1,480}$");
+    private static final Pattern PASSO_TRANSACTION_TEXT = Pattern.compile("^(?:PASSO(?:[\\p{L}\\p{N}]+|[ :])|RoutePass(?::| ))[^\\r\\n]{1,580}$");
     private static final Pattern ETHIOPIAN_PHONE = Pattern.compile("^\\+251[79]\\d{8}$");
 
     private volatile boolean running;

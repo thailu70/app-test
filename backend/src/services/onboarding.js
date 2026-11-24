@@ -558,7 +558,15 @@ function createOnboardingService({ db = DB, sendSms = require('./afro-sms').send
       return account;
     });
     let delivery;
-    try { delivery = await sendSms(normalizePhone(account.phone), `PASSO verification code: ${code}. It expires in 10 minutes. Do not share it.`); } catch (_) { delivery = null; }
+    try {
+      const message = `PASSO verification code: ${code}. It expires in 10 minutes. Do not share it.`;
+      delivery = await require('./afro-sms').sendTransactionalSms(
+        `driver-onboarding-otp-${id}-${challenge}`,
+        normalizePhone(account.phone),
+        message,
+        { db, fallbackSendSms: sendSms }
+      );
+    } catch (_) { delivery = null; }
     if (!delivery?.sent) {
       await db.prepare('UPDATE onboarding_otps SET consumed_at=? WHERE account_id=? AND challenge_id=?').run(time(), id, challenge);
       fail(503, 'The SMS could not be sent. Please try again after 60 seconds or contact support.');

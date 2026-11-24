@@ -272,8 +272,8 @@ async function queueServiceMessage({ eventKey, phone, message, db = DB, now = Da
   if (!enabled() || await getDeliveryMode({ db }) !== 'PHONE_GATEWAY') return { queued: false };
   await initPhoneSmsGatewaySchema(db);
   const normalized = normalizePhone(phone), sourceKey = String(eventKey || '').trim(), body = String(message || '').trim();
-  if (!normalized || !sourceKey || sourceKey.length > 400 || /[\u0000-\u001f\u007f]/.test(sourceKey) || !body || body.length > 500 ||
-      !/^(?:PASSO(?:[\p{L}\p{N}]+|[ :])|RoutePass(?::| ))[^\r\n]{1,480}$/u.test(body)) return { queued: false };
+  if (!normalized || !sourceKey || sourceKey.length > 400 || /[\u0000-\u001f\u007f]/.test(sourceKey) || !body || body.length > 600 ||
+      !/^(?:PASSO(?:[\p{L}\p{N}]+|[ :])|RoutePass(?::| ))[^\r\n]{1,580}$/u.test(body)) return { queued: false };
   const device = await db.prepare('SELECT id,public_key FROM phone_sms_devices WHERE public_key IS NOT NULL AND revoked_at IS NULL AND last_seen_at>? ORDER BY last_seen_at DESC LIMIT 1')
     .get(new Date(now() - 2 * 60 * 1000).toISOString());
   if (!device) return { queued: false };
