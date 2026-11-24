@@ -15,7 +15,12 @@ async function requirePairedDevice(req, res, next) {
   try {
     const header = String(req.headers.authorization || '');
     const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
-    const deviceId = await gateway.authenticateDevice(token);
+    // Only /claim reports the current Android SEND_SMS capability. ACK requests
+    // have no permission field and must not accidentally mark a working phone offline.
+    const smsPermissionGranted = req.path === '/claim'
+      ? req.body?.smsPermissionGranted === true
+      : undefined;
+    const deviceId = await gateway.authenticateDevice(token, { smsPermissionGranted });
     if (!deviceId) return res.status(401).json({ success: false, error: 'This gateway device is not paired.' });
     req.smsGatewayDeviceId = deviceId;
     return next();

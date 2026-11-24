@@ -48,7 +48,7 @@ async function initPhoneSmsGatewaySchema(db = DB) {
       'CREATE INDEX IF NOT EXISTS phone_sms_pair_code_expiry ON phone_sms_pair_codes(expires_at,used_at);' +
       'CREATE TABLE IF NOT EXISTS phone_sms_devices (' +
       "id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, device_name TEXT NOT NULL DEFAULT 'Android phone', public_key TEXT," +
-      'created_at TIMESTAMP NOT NULL, last_seen_at TIMESTAMP, revoked_at TIMESTAMP);' +
+      'sms_permission_granted BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMP NOT NULL, last_seen_at TIMESTAMP, revoked_at TIMESTAMP);' +
       'CREATE TABLE IF NOT EXISTS phone_sms_jobs (' +
       'id TEXT PRIMARY KEY, otp_id TEXT NOT NULL REFERENCES auth_otps(id) ON DELETE CASCADE,' +
       "phone TEXT NOT NULL, message TEXT NOT NULL DEFAULT '', encrypted_payload TEXT, encrypted_for_device TEXT," +
@@ -65,6 +65,7 @@ async function initPhoneSmsGatewaySchema(db = DB) {
     );
     if (db.isPostgres) {
       await db.prepare('ALTER TABLE phone_sms_devices ADD COLUMN IF NOT EXISTS public_key TEXT').run();
+      await db.prepare('ALTER TABLE phone_sms_devices ADD COLUMN IF NOT EXISTS sms_permission_granted BOOLEAN NOT NULL DEFAULT FALSE').run();
       await db.prepare('ALTER TABLE phone_sms_jobs ADD COLUMN IF NOT EXISTS encrypted_payload TEXT').run();
       await db.prepare('ALTER TABLE phone_sms_jobs ADD COLUMN IF NOT EXISTS encrypted_for_device TEXT').run();
       await db.prepare('ALTER TABLE phone_sms_jobs ADD COLUMN IF NOT EXISTS failure_code TEXT').run();
@@ -72,6 +73,7 @@ async function initPhoneSmsGatewaySchema(db = DB) {
     } else {
       const deviceColumns = await db.prepare('PRAGMA table_info(phone_sms_devices)').all();
       if (!deviceColumns.some(column => column.name === 'public_key')) await db.prepare('ALTER TABLE phone_sms_devices ADD COLUMN public_key TEXT').run();
+      if (!deviceColumns.some(column => column.name === 'sms_permission_granted')) await db.prepare('ALTER TABLE phone_sms_devices ADD COLUMN sms_permission_granted BOOLEAN NOT NULL DEFAULT FALSE').run();
       const jobColumns = await db.prepare('PRAGMA table_info(phone_sms_jobs)').all();
       if (!jobColumns.some(column => column.name === 'encrypted_payload')) await db.prepare('ALTER TABLE phone_sms_jobs ADD COLUMN encrypted_payload TEXT').run();
       if (!jobColumns.some(column => column.name === 'encrypted_for_device')) await db.prepare('ALTER TABLE phone_sms_jobs ADD COLUMN encrypted_for_device TEXT').run();
@@ -194,7 +196,7 @@ async function pairDevice({ code, deviceName, publicKey, db = DB, now = Date.now
   return { deviceId: id, token, deviceName: name };
 }
 
-async function authenticateDevice(token, { db = DB, now = Date.now } = {}) {
+async function authenticateDevice(token, { db = DB, now = Date.now, smsPermissionGranted } = {}) {
   if (!enabled() || typeof token !== 'string' || token.length < 32 || token.length > 200) return null;
   await initPhoneSmsGatewaySchema(db);
   const timestamp = new Date(now()).toISOString();
@@ -202,7 +204,12 @@ async function authenticateDevice(token, { db = DB, now = Date.now } = {}) {
     const row = await tx.prepare('SELECT id FROM phone_sms_devices WHERE token_hash=? AND revoked_at IS NULL LIMIT 1')
       .get(sha256(token));
     if (!row) return '';
-    await tx.prepare('UPDATE phone_sms_devices SET last_seen_at=? WHERE id=? AND revoked_at IS NULL').run(timestamp, row.id);
+    if (typeof smsPermissionGranted === 'boolean') {
+      const smsPermission = db.isPostgres ? smsPermissionGranted : (smsPermissionGranted ? 1 : 0);
+      await tx.prepare('UPDATE phone_sms_devices SET last_seen_at=?,sms_permission_granted=? WHERE id=? AND revoked_at IS NULL').run(timestamp, smsPermission, row.id);
+    } else {
+      await tx.prepare('UPDATE phone_sms_devices SET last_seen_at=? WHERE id=? AND revoked_at IS NULL').run(timestamp, row.id);
+    }
     return row.id;
   });
   return id || null;
@@ -210,7 +217,7 @@ async function authenticateDevice(token, { db = DB, now = Date.now } = {}) {
 
 async function adminStatus({ db = DB, now = Date.now } = {}) {
   await initPhoneSmsGatewaySchema(db);
-  const devices = await db.prepare('SELECT id,device_name,created_at,last_seen_at,revoked_at FROM phone_sms_devices ORDER BY created_at DESC LIMIT 20').all();
+  const devices = await db.prepare('SELECT id,device_name,created_at,last_seen_at,revoked_at,sms_permission_granted FROM phone_sms_devices ORDER BY created_at DESC LIMIT 20').all();
   const cutoff = now() - 2 * 60 * 1000;
   const counts = await db.prepare('SELECT status,COUNT(*) AS count FROM phone_sms_message_jobs GROUP BY status').all();
   const latestFailure = await db.prepare(
@@ -225,6 +232,7 @@ async function adminStatus({ db = DB, now = Date.now } = {}) {
     latestFailure: latestFailure ? { failureCode: latestFailure.failure_code, occurredAt: latestFailure.created_at } : null,
     devices: devices.map(device => ({
       ...device,
+      smsPermissionGranted: Boolean(device.sms_permission_granted),
       online: !device.revoked_at && Number.isFinite(Date.parse(device.last_seen_at)) && Date.parse(device.last_seen_at) >= cutoff
     }))
   };
@@ -264,7 +272,7 @@ async function queueOtp({ otpId, phone, code, db = DB, now = Date.now } = {}) {
       (!staticTestRecord && !dynamicCodeMatches)) {
     return { queued: false, reason: 'Only active sign-in and public-request codes can use the phone gateway.' };
   }
-  const device = await db.prepare('SELECT id,public_key FROM phone_sms_devices WHERE public_key IS NOT NULL AND revoked_at IS NULL AND last_seen_at>? ORDER BY last_seen_at DESC LIMIT 1')
+  const device = await db.prepare('SELECT id,public_key FROM phone_sms_devices WHERE public_key IS NOT NULL AND sms_permission_granted=TRUE AND revoked_at IS NULL AND last_seen_at>? ORDER BY last_seen_at DESC LIMIT 1')
     .get(new Date(now() - 2 * 60 * 1000).toISOString());
   if (!device) return { queued: false, reason: 'The phone SMS gateway is offline.' };
   const label = otp.purpose === 'CARGO_REQUEST' ? 'cargo request' : otp.purpose === 'GROUP_REQUEST' ? 'group travel request' : otp.purpose === 'REGISTRATION' ? 'registration' : 'sign-in';
@@ -302,7 +310,7 @@ async function queueServiceMessage({ eventKey, phone, message, db = DB, now = Da
   const key = crypto.createHash('sha256').update(sourceKey, 'utf8').digest('hex');
   let existing = await db.prepare('SELECT id,status,failure_code FROM phone_sms_message_jobs WHERE event_key=?').get(key);
   if (!existing) {
-    const device = await db.prepare('SELECT id,public_key FROM phone_sms_devices WHERE public_key IS NOT NULL AND revoked_at IS NULL AND last_seen_at>? ORDER BY last_seen_at DESC LIMIT 1')
+    const device = await db.prepare('SELECT id,public_key FROM phone_sms_devices WHERE public_key IS NOT NULL AND sms_permission_granted=TRUE AND revoked_at IS NULL AND last_seen_at>? ORDER BY last_seen_at DESC LIMIT 1')
       .get(new Date(now() - 2 * 60 * 1000).toISOString());
     if (!device) return { queued: false };
     const payload = Buffer.from(JSON.stringify({ phone: normalized, message: body }), 'utf8');
@@ -344,7 +352,7 @@ async function claimNextJob(deviceId, { db = DB, now = Date.now } = {}) {
     const row = await tx.prepare(
       "SELECT j.id,j.encrypted_payload FROM phone_sms_jobs j JOIN auth_otps o ON o.id=j.otp_id " +
       'JOIN phone_sms_devices d ON d.id=? AND d.revoked_at IS NULL ' +
-      "WHERE j.encrypted_for_device=d.id AND j.status='PENDING' AND j.expires_at>? AND o.expires_at>? AND o.verified_at IS NULL AND j.attempts<3 " +
+      "WHERE j.encrypted_for_device=d.id AND d.sms_permission_granted=TRUE AND j.status='PENDING' AND j.expires_at>? AND o.expires_at>? AND o.verified_at IS NULL AND j.attempts<3 " +
       'ORDER BY j.created_at,j.id LIMIT 1' + (tx.isPostgres ? ' FOR UPDATE OF j SKIP LOCKED' : '')
     ).get(deviceId, timestamp, timestamp);
     if (row?.encrypted_payload) {
@@ -354,8 +362,8 @@ async function claimNextJob(deviceId, { db = DB, now = Date.now } = {}) {
         .run(leaseToken, leaseUntil, deviceId, row.id);
       if (updated.changes === 1) return { id: row.id, encryptedPayload: row.encrypted_payload, leaseToken };
     }
-    const message = await tx.prepare("SELECT id,encrypted_payload FROM phone_sms_message_jobs WHERE encrypted_for_device=? AND status='PENDING' AND next_attempt_at<=? AND expires_at>? AND attempts<3 ORDER BY created_at,id LIMIT 1" +
-      (tx.isPostgres ? ' FOR UPDATE SKIP LOCKED' : '')).get(deviceId, timestamp, timestamp);
+    const message = await tx.prepare("SELECT j.id,j.encrypted_payload FROM phone_sms_message_jobs j JOIN phone_sms_devices d ON d.id=j.encrypted_for_device WHERE j.encrypted_for_device=? AND d.revoked_at IS NULL AND d.sms_permission_granted=TRUE AND j.status='PENDING' AND j.next_attempt_at<=? AND j.expires_at>? AND j.attempts<3 ORDER BY j.created_at,j.id LIMIT 1" +
+      (tx.isPostgres ? ' FOR UPDATE OF j SKIP LOCKED' : '')).get(deviceId, timestamp, timestamp);
     if (!message?.encrypted_payload) return null;
     const leaseToken = crypto.randomBytes(24).toString('hex');
     const updated = await tx.prepare("UPDATE phone_sms_message_jobs SET status='SENDING',attempts=attempts+1,lease_token=?,lease_until=?,leased_by=? WHERE id=? AND status='PENDING'")

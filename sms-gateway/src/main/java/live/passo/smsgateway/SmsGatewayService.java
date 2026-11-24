@@ -90,7 +90,14 @@ public class SmsGatewayService extends Service {
     private void pollSafely() {
         if (!running) return;
         try {
-            JSONObject response = post("/api/sms-gateway/claim", new JSONObject());
+            boolean smsPermissionGranted = checkSelfPermission(android.Manifest.permission.SEND_SMS)
+                    == android.content.pm.PackageManager.PERMISSION_GRANTED;
+            JSONObject claimRequest = new JSONObject().put("smsPermissionGranted", smsPermissionGranted);
+            JSONObject response = post("/api/sms-gateway/claim", claimRequest);
+            if (!smsPermissionGranted) {
+                updateNotification("Enable SMS permission in Passo SMS Gateway settings");
+                return;
+            }
             JSONObject job = response.optJSONObject("job");
             if (job == null || job == JSONObject.NULL) {
                 updateNotification("Connected · waiting for Passo messages");

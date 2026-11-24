@@ -35,7 +35,19 @@ test('phone gateway sends encrypted OTPs and trip SMS to any valid Ethiopian num
   const publicKey = keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString();
   const pairCode = await gateway.createPairCode({ db: DB, now: () => now });
   const device = await gateway.pairDevice({ code: pairCode.code, deviceName: 'Gateway fixture', publicKey, db: DB, now: () => now });
-  assert.equal(await gateway.authenticateDevice(device.token, { db: DB, now: () => now }), device.deviceId);
+  assert.equal(await gateway.authenticateDevice(device.token, { db: DB, now: () => now, smsPermissionGranted: true }), device.deviceId);
+  // ACK calls do not carry the permission field; a normal heartbeat without a
+  // capability report must preserve the last reported permission state.
+  assert.equal(await gateway.authenticateDevice(device.token, { db: DB, now: () => now + 500 }), device.deviceId);
+  assert.equal((await DB.prepare('SELECT sms_permission_granted FROM phone_sms_devices WHERE id=?').get(device.deviceId)).sms_permission_granted, 1);
+
+  // A later-heartbeating paired device without Android SEND_SMS permission
+  // must not receive encrypted jobs or starve the working handset.
+  const deniedKeyPair = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const deniedPublicKey = deniedKeyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  const deniedPairCode = await gateway.createPairCode({ db: DB, now: () => now + 1000 });
+  const deniedDevice = await gateway.pairDevice({ code: deniedPairCode.code, deviceName: 'Permission denied fixture', publicKey: deniedPublicKey, db: DB, now: () => now + 1000 });
+  assert.equal(await gateway.authenticateDevice(deniedDevice.token, { db: DB, now: () => now + 2000, smsPermissionGranted: false }), deniedDevice.deviceId);
 
   const phone = '+251911000001';
   const message = 'PASSO taxi trip started: Bole to CMC. Open Passo to view your trip.';
@@ -50,6 +62,7 @@ test('phone gateway sends encrypted OTPs and trip SMS to any valid Ethiopian num
   assert.equal(rows[0].phone, phone);
   assert.notEqual(rows[0].event_key, eventKey, 'Stored event identifiers are hashed.');
   assert.equal(rows[0].status, 'PENDING');
+  assert.equal((await DB.prepare('SELECT encrypted_for_device FROM phone_sms_message_jobs WHERE id=?').get(rows[0].id)).encrypted_for_device, device.deviceId);
   assert.equal(rows[0].encrypted_payload.includes(message), false, 'The stored payload contains ciphertext only.');
   assert.ok(rows[0].encrypted_payload.startsWith('P2.'), 'Longer SMS uses authenticated hybrid encryption.');
   const envelope = JSON.parse(Buffer.from(rows[0].encrypted_payload.slice(3), 'base64').toString('utf8'));
@@ -102,6 +115,7 @@ test('phone gateway sends encrypted OTPs and trip SMS to any valid Ethiopian num
   assert.deepEqual(await gateway.queueOtp({ otpId: 'otp_non_pilot', phone: otpPhone, code: otpCode, db: DB, now: () => now }), { queued: true });
   const otpJob = await gateway.claimNextJob(device.deviceId, { db: DB });
   assert.ok(otpJob);
+  assert.equal((await DB.prepare('SELECT encrypted_for_device FROM phone_sms_jobs WHERE id=?').get(otpJob.id)).encrypted_for_device, device.deviceId);
   const decryptedOtp = crypto.privateDecrypt({ key: keyPair.privateKey, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' }, Buffer.from(otpJob.encryptedPayload, 'base64'));
   assert.deepEqual(JSON.parse(decryptedOtp.toString('utf8')), {
     phone: otpPhone,
