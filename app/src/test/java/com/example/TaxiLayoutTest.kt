@@ -82,12 +82,17 @@ class TaxiLayoutTest {
 
     @Test fun `sign-in chooser continues to driver authentication`() {
         var openedDriver = false
+        // The taxi hero and group promotion use intentional infinite motion.
+        // Freeze the Compose clock so Robolectric can settle the initial tree.
+        compose.mainClock.autoAdvance = false
         compose.setContent { MyApplicationTheme {
             val vm = androidx.compose.runtime.remember { TaxiViewModel(api(), false, false) }
             TaxiPassengerContent(main, false, vm, {}, {}, {}, onDriverSignIn = { openedDriver = true }, mapTiles = false)
         } }
         compose.onNodeWithTag("taxi_sign_in").performClick()
+        compose.mainClock.advanceTimeBy(500)
         compose.onNodeWithTag("taxi_sign_in_driver").performClick()
+        compose.mainClock.advanceTimeBy(500)
         compose.onNodeWithTag("taxi_sign_in_continue").performClick()
         compose.runOnIdle { check(openedDriver) { "Driver selection must continue to driver authentication." } }
     }
@@ -102,6 +107,7 @@ class TaxiLayoutTest {
         compose.onNodeWithTag("taxi_tier_MINI_VAN").assertDoesNotExist()
         compose.onNodeWithTag("taxi_travel_together").assertIsDisplayed()
         compose.onNodeWithTag("taxi_services_footer").assertIsDisplayed()
+        compose.onNodeWithTag("taxi_pickup_area").assertTextContains("Your area")
         compose.onNodeWithText("Current location").assertDoesNotExist()
         compose.onNodeWithTag("taxi_service_COMMUTE").assertIsDisplayed().performClick()
         assertEquals(1, commute)
@@ -116,6 +122,9 @@ class TaxiLayoutTest {
             TaxiPassengerContent(main, false, vm, {}, {}, {}, mapTiles = false)
         } }
         compose.onNodeWithTag("taxi_clear_destination").assertIsDisplayed()
+        // The map area pill belongs to the initial city map; route preview uses
+        // its compact pickup/destination card instead.
+        compose.onNodeWithTag("taxi_pickup_area").assertDoesNotExist()
         compose.onNodeWithTag("taxi_travel_together").assertDoesNotExist()
         compose.onNodeWithTag("taxi_services_footer").assertDoesNotExist()
         compose.onNodeWithTag("taxi_tier_ECONOMY").performScrollTo().assertIsDisplayed()

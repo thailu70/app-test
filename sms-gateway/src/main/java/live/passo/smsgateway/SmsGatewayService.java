@@ -153,9 +153,10 @@ public class SmsGatewayService extends Service {
             } catch (SecurityException error) {
                 boolean permissionGranted = checkSelfPermission(android.Manifest.permission.SEND_SMS)
                         == android.content.pm.PackageManager.PERMISSION_GRANTED;
-                failureReason = permissionGranted ? "sms_android_blocked" : "sms_permission_denied";
-                android.util.Log.w("PassoSmsGateway", "Android blocked SMS operation at " +
-                        (error instanceof SmsSendSecurityException ? ((SmsSendSecurityException) error).stage : "manager") +
+                String stage = error instanceof SmsSendSecurityException
+                        ? ((SmsSendSecurityException) error).stage : "manager";
+                failureReason = permissionGranted ? "sms_android_blocked_" + stage : "sms_permission_denied";
+                android.util.Log.w("PassoSmsGateway", "Android blocked SMS operation at " + stage +
                         "; smsPermissionGranted=" + permissionGranted);
             } catch (IllegalArgumentException error) {
                 failureReason = "sms_arguments_invalid";
@@ -171,7 +172,8 @@ public class SmsGatewayService extends Service {
             acknowledgement.put("status", sent ? "SENT" : "FAILED");
             if (!sent) acknowledgement.put("failureCode", failureReason);
             post("/api/sms-gateway/jobs/" + id + "/ack", acknowledgement);
-            updateNotification(sent ? "Passo message sent from this phone" : "A Passo message could not be sent");
+            updateNotification(sent ? "Passo message sent from this phone" :
+                    "Could not send Passo message · " + smsFailureDescription(failureReason));
         } catch (Exception ignored) {
             updateNotification("Message queued · reconnecting to Passo");
         } finally {
@@ -258,6 +260,34 @@ public class SmsGatewayService extends Service {
         if (resultCode == SmsManager.RESULT_ERROR_FDN_CHECK_FAILURE) return "sms_fdn_check_failure";
         if (resultCode == SmsManager.RESULT_ERROR_NULL_PDU) return "sms_null_pdu";
         return "sms_generic_failure";
+    }
+
+    /** Keep SMS content and recipient private while giving the phone owner a useful cause. */
+    private static String smsFailureDescription(String code) {
+        switch (code) {
+            case "sms_subscription_not_selected": return "select a SIM for SMS in phone settings";
+            case "sms_not_supported": return "this phone cannot send SMS";
+            case "sms_parts_limit": return "message is too long for this SIM";
+            case "sms_permission_denied": return "allow SMS permission for Passo SMS Gateway";
+            case "sms_android_blocked_submit": return "Android blocked the send request; check SMS access and the selected SIM";
+            case "sms_android_blocked_callback": return "Android blocked SMS confirmation setup; check app permissions";
+            case "sms_android_blocked_manager": return "Android blocked access to the SIM SMS service";
+            case "sms_arguments_invalid": return "check the recipient number and message";
+            case "sms_radio_off": return "SIM radio is off";
+            case "sms_no_service": return "SIM has no mobile network service";
+            case "sms_limit_exceeded": return "SIM or carrier sending limit was reached";
+            case "sms_fdn_check_failure": return "SIM fixed-number restrictions blocked it";
+            case "sms_null_pdu": return "phone could not prepare the SMS";
+            case "sms_send_timeout": return "mobile network did not respond in time";
+            case "sms_carrier_rejected_or_timeout": return "mobile network rejected it or did not confirm";
+            case "sms_generic_failure": return "phone or mobile network rejected it";
+            case "message_policy_rejected": return "message did not match Passo's sending rules";
+            case "recipient_invalid": return "recipient number is invalid";
+            default:
+                if (code != null && code.startsWith("sms_manager_")) return "phone could not start the SMS service";
+                if (code != null && code.startsWith("payload_")) return "secure message could not be opened";
+                return "check the SIM and mobile network";
+        }
     }
 
     private static final class SmsSendTracker {

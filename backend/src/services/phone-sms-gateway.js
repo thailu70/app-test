@@ -221,7 +221,7 @@ async function adminStatus({ db = DB, now = Date.now } = {}) {
   const cutoff = now() - 2 * 60 * 1000;
   const counts = await db.prepare('SELECT status,COUNT(*) AS count FROM phone_sms_message_jobs GROUP BY status').all();
   const latestFailure = await db.prepare(
-    "SELECT failure_code,created_at FROM (SELECT failure_code,created_at FROM phone_sms_message_jobs WHERE status='FAILED' AND failure_code IS NOT NULL UNION ALL SELECT failure_code,created_at FROM phone_sms_jobs WHERE status='FAILED' AND failure_code IS NOT NULL) failures ORDER BY created_at DESC LIMIT 1"
+    "SELECT failure_code,created_at FROM (SELECT failure_code,created_at FROM phone_sms_message_jobs WHERE failure_code IS NOT NULL UNION ALL SELECT failure_code,created_at FROM phone_sms_jobs WHERE failure_code IS NOT NULL) failures ORDER BY created_at DESC LIMIT 1"
   ).get();
   return {
     enabled: enabled(),
@@ -383,7 +383,7 @@ async function acknowledgeJob(deviceId, jobId, leaseToken, success, { db = DB, n
     const otp = await tx.prepare(
       "UPDATE phone_sms_jobs SET status=CASE WHEN ?=1 THEN 'SENT' WHEN attempts>=3 THEN 'FAILED' ELSE 'PENDING' END," +
       "message='',encrypted_payload=CASE WHEN ?=1 OR attempts>=3 THEN NULL ELSE encrypted_payload END," +
-      `sent_at=${timestampParameter},failure_code=CASE WHEN ?=1 THEN NULL WHEN attempts>=3 THEN ? ELSE NULL END,lease_token=NULL,lease_until=NULL,leased_by=NULL ` +
+      `sent_at=${timestampParameter},failure_code=CASE WHEN ?=1 THEN NULL ELSE ? END,lease_token=NULL,lease_until=NULL,leased_by=NULL ` +
       "WHERE id=? AND leased_by=? AND lease_token=? AND status='SENDING'"
     ).run(success ? 1 : 0, success ? 1 : 0, sentAt, success ? 1 : 0, code,
       jobId, deviceId, String(leaseToken || ''));
@@ -393,7 +393,7 @@ async function acknowledgeJob(deviceId, jobId, leaseToken, success, { db = DB, n
     const service = await tx.prepare(
       "UPDATE phone_sms_message_jobs SET status=CASE WHEN ?=1 THEN 'SENT' WHEN attempts>=3 THEN 'FAILED' ELSE 'PENDING' END," +
       "encrypted_payload=CASE WHEN ?=1 OR attempts>=3 THEN '' ELSE encrypted_payload END," +
-      `sent_at=${timestampParameter},failure_code=CASE WHEN ?=1 THEN NULL WHEN attempts>=3 THEN ? ELSE NULL END,` +
+      `sent_at=${timestampParameter},failure_code=CASE WHEN ?=1 THEN NULL ELSE ? END,` +
       `next_attempt_at=CASE WHEN ?=1 OR attempts>=3 THEN next_attempt_at ELSE ${timestampParameter} END,` +
       "lease_token=NULL,lease_until=NULL,leased_by=NULL WHERE id=? AND leased_by=? AND lease_token=? AND status='SENDING'"
     ).run(success ? 1 : 0, success ? 1 : 0, sentAt, success ? 1 : 0, code, success ? 1 : 0, retryAt,

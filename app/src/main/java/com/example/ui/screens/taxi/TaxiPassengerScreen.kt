@@ -634,12 +634,15 @@ private fun TaxiPassengerHome(
                     NearbyCarsStatus.IDLE -> taxiText(language, "City map", "የከተማ ካርታ", "Kaartaa magaalaa")
                 }
                 val nearbyColor = if (state.nearbyCarsStatus == NearbyCarsStatus.AVAILABLE) TaxiBrandEmerald else Color(0xFF65747D)
+                val pickupAreaLabel = pickupName.trim().takeUnless(::isGenericTaxiPickupLabel)
+                    ?: taxiText(language, "Your area", "አካባቢዎ", "Naannoo kee")
                 Surface(Modifier.align(Alignment.TopStart).padding(12.dp), color = Color.White.copy(alpha = .91f),
                     shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Color.White.copy(alpha = .9f)), shadowElevation = 0.dp) {
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.LocationCity, null, tint = TaxiBrandEmerald, modifier = Modifier.size(19.dp))
                         Column(Modifier.padding(start = 8.dp)) {
-                            Text(taxiText(language, "Addis Ababa", "አዲስ አበባ", "Finfinnee"), color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text(pickupAreaLabel, color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 12.sp,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("taxi_pickup_area"))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(Modifier.size(6.dp).background(nearbyColor, CircleShape))
                                 Text(nearbySummary, Modifier.padding(start = 5.dp), color = nearbyColor, fontWeight = FontWeight.SemiBold, fontSize = 9.sp, maxLines = 1)

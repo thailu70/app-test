@@ -96,6 +96,12 @@ test('phone gateway sends encrypted OTPs and trip SMS to any valid Ethiopian num
     assert.equal(rejectedJob.id, rejectedQueue.messageJobId);
     assert.equal(await gateway.acknowledgeJob(device.deviceId, rejectedJob.id, rejectedJob.leaseToken, false,
       { db: DB, now: () => attemptNow, failureCode: 'sms_no_service' }), true);
+    if (attempt === 0) {
+      const retryingJob = await DB.prepare('SELECT status,failure_code FROM phone_sms_message_jobs WHERE id=?').get(rejectedQueue.messageJobId);
+      assert.equal(retryingJob.status, 'PENDING');
+      assert.equal(retryingJob.failure_code, 'sms_no_service', 'The first failure remains visible while delivery retries.');
+      assert.equal((await gateway.adminStatus({ db: DB, now: () => attemptNow })).latestFailure.failureCode, 'sms_no_service');
+    }
   }
   const failedServiceJob = await DB.prepare('SELECT status,failure_code FROM phone_sms_message_jobs WHERE id=?').get(rejectedQueue.messageJobId);
   assert.equal(failedServiceJob.status, 'FAILED');
