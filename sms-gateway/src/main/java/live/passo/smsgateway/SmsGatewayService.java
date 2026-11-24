@@ -140,8 +140,8 @@ public class SmsGatewayService extends Service {
             failureReason = "message_policy_rejected";
         } else {
             try {
-                sent = sendAndConfirmWithSim(phone, message, id, lease);
-                if (!sent) failureReason = "sms_carrier_rejected_or_timeout";
+                failureReason = sendAndConfirmWithSim(phone, message, id, lease);
+                sent = failureReason.isEmpty();
             } catch (SecurityException error) {
                 failureReason = "sms_permission_denied";
             } catch (IllegalArgumentException error) {
@@ -156,6 +156,7 @@ public class SmsGatewayService extends Service {
             JSONObject acknowledgement = new JSONObject();
             acknowledgement.put("leaseToken", lease);
             acknowledgement.put("status", sent ? "SENT" : "FAILED");
+            if (!sent) acknowledgement.put("failureCode", failureReason);
             post("/api/sms-gateway/jobs/" + id + "/ack", acknowledgement);
             updateNotification(sent ? "Passo message sent from this phone" : "A Passo message could not be sent");
         } catch (Exception ignored) {
@@ -167,10 +168,10 @@ public class SmsGatewayService extends Service {
         }
     }
 
-    private boolean sendAndConfirmWithSim(String phone, String message, String jobId, String lease) throws Exception {
+    private String sendAndConfirmWithSim(String phone, String message, String jobId, String lease) throws Exception {
         SmsManager smsManager = SmsManager.getDefault();
         java.util.ArrayList<String> parts = smsManager.divideMessage(message);
-        if (parts == null || parts.isEmpty() || parts.size() > 10) return false;
+        if (parts == null || parts.isEmpty() || parts.size() > 10) return "sms_parts_limit";
 
         String trackerKey = jobId + ":" + lease;
         SmsSendTracker tracker = new SmsSendTracker(parts.size());
@@ -195,7 +196,8 @@ public class SmsGatewayService extends Service {
             }
 
             boolean completed = tracker.latch.await(SMS_RESULT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            return completed && tracker.allAccepted.get();
+            if (!completed) return "sms_send_timeout";
+            return tracker.allAccepted.get() ? "" : tracker.failureCode;
         } finally {
             pendingSms.remove(trackerKey, tracker);
         }
@@ -204,8 +206,20 @@ public class SmsGatewayService extends Service {
     static void recordSmsPartResult(String jobId, String lease, int partIndex, int resultCode) {
         SmsSendTracker tracker = pendingSms.get(jobId + ":" + lease);
         if (tracker == null || partIndex < 0 || partIndex >= tracker.partCount || !tracker.completedParts.add(partIndex)) return;
-        if (resultCode != android.app.Activity.RESULT_OK) tracker.allAccepted.set(false);
+        if (resultCode != android.app.Activity.RESULT_OK) {
+            tracker.allAccepted.set(false);
+            tracker.failureCode = smsFailureCode(resultCode);
+        }
         if (tracker.completedParts.size() == tracker.partCount) tracker.latch.countDown();
+    }
+
+    private static String smsFailureCode(int resultCode) {
+        if (resultCode == SmsManager.RESULT_ERROR_RADIO_OFF) return "sms_radio_off";
+        if (resultCode == SmsManager.RESULT_ERROR_NO_SERVICE) return "sms_no_service";
+        if (resultCode == SmsManager.RESULT_ERROR_LIMIT_EXCEEDED) return "sms_limit_exceeded";
+        if (resultCode == SmsManager.RESULT_ERROR_FDN_CHECK_FAILURE) return "sms_fdn_check_failure";
+        if (resultCode == SmsManager.RESULT_ERROR_NULL_PDU) return "sms_null_pdu";
+        return "sms_generic_failure";
     }
 
     private static final class SmsSendTracker {
@@ -213,6 +227,7 @@ public class SmsGatewayService extends Service {
         final java.util.Set<Integer> completedParts = ConcurrentHashMap.newKeySet();
         final AtomicBoolean allAccepted = new AtomicBoolean(true);
         final CountDownLatch latch = new CountDownLatch(1);
+        volatile String failureCode = "sms_carrier_rejected_or_timeout";
         SmsSendTracker(int partCount) { this.partCount = partCount; }
     }
 

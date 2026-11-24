@@ -53,26 +53,31 @@ async function initPhoneSmsGatewaySchema(db = DB) {
       'id TEXT PRIMARY KEY, otp_id TEXT NOT NULL REFERENCES auth_otps(id) ON DELETE CASCADE,' +
       "phone TEXT NOT NULL, message TEXT NOT NULL DEFAULT '', encrypted_payload TEXT, encrypted_for_device TEXT," +
       "status TEXT NOT NULL DEFAULT 'PENDING', attempts INTEGER NOT NULL DEFAULT 0, expires_at TIMESTAMP NOT NULL," +
-      'lease_token TEXT, lease_until TIMESTAMP, leased_by TEXT REFERENCES phone_sms_devices(id), sent_at TIMESTAMP, created_at TIMESTAMP NOT NULL);' +
+      'lease_token TEXT, lease_until TIMESTAMP, leased_by TEXT REFERENCES phone_sms_devices(id), sent_at TIMESTAMP, created_at TIMESTAMP NOT NULL, failure_code TEXT);' +
       'CREATE UNIQUE INDEX IF NOT EXISTS phone_sms_job_otp ON phone_sms_jobs(otp_id);' +
       'CREATE INDEX IF NOT EXISTS phone_sms_job_queue ON phone_sms_jobs(status,expires_at,created_at);' +
       'CREATE TABLE IF NOT EXISTS phone_sms_message_jobs (' +
       'id TEXT PRIMARY KEY, event_key TEXT NOT NULL UNIQUE, phone TEXT NOT NULL, encrypted_payload TEXT NOT NULL,' +
       'encrypted_for_device TEXT NOT NULL REFERENCES phone_sms_devices(id), status TEXT NOT NULL DEFAULT \'PENDING\',' +
       'attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TIMESTAMP NOT NULL, expires_at TIMESTAMP NOT NULL,' +
-      'lease_token TEXT, lease_until TIMESTAMP, leased_by TEXT REFERENCES phone_sms_devices(id), sent_at TIMESTAMP, created_at TIMESTAMP NOT NULL);' +
+      'lease_token TEXT, lease_until TIMESTAMP, leased_by TEXT REFERENCES phone_sms_devices(id), sent_at TIMESTAMP, created_at TIMESTAMP NOT NULL, failure_code TEXT);' +
       'CREATE INDEX IF NOT EXISTS phone_sms_message_queue ON phone_sms_message_jobs(status,next_attempt_at,expires_at,created_at);'
     );
     if (db.isPostgres) {
       await db.prepare('ALTER TABLE phone_sms_devices ADD COLUMN IF NOT EXISTS public_key TEXT').run();
       await db.prepare('ALTER TABLE phone_sms_jobs ADD COLUMN IF NOT EXISTS encrypted_payload TEXT').run();
       await db.prepare('ALTER TABLE phone_sms_jobs ADD COLUMN IF NOT EXISTS encrypted_for_device TEXT').run();
+      await db.prepare('ALTER TABLE phone_sms_jobs ADD COLUMN IF NOT EXISTS failure_code TEXT').run();
+      await db.prepare('ALTER TABLE phone_sms_message_jobs ADD COLUMN IF NOT EXISTS failure_code TEXT').run();
     } else {
       const deviceColumns = await db.prepare('PRAGMA table_info(phone_sms_devices)').all();
       if (!deviceColumns.some(column => column.name === 'public_key')) await db.prepare('ALTER TABLE phone_sms_devices ADD COLUMN public_key TEXT').run();
       const jobColumns = await db.prepare('PRAGMA table_info(phone_sms_jobs)').all();
       if (!jobColumns.some(column => column.name === 'encrypted_payload')) await db.prepare('ALTER TABLE phone_sms_jobs ADD COLUMN encrypted_payload TEXT').run();
       if (!jobColumns.some(column => column.name === 'encrypted_for_device')) await db.prepare('ALTER TABLE phone_sms_jobs ADD COLUMN encrypted_for_device TEXT').run();
+      if (!jobColumns.some(column => column.name === 'failure_code')) await db.prepare('ALTER TABLE phone_sms_jobs ADD COLUMN failure_code TEXT').run();
+      const messageColumns = await db.prepare('PRAGMA table_info(phone_sms_message_jobs)').all();
+      if (!messageColumns.some(column => column.name === 'failure_code')) await db.prepare('ALTER TABLE phone_sms_message_jobs ADD COLUMN failure_code TEXT').run();
     }
   }).catch(error => { schemas.delete(db); throw error; }));
   return schemas.get(db);
@@ -207,11 +212,17 @@ async function adminStatus({ db = DB, now = Date.now } = {}) {
   await initPhoneSmsGatewaySchema(db);
   const devices = await db.prepare('SELECT id,device_name,created_at,last_seen_at,revoked_at FROM phone_sms_devices ORDER BY created_at DESC LIMIT 20').all();
   const cutoff = now() - 2 * 60 * 1000;
+  const counts = await db.prepare('SELECT status,COUNT(*) AS count FROM phone_sms_message_jobs GROUP BY status').all();
+  const latestFailure = await db.prepare(
+    "SELECT failure_code,created_at FROM (SELECT failure_code,created_at FROM phone_sms_message_jobs WHERE status='FAILED' AND failure_code IS NOT NULL UNION ALL SELECT failure_code,created_at FROM phone_sms_jobs WHERE status='FAILED' AND failure_code IS NOT NULL) failures ORDER BY created_at DESC LIMIT 1"
+  ).get();
   return {
     enabled: enabled(),
     deliveryMode: await getDeliveryMode({ db }),
     pilotNumbers: await getPilotPhoneNumbers({ db }),
     additionalPilotNumbers: await getAdditionalPilotPhoneNumbers({ db }),
+    deliveryCounts: Object.fromEntries(counts.map(row => [String(row.status || '').toLowerCase(), Number(row.count || 0)])),
+    latestFailure: latestFailure ? { failureCode: latestFailure.failure_code, occurredAt: latestFailure.created_at } : null,
     devices: devices.map(device => ({
       ...device,
       online: !device.revoked_at && Number.isFinite(Date.parse(device.last_seen_at)) && Date.parse(device.last_seen_at) >= cutoff
@@ -288,20 +299,29 @@ async function queueServiceMessage({ eventKey, phone, message, db = DB, now = Da
   const normalized = normalizePhone(phone), sourceKey = String(eventKey || '').trim(), body = String(message || '').trim();
   if (!normalized || !sourceKey || sourceKey.length > 400 || /[\u0000-\u001f\u007f]/.test(sourceKey) || !body || body.length > 1530 ||
       smsSegmentCount(body) > 10 || !/^(?:PASSO(?:[\p{L}\p{N}]+|[ :])|RoutePass(?::| ))[^\r\n]{1,1530}$/u.test(body)) return { queued: false };
-  const device = await db.prepare('SELECT id,public_key FROM phone_sms_devices WHERE public_key IS NOT NULL AND revoked_at IS NULL AND last_seen_at>? ORDER BY last_seen_at DESC LIMIT 1')
-    .get(new Date(now() - 2 * 60 * 1000).toISOString());
-  if (!device) return { queued: false };
-  const payload = Buffer.from(JSON.stringify({ phone: normalized, message: body }), 'utf8');
-  let encryptedPayload;
-  try { encryptedPayload = encryptGatewayPayload(device.public_key, payload); }
-  catch (_) { return { queued: false }; }
-  finally { payload.fill(0); }
-  const timestamp = new Date(now()).toISOString();
   const key = crypto.createHash('sha256').update(sourceKey, 'utf8').digest('hex');
-  await db.prepare('INSERT INTO phone_sms_message_jobs(id,event_key,phone,encrypted_payload,encrypted_for_device,status,attempts,next_attempt_at,expires_at,created_at) VALUES(?,?,?,?,?,\'PENDING\',0,?,?,?) ON CONFLICT(event_key) DO NOTHING')
-    .run('smsmsg_' + crypto.randomUUID().replace(/-/g, '').slice(0, 18), key, normalized, encryptedPayload, device.id,
-      timestamp, new Date(now() + 24 * 60 * 60 * 1000).toISOString(), timestamp);
-  return { queued: true };
+  let existing = await db.prepare('SELECT id,status,failure_code FROM phone_sms_message_jobs WHERE event_key=?').get(key);
+  if (!existing) {
+    const device = await db.prepare('SELECT id,public_key FROM phone_sms_devices WHERE public_key IS NOT NULL AND revoked_at IS NULL AND last_seen_at>? ORDER BY last_seen_at DESC LIMIT 1')
+      .get(new Date(now() - 2 * 60 * 1000).toISOString());
+    if (!device) return { queued: false };
+    const payload = Buffer.from(JSON.stringify({ phone: normalized, message: body }), 'utf8');
+    let encryptedPayload;
+    try { encryptedPayload = encryptGatewayPayload(device.public_key, payload); }
+    catch (_) { return { queued: false }; }
+    finally { payload.fill(0); }
+    const timestamp = new Date(now()).toISOString();
+    await db.prepare('INSERT INTO phone_sms_message_jobs(id,event_key,phone,encrypted_payload,encrypted_for_device,status,attempts,next_attempt_at,expires_at,created_at) VALUES(?,?,?,?,?,\'PENDING\',0,?,?,?) ON CONFLICT(event_key) DO NOTHING')
+      .run('smsmsg_' + crypto.randomUUID().replace(/-/g, '').slice(0, 18), key, normalized, encryptedPayload, device.id,
+        timestamp, new Date(now() + 24 * 60 * 60 * 1000).toISOString(), timestamp);
+    existing = await db.prepare('SELECT id,status,failure_code FROM phone_sms_message_jobs WHERE event_key=?').get(key);
+  }
+  if (!existing) return { queued: false };
+  if (existing.status === 'SENT') return { queued: false, sent: true, messageJobId: existing.id };
+  if (['FAILED', 'CANCELLED', 'EXPIRED'].includes(existing.status)) {
+    return { queued: false, failed: true, failureCode: existing.failure_code || `message_${String(existing.status).toLowerCase()}`, messageJobId: existing.id };
+  }
+  return { queued: true, messageJobId: existing.id, status: existing.status };
 }
 
 async function claimNextJob(deviceId, { db = DB, now = Date.now } = {}) {
@@ -310,14 +330,17 @@ async function claimNextJob(deviceId, { db = DB, now = Date.now } = {}) {
   return db.transaction(async tx => {
     await tx.prepare("UPDATE phone_sms_jobs SET status='PENDING',lease_token=NULL,lease_until=NULL,leased_by=NULL WHERE status='SENDING' AND lease_until<=? AND expires_at>? AND attempts<3")
       .run(timestamp, timestamp);
-    await tx.prepare("UPDATE phone_sms_jobs SET status='FAILED',message='',encrypted_payload=NULL,lease_token=NULL,lease_until=NULL,leased_by=NULL WHERE status='SENDING' AND attempts>=3 AND lease_until<=?")
+    await tx.prepare("UPDATE phone_sms_jobs SET status='FAILED',message='',encrypted_payload=NULL,failure_code='gateway_ack_timeout',lease_token=NULL,lease_until=NULL,leased_by=NULL WHERE status='SENDING' AND attempts>=3 AND lease_until<=?")
       .run(timestamp);
     await tx.prepare("UPDATE phone_sms_jobs SET status='EXPIRED',message='',encrypted_payload=NULL,lease_token=NULL,lease_until=NULL WHERE status IN ('PENDING','SENDING') AND expires_at<=?").run(timestamp);
     await tx.prepare("UPDATE phone_sms_message_jobs SET status='PENDING',lease_token=NULL,lease_until=NULL,leased_by=NULL,next_attempt_at=? WHERE status='SENDING' AND lease_until<=? AND expires_at>? AND attempts<3")
       .run(timestamp, timestamp, timestamp);
-    await tx.prepare("UPDATE phone_sms_message_jobs SET status='FAILED',encrypted_payload='',lease_token=NULL,lease_until=NULL,leased_by=NULL WHERE status='SENDING' AND attempts>=3 AND lease_until<=?")
+    await tx.prepare("UPDATE phone_sms_message_jobs SET status='FAILED',encrypted_payload='',failure_code='gateway_ack_timeout',lease_token=NULL,lease_until=NULL,leased_by=NULL WHERE status='SENDING' AND attempts>=3 AND lease_until<=?")
       .run(timestamp);
-    await tx.prepare("UPDATE phone_sms_message_jobs SET status='EXPIRED',encrypted_payload='',lease_token=NULL,lease_until=NULL WHERE status IN ('PENDING','SENDING') AND expires_at<=?").run(timestamp);
+    await tx.prepare("UPDATE phone_sms_jobs SET failure_code='gateway_job_expired' WHERE status='EXPIRED' AND failure_code IS NULL AND expires_at<=?").run(timestamp);
+    await tx.prepare("UPDATE phone_sms_message_jobs SET status='EXPIRED',encrypted_payload='',failure_code='gateway_job_expired',lease_token=NULL,lease_until=NULL,leased_by=NULL WHERE status IN ('PENDING','SENDING') AND expires_at<=?").run(timestamp);
+    await tx.prepare("UPDATE ride_sms_outbox SET status='FAILED',failure_code='gateway_ack_timeout',lease_token=NULL,lease_until=NULL WHERE status='QUEUED' AND gateway_job_id IN (SELECT id FROM phone_sms_message_jobs WHERE status='FAILED' AND failure_code='gateway_ack_timeout')").run();
+    await tx.prepare("UPDATE ride_sms_outbox SET status='FAILED',failure_code='gateway_job_expired',lease_token=NULL,lease_until=NULL WHERE status='QUEUED' AND gateway_job_id IN (SELECT id FROM phone_sms_message_jobs WHERE status='EXPIRED')").run();
     const row = await tx.prepare(
       "SELECT j.id,j.encrypted_payload FROM phone_sms_jobs j JOIN auth_otps o ON o.id=j.otp_id " +
       'JOIN phone_sms_devices d ON d.id=? AND d.revoked_at IS NULL ' +
@@ -342,26 +365,43 @@ async function claimNextJob(deviceId, { db = DB, now = Date.now } = {}) {
   });
 }
 
-async function acknowledgeJob(deviceId, jobId, leaseToken, success, { db = DB, now = Date.now } = {}) {
+async function acknowledgeJob(deviceId, jobId, leaseToken, success, { db = DB, now = Date.now, failureCode = 'sms_delivery_failed' } = {}) {
   await initPhoneSmsGatewaySchema(db);
   const timestampParameter = db.isPostgres ? 'CAST(? AS TIMESTAMP)' : '?';
   const sentAt = success ? new Date(now()).toISOString() : null;
-  const result = await db.prepare(
-    "UPDATE phone_sms_jobs SET status=CASE WHEN ?=1 THEN 'SENT' WHEN attempts>=3 THEN 'FAILED' ELSE 'PENDING' END," +
-    "message='',encrypted_payload=CASE WHEN ?=1 OR attempts>=3 THEN NULL ELSE encrypted_payload END," +
-    `sent_at=${timestampParameter},lease_token=NULL,lease_until=NULL,leased_by=NULL ` +
-    "WHERE id=? AND leased_by=? AND lease_token=? AND status='SENDING'"
-  ).run(success ? 1 : 0, success ? 1 : 0, sentAt,
-    jobId, deviceId, String(leaseToken || ''));
-  if (result.changes === 1) return true;
-  if (success) {
-    const sent = await db.prepare(`UPDATE phone_sms_message_jobs SET status='SENT',encrypted_payload='',sent_at=${timestampParameter},lease_token=NULL,lease_until=NULL WHERE id=? AND leased_by=? AND lease_token=? AND status='SENDING'`)
-      .run(sentAt, jobId, deviceId, String(leaseToken || ''));
-    return sent.changes === 1;
-  }
-  const failed = await db.prepare("UPDATE phone_sms_message_jobs SET status=CASE WHEN attempts>=3 THEN 'FAILED' ELSE 'PENDING' END,next_attempt_at=?,lease_token=NULL,lease_until=NULL,leased_by=NULL WHERE id=? AND leased_by=? AND lease_token=? AND status='SENDING'")
-    .run(new Date(now() + 60000).toISOString(), jobId, deviceId, String(leaseToken || ''));
-  return failed.changes === 1;
+  const code = /^[a-z][a-z0-9_]{0,63}$/.test(String(failureCode || '').trim().toLowerCase())
+    ? String(failureCode).trim().toLowerCase() : 'sms_delivery_failed';
+  return db.transaction(async tx => {
+    const otp = await tx.prepare(
+      "UPDATE phone_sms_jobs SET status=CASE WHEN ?=1 THEN 'SENT' WHEN attempts>=3 THEN 'FAILED' ELSE 'PENDING' END," +
+      "message='',encrypted_payload=CASE WHEN ?=1 OR attempts>=3 THEN NULL ELSE encrypted_payload END," +
+      `sent_at=${timestampParameter},failure_code=CASE WHEN ?=1 THEN NULL WHEN attempts>=3 THEN ? ELSE NULL END,lease_token=NULL,lease_until=NULL,leased_by=NULL ` +
+      "WHERE id=? AND leased_by=? AND lease_token=? AND status='SENDING'"
+    ).run(success ? 1 : 0, success ? 1 : 0, sentAt, success ? 1 : 0, code,
+      jobId, deviceId, String(leaseToken || ''));
+    if (otp.changes === 1) return true;
+
+    const retryAt = new Date(now() + 60000).toISOString();
+    const service = await tx.prepare(
+      "UPDATE phone_sms_message_jobs SET status=CASE WHEN ?=1 THEN 'SENT' WHEN attempts>=3 THEN 'FAILED' ELSE 'PENDING' END," +
+      "encrypted_payload=CASE WHEN ?=1 OR attempts>=3 THEN '' ELSE encrypted_payload END," +
+      `sent_at=${timestampParameter},failure_code=CASE WHEN ?=1 THEN NULL WHEN attempts>=3 THEN ? ELSE NULL END,` +
+      `next_attempt_at=CASE WHEN ?=1 OR attempts>=3 THEN next_attempt_at ELSE ${timestampParameter} END,` +
+      "lease_token=NULL,lease_until=NULL,leased_by=NULL WHERE id=? AND leased_by=? AND lease_token=? AND status='SENDING'"
+    ).run(success ? 1 : 0, success ? 1 : 0, sentAt, success ? 1 : 0, code, success ? 1 : 0, retryAt,
+      jobId, deviceId, String(leaseToken || ''));
+    if (service.changes !== 1) return false;
+
+    const job = await tx.prepare('SELECT status,failure_code,sent_at FROM phone_sms_message_jobs WHERE id=?').get(jobId);
+    if (job?.status === 'SENT') {
+      await tx.prepare("UPDATE ride_sms_outbox SET status='SENT',sent_at=?,failure_code=NULL,lease_token=NULL,lease_until=NULL WHERE gateway_job_id=? AND status='QUEUED'")
+        .run(job.sent_at || sentAt, jobId);
+    } else if (job?.status === 'FAILED') {
+      await tx.prepare("UPDATE ride_sms_outbox SET status='FAILED',failure_code=?,lease_token=NULL,lease_until=NULL WHERE gateway_job_id=? AND status='QUEUED'")
+        .run(job.failure_code || code, jobId);
+    }
+    return true;
+  });
 }
 
 module.exports = {

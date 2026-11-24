@@ -169,6 +169,28 @@
       (device.last_seen_at ? ' · Last seen ' + esc(device.last_seen_at) : '') +
       '</span><button class="btn btn-secondary" type="button" data-phone-gateway-revoke="' + esc(device.id) + '">Disconnect</button></div>'
     ).join("");
+    const smsCounts = gateway.deliveryCounts || {};
+    const smsFailureLabels = {
+      sms_carrier_rejected_or_timeout: "The mobile network rejected the SMS or did not confirm it.",
+      sms_send_timeout: "The phone network did not respond in time.",
+      sms_permission_denied: "Allow SMS permission for the Passo gateway app.",
+      sms_arguments_invalid: "The phone could not accept the SMS request.",
+      sms_radio_off: "The phone SIM radio is off.",
+      sms_no_service: "The phone has no mobile network service.",
+      sms_limit_exceeded: "The SIM or carrier SMS sending limit was reached.",
+      sms_fdn_check_failure: "The SIM fixed-number restriction blocked this SMS.",
+      sms_generic_failure: "The phone or mobile network rejected this SMS.",
+      gateway_ack_timeout: "The gateway phone did not confirm the send.",
+      gateway_job_expired: "The phone did not process this message before it expired."
+    };
+    const latestSmsFailure = gateway.latestFailure;
+    const smsDeliverySummary = '<p class="hint">Phone queue: ' +
+      Number(smsCounts.pending || 0) + Number(smsCounts.sending || 0) + ' waiting · ' +
+      Number(smsCounts.sent || 0) + ' phone-confirmed · ' + Number(smsCounts.failed || 0) + ' failed.</p>' +
+      (latestSmsFailure ? '<p class="form-message error" role="status">Latest send issue: ' +
+        esc(smsFailureLabels[latestSmsFailure.failureCode] || 'The phone could not send this message (' + latestSmsFailure.failureCode + ').') +
+        (latestSmsFailure.occurredAt ? ' · ' + esc(latestSmsFailure.occurredAt) : '') + '</p>' : '') +
+      '<p class="hint">“Phone-confirmed” means Android accepted the SMS for sending. Delivery to the recipient still depends on the SIM and mobile network.</p>';
     const pilotPhoneText = asArray(gateway.additionalPilotNumbers).join("\n");
     const pilotSmsSection = section("SMS delivery", "Choose the preferred provider. If it rejects a number or message, the connected phone SIM automatically tries as backup for any valid Ethiopian number.",
       '<form id="pilot-sms-form" class="form-card" style="padding:0;border:0;box-shadow:none">' +
@@ -198,6 +220,7 @@
         : gateway.enabled && gateway.deliveryMode === "PHONE_GATEWAY"
           ? "All valid Ethiopian numbers use the paired phone for SMS while this provider is selected. Keep the phone powered, connected, and allowed to send SMS."
           : "The phone gateway is off or Afro SMS is selected. Choose Paired phone SIM above when the server gateway is enabled.",
+        smsDeliverySummary +
         (gateway.gatewayError ? '<p class="form-message error">' + esc(gateway.gatewayError) + '</p>' : '') +
         '<div class="form-actions"><button class="btn btn-secondary" type="button" id="phone-gateway-pair"' + (gateway.enabled && gateway.deliveryMode === "PHONE_GATEWAY" ? '' : ' disabled') + '>Create 10-minute pairing code</button></div>' +
         '<p id="phone-gateway-pair-code" class="form-message" hidden></p>' +

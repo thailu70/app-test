@@ -41,10 +41,18 @@ async function initRidesSchema(db = require("../db").DB) {
       CREATE TABLE IF NOT EXISTS ride_sms_outbox (
         id TEXT PRIMARY KEY,event_key TEXT NOT NULL UNIQUE,ride_id TEXT NOT NULL,phone TEXT NOT NULL,message TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'PENDING',attempts INTEGER NOT NULL DEFAULT 0,next_attempt_at TEXT NOT NULL,
-        lease_token TEXT,lease_until TEXT,sent_at TEXT,created_at TEXT NOT NULL
+        lease_token TEXT,lease_until TEXT,sent_at TEXT,created_at TEXT NOT NULL,gateway_job_id TEXT,failure_code TEXT
       );
       CREATE INDEX IF NOT EXISTS ride_sms_delivery ON ride_sms_outbox(status,next_attempt_at);
     `);
+          if (db.isPostgres) {
+            await db.prepare('ALTER TABLE ride_sms_outbox ADD COLUMN IF NOT EXISTS gateway_job_id TEXT').run();
+            await db.prepare('ALTER TABLE ride_sms_outbox ADD COLUMN IF NOT EXISTS failure_code TEXT').run();
+          } else {
+            const columns = await db.prepare('PRAGMA table_info(ride_sms_outbox)').all();
+            if (!columns.some(column => column.name === 'gateway_job_id')) await db.prepare('ALTER TABLE ride_sms_outbox ADD COLUMN gateway_job_id TEXT').run();
+            if (!columns.some(column => column.name === 'failure_code')) await db.prepare('ALTER TABLE ride_sms_outbox ADD COLUMN failure_code TEXT').run();
+          }
         })
         .catch((error) => {
           initialized.delete(db);

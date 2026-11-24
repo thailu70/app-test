@@ -162,7 +162,7 @@ function createRidesService({
   async function flushRideSms({ limit = 20 } = {}) {
     if (smsFlush) return smsFlush;
     smsFlush = (async () => {
-      const result = { sent: 0, failed: 0 };
+      const result = { sent: 0, queued: 0, failed: 0 };
       for (let index = 0; index < Math.min(100, limit); index++) {
         const row = await db.transaction(async tx => {
           const current = await tx.prepare("SELECT * FROM ride_sms_outbox WHERE attempts<8 AND ((status='PENDING' AND next_attempt_at<=?) OR (status='SENDING' AND lease_until<=?)) ORDER BY created_at,id LIMIT 1" + (tx.isPostgres ? " FOR UPDATE SKIP LOCKED" : ""))
@@ -191,11 +191,32 @@ function createRidesService({
         });
         if (!row) break;
         if (row.cancelled) continue;
-        let sent = false;
-        try { sent = (await sendTransactionalSms(row.event_key || row.id, row.phone, row.message, { db, fallbackSendSms: sendSms }))?.sent === true; } catch (_) {}
-        await db.prepare("UPDATE ride_sms_outbox SET status=?,sent_at=?,next_attempt_at=?,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=?")
-          .run(sent ? "SENT" : row.attempts >= 8 ? "FAILED" : "PENDING", sent ? instant() : null, new Date(now() + Math.min(3600000, 60000 * 2 ** Math.min(row.attempts - 1, 6))).toISOString(), row.id, row.lease);
-        result[sent ? "sent" : "failed"]++;
+        let delivery = null;
+        try { delivery = await sendTransactionalSms(row.event_key || row.id, row.phone, row.message, { db, fallbackSendSms: sendSms }); } catch (_) {}
+        if (delivery?.queued === true && delivery.messageJobId) {
+          await db.prepare("UPDATE ride_sms_outbox SET status='QUEUED',gateway_job_id=?,failure_code=NULL,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=?")
+            .run(delivery.messageJobId, row.id, row.lease);
+          // The phone polls independently; reconcile an ACK that raced this row update.
+          const gatewayState = await db.prepare('SELECT status,failure_code,sent_at FROM phone_sms_message_jobs WHERE id=?').get(delivery.messageJobId);
+          if (gatewayState?.status === 'SENT') {
+            await db.prepare("UPDATE ride_sms_outbox SET status='SENT',sent_at=?,failure_code=NULL WHERE id=? AND status='QUEUED'")
+              .run(gatewayState.sent_at || instant(), row.id);
+            result.sent++;
+          } else if (gatewayState?.status === 'FAILED' || gatewayState?.status === 'EXPIRED' || gatewayState?.status === 'CANCELLED') {
+            const failureCode = gatewayState.failure_code || `gateway_${String(gatewayState.status).toLowerCase()}`;
+            await db.prepare("UPDATE ride_sms_outbox SET status='FAILED',failure_code=? WHERE id=? AND status='QUEUED'")
+              .run(failureCode, row.id);
+            result.failed++;
+          } else result.queued++;
+          continue;
+        }
+        const sent = delivery?.sent === true && delivery?.queued !== true;
+        const permanentlyFailed = delivery?.failed === true;
+        const status = sent ? 'SENT' : permanentlyFailed || row.attempts >= 8 ? 'FAILED' : 'PENDING';
+        await db.prepare("UPDATE ride_sms_outbox SET status=?,sent_at=?,failure_code=?,next_attempt_at=?,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=?")
+          .run(status, sent ? instant() : null, sent ? null : delivery?.failureCode || null,
+            new Date(now() + Math.min(3600000, 60000 * 2 ** Math.min(row.attempts - 1, 6))).toISOString(), row.id, row.lease);
+        result[status === 'SENT' ? 'sent' : status === 'FAILED' ? 'failed' : 'queued']++;
       }
       return result;
     })().finally(() => { smsFlush = null; });

@@ -46,7 +46,8 @@ router.post('/jobs/:jobId/ack', asyncRoute(async (req, res) => {
     req.smsGatewayDeviceId,
     String(req.params.jobId || '').slice(0, 80),
     req.body?.leaseToken,
-    success
+    success,
+    { failureCode: req.body?.failureCode }
   );
   if (!acknowledged) return res.status(409).json({ success: false, error: 'This message is no longer available.' });
   res.json({ success: true });

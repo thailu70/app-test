@@ -37,7 +37,7 @@ class AndroidMobilityGuestPushRegistrar(context: Context) : MobilityGuestPushReg
 object MobilityPush {
     const val CHANNEL_ID = "cargo_updates"
     // Bump this when alert sound behavior changes: Android keeps a user's old channel settings.
-    const val RIDE_ALERT_CHANNEL_ID = "ride_alerts_v4"
+    const val RIDE_ALERT_CHANNEL_ID = "ride_alerts_v5"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val guestSynced = ConcurrentHashMap<String, Pair<String, Long>>()
     @Volatile private var activeDriverId: String? = null
@@ -232,8 +232,10 @@ object MobilityPush {
 }
 
 enum class MobilityAlertTone(val id: String, val title: String, private val soundResource: Int) {
-    RING("RING", "Classic ring", R.raw.passo_alert_ring),
-    BEEP("BEEP", "Short beep", R.raw.passo_alert_beep);
+    CASH_REGISTER("CASH_REGISTER", "Cash register", R.raw.passo_alert_cash_register),
+    DRUM_ROLL("DRUM_ROLL", "Drum roll", R.raw.passo_alert_drum_roll),
+    RUBBER_TOY("RUBBER_TOY", "Rubber toy squeak", R.raw.passo_alert_rubber_toy),
+    CARTOON_TRILL("CARTOON_TRILL", "Cartoon trill", R.raw.passo_alert_cartoon_trill);
 
     fun soundUri(context: Context): Uri = Uri.parse("android.resource://${context.packageName}/$soundResource")
 
@@ -242,8 +244,8 @@ enum class MobilityAlertTone(val id: String, val title: String, private val soun
         private const val SELECTED_TONE = "ride_alert_tone"
         private fun preferenceKey(driver: Boolean) = "${SELECTED_TONE}_${if (driver) "driver" else "passenger"}"
         fun selected(context: Context, driver: Boolean): MobilityAlertTone {
-            val id = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(preferenceKey(driver), RING.id)
-            return values().firstOrNull { it.id == id } ?: RING
+            val id = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(preferenceKey(driver), CASH_REGISTER.id)
+            return values().firstOrNull { it.id == id } ?: CASH_REGISTER
         }
         fun select(context: Context, tone: MobilityAlertTone, driver: Boolean) {
             context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putString(preferenceKey(driver), tone.id).apply()

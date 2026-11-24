@@ -65,10 +65,13 @@ import kotlinx.coroutines.delay
     val title = intercityText(language, if (driver) "Request alert sound" else "Ride alert sound",
         if (driver) "የጥያቄ ማሳወቂያ ድምፅ" else "የጉዞ ማሳወቂያ ድምፅ",
         if (driver) "Sagalee beeksisa gaaffii" else "Sagalee beeksisa imalaa")
-    val soundName = when (selected) {
-        MobilityAlertTone.RING -> intercityText(language, "Classic ring", "የስልክ ደወል", "Bilbila")
-        MobilityAlertTone.BEEP -> intercityText(language, "Short beep", "አጭር ቢፕ", "Beep gabaabaa")
+    fun toneLabel(tone: MobilityAlertTone) = when (tone) {
+        MobilityAlertTone.CASH_REGISTER -> intercityText(language, "Cash register", "የገንዘብ መዝገብ", "Sagalee kasaaraa")
+        MobilityAlertTone.DRUM_ROLL -> intercityText(language, "Drum roll", "የከበሮ ድምፅ", "Sagalee dibbee")
+        MobilityAlertTone.RUBBER_TOY -> intercityText(language, "Rubber toy squeak", "የጎማ መጫወቻ ድምፅ", "Sagalee meeshaa laastikaa")
+        MobilityAlertTone.CARTOON_TRILL -> intercityText(language, "Cartoon trill", "የካርቱን ድምፅ", "Sagalee kaartuuni")
     }
+    val soundName = toneLabel(selected)
     Surface(color = Color.White, contentColor = CommuteInk, shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, Color(0xFFE2E8E7)), modifier = modifier.fillMaxWidth().clickable { open = true }) {
         Row(Modifier.padding(horizontal = 13.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -89,9 +92,7 @@ import kotlinx.coroutines.delay
                     "በዚህ ስልክ ለአዳዲስ ጥያቄዎች እና የጉዞ ማሻሻያዎች ድምፅ ይምረጡ።",
                     "Bilbila kana irratti gaaffii haaraa fi haaromsa imalaa kamiin akka dhageessisu filadhu."), color = Color(0xFF627385), fontSize = 13.sp)
                 MobilityAlertTone.values().forEach { tone ->
-                    val label = if (tone == MobilityAlertTone.RING)
-                        intercityText(language, "Classic ring", "የስልክ ደወል", "Bilbila")
-                    else intercityText(language, "Short beep", "አጭር ቢፕ", "Beep gabaabaa")
+                    val label = toneLabel(tone)
                     Row(Modifier.fillMaxWidth().clickable {
                         MobilityAlertTone.select(context, tone, driver)
                         MobilityPush.ensureChannel(context)

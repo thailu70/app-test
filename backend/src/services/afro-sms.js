@@ -66,7 +66,14 @@ function createAfroSmsService({ db = DB, fetchImpl = (...args) => fetch(...args)
 async function sendWithPhoneGateway(queue) {
   try {
     const result = await queue();
-    return result?.queued ? { sent: true, queued: true, phoneGateway: true } : null;
+    if (result?.queued) return { sent: true, queued: true, phoneGateway: true,
+      ...(result.messageJobId ? { messageJobId: result.messageJobId } : {}),
+      ...(result.status ? { gatewayStatus: result.status } : {}) };
+    if (result?.sent) return { sent: true, queued: false, phoneGateway: true,
+      ...(result.messageJobId ? { messageJobId: result.messageJobId } : {}) };
+    if (result?.failed) return { sent: false, queued: false, failed: true, phoneGateway: true,
+      messageJobId: result.messageJobId, failureCode: result.failureCode || 'sms_delivery_failed' };
+    return null;
   } catch (_) { return null; }
 }
 
@@ -84,7 +91,8 @@ async function sendOtpSms({ otpId, phone, code, message }, { db = DB, fallbackSe
 
   if (mode === 'PHONE_GATEWAY') {
     const queued = await sendWithPhoneGateway(queue);
-    if (queued) return queued;
+    if (queued?.queued) return { sent: true, queued: true };
+    if (queued?.failed) return queued;
   }
   let providerResult = null;
   try { providerResult = await fallbackSendSms(phone, message); } catch (_) { /* Try the paired phone below. */ }
@@ -105,7 +113,7 @@ async function sendTransactionalSms(eventKey, phone, message, { db = DB, fallbac
 
   if (mode === 'PHONE_GATEWAY') {
     const queued = await sendWithPhoneGateway(queue);
-    if (queued) return { sent: true, queued: true };
+    if (queued) return queued;
   }
   let providerResult = null;
   try { providerResult = await fallbackSendSms(phone, message); } catch (_) { /* Try the paired phone below. */ }
