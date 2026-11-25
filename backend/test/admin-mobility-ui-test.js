@@ -79,7 +79,7 @@ test('admin mobility navigation loads before the portal, safely renders trip det
   const app = fixture(); await flush(); app.select();
   assert.match(app.get('detail').textContent, /<img onerror=alert\(1\)> Addis/);
   assert.equal(app.get('detail').querySelectorAll('img').length, 0);
-  assert.match(app.get('list').textContent, /Tahsas 24, 2019 AM · 12:00 · Morning · ጠዋት/);
+  assert.match(app.get('list').textContent, /Tahsas 24, 2019 AM · 12:00 · Day · ቀን/);
   app.get('note').value = 'Approved at the driver’s proposed fare';
   await app.click('APPROVE');
   assert.deepEqual(JSON.parse(app.writes()[0].body), { decision: 'APPROVE', note: 'Approved at the driver’s proposed fare' });

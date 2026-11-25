@@ -2,12 +2,14 @@ package com.example
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.example.data.api.*
@@ -125,7 +127,13 @@ class MobilityRoadMapTest {
         compose.onNodeWithTag("road_map_estimate").assertDoesNotExist()
         compose.runOnIdle {
             val map = compose.activity.window.decorView.findViewWithTag<MapView>("mobility_road_native_map")
-            assertEquals(2, map.overlays.filterIsInstance<Marker>().size)
+            val markers = map.overlays.filterIsInstance<Marker>()
+            assertEquals(2, markers.size)
+            markers.forEach { marker ->
+                val icon = marker.icon as BitmapDrawable
+                assertEquals(android.graphics.Color.WHITE, icon.bitmap.getPixel(icon.intrinsicWidth / 2, (icon.intrinsicHeight * .34f).toInt()))
+            }
+            assertEquals(PassoMobilityPalette.brand.toArgb(), map.overlays.filterIsInstance<Polyline>().single().outlinePaint.color)
             val view = compose.activity.window.decorView
             val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
             view.draw(Canvas(bitmap))

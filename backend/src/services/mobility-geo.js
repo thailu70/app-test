@@ -55,8 +55,13 @@ function createGeoService({ fetchImpl = globalThis.fetch, db, env = process.env,
     if (!['http:', 'https:'].includes(url.protocol)) throw new GeoError('Location service is not configured.');
     for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
     const response = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs), headers: { Accept: 'application/json' } });
-    if (!response.ok) throw new GeoError('Location service is temporarily unavailable.');
     const body = await response.text();
+    if (!response.ok) {
+      const error = new GeoError('Location service is temporarily unavailable.');
+      error.upstreamStatus = response.status;
+      error.upstreamBody = body.slice(0, 1000);
+      throw error;
+    }
     if (body.length > maxBytes) throw new GeoError('Location response is too large.');
     return JSON.parse(body);
   }
@@ -123,9 +128,25 @@ function createGeoService({ fetchImpl = globalThis.fetch, db, env = process.env,
     const coordinates = [coordinate(input.originLongitude, false), coordinate(input.originLatitude, true), coordinate(input.destinationLongitude, false), coordinate(input.destinationLatitude, true)];
     const key = coordinates.map(n => n.toFixed(6)).join(','), cached = cacheGet(routeCache, key);
     if (cached) return cached;
+    const routePath = '/route/v1/driving/' + coordinates.slice(0, 2).join(',') + ';' + coordinates.slice(2).join(',');
+    const getRoute = radius => json(osrm, routePath, { overview: 'full', geometries: 'geojson', steps: false, radiuses: radius }, 4000000);
     let data;
-    try { data = await json(osrm, '/route/v1/driving/' + coordinates.slice(0, 2).join(',') + ';' + coordinates.slice(2).join(','), { overview: 'full', geometries: 'geojson', steps: false, radiuses: '500;500' }, 4000000); }
-    catch (_) { throw new GeoError('Road distance is unavailable. You can still request driver quotes.'); }
+    try { data = await getRoute('500;500'); }
+    catch (error) {
+      // A selected place can be well inside a large building/airport even when
+      // its entrance is nearby. Retry OSRM's NoSegment response with a bounded
+      // snap radius so valid destinations are routable without allowing an
+      // unbounded snap to a distant road.
+      if (error?.upstreamStatus !== 400 || !/NoSegment/i.test(String(error.upstreamBody || ''))) {
+        throw new GeoError('Road distance is unavailable. You can still request driver quotes.');
+      }
+      try { data = await getRoute('2500;2500'); }
+      catch (retryError) {
+        if (retryError?.upstreamStatus === 400 && /NoSegment/i.test(String(retryError.upstreamBody || '')))
+          throw new GeoError('No nearby road was found for that pin. Move it closer to a road.', 422);
+        throw new GeoError('Road distance is unavailable. You can still request driver quotes.');
+      }
+    }
     const result = data.routes?.[0];
     if (data.code !== 'Ok' || !result || !Number.isFinite(result.distance) || result.distance < 0 || !Number.isFinite(result.duration)) throw new GeoError('No drivable road route was found. Adjust the map pins.', 422);
     const detail = detailedGeometry(result.geometry);

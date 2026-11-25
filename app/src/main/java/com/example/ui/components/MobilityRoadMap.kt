@@ -53,7 +53,7 @@ internal object PassoMobilityPalette {
     val text = Color(0xFF102F45)
     val muted = Color(0xFF627385)
     val brand = Color(0xFF008755)
-    val route = Color(0xFF54B77B)
+    val route = Color(0xFF008755)
     val activeRoute = Color(0xFF006B4E)
     val landmark = Color(0xFFF4C84A)
     val border = Color(0xFFDDE6E1)
@@ -272,14 +272,35 @@ internal fun replaceRoadOverlays(map: MapView, planned: List<Pair<Double, Double
     fun marker(point: Pair<Double, Double>?, title: String, letter: String, color: Int) {
         if (!validRoadPoint(point)) return
         map.overlays.add(Marker(map).apply {
-            position = GeoPoint(point!!.first, point.second); this.title = title; setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-            val size = (36 * map.resources.displayMetrics.density).toInt()
+            position = GeoPoint(point!!.first, point.second); this.title = title
+            val pin = letter == "P" || letter == "F"
+            setAnchor(Marker.ANCHOR_CENTER, if (pin) Marker.ANCHOR_BOTTOM else Marker.ANCHOR_CENTER)
+            val size = ((if (pin) 38 else 36) * map.resources.displayMetrics.density).toInt()
             val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap); val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-            paint.color = android.graphics.Color.WHITE; canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
-            paint.color = color; canvas.drawCircle(size / 2f, size / 2f, size / 2f - 3, paint)
-            paint.color = android.graphics.Color.WHITE; paint.textAlign = Paint.Align.CENTER; paint.textSize = size * 0.44f; paint.isFakeBoldText = true
-            canvas.drawText(letter, size / 2f, size / 2f - (paint.ascent() + paint.descent()) / 2, paint)
+            if (pin) {
+                val path = android.graphics.Path().apply {
+                    moveTo(size * .5f, size * .98f)
+                    cubicTo(size * .39f, size * .77f, size * .08f, size * .55f, size * .08f, size * .34f)
+                    cubicTo(size * .08f, size * .15f, size * .27f, size * .03f, size * .5f, size * .03f)
+                    cubicTo(size * .73f, size * .03f, size * .92f, size * .15f, size * .92f, size * .34f)
+                    cubicTo(size * .92f, size * .55f, size * .61f, size * .77f, size * .5f, size * .98f)
+                    close()
+                }
+                paint.color = android.graphics.Color.WHITE
+                paint.setShadowLayer(size * .06f, 0f, size * .035f, 0x55000000)
+                canvas.drawPath(path, paint)
+                paint.clearShadowLayer()
+                paint.color = color
+                canvas.drawPath(path, paint)
+                paint.color = android.graphics.Color.WHITE
+                canvas.drawCircle(size * .5f, size * .34f, size * .13f, paint)
+            } else {
+                paint.color = android.graphics.Color.WHITE; canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
+                paint.color = color; canvas.drawCircle(size / 2f, size / 2f, size / 2f - 3, paint)
+                paint.color = android.graphics.Color.WHITE; paint.textAlign = Paint.Align.CENTER; paint.textSize = size * 0.44f; paint.isFakeBoldText = true
+                canvas.drawText(letter, size / 2f, size / 2f - (paint.ascent() + paint.descent()) / 2, paint)
+            }
             icon = BitmapDrawable(map.resources, bitmap)
             if (letter == "D" && driverIcon != null) {
                 androidx.core.content.ContextCompat.getDrawable(map.context, driverIcon)?.mutate()?.let { source ->
@@ -289,8 +310,8 @@ internal fun replaceRoadOverlays(map: MapView, planned: List<Pair<Double, Double
             }
         })
     }
-    marker(pickup, pickupLabel, "P", 0xFF008755.toInt())
-    marker(destination, destinationLabel, "F", 0xFFF4C84A.toInt())
+    marker(pickup, pickupLabel, "P", PassoMobilityPalette.brand.toArgb())
+    marker(destination, destinationLabel, "F", PassoMobilityPalette.landmark.toArgb())
     nearbyPoints.take(40).forEach { marker(it, "Nearby car · approximate", "D", 0xFF00695F.toInt()) }
     driver?.let {
         if (stableDriverMarker != null) map.overlays.add(stableDriverMarker)

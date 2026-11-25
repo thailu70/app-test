@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createGeoService, detailedGeometry } = require('../src/services/mobility-geo');
 const db = { prepare: () => ({ all: async () => [{ stopName: 'Bole', stopNameAm: 'ቦሌ', latitude: 8.99, longitude: 38.78 }] }) };
-function response(value) { return { ok: true, text: async () => JSON.stringify(value) }; }
+function response(value, status = 200) { return { ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(value) }; }
 test('location suggestions use private Photon and safely fall back to public saved stops', async () => {
   let url;
   const geo = createGeoService({ db, fetchImpl: async input => { url = input; return response({ features: [{ properties: { name: 'Bole', city: 'Addis Ababa' }, geometry: { coordinates: [38.78, 8.99] } }] }); } });
@@ -94,6 +94,26 @@ test('detailed routes preserve every road bend and report road-access offsets wi
   assert.equal(result.durationMinutes, 28);
   assert.equal(result.originSnapMeters, 12);
   assert.equal(result.destinationSnapMeters, 35);
+});
+
+test('airport and building pins retry a bounded road snap when OSRM has no segment within 500m', async () => {
+  const radiuses = [];
+  const geo = createGeoService({ fetchImpl: async url => {
+    radiuses.push(url.searchParams.get('radiuses'));
+    if (radiuses.length === 1) return response({ code: 'NoSegment', message: 'Could not find a matching segment for coordinate 2' }, 400);
+    return response({ code: 'Ok', waypoints: [{ distance: 60 }, { distance: 840 }], routes: [{ distance: 9600, duration: 1320,
+      geometry: { type: 'LineString', coordinates: [[38.7, 9], [38.71, 9.01]] } }] });
+  } });
+  const result = await geo.route({ originLatitude: 9, originLongitude: 38.7, destinationLatitude: 9.1, destinationLongitude: 38.8 });
+  assert.deepEqual(radiuses, ['500;500', '2500;2500']);
+  assert.equal(result.distanceKm, 9.6);
+  assert.equal(result.destinationSnapMeters, 840);
+});
+
+test('far pins return a location correction instead of a generic service failure', async () => {
+  const geo = createGeoService({ fetchImpl: async () => response({ code: 'NoSegment', message: 'No road segment' }, 400) });
+  await assert.rejects(geo.route({ originLatitude: 9, originLongitude: 38.7, destinationLatitude: 9.1, destinationLongitude: 38.8 }),
+    error => error.status === 422 && /Move it closer to a road/.test(error.message));
 });
 
 test('very long routes retain real corners within a stated tolerance and the existing mobile point limit', () => {
