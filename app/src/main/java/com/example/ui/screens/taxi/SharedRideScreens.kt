@@ -36,7 +36,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-@Composable internal fun SharedPassengerContent(model: TaxiViewModel, state: TaxiUiState, authenticated: Boolean, onSignIn: () -> Unit, onBack: () -> Unit = {}, initialCreate: Boolean = false, passengerPickup: Pair<Double, Double>? = null, passengerPickupName: String = "Your location", language: AppLanguage = AppLanguage.ENGLISH) {
+@Composable internal fun SharedPassengerContent(model: TaxiViewModel, state: TaxiUiState, authenticated: Boolean, onSignIn: () -> Unit, onBack: () -> Unit = {}, initialCreate: Boolean = false, passengerPickup: Pair<Double, Double>? = null, passengerPickupName: String = "Finding nearby area…", language: AppLanguage = AppLanguage.ENGLISH) {
     var creating by remember { mutableStateOf(initialCreate) }
     val trip = state.selectedTrip
     Column(Modifier.fillMaxSize().background(PassoMobilityPalette.canvas)) {
@@ -129,7 +129,7 @@ import java.util.*
 /** Same location search/map controls for street pickup and both shared-trip initiation paths. */
 @Composable internal fun TaxiTripForm(state: TaxiUiState, driver: Boolean, street: Boolean, model: TaxiViewModel,
     onClose: () -> Unit, acceptRequest: SharedRideTrip? = null, passengerGroupRequest: Boolean = false,
-    initialPickup: Pair<Double, Double>? = null, initialOrigin: String = "Your location",
+    initialPickup: Pair<Double, Double>? = null, initialOrigin: String = "Finding nearby area…",
     mapTiles: Boolean = true, mapApi: MobilityApi? = null,
     onAvailabilityChange: (Boolean, String) -> Unit = { _, _ -> }, onCreditClick: () -> Unit = {},
     language: AppLanguage = AppLanguage.ENGLISH,
@@ -172,7 +172,7 @@ import java.util.*
     }
     LaunchedEffect(driver, street, passengerGroupRequest, estimateRouteKey, acceptRequest?.id) {
         val route = base
-        if ((driver || passengerGroupRequest) && !street && route != null && (!driver || vehicle != null) &&
+        if ((driver || passengerGroupRequest) && !street && route != null && !isGenericTaxiPickupLabel(route.origin) && (!driver || vehicle != null) &&
             estimateRouteKey != null && lastEstimatedRouteKey != estimateRouteKey) {
             lastEstimatedRouteKey = estimateRouteKey
             model.estimate(route.copy(farePerSeatEtb = null))
@@ -181,9 +181,15 @@ import java.util.*
     LaunchedEffect(driver, passengerGroupRequest, pickup, origin, mapApi, language) {
         val point = pickup
         if ((driver || passengerGroupRequest) && point != null && isGenericTaxiPickupLabel(origin)) {
-            val resolved = nearestTaxiPickupArea(mapApi, context, point, language)
-                ?: String.format(Locale.US, "%.5f, %.5f", point.first, point.second)
-            if (pickup == point && isGenericTaxiPickupLabel(origin)) origin = resolved
+            repeat(3) { attempt ->
+                val resolved = nearestTaxiPickupArea(mapApi, context, point, language)
+                if (!resolved.isNullOrBlank() && pickup == point && isGenericTaxiPickupLabel(origin)) {
+                    origin = resolved
+                    return@LaunchedEffect
+                }
+                if (attempt < 2) kotlinx.coroutines.delay(700L * (attempt + 1))
+            }
+            if (pickup == point && isGenericTaxiPickupLabel(origin)) origin = taxiPickupPinLabel(point, language)
         }
     }
     LaunchedEffect(state.estimate?.estimatedFareEtb, count, driver, street) {
@@ -209,7 +215,7 @@ import java.util.*
         if (street) {
             Box(Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(23.dp))) {
                 val driverMarker = pickup?.let { MobilityLocation(it.first, it.second, stale = false) }
-                TaxiMap(pickup, dropoff, driver = driverMarker, height = 300, pickupLabel = origin.ifBlank { "Your location" }, destinationLabel = destination,
+                TaxiMap(pickup, dropoff, driver = driverMarker, height = 300, pickupLabel = origin.ifBlank { taxiPickupResolvingLabel(language) }, destinationLabel = destination,
                     tileDownloadsEnabled = mapTiles, providedApi = mapApi, routeGeometry = state.estimate?.routeGeometry,
                     routeGeometryQuality = state.estimate?.routeGeometryQuality, showPickupMarker = false, modifier = Modifier.fillMaxSize())
                 state.dashboard?.let { dashboard ->
@@ -233,14 +239,14 @@ import java.util.*
             Surface(color = PassoMobilityPalette.card.copy(alpha = .97f), contentColor = PassoMobilityPalette.text,
                 shape = RoundedCornerShape(19.dp), border = BorderStroke(1.dp, PassoMobilityPalette.border), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 3.dp)) {
-                    TaxiRouteRow("Pickup location", origin.ifBlank { "Your location" }, true)
+                    TaxiRouteRow("Pickup location", origin.ifBlank { taxiPickupResolvingLabel(language) }, true)
                     HorizontalDivider(color = PassoMobilityPalette.border)
                     TaxiRouteRow("Destination", destination.ifBlank { "Choose destination" }, false, !state.busy) { picker = "destination" }
                 }
             }
         } else {
             if (pickup != null && dropoff != null) TaxiMap(pickup, dropoff, height = 180, pickupLabel = origin, destinationLabel = destination, routeGeometry = if (street) state.estimate?.routeGeometry else null, routeGeometryQuality = if (street) state.estimate?.routeGeometryQuality else null)
-            if (!passengerGroupRequest) TaxiRouteRow("Pickup", origin.ifBlank { "Your location" }, true, !state.busy && !driver && !street && acceptRequest == null) { if (!driver && !street && acceptRequest == null) picker = "pickup" }
+            if (!passengerGroupRequest) TaxiRouteRow("Pickup", origin.ifBlank { taxiPickupResolvingLabel(language) }, true, !state.busy && !driver && !street && acceptRequest == null) { if (!driver && !street && acceptRequest == null) picker = "pickup" }
             TaxiRouteRow("Destination", destination.ifBlank { "Where to?" }, false, !state.busy && acceptRequest == null) { if (acceptRequest == null) picker = "destination" }
         }
         if (street) {

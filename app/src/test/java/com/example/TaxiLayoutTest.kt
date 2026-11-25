@@ -107,7 +107,7 @@ class TaxiLayoutTest {
         compose.onNodeWithTag("taxi_tier_MINI_VAN").assertDoesNotExist()
         compose.onNodeWithTag("taxi_travel_together").assertIsDisplayed()
         compose.onNodeWithTag("taxi_services_footer").assertIsDisplayed()
-        compose.onNodeWithTag("taxi_pickup_area").assertTextContains("Your area")
+        compose.onNodeWithTag("taxi_pickup_area").assertTextContains("Set pickup location")
         compose.onNodeWithText("Current location").assertDoesNotExist()
         compose.onNodeWithTag("taxi_service_COMMUTE").assertIsDisplayed().performClick()
         assertEquals(1, commute)
@@ -122,6 +122,7 @@ class TaxiLayoutTest {
             TaxiPassengerContent(main, false, vm, {}, {}, {}, mapTiles = false)
         } }
         compose.onNodeWithTag("taxi_clear_destination").assertIsDisplayed()
+        compose.onNodeWithTag("taxi_request").assertIsDisplayed()
         // The map area pill belongs to the initial city map; route preview uses
         // its compact pickup/destination card instead.
         compose.onNodeWithTag("taxi_pickup_area").assertDoesNotExist()
@@ -130,6 +131,15 @@ class TaxiLayoutTest {
         compose.onNodeWithTag("taxi_tier_ECONOMY").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("taxi_tier_COMFORT").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("taxi_tier_MINI_VAN").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("taxi_tier_fare_ECONOMY", useUnmergedTree = true).assertTextContains("ETB 125")
+        compose.onNodeWithTag("taxi_tier_fare_COMFORT", useUnmergedTree = true).assertTextContains("ETB 156.25")
+        compose.onNodeWithTag("taxi_tier_fare_MINI_VAN", useUnmergedTree = true).assertTextContains("ETB 187.5")
+    }
+    @Test fun `pickup resolving labels are recognized in every supported language`() {
+        com.example.core.localization.AppLanguage.entries.forEach { language ->
+            assertTrue("${language.name} pickup hint should remain unresolved until reverse geocoding completes",
+                isGenericTaxiPickupLabel(taxiPickupResolvingLabel(language)))
+        }
     }
     @Test @Config(qualifiers = "w320dp-h740dp-xhdpi") fun `daily commute shortcut stays compact on a narrow phone`() {
         var commute = 0

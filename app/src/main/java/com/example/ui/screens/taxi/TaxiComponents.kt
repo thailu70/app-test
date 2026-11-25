@@ -265,12 +265,12 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
                 Surface(onClick = { onSelect(tier.id) }, enabled = enabled && settings.enabled,
                     modifier = Modifier.weight(1f).testTag("taxi_tier_${tier.id}"), color = surface,
                     border = BorderStroke(if (active) 2.dp else 1.dp, border), shape = RoundedCornerShape(16.dp), shadowElevation = 0.dp) {
-                    Column(Modifier.fillMaxWidth().height(104.dp).padding(horizontal = 4.dp, vertical = 5.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    Column(Modifier.fillMaxWidth().height(116.dp).padding(horizontal = 3.dp, vertical = 5.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Image(painterResource(vehicleArt), contentDescription = when (tier.id) {
                             "COMFORT" -> taxiText(language, "Modern electric sedan", "ዘመናዊ ኤሌክትሪክ ሴዳን", "Sedaanii elektirikii ammayyaa")
                             "MINI_VAN" -> taxiText(language, "Minivan", "ሚኒ ቫን", "Minivan")
                             else -> taxiText(language, "2007 Toyota compact", "የ2007 ቶዮታ ኮምፓክት", "Toyota xiqqaa bara 2007")
-                        }, modifier = Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 2.dp).drawWithContent {
+                        }, modifier = Modifier.fillMaxWidth().height(36.dp).padding(horizontal = 2.dp).drawWithContent {
                             drawContent()
                             val sweepX = (sweepProgress * 1.8f - .4f) * size.width
                             drawRect(
@@ -287,7 +287,15 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
                             "MINI_VAN" -> taxiText(language, "Minivan", "ሚኒ ቫን", "Minivan")
                             else -> taxiText(language, "Economy", "ኢኮኖሚ", "Diinagdee")
                         }, color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
-                        Text(fare?.let(::taxiMoney) ?: "—", color = if (active) TaxiBrandDeepEmerald else Color(0xFF627385), fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                        Surface(color = if (active) Color(0xFFDFF3E7) else Color(0xFFF1F5F3),
+                            shape = RoundedCornerShape(9.dp), modifier = Modifier.fillMaxWidth().height(21.dp)) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(fare?.let(::taxiMoney) ?: "—", color = if (active) TaxiBrandDeepEmerald else Color(0xFF627385),
+                                    fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1, softWrap = false,
+                                    overflow = TextOverflow.Clip, letterSpacing = (-.2).sp,
+                                    modifier = Modifier.testTag("taxi_tier_fare_${tier.id}"))
+                            }
+                        }
                     }
                 }
             }

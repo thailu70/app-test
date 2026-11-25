@@ -89,14 +89,15 @@ internal suspend fun nearestTaxiPickupArea(api: MobilityApi?, context: android.c
                     ?: return@withContext null
                 val locality = address.locality?.trim()?.takeIf(String::isNotEmpty)
                 val admin = address.adminArea?.trim()?.takeIf(String::isNotEmpty)
-                val district = address.subAdminArea?.trim()?.takeIf { it.isNotEmpty() && !it.equals(locality, true) && !it.equals(admin, true) }
-                    ?: address.subLocality?.trim()?.takeIf { it.isNotEmpty() && !it.equals(locality, true) && !it.equals(admin, true) }
+                val district = address.subLocality?.trim()?.takeIf { it.isNotEmpty() && !it.equals(locality, true) && !it.equals(admin, true) }
+                    ?: address.subAdminArea?.trim()?.takeIf { it.isNotEmpty() && !it.equals(locality, true) && !it.equals(admin, true) }
                 val landmark = address.featureName?.trim()?.takeIf {
                     it.isNotEmpty() && !it.matches(Regex("\\d+")) &&
                         !it.equals(locality, true) && !it.equals(admin, true) && !it.equals(district, true)
                 }
-                val area = landmark ?: district ?: locality ?: admin
-                val region = listOfNotNull(locality, admin).firstOrNull { !it.equals(area, true) }
+                val area = district ?: landmark ?: locality ?: admin
+                val region = locality?.takeIf { !it.equals(area, true) }
+                    ?: admin?.takeIf { !it.equals(area, true) }
                 when {
                     district != null && region != null -> "$district, $region"
                     area != null -> area
@@ -114,7 +115,18 @@ internal suspend fun nearestTaxiPickupArea(api: MobilityApi?, context: android.c
 internal fun isGenericTaxiPickupLabel(value: String): Boolean =
     value.isBlank() || value.contains("pickup location", ignoreCase = true) ||
         value.contains("current location", ignoreCase = true) || value.contains("selected map point", ignoreCase = true) ||
-        value.startsWith("አሁን") || value.startsWith("Bakka amma", ignoreCase = true) || value.startsWith("Bakka kaartaa", ignoreCase = true)
+        value.contains("finding nearby area", ignoreCase = true) || value.contains("locating pickup", ignoreCase = true) ||
+        value.startsWith("አሁን") || value.contains("አቅራቢያ") || value.contains("በመፈለግ") ||
+        value.startsWith("Bakka amma", ignoreCase = true) || value.startsWith("Bakka kaartaa", ignoreCase = true) ||
+        value.contains("Naannoo dhihoo barbaadaa", ignoreCase = true) || value.startsWith("Naannoo barbaadaa", ignoreCase = true)
+
+internal fun taxiPickupResolvingLabel(language: AppLanguage) = taxiText(language,
+    "Finding nearby area…", "አቅራቢያ ያለውን አካባቢ በመፈለግ ላይ…", "Naannoo dhihoo barbaadaa…")
+
+internal fun taxiPickupPinLabel(point: Pair<Double, Double>, language: AppLanguage) = taxiText(language,
+    String.format(Locale.US, "Pickup pin · %.5f, %.5f", point.first, point.second),
+    String.format(Locale.US, "የመነሻ ነጥብ · %.5f, %.5f", point.first, point.second),
+    String.format(Locale.US, "Bakka ka'umsaa · %.5f, %.5f", point.first, point.second))
 
 /** Public destination-first discovery; only requesting a ride or booking a seat requires sign-in. */
 @Composable fun TaxiPassengerScreen(main: MainViewModel, onDailyCommute: () -> Unit,
@@ -146,7 +158,7 @@ internal fun isGenericTaxiPickupLabel(value: String): Boolean =
     var startShared by remember { mutableStateOf(authenticated && pending?.sharedStart == true) }
     var pickup by remember { mutableStateOf(pending?.route?.let { it.originLatitude to it.originLongitude }) }
     var destination by remember { mutableStateOf(pending?.route?.let { it.destinationLatitude to it.destinationLongitude }) }
-    var pickupName by remember { mutableStateOf(pending?.route?.origin ?: taxiText(language, "Current location", "አሁን ያሉበት ቦታ", "Bakka amma jirtan")) }
+    var pickupName by remember { mutableStateOf(pending?.route?.origin?.takeUnless(::isGenericTaxiPickupLabel) ?: taxiPickupResolvingLabel(language)) }
     var destinationName by remember { mutableStateOf(pending?.route?.destination.orEmpty()) }
     var tier by remember { mutableStateOf(pending?.route?.tier ?: "ECONOMY") }
     var attemptedEstimateKey by remember { mutableStateOf<String?>(null) }
@@ -193,17 +205,11 @@ internal fun isGenericTaxiPickupLabel(value: String): Boolean =
             check(usableTaxiFix(fix)) { "Use a fresh, non-simulated GPS location." }
             val point = fix.latitude to fix.longitude
             pickup = point
-            pickupName = taxiText(language, "Current location", "አሁን ያሉበት ቦታ", "Bakka amma jirtan")
-            nearestTaxiPickupArea(locationApi, context, point, language)?.let { if (pickup == point) pickupName = it }
+            pickupName = taxiPickupResolvingLabel(language)
         }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { localNotice = e.message }
             finally { locating = false } }
-    }
-    fun resolveGenericPickupName(point: Pair<Double, Double>) {
-        scope.launch {
-            nearestTaxiPickupArea(locationApi, context, point, language)?.let { if (pickup == point && isGenericTaxiPickupLabel(pickupName)) pickupName = it }
-        }
     }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         if (result[Manifest.permission.ACCESS_FINE_LOCATION] == true || result[Manifest.permission.ACCESS_COARSE_LOCATION] == true) locatePickup()
@@ -229,8 +235,18 @@ internal fun isGenericTaxiPickupLabel(value: String): Boolean =
         destinationQuery = ""
         model.clearEstimate()
     }
-    LaunchedEffect(Unit) {
-        pickup?.takeIf { isGenericTaxiPickupLabel(pickupName) }?.let(::resolveGenericPickupName)
+    LaunchedEffect(pickup, pickupName, language) {
+        val point = pickup ?: return@LaunchedEffect
+        if (!isGenericTaxiPickupLabel(pickupName)) return@LaunchedEffect
+        repeat(3) { attempt ->
+            val area = nearestTaxiPickupArea(locationApi, context, point, language)
+            if (!area.isNullOrBlank() && pickup == point && isGenericTaxiPickupLabel(pickupName)) {
+                pickupName = area
+                return@LaunchedEffect
+            }
+            if (attempt < 2) kotlinx.coroutines.delay(700L * (attempt + 1))
+        }
+        if (pickup == point && isGenericTaxiPickupLabel(pickupName)) pickupName = taxiPickupPinLabel(point, language)
     }
     LaunchedEffect(mapTiles) {
         if (mapTiles && pickup == null) {
@@ -238,8 +254,8 @@ internal fun isGenericTaxiPickupLabel(value: String): Boolean =
             else permissions.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         }
     }
-    LaunchedEffect(pickup, destination, state.settings.enabled, state.estimate, state.busy) {
-        if (pickup != null && destination != null && state.settings.enabled && state.estimate == null && !state.busy) requestEstimate()
+    LaunchedEffect(pickup, pickupName, destination, state.settings.enabled, state.estimate, state.busy) {
+        if (pickup != null && !isGenericTaxiPickupLabel(pickupName) && destination != null && state.settings.enabled && state.estimate == null && !state.busy) requestEstimate()
     }
     LaunchedEffect(pickup, destination) {
         if (pickup == null || destination == null) {
@@ -290,8 +306,7 @@ internal fun isGenericTaxiPickupLabel(value: String): Boolean =
         if (type == "destination") { destination = point; destinationName = name; if (pickup == null) locatePickup() }
         else {
             pickup = point
-            pickupName = name.ifBlank { taxiText(language, "Current location", "አሁን ያሉበት ቦታ", "Bakka amma jirtan") }
-            if (isGenericTaxiPickupLabel(name)) resolveGenericPickupName(point)
+            pickupName = name.ifBlank { taxiPickupResolvingLabel(language) }
         }
         picker = null; model.clearEstimate()
     } }
@@ -654,7 +669,8 @@ private fun TaxiPassengerHome(
                 }
                 val nearbyColor = if (state.nearbyCarsStatus == NearbyCarsStatus.AVAILABLE) TaxiBrandEmerald else Color(0xFF65747D)
                 val pickupAreaLabel = pickupName.trim().takeUnless(::isGenericTaxiPickupLabel)
-                    ?: taxiText(language, "Your area", "አካባቢዎ", "Naannoo kee")
+                    ?: if (pickup != null) taxiPickupResolvingLabel(language)
+                    else taxiText(language, "Set pickup location", "የመነሻ ቦታ ያዘጋጁ", "Bakka ka'umsaa filadhu")
                 Surface(Modifier.align(Alignment.TopStart).padding(12.dp), color = Color.White.copy(alpha = .91f),
                     shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Color.White.copy(alpha = .9f)), shadowElevation = 0.dp) {
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {

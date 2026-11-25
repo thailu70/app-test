@@ -71,8 +71,8 @@ import kotlinx.coroutines.launch
     var driverLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var driverFix by remember { mutableStateOf<MobilityLocation?>(null) }
     var formPickup by remember { mutableStateOf<Pair<Double, Double>?>(null) }
-    var formPickupName by remember { mutableStateOf("Your location") }
-    var driverAreaName by remember { mutableStateOf("Your location") }
+    var formPickupName by remember { mutableStateOf(taxiPickupResolvingLabel(language)) }
+    var driverAreaName by remember { mutableStateOf(taxiPickupResolvingLabel(language)) }
     var requestPool by remember { mutableStateOf("TAXI") }
     var driverMenu by remember { mutableStateOf(false) }
     val pushFocus by com.example.core.notifications.RideNotificationNavigation.focus.collectAsState()
@@ -107,7 +107,7 @@ import kotlinx.coroutines.launch
                 if (resolveArea) {
                     val point = location.latitude to location.longitude
                     driverAreaName = nearestTaxiPickupArea(mapApi, context, point, language)
-                        ?: String.format(java.util.Locale.US, "%.5f, %.5f", point.first, point.second)
+                        ?: taxiPickupPinLabel(point, language)
                 }
                 action(location.taxiBody())
             }
