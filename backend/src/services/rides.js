@@ -141,6 +141,7 @@ function createRidesService({
   now = Date.now,
   geo = require("./mobility-geo").getGeoService(),
   secret = process.env.JWT_SECRET || "development-rides-key",
+  sendTransactionalSmsImpl = sendTransactionalSms,
 } = {}) {
   const instant = () => new Date(now()).toISOString();
   let smsFlush = null;
@@ -192,7 +193,7 @@ function createRidesService({
         if (!row) break;
         if (row.cancelled) continue;
         let delivery = null;
-        try { delivery = await sendTransactionalSms(row.event_key || row.id, row.phone, row.message, { db, fallbackSendSms: sendSms }); } catch (_) {}
+        try { delivery = await sendTransactionalSmsImpl(row.event_key || row.id, row.phone, row.message, { db, fallbackSendSms: sendSms }); } catch (_) {}
         if (delivery?.queued === true && delivery.messageJobId) {
           await db.prepare("UPDATE ride_sms_outbox SET status='QUEUED',gateway_job_id=?,failure_code=NULL,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=?")
             .run(delivery.messageJobId, row.id, row.lease);

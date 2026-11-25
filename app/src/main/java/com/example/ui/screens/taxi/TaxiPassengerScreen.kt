@@ -625,7 +625,7 @@ private fun TaxiPassengerHome(
             Box(Modifier.fillMaxSize().testTag("taxi_home_map_canvas")) {
                 TaxiMap(pickup, null, height = availableHeight.value.toInt(), pickupLabel = pickupName,
                     tileDownloadsEnabled = mapTiles, nearbyCars = if (nearbyLayerVisible) state.nearbyCars else emptyList(), showPickupMarker = false,
-                    attributionOnTop = true, attributionBottomPadding = availableHeight * .38f, modifier = Modifier.fillMaxSize())
+                    attributionAboveSheet = true, attributionBottomPadding = availableHeight * .38f, modifier = Modifier.fillMaxSize())
                 val nearbySummary = when (state.nearbyCarsStatus) {
                     NearbyCarsStatus.LOADING -> taxiText(language, "Finding nearby drivers…", "አቅራቢያ ያሉ አሽከርካሪዎችን በመፈለግ ላይ…", "Konkolaachistoota dhihoo barbaadaa…")
                     NearbyCarsStatus.AVAILABLE -> taxiText(language, "${state.nearbyCars.size} drivers nearby", "${state.nearbyCars.size} አሽከርካሪዎች አቅራቢያ", "Konkolaachistoota ${state.nearbyCars.size} dhihoo")

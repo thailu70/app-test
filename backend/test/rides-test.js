@@ -44,7 +44,12 @@ const service = createRidesService({
   now: () => clock,
   geo,
   secret: "fixture-secret-that-is-not-a-live-credential",
+  sendTransactionalSmsImpl: async (eventKey, phone, message) => {
+    smsDeliveries.push({ eventKey, phone, message });
+    return { failed: true, failureCode: "test_sms_disabled" };
+  },
 });
+const smsDeliveries = [];
 const passenger = { id: "ride-passenger", role: "PASSENGER" },
   otherPassenger = { id: "ride-passenger-2", role: "PASSENGER" },
   admin = { id: "ride-admin", role: "ADMIN" };
@@ -469,9 +474,14 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
           passengerConsent: true,
         })
       ).ride;
+      await service.flushSms();
       assert.equal(street.source, "STREET");
       assert.equal(street.boardingQrToken, undefined);
       assert.equal(street.status, "IN_PROGRESS");
+      const startSms = smsDeliveries.find((item) => item.eventKey.startsWith("ride-start:" + street.id + ":"));
+      assert.ok(startSms, "street pickup queues the started-trip SMS");
+      assert.equal(startSms.phone, "+251900000001", "street pickup uses the entered passenger phone");
+      assert.match(startSms.message, /Fixture Pickup to Fixture Destination/);
       await service.resolve(admin, street.id, {
         action: "CANCEL",
         note: "Fixture street cancellation",

@@ -173,7 +173,7 @@ public class SmsGatewayService extends Service {
             if (!sent) acknowledgement.put("failureCode", failureReason);
             post("/api/sms-gateway/jobs/" + id + "/ack", acknowledgement);
             updateNotification(sent ? "Passo message sent from this phone" :
-                    "Could not send Passo message · " + smsFailureDescription(failureReason));
+                    "SMS not sent: " + smsFailureDescription(failureReason));
         } catch (Exception ignored) {
             updateNotification("Message queued · reconnecting to Passo");
         } finally {
@@ -183,18 +183,56 @@ public class SmsGatewayService extends Service {
         }
     }
 
+    @SuppressWarnings("deprecation")
     private String sendAndConfirmWithSim(String phone, String message, String jobId, String lease) throws Exception {
-        SmsManager smsManager;
+        SmsManager smsManager = null;
         if (Build.VERSION.SDK_INT >= 31) {
-            int subscriptionId = SmsManager.getDefaultSmsSubscriptionId();
+            int subscriptionId;
+            try {
+                subscriptionId = SmsManager.getDefaultSmsSubscriptionId();
+            } catch (SecurityException error) {
+                throw new SmsSendSecurityException("subscription_lookup", error);
+            }
             if (subscriptionId == SubscriptionManager.INVALID_SUBSCRIPTION_ID) return "sms_subscription_not_selected";
-            smsManager = getSystemService(SmsManager.class);
-            if (smsManager == null) return "sms_not_supported";
-            smsManager = smsManager.createForSubscriptionId(subscriptionId);
+            SmsManager defaultManager;
+            try {
+                defaultManager = getSystemService(SmsManager.class);
+            } catch (SecurityException error) {
+                // Some Android builds reject the typed service lookup for a
+                // background gateway. The subscription-scoped legacy factory
+                // remains available and avoids changing the selected SIM.
+                try {
+                    smsManager = SmsManager.getSmsManagerForSubscriptionId(subscriptionId);
+                    defaultManager = null;
+                } catch (SecurityException fallbackError) {
+                    throw new SmsSendSecurityException("manager_lookup", fallbackError);
+                }
+            }
+            if (defaultManager == null && smsManager == null) return "sms_not_supported";
+            if (defaultManager != null) {
+                try {
+                    smsManager = defaultManager.createForSubscriptionId(subscriptionId);
+                } catch (SecurityException error) {
+                    try {
+                        smsManager = SmsManager.getSmsManagerForSubscriptionId(subscriptionId);
+                    } catch (SecurityException fallbackError) {
+                        throw new SmsSendSecurityException("subscription_manager", fallbackError);
+                    }
+                }
+            }
         } else {
-            smsManager = SmsManager.getDefault();
+            try {
+                smsManager = SmsManager.getDefault();
+            } catch (SecurityException error) {
+                throw new SmsSendSecurityException("manager_lookup", error);
+            }
         }
-        java.util.ArrayList<String> parts = smsManager.divideMessage(message);
+        java.util.ArrayList<String> parts;
+        try {
+            parts = smsManager.divideMessage(message);
+        } catch (SecurityException error) {
+            throw new SmsSendSecurityException("message_split", error);
+        }
         if (parts == null || parts.isEmpty() || parts.size() > 10) return "sms_parts_limit";
 
         String trackerKey = jobId + ":" + lease;
@@ -269,6 +307,10 @@ public class SmsGatewayService extends Service {
             case "sms_not_supported": return "this phone cannot send SMS";
             case "sms_parts_limit": return "message is too long for this SIM";
             case "sms_permission_denied": return "allow SMS permission for Passo SMS Gateway";
+            case "sms_android_blocked_subscription_lookup": return "Android blocked access to the default SMS SIM";
+            case "sms_android_blocked_manager_lookup": return "Android could not open the phone SMS service";
+            case "sms_android_blocked_subscription_manager": return "Android blocked access to the selected SIM SMS service";
+            case "sms_android_blocked_message_split": return "Android could not prepare the message for this SIM";
             case "sms_android_blocked_submit": return "Android blocked the send request; check SMS access and the selected SIM";
             case "sms_android_blocked_callback": return "Android blocked SMS confirmation setup; check app permissions";
             case "sms_android_blocked_manager": return "Android blocked access to the SIM SMS service";

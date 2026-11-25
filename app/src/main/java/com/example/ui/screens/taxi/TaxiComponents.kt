@@ -272,7 +272,7 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
     driver: MobilityLocation? = null, stage: String = "ASSIGNED", height: Int = 255,
     pickupLabel: String = "Pickup", destinationLabel: String = "Destination", modifier: Modifier = Modifier, tileDownloadsEnabled: Boolean = true, providedApi: MobilityApi? = null,
     nearbyCars: List<TaxiNearbyCar> = emptyList(), routeGeometry: MobilityRoadGeometry? = null, freezeVehicle: Boolean = false, routeGeometryQuality: String? = null,
-    showPickupMarker: Boolean = true, attributionOnTop: Boolean = false, attributionBottomPadding: Dp = 0.dp) {
+    showPickupMarker: Boolean = true, attributionAboveSheet: Boolean = false, attributionBottomPadding: Dp = 0.dp) {
     val nearby = nearbyCars.map { it.latitude to it.longitude }
     if (pickup != null && destination != null) {
         MobilityRoadMap(pickup, destination, driver, stage, pickupLabel, destinationLabel,
@@ -296,7 +296,7 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
             onDispose { owner.lifecycle.removeObserver(observer); map.onPause(); map.onDetach() }
         }
         Box(modifier.fillMaxWidth().height(height.dp).clipToBounds()
-            .background(if (attributionOnTop) PassoMobilityPalette.canvas else Color.Transparent)) {
+            .background(if (attributionAboveSheet) PassoMobilityPalette.canvas else Color.Transparent)) {
             AndroidView(factory = { (map.parent as? ViewGroup)?.removeView(map); map }, Modifier.fillMaxSize(), update = {
                 map.alpha = 1f
                 replaceRoadOverlays(map, emptyList(), emptyList(), if (showPickupMarker) pickup else null, destination, driver, driver != null && !driver.stale,
@@ -308,8 +308,8 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
                 }
                 map.invalidate()
             })
-            val attributionPosition = if (attributionOnTop) Modifier.align(Alignment.BottomStart)
-                .padding(start = 10.dp, bottom = attributionBottomPadding) else Modifier.align(Alignment.BottomEnd)
+            val attributionPosition = if (attributionAboveSheet) Modifier.align(Alignment.BottomEnd)
+                .padding(end = 10.dp, bottom = attributionBottomPadding) else Modifier.align(Alignment.BottomEnd)
             Text("© OpenStreetMap contributors", attributionPosition.background(Color.White.copy(alpha = .80f))
                 .clickable { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.openstreetmap.org/copyright"))) } }
                 .padding(horizontal = 4.dp, vertical = 2.dp), color = CommuteInk, fontSize = 8.sp)
