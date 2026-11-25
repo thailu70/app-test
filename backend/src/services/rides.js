@@ -918,8 +918,7 @@ function createRidesService({
       : 0;
     const remaining = active ? Math.max(0, grace - elapsed) : 0;
     let state = "NONE";
-    if (Number(row.stop_requested) === 1) state = "AWAITING_PASSENGER_APPROVAL";
-    else if (active) {
+    if (active) {
       if (now() > verified) state = "GPS_PAUSED";
       else if (now() >= start + Number(tariff.maxWaitingMinutes || 60) * 60000)
         state = "LIMIT_REACHED";
@@ -927,9 +926,13 @@ function createRidesService({
     }
     return {
       waitingFreeRemainingSeconds: remaining,
+      waitingFreeAllowanceSeconds: Math.ceil(
+        Number(tariff.stopGraceMinutes || 0) * 60,
+      ),
       waitingRateEtbPerMinute: round(rate),
       distancePaused:
-        row.status === "IN_PROGRESS" && row.waiting_kind === "STOP",
+        row.status === "IN_PROGRESS" &&
+        ["STOP", "TRAFFIC"].includes(row.waiting_kind),
       waitingState: state,
       waitingFareEtb: round(
         ((Number(row.waiting_seconds) + liveWaiting(row)) / 60) * rate,
@@ -974,7 +977,7 @@ function createRidesService({
           )
         : 0,
       waiting: row.waiting_kind,
-      stopWaitingRequested: Number(row.stop_requested) === 1,
+      stopWaitingRequested: false,
       ...waitingDetails(row),
       lastSequence: Number(row.last_sequence),
       commissionEtb:
@@ -1212,9 +1215,13 @@ function createRidesService({
         p,
       );
     });
+    // The foreground location service uploads on the configured GPS cadence.
+    // It only needs an acknowledgement; returning the full dashboard here
+    // repeats the driver's calls, trip history and route geometry on every fix.
+    if (input.online && input.backgroundSync === true) return { online: true };
     return dashboard(user);
   }
-  async function dashboard(user) {
+  async function dashboard(user, { liveOnly = false } = {}) {
     await expireRequests();
     const cfg = (await catalog()).settings;
     const fleet = await db
@@ -1286,7 +1293,9 @@ function createRidesService({
     }
     const sharedTrips = await db
         .prepare(
-          "SELECT * FROM ride_shared_trips WHERE driver_id=? ORDER BY departure_at DESC LIMIT 50",
+          liveOnly
+            ? "SELECT * FROM ride_shared_trips WHERE driver_id=? AND status IN ('OPEN','BOARDING','IN_PROGRESS') ORDER BY departure_at DESC LIMIT 50"
+            : "SELECT * FROM ride_shared_trips WHERE driver_id=? ORDER BY departure_at DESC LIMIT 50",
         )
         .all(user.id),
       requests =
@@ -1645,6 +1654,36 @@ function createRidesService({
         const waitingSampleEligible =
           !r.waiting_since ||
           Date.parse(p.timestamp) >= Date.parse(r.waiting_since);
+        const stationaryThreshold = Math.max(
+          5,
+          (p.accuracyMeters + Number(r.last_accuracy || p.accuracyMeters)) / 2,
+        );
+        // A meter stop is detected from GPS only. A single fix after a long
+        // gap cannot start paid waiting; require a recent, accurate, stationary
+        // sample pair first.
+        if (
+          !r.waiting_kind &&
+          r.status === "IN_PROGRESS" &&
+          dt > 0 &&
+          dt <= 30 &&
+          p.accuracyMeters <= 50 &&
+          timingValid &&
+          plausible &&
+          displacement <= stationaryThreshold
+        ) {
+          await tx
+            .prepare(
+              "UPDATE ride_jobs SET waiting_since=?,waiting_kind='TRAFFIC',waiting_verified_until=?,waiting_latitude=?,waiting_longitude=?,stop_requested=0 WHERE id=?",
+            )
+            .run(
+              p.timestamp,
+              new Date(Date.parse(p.timestamp) + 120000).toISOString(),
+              p.latitude,
+              p.longitude,
+              key,
+            );
+          r = await tx.prepare("SELECT * FROM ride_jobs WHERE id=?").get(key);
+        }
         if (
           r.waiting_kind &&
           p.accuracyMeters <= 50 &&
@@ -1732,7 +1771,7 @@ function createRidesService({
           reason = "GPS_JUMP";
         if (
           r.status === "IN_PROGRESS" &&
-          r.waiting_kind === "STOP" &&
+          ["STOP", "TRAFFIC"].includes(r.waiting_kind) &&
           p.accuracyMeters <= 50 &&
           timingValid &&
           plausible &&
@@ -1743,7 +1782,7 @@ function createRidesService({
           // inside the stop radius is GPS drift, not a travelled segment.
           distance = 0;
           accepted = 0;
-          reason = "APPROVED_STOP";
+          reason = "TRAFFIC_STOP";
         }
         await tx
           .prepare(
@@ -1765,6 +1804,7 @@ function createRidesService({
           reason !== "GPS_JUMP" &&
           reason !== "GPS_JITTER" &&
           reason !== "APPROVED_STOP" &&
+          reason !== "TRAFFIC_STOP" &&
           (!r.last_point_at || dt > 0);
         await tx
           .prepare(
@@ -1782,7 +1822,7 @@ function createRidesService({
               "UPDATE ride_jobs SET last_latitude=?,last_longitude=?,last_accuracy=?,last_point_at=? WHERE id=?",
             )
             .run(p.latitude, p.longitude, p.accuracyMeters, p.timestamp, key);
-        else if (["GPS_JITTER", "APPROVED_STOP"].includes(reason) && dt > 0)
+        else if (["GPS_JITTER", "APPROVED_STOP", "TRAFFIC_STOP"].includes(reason) && dt > 0)
           await tx
             .prepare(
               "UPDATE ride_jobs SET last_point_at=?,last_accuracy=? WHERE id=?",
@@ -1806,110 +1846,16 @@ function createRidesService({
     return { ride: await rideView(await getRide(key, user), user) };
   }
   async function wait(user, key, input) {
-    await db.transaction(async (tx) => {
-      const r = await owned(key, user, tx, true);
-      if (r.status !== "IN_PROGRESS")
-        fail(409, "Stop waiting is only available during a trip.");
-      if (input.action === "REQUEST_STOP") {
-        if (r.source === "STREET")
-          fail(
-            409,
-            "Street pickup stop waiting cannot start without passenger-app confirmation.",
-          );
-        if (r.waiting_kind) return;
-        await tx
-          .prepare("UPDATE ride_jobs SET stop_requested=1 WHERE id=?")
-          .run(key);
-      } else if (input.action === "END_STOP") {
-        await finishWaiting(tx, r);
-      } else fail(400, "Choose request stop or end stop.");
-    });
-    return { ride: await rideView(await getRide(key, user), user) };
-  }
-  async function finishWaiting(tx, row) {
-    await tx
-      .prepare(
-        "UPDATE ride_jobs SET waiting_seconds=waiting_seconds+?,waiting_since=NULL,waiting_kind=NULL,waiting_verified_until=NULL,stop_requested=0 WHERE id=?",
-      )
-      .run(liveWaiting(row), row.id);
-    if (row.waiting_kind !== "STOP") return;
-    const p = await tx
-      .prepare("SELECT * FROM ride_availability WHERE driver_id=?")
-      .get(row.driver_id);
-    const valid =
-      p?.recorded_at &&
-      now() - Date.parse(p.recorded_at) <= 120000 &&
-      Number(p.accuracy_meters) <= 50 &&
-      km(
-        Number(p.latitude),
-        Number(p.longitude),
-        Number(row.waiting_latitude),
-        Number(row.waiting_longitude),
-      ) *
-        1000 <=
-        Math.max(20, Number(p.accuracy_meters) * 1.5);
-    // Known stationary fixes must not reappear as a distance charge on resume.
-    await tx
-      .prepare(
-        "UPDATE ride_jobs SET last_latitude=?,last_longitude=?,last_accuracy=?,last_point_at=? WHERE id=?",
-      )
-      .run(
-        valid ? Number(p.latitude) : row.waiting_latitude,
-        valid ? Number(p.longitude) : row.waiting_longitude,
-        valid ? Number(p.accuracy_meters) : Number(row.last_accuracy || 50),
-        instant(),
-        row.id,
-      );
+    const r = await owned(key, user, db, true);
+    if (r.status !== "IN_PROGRESS")
+      fail(409, "Waiting time is calculated automatically during a trip.");
+    fail(409, "Waiting time is calculated automatically from GPS movement.");
   }
   async function stopWait(user, key, input) {
-    if (typeof input.approved !== "boolean")
-      fail(400, "Confirm or reject the stop waiting charge.");
-    await db.transaction(async (tx) => {
-      const r = await getRide(key, user, tx, true);
-      if (
-        r.passenger_id === user.id &&
-        r.status === "IN_PROGRESS" &&
-        !input.approved &&
-        r.waiting_kind === "STOP"
-      ) {
-        await finishWaiting(tx, r);
-        return;
-      }
-      if (
-        r.passenger_id !== user.id ||
-        r.status !== "IN_PROGRESS" ||
-        !r.stop_requested
-      )
-        fail(409, "There is no passenger stop waiting request.");
-      const last = await tx
-        .prepare("SELECT * FROM ride_availability WHERE driver_id=?")
-        .get(r.driver_id);
-      if (
-        input.approved &&
-        (!last?.recorded_at ||
-          now() - Date.parse(last.recorded_at) > 120000 ||
-          Number(last.accuracy_meters) > 50)
-      )
-        fail(
-          409,
-          "Wait for a fresh driver GPS position before confirming billable waiting.",
-        );
-      await tx
-        .prepare(
-          "UPDATE ride_jobs SET stop_requested=0,waiting_since=?,waiting_kind=?,waiting_verified_until=?,waiting_latitude=?,waiting_longitude=? WHERE id=?",
-        )
-        .run(
-          input.approved ? instant() : null,
-          input.approved ? "STOP" : null,
-          input.approved
-            ? new Date(Date.parse(last.recorded_at) + 120000).toISOString()
-            : null,
-          input.approved ? Number(last.latitude) : null,
-          input.approved ? Number(last.longitude) : null,
-          key,
-        );
-    });
-    return { ride: await rideView(await getRide(key, user), user) };
+    const r = await getRide(key, user, db, true);
+    if (r.status !== "IN_PROGRESS")
+      fail(409, "Waiting time is calculated automatically during a trip.");
+    fail(409, "Passenger approval is not needed for GPS-detected traffic waiting.");
   }
   async function complete(user, key, input) {
     const p = position(input);
@@ -2008,10 +1954,27 @@ function createRidesService({
     });
     return { ride: await rideView(await getRide(key, user), user) };
   }
-  async function me(user) {
+  async function me(user, { liveOnly = false } = {}) {
     await expireRequests();
     const phone = await verifiedPassengerPhone(user);
     const passengerView = { ...user, _verifiedPassengerPhone: phone };
+    if (liveOnly) {
+      const activeRide = await db.prepare(
+        "SELECT * FROM ride_jobs WHERE (passenger_id=? OR (source='STREET' AND street_passenger_phone=? AND ?<>'')) AND status IN ('REQUESTED','ACCEPTED','AT_PICKUP','IN_PROGRESS') ORDER BY created_at DESC LIMIT 1",
+      ).get(user.id, phone, phone);
+      const activeShared = await db.prepare(
+        "SELECT * FROM ride_shared_trips WHERE passenger_id=? AND status IN ('REQUESTED','OPEN','BOARDING','IN_PROGRESS') ORDER BY departure_at DESC LIMIT 50",
+      ).all(user.id);
+      const activeBookings = await db.prepare(
+        "SELECT b.* FROM ride_shared_bookings b JOIN ride_shared_trips r ON r.id=b.trip_id WHERE b.passenger_id=? AND b.status IN ('CONFIRMED','BOARDED') AND r.status IN ('REQUESTED','OPEN','BOARDING','IN_PROGRESS') ORDER BY b.created_at DESC LIMIT 50",
+      ).all(user.id);
+      return {
+        ride: activeRide ? await rideView(activeRide, passengerView) : null,
+        rides: [],
+        sharedTrips: await Promise.all(activeShared.map((r) => sharedView(r, user))),
+        bookings: await Promise.all(activeBookings.map((b) => bookingView(b, user))),
+      };
+    }
     const rows = await db
         .prepare(
           "SELECT * FROM ride_jobs WHERE passenger_id=? OR (source='STREET' AND street_passenger_phone=? AND ?<>'') ORDER BY created_at DESC LIMIT 50",

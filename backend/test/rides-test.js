@@ -164,6 +164,10 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       });
       assert.equal(heartbeat.online, true, "a background heartbeat restores online intent after stale cleanup");
       assert.equal(heartbeat.calls.length, 0, "a stale GPS fix is never used to match new calls");
+      const backgroundAck = await service.availability(drivers[0], {
+        online: true, backgroundSync: true, vehicleId: drivers[0].id + "vehicle", ...position(),
+      });
+      assert.deepEqual(backgroundAck, { online: true }, "background GPS sync receives only a lightweight acknowledgement");
       await assert.rejects(service.availability(drivers[1], {
         online: true, heartbeatOnly: true, vehicleId: drivers[1].id + "vehicle",
       }), (e) => e.status === 409, "a heartbeat cannot start an offline session without GPS");
@@ -375,7 +379,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       assert.equal(
         after.fareEtb,
         before.fareEtb,
-        "Normal traffic time is informational only.",
+        "A stationary wait is not billed without GPS evidence.",
       );
       await assert.rejects(
         service.samples(acceptedDriver, ride.id, {
@@ -386,32 +390,31 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
     },
   );
   await t.test(
-    "passenger confirms billable stop and completion captures fixed fee once",
+    "GPS automatically meters traffic waiting and completion captures fixed fee once",
     async () => {
-      await service.wait(acceptedDriver, ride.id, { action: "REQUEST_STOP" });
-      const before = (await service.get(passenger, ride.id)).ride
-        .billableWaitingSeconds;
+      await assert.rejects(service.wait(acceptedDriver, ride.id, { action: "REQUEST_STOP" }), (e) => e.status === 409);
+      await assert.rejects(service.stopWait(passenger, ride.id, { approved: true }), (e) => e.status === 409);
+      const pickupWaiting = (await service.get(passenger, ride.id)).ride.billableWaitingSeconds;
+      clock += 2000;
+      let sequence = (await service.get(passenger, ride.id)).ride.lastSequence + 1;
+      await service.samples(acceptedDriver, ride.id, {
+        points: [{ ...position(9.01, 38.76), sequence: sequence++ }],
+      });
+      clock += 2000;
+      await service.samples(acceptedDriver, ride.id, {
+        points: [{ ...position(9.01, 38.76), sequence: sequence++ }],
+      });
+      assert.equal((await service.get(passenger, ride.id)).ride.waiting, "TRAFFIC");
       clock += 120000;
       await service.samples(acceptedDriver, ride.id, {
-        points: [
-          {
-            ...position(9.01, 38.76),
-            sequence:
-              (await service.get(passenger, ride.id)).ride.lastSequence + 1,
-          },
-        ],
+        points: [{ ...position(9.01, 38.76), sequence: sequence++ }],
       });
-      assert.equal(
-        (await service.get(passenger, ride.id)).ride.billableWaitingSeconds,
-        before,
-      );
-      await service.stopWait(passenger, ride.id, { approved: true });
-      clock += 120000;
-      assert.equal(
-        (await service.get(passenger, ride.id)).ride.billableWaitingSeconds,
-        before + 60,
-      );
-      await service.wait(acceptedDriver, ride.id, { action: "END_STOP" });
+      assert.equal((await service.get(passenger, ride.id)).ride.billableWaitingSeconds, pickupWaiting + 60);
+      clock += 10000;
+      await service.samples(acceptedDriver, ride.id, {
+        points: [{ ...position(9.0105, 38.7605), sequence: sequence++ }],
+      });
+      assert.equal((await service.get(passenger, ride.id)).ride.waiting, null);
       const done = (
         await service.complete(acceptedDriver, ride.id, position(9.01, 38.76))
       ).ride;
@@ -484,6 +487,9 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       assert.equal(linkedPassenger.ride?.driverName, drivers[0].id, "the live portal includes the assigned driver details");
       assert.equal(linkedPassenger.ride?.location?.latitude, 9, "the live portal includes the driver location");
       assert.equal((await service.get(passenger, street.id)).ride.status, "IN_PROGRESS", "the linked passenger can reopen the live street trip");
+      const livePassenger = await service.me(passenger, { liveOnly: true });
+      assert.equal(livePassenger.ride?.id, street.id, "the lightweight passenger refresh includes the active phone-matched street trip");
+      assert.deepEqual(livePassenger.rides, [], "the lightweight passenger refresh omits full ride history");
       await assert.rejects(service.get(otherPassenger, street.id), (e) => e.status === 404, "another account cannot see the phone-matched ride");
       const startSms = smsDeliveries.find((item) => item.eventKey.startsWith("ride-start:" + street.id + ":"));
       assert.ok(startSms, "street pickup queues the started-trip SMS");
@@ -703,14 +709,17 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
     },
   );
   await t.test(
-    "moving resumes distance and automatically stops passenger-approved waiting",
+    "movement automatically ends GPS-detected waiting and resumes distance",
     async () => {
       const r = await appTrip("movement-stops-wait");
-      await service.wait(drivers[0], r.id, { action: "REQUEST_STOP" });
-      await service.stopWait(passenger, r.id, { approved: true });
-      clock += 120000;
+      clock += 2000;
       await service.samples(drivers[0], r.id, {
         points: [{ ...position(), sequence: 1 }],
+      });
+      assert.equal((await service.get(passenger, r.id)).ride.waiting, "TRAFFIC");
+      clock += 120000;
+      await service.samples(drivers[0], r.id, {
+        points: [{ ...position(), sequence: 2 }],
       });
       assert.equal(
         (await service.get(passenger, r.id)).ride.billableWaitingSeconds,
@@ -718,7 +727,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       );
       clock += 10000;
       await service.samples(drivers[0], r.id, {
-        points: [{ ...position(9.001, 38.751), sequence: 2 }],
+        points: [{ ...position(9.001, 38.751), sequence: 3 }],
       });
       const moving = (await service.get(passenger, r.id)).ride;
       assert.equal(moving.waiting, null);
@@ -739,7 +748,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
     },
   );
   await t.test(
-    "approved stationary stops pause GPS drift distance and disclose free allowance and snapshotted waiting charges",
+    "GPS automatically detects traffic stops, preserves GPS evidence, and applies snapshotted waiting charges",
     async () => {
       await service.updateSettings(admin.id, {
         minimumFareEtb: 10,
@@ -747,21 +756,20 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
         waitingPerMinuteEtb: 2,
       });
       const r = await appTrip("approved-stop-jitter");
-      await service.wait(drivers[0], r.id, { action: "REQUEST_STOP" });
+      clock += 1000;
+      await service.samples(drivers[0], r.id, {
+        points: [{ ...position(), sequence: 1 }],
+      });
       let view = (await service.get(passenger, r.id)).ride;
-      assert.equal(view.distancePaused, false);
-      assert.equal(view.waitingState, "AWAITING_PASSENGER_APPROVAL");
-      assert.equal(view.waitingFreeRemainingSeconds, 0);
-      await service.stopWait(passenger, r.id, { approved: true });
-      view = (await service.get(passenger, r.id)).ride;
       const before = view.fareEtb;
+      assert.equal(view.waiting, "TRAFFIC");
       assert.equal(view.distancePaused, true);
       assert.equal(view.waitingFreeRemainingSeconds, 60);
       assert.equal(view.waitingRateEtbPerMinute, 2);
       assert.equal(view.waitingState, "FREE_ALLOWANCE");
       clock += 30000;
       await service.samples(drivers[0], r.id, {
-        points: [{ ...position(9.00012, 38.75002), sequence: 1 }],
+        points: [{ ...position(9.00012, 38.75002), sequence: 2 }],
       });
       view = (await service.get(passenger, r.id)).ride;
       assert.equal(view.meterDistanceKm, 0);
@@ -769,19 +777,19 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       assert.equal(view.waitingFreeRemainingSeconds, 30);
       assert.equal(view.waitingFareEtb, 0);
       const sample = await DB.prepare(
-        "SELECT * FROM ride_samples WHERE ride_id=? AND sequence=1",
+        "SELECT * FROM ride_samples WHERE ride_id=? AND sequence=2",
       ).get(r.id);
       assert.equal(
         Number(sample.latitude),
         9.00012,
         "Raw GPS remains available as evidence.",
       );
-      assert.equal(sample.reason, "APPROVED_STOP");
+      assert.equal(sample.reason, "TRAFFIC_STOP");
       assert.equal(Number(sample.distance_m), 0);
       await service.updateSettings(admin.id, { waitingPerMinuteEtb: 99 });
       clock += 60000;
       await service.samples(drivers[0], r.id, {
-        points: [{ ...position(9.00011, 38.75002), sequence: 2 }],
+        points: [{ ...position(9.00011, 38.75002), sequence: 3 }],
       });
       view = (await service.get(passenger, r.id)).ride;
       assert.equal(view.distancePaused, true);
@@ -794,35 +802,30 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       assert.equal(view.waitingState, "BILLABLE_WAITING");
       clock += 5000;
       await service.samples(drivers[0], r.id, {
-        points: [{ ...position(10, 39), sequence: 3 }],
+        points: [{ ...position(10, 39), sequence: 4 }],
       });
       view = (await service.get(passenger, r.id)).ride;
       assert.equal(view.distancePaused, true);
-      assert.equal(view.waiting, "STOP");
+      assert.equal(view.waiting, "TRAFFIC");
       assert.equal(
         view.location.latitude,
         9.00011,
         "An impossible jump cannot replace the last trusted tracking point.",
       );
-      await service.wait(drivers[0], r.id, { action: "END_STOP" });
-      const ended = (await service.get(passenger, r.id)).ride;
-      assert.equal(ended.distancePaused, false);
+      await assert.rejects(service.wait(drivers[0], r.id, { action: "END_STOP" }), (e) => e.status === 409);
       clock += 5000;
       await service.samples(drivers[0], r.id, {
-        points: [{ ...position(9.00011, 38.75002), sequence: 4 }],
+        points: [{ ...position(9.00011, 38.75002), sequence: 5 }],
       });
       view = (await service.get(passenger, r.id)).ride;
-      assert.equal(
-        view.meterDistanceKm,
-        0,
-        "Known stop drift is not charged retrospectively after ending the stop.",
-      );
-      assert.equal(view.fareEtb, ended.fareEtb);
+      assert.equal(view.distancePaused, true);
       clock += 10000;
       await service.samples(drivers[0], r.id, {
-        points: [{ ...position(9.001, 38.751), sequence: 5 }],
+        points: [{ ...position(9.001, 38.751), sequence: 6 }],
       });
-      assert.ok((await service.get(passenger, r.id)).ride.meterDistanceKm > 0);
+      view = (await service.get(passenger, r.id)).ride;
+      assert.equal(view.waiting, null);
+      assert.ok(view.meterDistanceKm > 0);
       await service.resolve(admin, r.id, {
         action: "CANCEL",
         note: "Fixture stationary stop checked",
@@ -834,13 +837,14 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
     },
   );
   await t.test(
-    "delayed GPS from before stop approval cannot clear a stop or become stationary waiting evidence",
+    "delayed GPS from before a detected stop cannot clear the automatic waiting state",
     async () => {
       const r = await appTrip("queued-before-stop"),
         started = clock;
-      await service.wait(drivers[0], r.id, { action: "REQUEST_STOP" });
-      clock += 10000;
-      await service.stopWait(passenger, r.id, { approved: true });
+      clock += 2000;
+      await service.samples(drivers[0], r.id, {
+        points: [{ ...position(), sequence: 1 }],
+      });
       const before = await DB.prepare("SELECT * FROM ride_jobs WHERE id=?").get(
         r.id,
       );
@@ -849,15 +853,15 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
         points: [
           {
             ...position(9.001, 38.751),
-            timestamp: new Date(started + 5000).toISOString(),
-            sequence: 1,
+            timestamp: new Date(started + 1000).toISOString(),
+            sequence: 2,
           },
         ],
       });
       const after = await DB.prepare("SELECT * FROM ride_jobs WHERE id=?").get(
         r.id,
       );
-      assert.equal(after.waiting_kind, "STOP");
+      assert.equal(after.waiting_kind, "TRAFFIC");
       assert.equal(after.waiting_since, before.waiting_since);
       assert.equal(after.waiting_verified_until, before.waiting_verified_until);
       assert.equal(
@@ -875,8 +879,10 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
     async () => {
       await service.updateSettings(admin.id, { stopGraceMinutes: 0.025 });
       const r = await appTrip("fractional-stop-grace");
-      await service.wait(drivers[0], r.id, { action: "REQUEST_STOP" });
-      await service.stopWait(passenger, r.id, { approved: true });
+      clock += 1000;
+      await service.samples(drivers[0], r.id, {
+        points: [{ ...position(), sequence: 1 }],
+      });
       assert.equal(
         (await service.get(passenger, r.id)).ride.waitingFreeRemainingSeconds,
         2,
@@ -894,10 +900,10 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       view = (await service.get(passenger, r.id)).ride;
       assert.equal(view.waitingState, "GPS_PAUSED");
       assert.equal(view.billableWaitingSeconds, 118);
-      await service.stopWait(passenger, r.id, { approved: false });
+      await assert.rejects(service.stopWait(passenger, r.id, { approved: false }), (e) => e.status === 409);
       assert.equal(
         (await service.get(passenger, r.id)).ride.distancePaused,
-        false,
+        true,
       );
       await service.resolve(admin, r.id, {
         action: "CANCEL",

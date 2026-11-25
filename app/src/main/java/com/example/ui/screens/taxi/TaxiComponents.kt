@@ -95,13 +95,16 @@ internal fun taxiDuration(value: Int): String {
 }
 internal fun taxiTime(value: String): String = EthiopianDateTime.formatTimestamp(value)
 internal fun taxiActive(status: String) = status in setOf("ACCEPTED", "AT_PICKUP", "IN_PROGRESS")
+internal fun taxiGpsWaiting(ride: TaxiRide) = ride.waiting in setOf("TRAFFIC", "STOP")
 internal fun sharedActive(status: String) = status in setOf("BOARDING", "IN_PROGRESS")
 internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFreeRemainingSeconds): String = when {
     ride.waitingState == "GPS_PAUSED" -> "Waiting clock paused · fresh GPS needed"
     ride.waitingState == "LIMIT_REACHED" -> "Waiting limit reached · distance paused"
     ride.distancePaused && freeSeconds != null && freeSeconds > 0 -> "Distance paused · free waiting ${taxiDuration(freeSeconds)}"
     ride.distancePaused && ride.waitingRateEtbPerMinute != null -> "Distance paused · waiting ${taxiMoney(ride.waitingRateEtbPerMinute)}/min"
-    else -> "Passenger stop approved · waiting charges may apply"
+    ride.waitingState == "FREE_ALLOWANCE" -> "Traffic stop detected · ${freeSeconds?.let(::taxiDuration) ?: "free time"} free"
+    ride.waitingState == "BILLABLE_WAITING" -> "Traffic stop detected · ${ride.waitingRateEtbPerMinute?.let(::taxiMoney) ?: "Configured rate"}/min"
+    else -> "Traffic stops are timed automatically from GPS"
 }
 @Composable internal fun taxiFreeWaitingSeconds(ride: TaxiRide, tick: Boolean = true): Int? {
     var remaining by remember(ride.id, ride.serverTime, ride.waitingFreeRemainingSeconds) { mutableStateOf(ride.waitingFreeRemainingSeconds) }
@@ -307,12 +310,13 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
     driver: MobilityLocation? = null, stage: String = "ASSIGNED", height: Int = 255,
     pickupLabel: String = "Pickup", destinationLabel: String = "Destination", modifier: Modifier = Modifier, tileDownloadsEnabled: Boolean = true, providedApi: MobilityApi? = null,
     nearbyCars: List<TaxiNearbyCar> = emptyList(), routeGeometry: MobilityRoadGeometry? = null, freezeVehicle: Boolean = false, routeGeometryQuality: String? = null,
-    showPickupMarker: Boolean = true, attributionAboveSheet: Boolean = false, attributionBottomPadding: Dp = 0.dp) {
+    showPickupMarker: Boolean = true, attributionAboveSheet: Boolean = false, attributionBottomPadding: Dp = 0.dp,
+    driverIcon: Int = R.drawable.taxi_car_top_busy, nearbyVehicleIcon: Int? = R.drawable.taxi_car_top_available) {
     val nearby = nearbyCars.map { it.latitude to it.longitude }
     if (pickup != null && destination != null) {
         MobilityRoadMap(pickup, destination, driver, stage, pickupLabel, destinationLabel,
-            modifier, mapHeight = height, trackingActive = driver != null, tileDownloadsEnabled = tileDownloadsEnabled, driverIcon = R.drawable.taxi_car_top, providedApi = providedApi,
-            nearbyPoints = nearby, statusMessage = if (nearby.isNotEmpty()) "Nearby cars · approximate" else null,
+            modifier, mapHeight = height, trackingActive = driver != null, tileDownloadsEnabled = tileDownloadsEnabled, driverIcon = driverIcon, providedApi = providedApi,
+            nearbyPoints = nearby, nearbyVehicleIcon = nearbyVehicleIcon, statusMessage = if (nearby.isNotEmpty()) "Nearby cars · approximate" else null,
             providedRoute = routeGeometry, freezeVehicle = freezeVehicle, providedRouteQuality = routeGeometryQuality)
     } else {
         val context = LocalContext.current; val owner = LocalLifecycleOwner.current
@@ -335,7 +339,7 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
             AndroidView(factory = { (map.parent as? ViewGroup)?.removeView(map); map }, Modifier.fillMaxSize(), update = {
                 map.alpha = 1f
                 replaceRoadOverlays(map, emptyList(), emptyList(), if (showPickupMarker) pickup else null, destination, driver, driver != null && !driver.stale,
-                    false, pickupLabel, destinationLabel, R.drawable.taxi_car_top, nearby)
+                    false, pickupLabel, destinationLabel, driverIcon, nearby, nearbyVehicleIcon)
                 val targetCenter = pickup ?: driver?.let { it.latitude to it.longitude } ?: (9.0108 to 38.7613)
                 if (lastCenter != targetCenter) {
                     map.controller.setCenter(GeoPoint(targetCenter.first, targetCenter.second))

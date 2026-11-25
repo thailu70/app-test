@@ -235,8 +235,8 @@ class TaxiLocationService : Service() {
                     val point = last?.takeIf { usableTaxiFix(it) }
                     if (session.target.tripId == null) {
                         try {
-                            val heartbeat = if (point != null) point.taxiBody() + mapOf("online" to true, "vehicleId" to session.target.vehicleId)
-                                else mapOf("online" to true, "vehicleId" to session.target.vehicleId, "heartbeatOnly" to true)
+                            val heartbeat = (if (point != null) point.taxiBody() + mapOf("online" to true, "vehicleId" to session.target.vehicleId)
+                                else mapOf("online" to true, "vehicleId" to session.target.vehicleId, "heartbeatOnly" to true)) + mapOf("backgroundSync" to true)
                             check(mobilityBody(api.availability(heartbeat)).success)
                         } catch (e: CancellationException) { throw e }
                         catch (_: Exception) { TaxiTracking.report("Unable to connect. Please connect to the internet.") }

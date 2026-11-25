@@ -144,7 +144,7 @@ function createRidesRouter({ service = getRidesService() } = {}) {
   router.get(
     "/me",
     ...passenger,
-    asyncRoute(async (req, res) => respond(res, await service.me(req.user))),
+    asyncRoute(async (req, res) => respond(res, await service.me(req.user, { liveOnly: req.query.live === "1" }))),
   );
   router.post(
     "/requests",
@@ -185,7 +185,7 @@ function createRidesRouter({ service = getRidesService() } = {}) {
     "/driver/dashboard",
     ...driver,
     asyncRoute(async (req, res) =>
-      respond(res, await service.dashboard(req.user)),
+      respond(res, await service.dashboard(req.user, { liveOnly: req.query.live === "1" })),
     ),
   );
   router.put(

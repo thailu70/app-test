@@ -42,7 +42,7 @@ data class TaxiRide(val id: String, val passengerId: String? = null, val driverI
     val passengerName: String? = null, val passengerPhone: String? = null, val location: MobilityLocation? = null,
     val routeGeometry: MobilityRoadGeometry? = null, val createdAt: String? = null,
     val startedAt: String? = null, val completedAt: String? = null, val lastSequence: Long = 0,
-    val waitingFreeRemainingSeconds: Int? = null, val waitingRateEtbPerMinute: Double? = null,
+    val waitingFreeRemainingSeconds: Int? = null, val waitingFreeAllowanceSeconds: Int = 0, val waitingRateEtbPerMinute: Double? = null,
     val distancePaused: Boolean = false, val waitingFareEtb: Double? = null, val distanceFareEtb: Double? = null,
     val waitingState: String = "", val serverTime: String? = null,
     val routeGeometryQuality: String? = null, val routeGeometryToleranceMeters: Double? = null)
@@ -86,19 +86,17 @@ interface TaxiApi {
     @GET("api/rides/catalog") suspend fun catalog(): Response<TaxiResponse>
     @GET("api/rides/nearby") suspend fun nearby(@Query("latitude") latitude: Double, @Query("longitude") longitude: Double, @Query("tier") tier: String): Response<TaxiNearbyResponse>
     @POST("api/rides/estimate") suspend fun estimate(@Body input: TaxiRouteInput): Response<TaxiResponse>
-    @GET("api/rides/me") suspend fun me(): Response<TaxiResponse>
+    @GET("api/rides/me") suspend fun me(@Query("live") live: Boolean = false): Response<TaxiResponse>
     @POST("api/rides/requests") suspend fun request(@Body input: TaxiRouteInput): Response<TaxiResponse>
     @GET("api/rides/requests/{id}") suspend fun ride(@Path("id") id: String): Response<TaxiResponse>
     @POST("api/rides/requests/{id}/cancel") suspend fun cancel(@Path("id") id: String, @Body input: Map<String, String>): Response<TaxiResponse>
-    @POST("api/rides/requests/{id}/stop-wait") suspend fun approveWait(@Path("id") id: String, @Body input: Map<String, Boolean>): Response<TaxiResponse>
-    @GET("api/rides/driver/dashboard") suspend fun dashboard(): Response<TaxiResponse>
+    @GET("api/rides/driver/dashboard") suspend fun dashboard(@Query("live") live: Boolean = false): Response<TaxiResponse>
     @PUT("api/rides/driver/availability") suspend fun availability(@Body input: Map<String, @JvmSuppressWildcards Any>): Response<TaxiResponse>
     @POST("api/rides/driver/requests/{id}/accept") suspend fun accept(@Path("id") id: String, @Body input: Map<String, String>): Response<TaxiResponse>
     @POST("api/rides/driver/street") suspend fun street(@Body input: TaxiRouteInput): Response<TaxiResponse>
     @POST("api/rides/driver/trips/{id}/arrive") suspend fun arrive(@Path("id") id: String, @Body input: Map<String, @JvmSuppressWildcards Any>): Response<TaxiResponse>
     @POST("api/rides/driver/trips/{id}/start") suspend fun start(@Path("id") id: String, @Body input: Map<String, String>): Response<TaxiResponse>
     @POST("api/rides/driver/trips/{id}/locations") suspend fun locations(@Path("id") id: String, @Body input: TaxiGpsBatch): Response<TaxiResponse>
-    @POST("api/rides/driver/trips/{id}/wait") suspend fun wait(@Path("id") id: String, @Body input: Map<String, String>): Response<TaxiResponse>
     @POST("api/rides/driver/trips/{id}/complete") suspend fun complete(@Path("id") id: String, @Body input: Map<String, @JvmSuppressWildcards Any>): Response<TaxiResponse>
     @POST("api/rides/driver/trips/{id}/cancel") suspend fun driverCancel(@Path("id") id: String, @Body input: Map<String, String>): Response<TaxiResponse>
     @GET("api/rides/shared/trips") suspend fun shared(@Query("origin") origin: String? = null, @Query("destination") destination: String? = null): Response<TaxiResponse>

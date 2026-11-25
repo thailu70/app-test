@@ -40,6 +40,7 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
     private var nearbyQuery: Triple<Double, Double, String>? = null
     private var nearbyJob: Job? = null
     private var estimateEpoch = 0L
+    private var catalogCheckedAt = 0L
     init { refresh() }
     private fun key(value: String) = idempotency.getOrPut(value) { UUID.randomUUID().toString() }
     private fun check(result: TaxiResponse): TaxiResponse {
@@ -112,15 +113,52 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
         if (refreshRunning || mutable.value.busy) return
         refreshRunning = true
         viewModelScope.launch {
-            try { operations.withLock { load() } }
+            try { operations.withLock { if (quiet) loadLive() else load() } }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (!quiet) mutable.update { it.copy(message = e.message ?: "Could not refresh rides.") } }
             finally { refreshRunning = false }
         }
     }
+    private suspend fun loadLive() {
+        if (System.nanoTime() / 1_000_000L - catalogCheckedAt >= 60_000L) {
+            val catalog = check(mobilityBody(api.catalog()))
+            mutable.update { it.copy(settings = catalog.settings ?: it.settings, tiers = catalog.tiers) }
+            catalogCheckedAt = System.nanoTime() / 1_000_000L
+        }
+        if (!authenticated) {
+            val shared = check(mobilityBody(api.shared()))
+            mutable.update { it.copy(trips = shared.trips) }
+            return
+        }
+        if (driver) {
+            val result = check(mobilityBody(api.dashboard(live = true)))
+            mutable.update { current ->
+                val oldTrips = current.dashboard?.sharedTrips.orEmpty()
+                val liveTrips = result.sharedTrips.associateBy { it.id }
+                val mergedTrips = oldTrips.map { liveTrips[it.id] ?: it } + result.sharedTrips.filterNot { live -> oldTrips.any { it.id == live.id } }
+                current.copy(dashboard = result.copy(sharedTrips = mergedTrips),
+                    ride = result.ride ?: current.ride?.takeIf { it.status in setOf("COMPLETED", "CANCELLED") },
+                    myTrips = current.myTrips.map { liveTrips[it.id] ?: it } + result.sharedTrips.filterNot { live -> current.myTrips.any { it.id == live.id } })
+            }
+        } else {
+            val result = check(mobilityBody(api.me(live = true)))
+            val shared = check(mobilityBody(api.shared()))
+            mutable.update { current ->
+                val liveTrips = result.sharedTrips.associateBy { it.id }
+                val mergedTrips = current.myTrips.map { liveTrips[it.id] ?: it } + result.sharedTrips.filterNot { live -> current.myTrips.any { it.id == live.id } }
+                val liveBookings = result.bookings.associateBy { it.id }
+                val mergedBookings = current.bookings.map { liveBookings[it.id] ?: it } + result.bookings.filterNot { live -> current.bookings.any { it.id == live.id } }
+                current.copy(ride = result.ride ?: current.ride?.takeIf { it.status in setOf("COMPLETED", "CANCELLED") },
+                    trips = shared.trips, myTrips = mergedTrips, bookings = mergedBookings)
+            }
+            mutable.value.selectedTrip?.let { loadTrip(it.id) }
+            if (mutable.value.ride == null || mutable.value.ride?.status == "REQUESTED") nearbyQuery?.let { runCatching { loadNearby(it) } }
+        }
+    }
     private suspend fun load() {
         val catalog = check(mobilityBody(api.catalog()))
         mutable.update { it.copy(settings = catalog.settings ?: it.settings, tiers = catalog.tiers) }
+        catalogCheckedAt = System.nanoTime() / 1_000_000L
         val shared = check(mobilityBody(api.shared()))
         mutable.update { it.copy(trips = shared.trips) }
         if (authenticated) {
@@ -185,20 +223,6 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
         mutable.update { it.copy(ride = result.ride, estimate = null) }
         idempotency.remove(intent)
         load()
-    }
-    fun wait(action: String, location: Map<String, Any>? = null) = act {
-        val ride = mutable.value.ride ?: return@act
-        if (action in setOf("REQUEST_STOP", "END_STOP")) {
-            check(location != null) { "Confirm a fresh GPS location before changing the passenger stop." }
-            flushMeter(ride.id, location)
-        }
-        val result = check(mobilityBody(api.wait(ride.id, mapOf("action" to action))))
-        mutable.update { it.copy(ride = result.ride) }
-    }
-    fun approveWait(approved: Boolean) = act {
-        val ride = mutable.value.ride ?: return@act
-        val result = check(mobilityBody(api.approveWait(ride.id, mapOf("approved" to approved))))
-        mutable.update { it.copy(ride = result.ride) }
     }
     fun complete(location: Map<String, Any>) = act {
         val ride = mutable.value.ride ?: return@act

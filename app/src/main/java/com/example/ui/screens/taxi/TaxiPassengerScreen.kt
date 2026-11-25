@@ -351,8 +351,8 @@ internal fun taxiPickupPinLabel(point: Pair<Double, Double>, language: AppLangua
                     expanded = more,
                     onExpandedChange = { more = it },
                     onHome = { page = "home"; model.closeTrip() },
-                    onTrips = { page = "trips"; model.closeTrip() },
-                    onPayments = { page = "payments"; model.closeTrip() },
+                    onTrips = { page = "trips"; model.closeTrip(); model.refresh() },
+                    onPayments = { page = "payments"; model.closeTrip(); model.refresh() },
                     onDailyCommute = onDailyCommute,
                     onAlertSound = { page = "alert_sound"; model.closeTrip() },
                     onNotifications = onNotifications,
@@ -1071,7 +1071,8 @@ private fun TaxiGuestTopMenu(expanded: Boolean, onExpandedChange: (Boolean) -> U
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(if (connecting) 10.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(if (connecting) 8.dp else 13.dp)) {
         TaxiMap(ride.originLatitude to ride.originLongitude, ride.destinationLatitude to ride.destinationLongitude, ride.location,
             if (ride.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = if (connecting) 400 else 265, pickupLabel = ride.origin, destinationLabel = ride.destination, tileDownloadsEnabled = mapTiles, providedApi = mapApi,
-            nearbyCars = if (ride.status == "REQUESTED") nearbyCars else emptyList(), routeGeometry = ride.routeGeometry, routeGeometryQuality = ride.routeGeometryQuality, freezeVehicle = ride.distancePaused)
+            nearbyCars = if (ride.status == "REQUESTED") nearbyCars else emptyList(), routeGeometry = ride.routeGeometry, routeGeometryQuality = ride.routeGeometryQuality, freezeVehicle = ride.distancePaused,
+            driverIcon = if (taxiActive(ride.status)) R.drawable.taxi_car_top_busy else R.drawable.taxi_car_top_available)
         Surface(shape = RoundedCornerShape(24.dp), color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text,
             border = BorderStroke(1.dp, PassoMobilityPalette.border)) { Column(Modifier.padding(if (connecting) 12.dp else 18.dp), verticalArrangement = Arrangement.spacedBy(if (connecting) 7.dp else 12.dp)) {
             if (ride.status == "REQUESTED") TaxiConnectionPulse(animated = mapTiles, compact = true) else Text(when (ride.status) {
@@ -1101,18 +1102,16 @@ private fun TaxiGuestTopMenu(expanded: Boolean, onExpandedChange: (Boolean) -> U
                 Text(taxiMoney(ride.fareEtb ?: ride.estimatedFareEtb), color = PassoMobilityPalette.brand, fontSize = if (connecting) 20.sp else 24.sp, fontWeight = FontWeight.ExtraBold)
             }
             if (ride.status == "IN_PROGRESS") Text("${"%.2f".format(ride.meterDistanceKm)} km · Billable waiting ${taxiDuration(ride.billableWaitingSeconds)}", color = PassoMobilityPalette.muted, fontSize = 13.sp)
-            if (!connecting) Text(if (ride.status == "COMPLETED") "Pay this fare directly to your driver. The app has not collected payment." else "Pay your driver directly. Normal traffic time is not charged as waiting.", color = PassoMobilityPalette.muted, fontSize = 12.sp)
-            if (ride.stopWaitingRequested) {
-                Text("Your driver requests a passenger stop. Approve only if you requested it. Driven distance pauses; after the free allowance, ${ride.waitingRateEtbPerMinute?.let { "waiting costs ${taxiMoney(it)}/min" } ?: "configured waiting charges apply"}.", color = PassoMobilityPalette.text, fontSize = 13.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = { model.approveWait(true) }, enabled = !busy, modifier = Modifier.weight(1f)) { Text("Approve stop") }
-                    OutlinedButton(onClick = { model.approveWait(false) }, enabled = !busy, modifier = Modifier.weight(1f)) { Text("Decline") } }
-            }
-            if (ride.waiting == "STOP") Surface(color = CommuteMint, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().testTag("taxi_approved_stop")) {
+            if (!connecting) Text(if (ride.status == "COMPLETED") "Pay this fare directly to your driver. The app has not collected payment." else "Pay your driver directly.", color = PassoMobilityPalette.muted, fontSize = 12.sp)
+            if (taxiGpsWaiting(ride)) Surface(color = CommuteMint, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().testTag("taxi_traffic_wait")) {
                 Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("Passenger stop approved", color = CommuteInk, fontWeight = FontWeight.Bold)
+                    Text("Traffic stop detected automatically", color = CommuteInk, fontWeight = FontWeight.Bold)
                     Text(taxiStopSummary(ride, freeWaiting), color = CommuteInk, fontSize = 13.sp)
-                    if ((freeWaiting ?: 0) > 0) ride.waitingRateEtbPerMinute?.let { Text("After free waiting: ${taxiMoney(it)}/min. Normal traffic is not billed as a stop.", color = CommuteInk, fontSize = 12.sp) }
+                    ride.waitingRateEtbPerMinute?.let { Text("Each stop has ${taxiDuration(ride.waitingFreeAllowanceSeconds)} free; then ${taxiMoney(it)}/min. Only GPS-confirmed stationary time is counted.", color = CommuteInk, fontSize = 12.sp) }
                 }
+            }
+            if (ride.status == "IN_PROGRESS" && !taxiGpsWaiting(ride)) ride.waitingRateEtbPerMinute?.let { rate ->
+                Text("Traffic waiting is measured automatically from GPS. For each stop, ${taxiDuration(ride.waitingFreeAllowanceSeconds)} is free, then ${taxiMoney(rate)}/min. GPS gaps are not counted.", color = PassoMobilityPalette.muted, fontSize = 12.sp)
             }
             if (ride.status in setOf("REQUESTED", "ACCEPTED", "AT_PICKUP")) TextButton(onClick = { model.cancelRide() }, enabled = !busy, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColors(contentColor = PassoMobilityPalette.brand)) { Text("Cancel ride") }
             if (ride.status in setOf("COMPLETED", "CANCELLED")) TaxiPrimary("Done", !busy) { model.dismissRide() }

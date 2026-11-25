@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import com.example.data.api.*
+import com.example.R
 import com.example.data.entity.RouteEntity
 import com.example.data.entity.monthlyFareForClass
 import com.example.ui.components.PassoMobilityPalette
@@ -140,7 +141,7 @@ import kotlinx.coroutines.launch
         TaxiHeader(trailing = {
             TaxiDriverTopMenu(expanded = driverMenu, onExpandedChange = { driverMenu = it },
                 onHome = { page = "calls"; model.closeTrip() },
-                onTrips = { page = "trips"; model.closeTrip() },
+                onTrips = { page = "trips"; model.closeTrip(); model.refresh() },
                 onCredit = { page = "credit"; model.closeTrip() },
                 onAlertSound = { page = "settings"; model.closeTrip() },
                 onDailyCommute = if (showDailyCommute) ({ page = "commute"; model.closeTrip() }) else null,
@@ -188,9 +189,10 @@ import kotlinx.coroutines.launch
                         } else {
                             val requestMarkers = dashboard.calls.map { TaxiNearbyCar(it.originLatitude, it.originLongitude, it.tier) } +
                                 dashboard.sharedRequests.map { TaxiNearbyCar(it.originLatitude, it.originLongitude, "GROUP") }
-                            Box(Modifier.fillMaxWidth().height(250.dp).clip(RoundedCornerShape(22.dp))) {
-                            TaxiMap(null, null, driver = driverFix, height = 250, pickupLabel = driverAreaName, destinationLabel = "",
-                                    tileDownloadsEnabled = mapTiles, providedApi = mapApi, nearbyCars = requestMarkers)
+                            Box(Modifier.fillMaxWidth().height(340.dp).clip(RoundedCornerShape(22.dp))) {
+                            TaxiMap(null, null, driver = driverFix, height = 340, pickupLabel = driverAreaName, destinationLabel = "",
+                                    tileDownloadsEnabled = mapTiles, providedApi = mapApi, nearbyCars = requestMarkers,
+                                    driverIcon = R.drawable.taxi_car_top_available)
                                 Surface(Modifier.align(Alignment.TopStart).padding(10.dp), color = PassoMobilityPalette.card.copy(alpha = .96f),
                                     shape = RoundedCornerShape(18.dp), shadowElevation = 3.dp) {
                                     Row(Modifier.padding(start = 8.dp, end = 5.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -413,7 +415,8 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TaxiMap(ride.originLatitude to ride.originLongitude, ride.destinationLatitude to ride.destinationLongitude, ride.location,
-            if (ride.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 240, pickupLabel = ride.origin, destinationLabel = ride.destination, tileDownloadsEnabled = mapTiles, providedApi = mapApi, routeGeometry = ride.routeGeometry, routeGeometryQuality = ride.routeGeometryQuality, freezeVehicle = ride.distancePaused)
+            if (ride.status == "IN_PROGRESS") "IN_PROGRESS" else "ASSIGNED", height = 320, pickupLabel = ride.origin, destinationLabel = ride.destination, tileDownloadsEnabled = mapTiles, providedApi = mapApi, routeGeometry = ride.routeGeometry, routeGeometryQuality = ride.routeGeometryQuality, freezeVehicle = ride.distancePaused,
+            driverIcon = if (ride.driverId != null) R.drawable.taxi_car_top_busy else R.drawable.taxi_car_top_available)
         Text(when (ride.status) { "ACCEPTED" -> "Go to pickup"; "AT_PICKUP" -> "Ready to board"; "IN_PROGRESS" -> "Trip in progress"; "COMPLETED" -> "Trip completed"; else -> "Ride cancelled" }, color = CommuteInk, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
         ride.passengerName?.let { Text(it, color = CommuteInk, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
         TaxiRouteRow("Pickup", ride.origin, true); TaxiRouteRow("Destination", ride.destination, false)
@@ -422,7 +425,7 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
         Text(taxiMoney(ride.fareEtb ?: ride.estimatedFareEtb), color = CommuteTeal, fontWeight = FontWeight.ExtraBold, fontSize = 36.sp)
         if (ride.status in setOf("IN_PROGRESS", "COMPLETED")) {
             Text("Distance ${"%.2f".format(ride.meterDistanceKm)} km · Billable waiting ${taxiDuration(ride.billableWaitingSeconds)}", color = CommuteInk, fontSize = 14.sp)
-            Text("Trip duration ${taxiDuration(ride.tripDurationSeconds)} · normal traffic time is not charged", color = Color(0xFF627385), fontSize = 12.sp)
+            Text("Trip duration ${taxiDuration(ride.tripDurationSeconds)} · GPS-detected stops use the free allowance, then ${ride.waitingRateEtbPerMinute?.let(::taxiMoney) ?: "the configured rate"}/min", color = Color(0xFF627385), fontSize = 12.sp)
         }
         Text("Passenger pays you directly. The app does not collect the fare.", color = Color(0xFF627385), fontSize = 12.sp)
         when (ride.status) {
@@ -431,7 +434,6 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
                 TaxiPrimary("Scan passenger QR to start", !state.busy, "taxi_start_meter") { scanOpen = true }
             }
             "IN_PROGRESS" -> {
-                if (ride.source != "STREET") OutlinedButton(onClick = { withFix { model.wait(if (ride.waiting == "STOP") "END_STOP" else "REQUEST_STOP", it) } }, enabled = !state.busy && !ride.stopWaitingRequested, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PauseCircle, null); Spacer(Modifier.width(8.dp)); Text(if (ride.waiting == "STOP") "End passenger stop" else if (ride.stopWaitingRequested) "Waiting for passenger approval" else "Request passenger stop") }
                 TaxiPrimary("End trip", !state.busy, "taxi_end_trip") { confirmComplete = true }
             }
             "COMPLETED", "CANCELLED" -> TaxiPrimary("Back to calls", !state.busy) { model.dismissRide() }
@@ -453,14 +455,15 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
                 Surface(color = CommuteMint, shape = RoundedCornerShape(20.dp)) { Text("On a job", Modifier.padding(horizontal = 10.dp, vertical = 5.dp), color = CommuteTeal, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
             }
             TaxiMap(ride.originLatitude to ride.originLongitude, ride.destinationLatitude to ride.destinationLongitude, ride.location,
-                "IN_PROGRESS", height = if (compact) 140 else 160, pickupLabel = ride.origin, destinationLabel = ride.destination,
-                tileDownloadsEnabled = mapTiles, providedApi = mapApi, routeGeometry = ride.routeGeometry, routeGeometryQuality = ride.routeGeometryQuality, freezeVehicle = ride.distancePaused)
+                "IN_PROGRESS", height = if (compact) 220 else 260, pickupLabel = ride.origin, destinationLabel = ride.destination,
+                tileDownloadsEnabled = mapTiles, providedApi = mapApi, routeGeometry = ride.routeGeometry, routeGeometryQuality = ride.routeGeometryQuality, freezeVehicle = ride.distancePaused,
+                driverIcon = R.drawable.taxi_car_top_busy)
             Surface(Modifier.weight(1f).fillMaxWidth(), color = Color.White, shape = RoundedCornerShape(22.dp)) {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Surface(color = CommuteMint, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(horizontal = 9.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.CheckCircle, null, tint = CommuteTeal, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(6.dp))
-                            Text(if (ride.waiting == "STOP") "Passenger stop approved" else if (ride.source == "STREET") "Street pickup · passenger agreed" else "Passenger QR verified", color = CommuteTeal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text(if (taxiGpsWaiting(ride)) "Traffic stop · timed automatically by GPS" else if (ride.source == "STREET") "Street pickup · passenger agreed" else "Passenger QR verified", color = CommuteTeal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                     Text(if (ride.distancePaused) "Fare so far · distance paused" else "Fare so far", color = Color(0xFF627385), fontSize = 11.sp)
@@ -473,7 +476,7 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
                         Column(Modifier.weight(1f)) { Text("Billable waiting", color = Color(0xFF627385), fontSize = 11.sp)
                             Text(taxiDuration(ride.billableWaitingSeconds), color = CommuteInk, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("taxi_meter_waiting")) }
                     }
-                    Text(if (ride.waiting == "STOP") taxiStopSummary(ride, freeWaiting) else "Trip duration ${taxiDuration(ride.tripDurationSeconds)} · traffic time not billed", color = Color(0xFF627385), fontSize = 11.sp, modifier = Modifier.testTag("taxi_meter_stop_state"))
+                    Text(if (taxiGpsWaiting(ride)) taxiStopSummary(ride, freeWaiting) else "GPS-detected stops: ${taxiDuration(ride.waitingFreeAllowanceSeconds)} free per stop, then ${ride.waitingRateEtbPerMinute?.let(::taxiMoney) ?: "configured rate"}/min · GPS gaps not billed", color = Color(0xFF627385), fontSize = 11.sp, modifier = Modifier.testTag("taxi_meter_stop_state"))
                     HorizontalDivider(color = Color(0xFFE0E7E3))
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.LocationOn, null, tint = CommuteTeal, modifier = Modifier.size(19.dp))
@@ -487,11 +490,6 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
                     }
                     Text("Passenger pays you directly", color = Color(0xFF627385), fontSize = 11.sp)
                 }
-            }
-            if (ride.source != "STREET") OutlinedButton(onClick = { withFix { model.wait(if (ride.waiting == "STOP") "END_STOP" else "REQUEST_STOP", it) } }, enabled = !busy && !ride.stopWaitingRequested,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp).testTag("taxi_passenger_stop"), shape = RoundedCornerShape(16.dp)) {
-                Icon(Icons.Default.PauseCircle, null, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(7.dp))
-                Text(if (ride.waiting == "STOP") "End passenger stop" else if (ride.stopWaitingRequested) "Waiting for passenger approval" else "Request passenger stop", fontSize = 13.sp, maxLines = 2)
             }
             TaxiPrimary("End trip", !busy, "taxi_end_trip", onComplete)
         }

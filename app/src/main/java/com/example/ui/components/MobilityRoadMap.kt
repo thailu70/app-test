@@ -104,7 +104,8 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
     pickupLabel: String = "Pickup / loading", destinationLabel: String = "Destination",
     modifier: Modifier = Modifier, mapHeight: Int = 260, providedApi: MobilityApi? = null,
     tileDownloadsEnabled: Boolean = true, trackingActive: Boolean = true, statusMessage: String? = null, driverIcon: Int? = null,
-    nearbyPoints: List<Pair<Double, Double>> = emptyList(), providedRoute: MobilityRoadGeometry? = null, freezeVehicle: Boolean = false,
+    nearbyPoints: List<Pair<Double, Double>> = emptyList(), nearbyVehicleIcon: Int? = null,
+    providedRoute: MobilityRoadGeometry? = null, freezeVehicle: Boolean = false,
     providedRouteQuality: String? = null) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
@@ -215,7 +216,7 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
                     map.overlayManager.tilesOverlay.setColorFilter(null)
                     vehicleMotion.update(driverLocation, fresh, movingPoints.ifEmpty { plannedPoints }, animate = resumed, paused = freezeVehicle)
                     replaceRoadOverlays(map, plannedPoints, movingPoints, from, to, driverLocation, fresh,
-                        roadToDestination(stage), pickupLabel, destinationLabel, driverIcon, nearbyPoints,
+                        roadToDestination(stage), pickupLabel, destinationLabel, driverIcon, nearbyPoints, nearbyVehicleIcon,
                         stableDriverMarker = vehicleMotion.marker.takeIf { driverLocation != null })
                     if (!framed || (!fittedMoving && movingPoints.isNotEmpty())) map.post {
                         fitMap(); framed = true; fittedMoving = movingPoints.isNotEmpty(); map.invalidate()
@@ -259,7 +260,8 @@ fun MobilityRoadMap(pickup: Pair<Double, Double>?, destination: Pair<Double, Dou
 internal fun replaceRoadOverlays(map: MapView, planned: List<Pair<Double, Double>>, moving: List<Pair<Double, Double>>,
     pickup: Pair<Double, Double>?, destination: Pair<Double, Double>?, driver: MobilityLocation?, fresh: Boolean,
     inTransit: Boolean, pickupLabel: String, destinationLabel: String, driverIcon: Int? = null,
-    nearbyPoints: List<Pair<Double, Double>> = emptyList(), stableDriverMarker: Marker? = null) {
+    nearbyPoints: List<Pair<Double, Double>> = emptyList(), nearbyVehicleIcon: Int? = null,
+    stableDriverMarker: Marker? = null) {
     map.overlays.clear()
     fun line(points: List<Pair<Double, Double>>, color: Int, dashed: Boolean) {
         if (points.size < 2) return
@@ -269,7 +271,7 @@ internal fun replaceRoadOverlays(map: MapView, planned: List<Pair<Double, Double
     }
     line(planned, PassoMobilityPalette.route.toArgb(), false)
     line(moving, PassoMobilityPalette.activeRoute.toArgb(), !inTransit)
-    fun marker(point: Pair<Double, Double>?, title: String, letter: String, color: Int) {
+    fun marker(point: Pair<Double, Double>?, title: String, letter: String, color: Int, vehicleIcon: Int? = driverIcon) {
         if (!validRoadPoint(point)) return
         map.overlays.add(Marker(map).apply {
             position = GeoPoint(point!!.first, point.second); this.title = title
@@ -302,8 +304,8 @@ internal fun replaceRoadOverlays(map: MapView, planned: List<Pair<Double, Double
                 canvas.drawText(letter, size / 2f, size / 2f - (paint.ascent() + paint.descent()) / 2, paint)
             }
             icon = BitmapDrawable(map.resources, bitmap)
-            if (letter == "D" && driverIcon != null) {
-                androidx.core.content.ContextCompat.getDrawable(map.context, driverIcon)?.mutate()?.let { source ->
+            if (letter == "D" && vehicleIcon != null) {
+                androidx.core.content.ContextCompat.getDrawable(map.context, vehicleIcon)?.mutate()?.let { source ->
                     val car = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
                     source.setBounds(0, 0, size, size); source.draw(Canvas(car)); icon = BitmapDrawable(map.resources, car)
                 }
@@ -312,7 +314,7 @@ internal fun replaceRoadOverlays(map: MapView, planned: List<Pair<Double, Double
     }
     marker(pickup, pickupLabel, "P", PassoMobilityPalette.brand.toArgb())
     marker(destination, destinationLabel, "F", PassoMobilityPalette.landmark.toArgb())
-    nearbyPoints.take(40).forEach { marker(it, "Nearby car · approximate", "D", 0xFF00695F.toInt()) }
+    nearbyPoints.take(40).forEach { marker(it, "Nearby available car · approximate", "D", 0xFF00695F.toInt(), nearbyVehicleIcon) }
     driver?.let {
         if (stableDriverMarker != null) map.overlays.add(stableDriverMarker)
         else marker(it.latitude to it.longitude, if (fresh) "Driver · live" else "Driver · last known", "D", if (fresh) 0xFF1977E6.toInt() else 0xFF71808A.toInt())

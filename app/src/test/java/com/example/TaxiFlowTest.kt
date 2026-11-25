@@ -62,6 +62,34 @@ class TaxiFlowTest {
         assertEquals(listOf(ride), vm.state.value.dashboard!!.calls)
         assertEquals(980.0, vm.state.value.dashboard!!.wallet.availableEtb, 0.0)
     }
+    @Test fun `quiet passenger refresh uses the compact live endpoint`() = runTest(dispatcher) {
+        val calls = mutableListOf<String>(); var live = false
+        val vm = TaxiViewModel(fake { name, args ->
+            calls += name
+            when (name) {
+                "catalog", "shared" -> Response.success(TaxiResponse(true))
+                "me" -> { live = args.firstOrNull() == true; Response.success(TaxiResponse(true)) }
+                else -> error("Unexpected API call $name")
+            }
+        }, true, false)
+        advanceUntilIdle(); calls.clear(); vm.refresh(quiet = true); advanceUntilIdle()
+        assertEquals(listOf("me", "shared"), calls)
+        assertTrue("the frequent refresh must ask for active data only", live)
+    }
+    @Test fun `quiet driver refresh omits completed trip history`() = runTest(dispatcher) {
+        val calls = mutableListOf<String>(); var live = false
+        val vm = TaxiViewModel(fake { name, args ->
+            calls += name
+            when (name) {
+                "catalog", "shared" -> Response.success(TaxiResponse(true))
+                "dashboard" -> { live = args.firstOrNull() == true; Response.success(TaxiResponse(true)) }
+                else -> error("Unexpected API call $name")
+            }
+        }, true, true)
+        advanceUntilIdle(); calls.clear(); vm.refresh(quiet = true); advanceUntilIdle()
+        assertEquals(listOf("dashboard"), calls)
+        assertTrue("the frequent refresh must ask for active data only", live)
+    }
     @Test fun `wire adapter preserves null fare requested group and never invents a boarding PIN`() {
         val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
         val result = moshi.adapter(TaxiResponse::class.java).fromJson("""{"success":true,"ride":{"id":"r","fareEtb":null},"trip":{"id":"s","status":"REQUESTED","farePerSeatEtb":null}}""")!!
@@ -102,32 +130,11 @@ class TaxiFlowTest {
             routeGeometry = MobilityRoadGeometry("LineString", listOf(listOf(38.7, 9.0), listOf(38.8, 9.05)))))))
         advanceUntilIdle(); assertNull(vm.state.value.estimate); assertFalse(vm.state.value.busy)
     }
-    @Test fun `passenger stop flushes all pre stop GPS evidence before asking for approval`() = runTest(dispatcher) {
-        val order = mutableListOf<String>()
-        val active = ride.copy(status = "IN_PROGRESS")
-        val vm = TaxiViewModel(fake { name, _ -> when (name) {
-            "dashboard" -> Response.success(TaxiResponse(true, ride = active))
-            "wait" -> { order += "REQUEST_STOP"; Response.success(TaxiResponse(true, ride = active.copy(stopWaitingRequested = true))) }
-            else -> initial(name)
-        } }, true, true, flushMeter = { id, _ -> assertEquals(ride.id, id); order += "GPS_FLUSH"; 10L })
-        advanceUntilIdle(); vm.wait("REQUEST_STOP", mapOf("latitude" to 9.0)); advanceUntilIdle()
-        assertEquals(listOf("GPS_FLUSH", "REQUEST_STOP"), order)
-        assertTrue(vm.state.value.ride!!.stopWaitingRequested)
-    }
-    @Test fun `failed GPS flush cannot start or end a passenger stop`() = runTest(dispatcher) {
-        var calls = 0
-        val vm = TaxiViewModel(fake { name, _ -> when (name) {
-            "dashboard" -> Response.success(TaxiResponse(true, ride = ride.copy(status = "IN_PROGRESS")))
-            "wait" -> { calls++; Response.success(TaxiResponse(true)) }
-            else -> initial(name)
-        } }, true, true, flushMeter = { _, _ -> error("Reconnect to save the latest distance.") })
-        advanceUntilIdle(); vm.wait("REQUEST_STOP", mapOf("latitude" to 9.0)); advanceUntilIdle()
-        assertEquals(0, calls); assertFalse(vm.state.value.ride!!.stopWaitingRequested)
-        assertTrue(vm.state.value.message!!.contains("Reconnect"))
-    }
-    @Test fun `approved stop clearly distinguishes frozen distance free allowance and billable waiting`() {
-        val stopped = ride.copy(status = "IN_PROGRESS", waiting = "STOP", distancePaused = true,
+    @Test fun `GPS detected traffic stop is automatic and needs no driver or passenger action`() {
+        val stopped = ride.copy(status = "IN_PROGRESS", waiting = "TRAFFIC", distancePaused = true,
             waitingState = "FREE_ALLOWANCE", waitingFreeRemainingSeconds = 30, waitingRateEtbPerMinute = 2.5)
+        assertTrue(taxiGpsWaiting(stopped))
+        assertFalse(stopped.stopWaitingRequested)
         assertEquals("Distance paused · free waiting 00:30", taxiStopSummary(stopped))
         assertEquals("Distance paused · waiting ETB 2.5/min", taxiStopSummary(stopped.copy(waitingFreeRemainingSeconds = 0, waitingState = "BILLABLE_WAITING")))
         assertEquals("Waiting clock paused · fresh GPS needed", taxiStopSummary(stopped.copy(waitingState = "GPS_PAUSED")))
