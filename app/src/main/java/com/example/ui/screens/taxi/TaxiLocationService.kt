@@ -190,12 +190,25 @@ class TaxiLocationService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == STOP) { TaxiTracking.stop("Location sharing paused. Reopen the driver portal before continuing."); return START_NOT_STICKY }
+        // Promote immediately: Android gives startForegroundService() only a short deadline.
+        // Session restoration and validation can touch Keystore and preferences, so do not
+        // perform either operation before the service has its visible foreground notification.
+        try {
+            ServiceCompat.startForeground(this, 7103, notification(),
+                if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0)
+        } catch (_: RuntimeException) {
+            TaxiTracking.stop("Open the driver portal and allow location and notifications.")
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         val session = TaxiTracking.session ?: TaxiTracking.restore(this)
-        if (session == null || !TaxiTracking.current(session) || !taxiLocationPermission(this)) { stopSelf(); return START_NOT_STICKY }
+        if (session == null || !TaxiTracking.current(session) || !taxiLocationPermission(this)) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         if (active?.target == session.target && worker?.isActive == true) return START_STICKY
         clean(); active = session; sequence = session.target.sequence
-        try { ServiceCompat.startForeground(this, 7103, notification(), if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0) }
-        catch (_: RuntimeException) { TaxiTracking.stop("Open the driver portal and allow location and notifications."); return START_NOT_STICKY }
         worker = scope.launch {
             val api = ApiClient.createSessionService(TaxiApi::class.java, session.token)
             try {

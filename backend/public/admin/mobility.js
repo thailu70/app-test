@@ -1,8 +1,9 @@
 (function (root, factory) {
-  const panel = factory();
+  const panel = factory(typeof module === 'object' && module.exports
+    ? require('../shared/ethiopian-datetime') : root?.PassoEthiopianDateTime);
   if (typeof module === 'object' && module.exports) module.exports = panel;
   if (root) root.PassoMobilityAdmin = panel;
-})(typeof window === 'undefined' ? null : window, function () {
+})(typeof window === 'undefined' ? null : window, function (ethiopianDateTime) {
   'use strict';
 
   const ROOT = '/api/mobility/admin';
@@ -15,13 +16,10 @@
       ? 'ETB ' + number.toLocaleString('en-ET', { maximumFractionDigits: 2 }) : 'Not quoted';
   }
   function dateText(value) {
-    if (!value) return 'Not specified';
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return String(value);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return date.toLocaleDateString('en-GB', { timeZone: 'Africa/Addis_Ababa', dateStyle: 'medium' }) + ' · Ethiopia';
-    return date.toLocaleString('en-GB', {
-      timeZone: 'Africa/Addis_Ababa', dateStyle: 'medium', timeStyle: 'short'
-    }) + ' · Ethiopia';
+    return value ? ethiopianDateTime.formatTimestamp(value) : 'Not specified';
+  }
+  function timeText(value) {
+    return value ? ethiopianDateTime.formatClock(value) : '';
   }
   function photoPath(value) {
     return typeof value === 'string' && /^\/api\/mobility\/[A-Za-z0-9/_-]+$/.test(value) ? value : null;
@@ -113,7 +111,8 @@
         item.append(status);
         item.append(node('span', mode === 'trips' ? (row.driverName || 'Driver') + ' · ' + (row.vehiclePlate || 'Vehicle unavailable')
           : (row.customerName || 'Customer') + ' · ' + (row.people ? row.people + ' people · ' : '') + (row.vehicleType || 'Vehicle type unavailable'), 'mobility-record-sub'));
-        item.append(node('span', dateText(mode === 'trips' ? row.departureAt : row.travelDate), 'mobility-record-sub'));
+        const travelDateTime = mode === 'trips' ? dateText(row.departureAt) : [dateText(row.travelDate), timeText(row.travelTime || row.travel_time)].filter(Boolean).join(' · ');
+        item.append(node('span', travelDateTime, 'mobility-record-sub'));
         item.append(node('span', mode === 'trips' ? money(row.fareEtb) + ' / seat · ' + row.seats + ' seats' : money(row.quoteEtb), 'mobility-record-price'));
         list.append(item);
       }
@@ -145,7 +144,8 @@
       const heading = node('h3', row.origin + ' → ' + row.destination); heading.tabIndex = -1; detail.append(heading);
       detail.append(node('span', titleCase(row.status), 'pill ' + String(row.status).toLowerCase()));
       const data = node('dl', undefined, 'mobility-facts');
-      detailLine(data, mode === 'trips' ? 'Departure' : 'Requested travel', dateText(mode === 'trips' ? row.departureAt : row.travelDate));
+      const requestedDateTime = mode === 'trips' ? dateText(row.departureAt) : [dateText(row.travelDate), timeText(row.travelTime || row.travel_time)].filter(Boolean).join(' · ');
+      detailLine(data, mode === 'trips' ? 'Departure' : 'Requested travel', requestedDateTime);
       if (mode === 'trips') {
         detailLine(data, 'Driver', row.driverName); detailLine(data, 'Vehicle', [row.vehicleType, row.vehicleModel, row.vehiclePlate].filter(Boolean).join(' · '));
         detailLine(data, 'Seats', row.seats); detailLine(data, 'Available seats', row.availableSeats);

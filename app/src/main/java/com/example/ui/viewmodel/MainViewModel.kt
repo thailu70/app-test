@@ -1205,7 +1205,7 @@ class MainViewModel(
                 passengerName = name,
                 category = category,
                 text = message,
-                date = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(java.util.Date()),
+                date = com.example.core.time.EthiopianDateTime.apiTimestamp(),
                 status = "OPEN",
                 routeId = "route_bole_merkato"
             )

@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.core.localization.AppLanguage
+import com.example.core.time.EthiopianDateTime
 import com.example.core.qr.QrValidationResult
 import com.example.data.api.*
 import com.example.ui.screens.driver.DriverQrScannerDialog
@@ -154,7 +155,7 @@ import kotlin.coroutines.resumeWithException
         LazyColumn(Modifier.weight(1f).testTag("mobility_driver_content"), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             notice?.let { item { MobilityCard { Text(it, color = CommuteInk) } } }
             if (proposing) item {
-                GroupTripProposal(dashboard.vehicles, busy) { input -> runAction {
+                GroupTripProposal(dashboard.vehicles, busy, language) { input -> runAction {
                     val result = mobilityBody(api.proposeTrip(input)); check(result.success) { result.error ?: "Could not propose this trip." }
                     proposing = false; notice = "Trip sent for admin review. It becomes visible to travelers only after approval."; refresh()
                 } }
@@ -274,11 +275,11 @@ private suspend fun loadMobilityCargoPhoto(api: MobilityApi, requestId: String):
     }, confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } })
 }
 
-@Composable private fun GroupTripProposal(vehicles: List<MobilityVehicle>, busy: Boolean, propose: (MobilityTripInput) -> Unit) {
+@Composable private fun GroupTripProposal(vehicles: List<MobilityVehicle>, busy: Boolean, language: AppLanguage, propose: (MobilityTripInput) -> Unit) {
     var vehicle by remember { mutableStateOf(vehicles.firstOrNull()?.id.orEmpty()) }
     var vehicleMenu by remember { mutableStateOf(false) }
     var origin by remember { mutableStateOf("") }; var destination by remember { mutableStateOf("") }
-    var date by remember { mutableStateOf(intercityToday()) }; var time by remember { mutableStateOf("08:00") }
+    var date by remember { mutableStateOf(intercityToday()) }; var time by remember { mutableStateOf(EthiopianDateTime.clockValueFromEAT(8, 0)) }
     var seats by remember { mutableStateOf("") }; var fare by remember { mutableStateOf("") }
     var point by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var destinationPoint by remember { mutableStateOf<Pair<Double, Double>?>(null) }
@@ -301,8 +302,8 @@ private suspend fun loadMobilityCargoPhoto(api: MobilityApi, requestId: String):
         }
         CargoLocationField("Departure / boarding point", origin, false, "group_proposal_origin", !busy) { mapOpen = "pickup" }
         CargoLocationField("Destination", destination, false, "group_proposal_destination", !busy) { mapOpen = "destination" }
-        MobilityDateField(date, { date = it })
-        MobilityField(time, { time = it.take(5) }, "Departure time · HH:mm · Ethiopia time", "group_proposal_time")
+        MobilityDateField(date, { date = it }, language = language)
+        EthiopianTimeField(time, { time = it }, intercityText(language, "Departure time · Ethiopia time", "የመነሻ ሰዓት · የኢትዮጵያ ሰዓት", "Yeroo ka'umsaa · yeroo Itoophiyaa"), "group_proposal_time", !busy, language)
         MobilityField(seats, { seats = it.filter(Char::isDigit).take(3) }, "Bookable seats · vehicle limit ${vehicles.find { it.id == vehicle }?.capacityLimit ?: 0}", "group_proposal_seats", number = true)
         MobilityField(fare, { fare = it }, "Price per seat · ETB", "group_proposal_fare", number = true)
         problem?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -319,12 +320,7 @@ private suspend fun loadMobilityCargoPhoto(api: MobilityApi, requestId: String):
         }
     }
 }
-internal fun mobilityDepartureIso(date: String, time: String): String? = runCatching {
-    require(Regex("\\d{4}-\\d{2}-\\d{2}").matches(date) && Regex("\\d{2}:\\d{2}").matches(time))
-    val source = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).apply { isLenient = false; timeZone = TimeZone.getTimeZone("Africa/Addis_Ababa") }
-    val parsed = source.parse("$date $time") ?: return null
-    SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(parsed)
-}.getOrNull()
+internal fun mobilityDepartureIso(date: String, time: String): String? = EthiopianDateTime.toApiTimestamp(date, time)
 
 internal fun hasMobilityLocationPermission(context: Context) = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 @Suppress("MissingPermission", "DEPRECATION")

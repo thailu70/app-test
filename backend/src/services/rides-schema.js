@@ -15,7 +15,7 @@ async function initRidesSchema(db = require("../db").DB) {
       CREATE TABLE IF NOT EXISTS ride_availability (driver_id TEXT PRIMARY KEY REFERENCES users(id),vehicle_id TEXT REFERENCES vehicles(id),online INTEGER NOT NULL DEFAULT 0,latitude REAL,longitude REAL,accuracy_meters REAL,recorded_at TEXT,updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS ride_jobs (
         id TEXT PRIMARY KEY,passenger_id TEXT REFERENCES users(id),driver_id TEXT REFERENCES users(id),vehicle_id TEXT REFERENCES vehicles(id),status TEXT NOT NULL,source TEXT NOT NULL,tier TEXT NOT NULL,
-        route_json TEXT NOT NULL,tariff_json TEXT NOT NULL,estimate_json TEXT NOT NULL,pin_hash TEXT,pin_cipher TEXT,idempotency_owner TEXT NOT NULL,idempotency_key TEXT NOT NULL,
+        route_json TEXT NOT NULL,tariff_json TEXT NOT NULL,estimate_json TEXT NOT NULL,pin_hash TEXT,pin_cipher TEXT,idempotency_owner TEXT NOT NULL,idempotency_key TEXT NOT NULL,street_passenger_phone TEXT NOT NULL DEFAULT '',
         commission_cents INTEGER NOT NULL DEFAULT 0,settlement TEXT NOT NULL DEFAULT 'NONE',distance_m REAL NOT NULL DEFAULT 0,waiting_seconds INTEGER NOT NULL DEFAULT 0,
         last_sequence INTEGER NOT NULL DEFAULT 0,last_latitude REAL,last_longitude REAL,last_accuracy REAL,last_point_at TEXT,waiting_since TEXT,waiting_kind TEXT,waiting_verified_until TEXT,waiting_latitude REAL,waiting_longitude REAL,stop_requested INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,accepted_at TEXT,arrived_at TEXT,started_at TEXT,completed_at TEXT,cancel_reason TEXT NOT NULL DEFAULT '',quality_flags TEXT NOT NULL DEFAULT '',
@@ -45,6 +45,24 @@ async function initRidesSchema(db = require("../db").DB) {
       );
       CREATE INDEX IF NOT EXISTS ride_sms_delivery ON ride_sms_outbox(status,next_attempt_at);
     `);
+          if (db.isPostgres) {
+            await db.prepare('ALTER TABLE ride_jobs ADD COLUMN IF NOT EXISTS street_passenger_phone TEXT NOT NULL DEFAULT \'\'').run();
+          } else {
+            const columns = await db.prepare('PRAGMA table_info(ride_jobs)').all();
+            if (!columns.some(column => column.name === 'street_passenger_phone'))
+              await db.prepare("ALTER TABLE ride_jobs ADD COLUMN street_passenger_phone TEXT NOT NULL DEFAULT ''").run();
+          }
+          await db.exec('CREATE INDEX IF NOT EXISTS ride_job_street_phone ON ride_jobs(street_passenger_phone,source,created_at)');
+          const legacyStreetRows = await db.prepare("SELECT id,route_json FROM ride_jobs WHERE source='STREET' AND street_passenger_phone=''").all();
+          if (legacyStreetRows.length) {
+            const { normalizePhone } = require('./afro-sms');
+            const update = db.prepare('UPDATE ride_jobs SET street_passenger_phone=? WHERE id=?');
+            for (const row of legacyStreetRows) {
+              let phone = '';
+              try { phone = normalizePhone(JSON.parse(row.route_json || '{}').streetPassengerPhone); } catch (_) {}
+              if (phone) await update.run(phone, row.id);
+            }
+          }
           if (db.isPostgres) {
             await db.prepare('ALTER TABLE ride_sms_outbox ADD COLUMN IF NOT EXISTS gateway_job_id TEXT').run();
             await db.prepare('ALTER TABLE ride_sms_outbox ADD COLUMN IF NOT EXISTS failure_code TEXT').run();

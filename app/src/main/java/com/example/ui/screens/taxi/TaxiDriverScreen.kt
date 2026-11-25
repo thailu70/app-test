@@ -45,8 +45,10 @@ import kotlinx.coroutines.launch
 @Composable fun TaxiDriverScreen(main: MainViewModel, onExit: () -> Unit,
     onCargoPortal: (() -> Unit)? = null, onSignOut: () -> Unit = {}) {
     val user by main.currentUser.collectAsState()
+    val language by main.currentLanguage.collectAsState()
     val model = taxiViewModel(true, true)
     TaxiDriverContent(user?.id.orEmpty(), model, onExit, main = main,
+        language = language,
         showDailyCommute = user?.driverServiceType == "DAILY_COMMUTE",
         onCargoPortal = onCargoPortal?.takeIf { user?.driverServiceType in setOf("CARGO", "GROUP_TRAVEL") },
         cargoPortalLabel = if (user?.driverServiceType == "GROUP_TRAVEL") "Group travel portal" else "Cargo portal",
@@ -56,7 +58,8 @@ import kotlinx.coroutines.launch
 @Composable internal fun TaxiDriverContent(userId: String, model: TaxiViewModel, onExit: () -> Unit,
     trackingEnabled: Boolean = true, mapTiles: Boolean = true, mapApi: MobilityApi? = null,
     main: MainViewModel? = null, showDailyCommute: Boolean = true, onCargoPortal: (() -> Unit)? = null,
-    cargoPortalLabel: String = "Cargo portal", onSignOut: () -> Unit = {}) {
+    cargoPortalLabel: String = "Cargo portal", onSignOut: () -> Unit = {},
+    language: com.example.core.localization.AppLanguage = com.example.core.localization.AppLanguage.ENGLISH) {
     val state by model.state.collectAsState()
     val context = LocalContext.current; val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf("calls") }
@@ -69,6 +72,7 @@ import kotlinx.coroutines.launch
     var driverFix by remember { mutableStateOf<MobilityLocation?>(null) }
     var formPickup by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var formPickupName by remember { mutableStateOf("Your location") }
+    var driverAreaName by remember { mutableStateOf("Your location") }
     var requestPool by remember { mutableStateOf("TAXI") }
     var driverMenu by remember { mutableStateOf(false) }
     val pushFocus by com.example.core.notifications.RideNotificationNavigation.focus.collectAsState()
@@ -90,7 +94,7 @@ import kotlinx.coroutines.launch
         if (Build.VERSION.SDK_INT >= 33) items.add(Manifest.permission.POST_NOTIFICATIONS)
         permissions.launch(items.toTypedArray()); return false
     }
-    fun withFix(action: (Map<String, Any>) -> Unit) {
+    fun withFreshFix(resolveArea: Boolean, action: (Map<String, Any>) -> Unit) {
         if (locating || !allowed()) return
         locating = true; scope.launch {
             try {
@@ -100,6 +104,11 @@ import kotlinx.coroutines.launch
                 driverFix = MobilityLocation(location.latitude, location.longitude,
                     java.time.Instant.ofEpochMilli(location.time).toString(),
                     if (location.hasAccuracy()) location.accuracy.toDouble() else null)
+                if (resolveArea) {
+                    val point = location.latitude to location.longitude
+                    driverAreaName = nearestTaxiPickupArea(mapApi, context, point, language)
+                        ?: String.format(java.util.Locale.US, "%.5f, %.5f", point.first, point.second)
+                }
                 action(location.taxiBody())
             }
             catch (e: CancellationException) { throw e }
@@ -107,6 +116,8 @@ import kotlinx.coroutines.launch
             finally { locating = false }
         }
     }
+    fun withFix(action: (Map<String, Any>) -> Unit) = withFreshFix(false, action)
+    fun withFixAndArea(action: (Map<String, Any>) -> Unit) = withFreshFix(true, action)
     LaunchedEffect(state.dashboard?.vehicles) { if (state.dashboard?.vehicles?.none { it.id == vehicleId } != false) vehicleId = state.dashboard?.vehicles?.firstOrNull()?.id.orEmpty() }
     val tripToTrack = state.selectedTrip?.takeIf { sharedActive(it.status) && it.driverId == userId }
         ?: state.myTrips.firstOrNull { sharedActive(it.status) }
@@ -146,7 +157,7 @@ import kotlinx.coroutines.launch
                 page == "commute" -> DriverDailyCommuteBrowse(main = main, onBack = { page = "calls" })
                 page in setOf("street", "offer") -> TaxiTripForm(state = state, driver = true, street = page == "street", model = model,
                     onClose = { page = "calls"; requested = null }, acceptRequest = requested,
-                    initialPickup = formPickup, initialOrigin = formPickupName, mapTiles = mapTiles, mapApi = mapApi,
+                    initialPickup = formPickup, initialOrigin = formPickupName, mapTiles = mapTiles, mapApi = mapApi, language = language,
                     onAvailabilityChange = { online, selectedVehicle ->
                         if (online) withFix { model.online(true, selectedVehicle, it) }
                         else model.online(false, selectedVehicle, emptyMap())
@@ -155,7 +166,7 @@ import kotlinx.coroutines.launch
                 }
                 page == "settings" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(15.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Settings", color = CommuteInk, fontWeight = FontWeight.ExtraBold, fontSize = 27.sp)
-                    com.example.core.notifications.MobilityAlertToneSettings(driver = true, language = com.example.core.localization.AppLanguage.ENGLISH)
+                    com.example.core.notifications.MobilityAlertToneSettings(driver = true, language = language)
                 }
                 else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 15.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     val dashboard = state.dashboard
@@ -178,7 +189,7 @@ import kotlinx.coroutines.launch
                             val requestMarkers = dashboard.calls.map { TaxiNearbyCar(it.originLatitude, it.originLongitude, it.tier) } +
                                 dashboard.sharedRequests.map { TaxiNearbyCar(it.originLatitude, it.originLongitude, "GROUP") }
                             Box(Modifier.fillMaxWidth().height(250.dp).clip(RoundedCornerShape(22.dp))) {
-                            TaxiMap(null, null, driver = driverFix, height = 250, pickupLabel = "Your location", destinationLabel = "",
+                            TaxiMap(null, null, driver = driverFix, height = 250, pickupLabel = driverAreaName, destinationLabel = "",
                                     tileDownloadsEnabled = mapTiles, providedApi = mapApi, nearbyCars = requestMarkers)
                                 Surface(Modifier.align(Alignment.TopStart).padding(10.dp), color = PassoMobilityPalette.card.copy(alpha = .96f),
                                     shape = RoundedCornerShape(18.dp), shadowElevation = 3.dp) {
@@ -215,18 +226,18 @@ import kotlinx.coroutines.launch
                             }
                             com.example.core.notifications.MobilityNotificationOptIn(driver = true, taxi = true)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { withFix { point ->
+                                OutlinedButton(onClick = { withFixAndArea { point ->
                                     formPickup = (point["latitude"] as Number).toDouble() to (point["longitude"] as Number).toDouble()
-                                    formPickupName = "Your location"; page = "street"; requested = null; model.clearEstimate()
+                                    formPickupName = driverAreaName; page = "street"; requested = null; model.clearEstimate()
                                 } }, enabled = !state.busy && !locating && dashboard.eligible && state.settings.enabled,
                                     modifier = Modifier.weight(1f), shape = RoundedCornerShape(24.dp),
                                     colors = ButtonDefaults.outlinedButtonColors(containerColor = CommuteMint, contentColor = CommuteTeal),
                                     border = androidx.compose.foundation.BorderStroke(1.dp, CommuteTeal)) {
                                     Icon(Icons.Default.PersonPinCircle, null, Modifier.size(18.dp)); Text("Street pickup", Modifier.padding(start = 5.dp), fontSize = 12.sp)
                                 }
-                                OutlinedButton(onClick = { withFix { point ->
+                                OutlinedButton(onClick = { withFixAndArea { point ->
                                     formPickup = (point["latitude"] as Number).toDouble() to (point["longitude"] as Number).toDouble()
-                                    formPickupName = "Your location"; page = "offer"; requested = null; model.clearEstimate()
+                                    formPickupName = driverAreaName; page = "offer"; requested = null; model.clearEstimate()
                                 } }, enabled = !state.busy && !locating && dashboard.eligible && state.settings.sharedEnabled,
                                     modifier = Modifier.weight(1f), shape = RoundedCornerShape(24.dp),
                                     colors = ButtonDefaults.outlinedButtonColors(containerColor = CommuteMint, contentColor = CommuteTeal),

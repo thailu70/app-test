@@ -6,6 +6,7 @@ import com.example.core.session.AndroidSessionStore
 import com.example.data.api.*
 import com.example.data.dao.TransportDao
 import com.example.data.entity.*
+import com.example.core.time.EthiopianDateTime
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -698,7 +699,7 @@ class TransportRepository(
             vehicleId = vehicleId,
             driverId = driverId,
             stopName = stopName,
-            checkInTimestamp = SimpleDateFormat("dd MMM, hh:mm a", Locale.US).format(Date()),
+            checkInTimestamp = EthiopianDateTime.apiTimestamp(),
             status = "PRESENT",
             latitude = 9.01,
             longitude = 38.75
@@ -726,7 +727,7 @@ class TransportRepository(
             action = action,
             userId = userId,
             role = role,
-            timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date()),
+            timestamp = EthiopianDateTime.apiTimestamp(),
             details = details
         )
         dao.insertAuditLog(log)
@@ -747,7 +748,7 @@ class TransportRepository(
                         title = n.title,
                         message = n.message,
                         targetAudience = n.targetAudience,
-                        timestamp = n.timestamp ?: SimpleDateFormat("dd MMM, hh:mm a", Locale.US).format(Date()),
+                        timestamp = n.timestamp ?: EthiopianDateTime.apiTimestamp(),
                         type = n.type ?: "ALERT",
                         senderName = n.senderName ?: "Transport Operations"
                     )
@@ -771,7 +772,7 @@ class TransportRepository(
             title = title,
             message = message,
             targetAudience = targetAudience,
-            timestamp = SimpleDateFormat("dd MMM, hh:mm a", Locale.US).format(Date()),
+            timestamp = EthiopianDateTime.apiTimestamp(),
             type = type,
             senderName = senderName
         )
@@ -846,9 +847,10 @@ class TransportRepository(
         idempotencyKey: String
     ): TelebirrPaymentResult {
         val txnId = "tx_tb_" + UUID.randomUUID().toString().take(8)
-        val txnRef = "TB-ET-" + SimpleDateFormat("yyyyMMdd", Locale.US).format(Date()) + "-" + (1000..9999).random()
-        val nowStr = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.US).format(Date())
-        val subId = "sub_" + passengerId + "_" + SimpleDateFormat("yyyyMM", Locale.US).format(Date())
+        val ethiopiaZone = java.util.TimeZone.getTimeZone(EthiopianDateTime.TIME_ZONE_ID)
+        val txnRef = "TB-ET-" + SimpleDateFormat("yyyyMMdd", Locale.US).apply { timeZone = ethiopiaZone }.format(Date()) + "-" + (1000..9999).random()
+        val nowStr = EthiopianDateTime.apiTimestamp()
+        val subId = "sub_" + passengerId + "_" + SimpleDateFormat("yyyyMM", Locale.US).apply { timeZone = ethiopiaZone }.format(Date())
         val signedToken = "RP1:$subId:$passengerId:$routeId:${System.currentTimeMillis() + 30L * 86400000}:OFFLINE_PASS"
 
         val newSub = SubscriptionEntity(
@@ -859,8 +861,8 @@ class TransportRepository(
             destinationStopId = destinationStopId.ifBlank { "stop_merkato" },
             morningSchedule = morningSchedule.ifBlank { "06:30" },
             eveningSchedule = eveningSchedule.ifBlank { "17:30" },
-            startDate = SimpleDateFormat("dd MMM yyyy", Locale.US).format(Date()),
-            endDate = SimpleDateFormat("dd MMM yyyy", Locale.US).format(Date(System.currentTimeMillis() + 30L * 86400000)),
+            startDate = SimpleDateFormat("dd MMM yyyy", Locale.US).apply { timeZone = ethiopiaZone }.format(Date()),
+            endDate = SimpleDateFormat("dd MMM yyyy", Locale.US).apply { timeZone = ethiopiaZone }.format(Date(System.currentTimeMillis() + 30L * 86400000)),
             priceEtb = amountEtb,
             paymentStatus = "PAID",
             subscriptionStatus = "ACTIVE",

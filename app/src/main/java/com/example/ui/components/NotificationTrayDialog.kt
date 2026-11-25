@@ -19,6 +19,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.example.core.localization.AppLanguage
+import com.example.core.time.EthiopianDateTime
 import com.example.data.entity.NotificationEntity
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.AppRole
@@ -27,6 +29,7 @@ import com.example.ui.viewmodel.AppRole
 fun NotificationTrayDialog(
     role: AppRole,
     notifications: List<NotificationEntity>,
+    language: AppLanguage = AppLanguage.ENGLISH,
     onDismiss: () -> Unit,
     onSendBroadcast: (title: String, message: String, audience: String) -> Unit
 ) {
@@ -201,7 +204,7 @@ fun NotificationTrayDialog(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(notifications) { item ->
-                            NotificationItemCard(item = item)
+                            NotificationItemCard(item = item, language = language)
                         }
                     }
                 }
@@ -211,7 +214,7 @@ fun NotificationTrayDialog(
 }
 
 @Composable
-fun NotificationItemCard(item: NotificationEntity) {
+fun NotificationItemCard(item: NotificationEntity, language: AppLanguage = AppLanguage.ENGLISH) {
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = Slate50),
@@ -251,7 +254,7 @@ fun NotificationItemCard(item: NotificationEntity) {
                     )
                 }
                 Text(
-                    text = item.timestamp,
+                    text = EthiopianDateTime.formatTimestamp(item.timestamp, language),
                     style = MaterialTheme.typography.labelSmall,
                     color = Slate400
                 )

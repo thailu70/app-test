@@ -16,6 +16,8 @@
     return leafletLoading;
   }
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
+  const ethiopianDateTime = value => window.PassoEthiopianDateTime?.formatTimestamp(value) || String(value || '—');
+  const ethiopianClock = value => window.PassoEthiopianDateTime?.formatClock(value) || String(value || '—');
   const label = status => ({ LIVE:'Live', STALE:'Stale GPS', OFFLINE:'Offline', NO_GPS:'No GPS yet' })[status] || 'No GPS yet';
   const badge = status => '<span class="fleet-badge ' + esc(status.toLowerCase()) + '">' + label(status) + '</span>';
   function age(seconds) {
@@ -81,7 +83,7 @@
           const loc = row.location;
           if (!loc.hasGpsLocation || !Number.isFinite(loc.latitude) || !Number.isFinite(loc.longitude)) continue;
           window.L.marker([loc.latitude, loc.longitude], { icon: window.L.divIcon({ className: 'fleet-pin ' + loc.status.toLowerCase(), iconSize: [22, 22], iconAnchor: [11, 11] }), title: (row.driver?.name || 'Unassigned driver') + ' · ' + row.plateNumber + ' · ' + label(loc.status) })
-            .bindPopup('<div class="fleet-popup"><strong>' + esc(row.plateNumber) + '</strong><br>' + esc(row.driver?.name || 'No assigned driver') + '<br>' + esc(row.route?.name || 'No route assigned') + '<br>' + label(loc.status) + ' · ' + age(loc.ageSeconds) + '<br>' + esc(new Date(loc.lastGpsAt).toLocaleString()) + '</div>').addTo(markers);
+            .bindPopup('<div class="fleet-popup"><strong>' + esc(row.plateNumber) + '</strong><br>' + esc(row.driver?.name || 'No assigned driver') + '<br>' + esc(row.route?.name || 'No route assigned') + '<br>' + label(loc.status) + ' · ' + age(loc.ageSeconds) + '<br>' + esc(ethiopianDateTime(loc.lastGpsAt)) + '</div>').addTo(markers);
         }
         if (fitInitially && markers.getLayers().length) { fit(); fitInitially = false; }
       } catch (error) { if (mounted) $('[data-fleet-map-note]').textContent = error.message; }
@@ -94,7 +96,7 @@
       const visible = visibleRows();
       $('[data-fleet-rows]').innerHTML = visible.length ? visible.map(row => {
         const loc = row.location, has = loc.hasGpsLocation;
-        return '<tr><td><strong>' + esc(row.driver?.name || 'No assigned driver') + '</strong><small>' + esc(row.plateNumber) + ' · ' + esc(row.model) + '</small><small>' + esc(row.driver?.phone || '') + '</small></td><td>' + esc(row.route?.name || 'No route assigned') + '<small>' + esc(row.trip ? (row.trip.type === 'INTERCITY' ? 'Intercity · Boarding / route active' : 'Daily commute · Route active') : 'No active route') + '</small></td><td>' + badge(loc.status) + '</td><td>' + age(loc.ageSeconds) + '<small>' + esc(loc.lastGpsAt ? new Date(loc.lastGpsAt).toLocaleString() : 'Waiting for driver phone') + '</small></td><td>' + (has ? Number(loc.latitude).toFixed(5) + ', ' + Number(loc.longitude).toFixed(5) : '—') + '<small>' + esc(loc.currentStop || '') + '</small></td><td>' + (has ? '<button type="button" data-fleet-focus="' + esc(row.id) + '">Locate</button>' : '—') + '</td></tr>';
+        return '<tr><td><strong>' + esc(row.driver?.name || 'No assigned driver') + '</strong><small>' + esc(row.plateNumber) + ' · ' + esc(row.model) + '</small><small>' + esc(row.driver?.phone || '') + '</small></td><td>' + esc(row.route?.name || 'No route assigned') + '<small>' + esc(row.trip ? (row.trip.type === 'INTERCITY' ? 'Intercity · Boarding / route active' : 'Daily commute · Route active') : 'No active route') + '</small></td><td>' + badge(loc.status) + '</td><td>' + age(loc.ageSeconds) + '<small>' + esc(loc.lastGpsAt ? ethiopianDateTime(loc.lastGpsAt) : 'Waiting for driver phone') + '</small></td><td>' + (has ? Number(loc.latitude).toFixed(5) + ', ' + Number(loc.longitude).toFixed(5) : '—') + '<small>' + esc(loc.currentStop || '') + '</small></td><td>' + (has ? '<button type="button" data-fleet-focus="' + esc(row.id) + '">Locate</button>' : '—') + '</td></tr>';
       }).join('') : '<tr><td colspan="6" class="fleet-empty">' + (rows.length ? 'No vehicles match your filters.' : 'No fleet vehicles are registered yet. Add a vehicle and assign its driver and route to get started.') + '</td></tr>';
       drawMap();
     }
@@ -115,7 +117,7 @@
         if (!mounted) return;
         rows = Array.isArray(body.vehicles) ? body.vehicles : [];
         $('[data-fleet-message]').classList.remove('error');
-        $('[data-fleet-message]').textContent = 'Last refreshed ' + new Date().toLocaleTimeString() + ' · ' + rows.length + ' vehicle(s). ' + (rows.some(r => r.location?.hasGpsLocation) ? 'Only real GPS reports are plotted.' : 'Waiting for a driver to send GPS.');
+        $('[data-fleet-message]').textContent = 'Last refreshed ' + ethiopianClock(Date.now()) + ' · ' + rows.length + ' vehicle(s). ' + (rows.some(r => r.location?.hasGpsLocation) ? 'Only real GPS reports are plotted.' : 'Waiting for a driver to send GPS.');
       } catch (error) {
         if (!mounted) return;
         $('[data-fleet-message]').classList.add('error');

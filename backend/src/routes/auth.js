@@ -376,10 +376,12 @@ router.post('/login', authLimiter, async (req, res) => {
       });
     }
 
-    // Passenger and driver accounts now sign in only with a one-time SMS code.
-    // Keep the password path for administrator access while preventing older
-    // clients from silently bypassing OTP for customer or driver accounts.
-    if (user.role !== 'ADMIN') {
+    // Production passenger and driver accounts use OTP only. The isolated
+    // Google Play reviewer runtime has its own synthetic database, fixtures,
+    // and generated demo password, so it may use password login without
+    // enabling this path in the live service.
+    const reviewRuntime = require('../review/isolation').getReviewRuntime();
+    if (user.role !== 'ADMIN' && !reviewRuntime) {
       return res.status(410).json({ success: false, code: 'OTP_REQUIRED', error: 'Sign in with your phone number and SMS code.' });
     }
 

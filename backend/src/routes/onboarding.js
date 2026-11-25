@@ -24,7 +24,9 @@ function createOnboardingRouter({ service = createOnboardingService(), rateLimit
     res.status(201).json(await issue(await service.register({ ...(req.body || {}), requireVerifiedPhone: true })));
   }));
   router.post('/login', loginLimit, asyncRoute(async (req, res) => {
-    if (String(req.body?.role || '').toUpperCase() === 'DRIVER') throw new OnboardingError(410, 'Sign in with your phone number and SMS code.');
+    if (String(req.body?.role || '').toUpperCase() === 'DRIVER' && !require('../review/isolation').getReviewRuntime()) {
+      throw new OnboardingError(410, 'Sign in with your phone number and SMS code.');
+    }
     res.json(await issue(await service.login(req.body || {})));
   }));
   router.post('/login-otp', loginLimit, asyncRoute(async (req, res) => res.json(await issue(await service.loginWithOtp(req.body || {})))));

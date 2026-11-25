@@ -50,8 +50,83 @@
   }
   function dateText(v) {
     if (!v || v === "—") return "—";
-    const d = new Date(v);
-    return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleString();
+    if (window.PassoEthiopianDateTime) return window.PassoEthiopianDateTime.formatTimestamp(v);
+    const raw = String(v);
+    const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
+    const d = isDateOnly
+      ? (() => { const [year, month, day] = raw.split("-").map(Number); return new Date(Date.UTC(year, month - 1, day, 12)); })()
+      : new Date(raw);
+    if (Number.isNaN(d.getTime())) return raw;
+    if (isDateOnly) return new Intl.DateTimeFormat("en-ET-u-ca-ethiopic", { timeZone: "Africa/Addis_Ababa", dateStyle: "medium" }).format(d);
+    const eatHour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Addis_Ababa", hour: "2-digit", hourCycle: "h23" }).format(d));
+    const minute = new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Addis_Ababa", minute: "2-digit" }).format(d);
+    const etHour = (eatHour + 18) % 24;
+    const hour12 = etHour % 12 || 12;
+    const part = etHour <= 11 ? "Day" : etHour <= 17 ? "Evening" : "Night";
+    const shifted = new Date(d.getTime() - 6 * 60 * 60 * 1000);
+    const date = new Intl.DateTimeFormat("en-ET-u-ca-ethiopic", { timeZone: "Africa/Addis_Ababa", dateStyle: "medium" }).format(shifted);
+    return date + " · " + String(hour12).padStart(2, "0") + ":" + String(minute).padStart(2, "0") + " · " + part;
+  }
+  function eatToEthiopianClock(value) {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(String(value || ""));
+    const eatHour = match ? Number(match[1]) : 6;
+    const minute = match ? Number(match[2]) : 0;
+    const etHour = ((eatHour - 6) % 24 + 24) % 24;
+    return { hour: etHour % 12 || 12, minute, period: etHour < 12 ? "D" : etHour < 18 ? "E" : "N" };
+  }
+  function ethiopianToEat(hour, minute, period) {
+    const value = Number(hour);
+    const normalized = period === "N" ? (value >= 6 && value <= 11 ? value : 6)
+      : period === "E" ? (value === 12 || (value >= 1 && value <= 5) ? value : 12)
+      : value;
+    const etHour = period === "D" ? normalized % 12 : period === "E" ? 12 + normalized % 12 : 12 + normalized;
+    return String((etHour + 6) % 24).padStart(2, "0") + ":" + String(minute).padStart(2, "0");
+  }
+  function ethiopianPeriodLabel(hour, period) {
+    if (period === "D") return "ቀን · Day";
+    if (period === "E") return "ማታ · Evening";
+    return "ሌሊት · Night";
+  }
+  function bindEthiopianTimePicker(form, fieldName) {
+    const hidden = form.elements.namedItem(fieldName);
+    const host = form.querySelector('[data-ethiopian-time-picker="' + fieldName + '"]');
+    if (!hidden || !host) return;
+    const hours = Array.from({ length: 12 }, (_, i) => i + 1).map(hour => '<option value="' + hour + '">' + String(hour).padStart(2, "0") + '</option>').join("");
+    const minutes = Array.from({ length: 60 }, (_, i) => '<option value="' + i + '">' + String(i).padStart(2, "0") + '</option>').join("");
+    host.innerHTML = '<div class="ethiopian-time-controls"><label>Hour · ሰዓት<select data-clock-hour aria-label="Ethiopian clock hour">' + hours + '</select></label>' +
+      '<label>Minute · ደቂቃ<select data-clock-minute aria-label="Minute">' + minutes + '</select></label>' +
+      '<label>Period<select data-clock-period aria-label="Ethiopian day period"><option value="D">ቀን · Day</option><option value="E">ማታ · Evening</option><option value="N">ሌሊት · Night</option></select></label></div><span class="ethiopian-time-preview" data-clock-preview></span>';
+    const hourInput = host.querySelector('[data-clock-hour]'), minuteInput = host.querySelector('[data-clock-minute]'), periodInput = host.querySelector('[data-clock-period]');
+    const sync = () => {
+      const normalizedHour = periodInput.value === "N" ? (Number(hourInput.value) >= 6 && Number(hourInput.value) <= 11 ? hourInput.value : "6")
+        : periodInput.value === "E" ? (hourInput.value === "12" || (Number(hourInput.value) >= 1 && Number(hourInput.value) <= 5) ? hourInput.value : "12")
+        : hourInput.value;
+      hourInput.value = normalizedHour;
+      hidden.value = ethiopianToEat(hourInput.value, minuteInput.value, periodInput.value);
+      host.querySelector('[data-clock-preview]').textContent = String(hourInput.value).padStart(2, "0") + ":" + String(minuteInput.value).padStart(2, "0") + " · " + ethiopianPeriodLabel(hourInput.value, periodInput.value);
+    };
+    const load = () => {
+      const parts = eatToEthiopianClock(hidden.value);
+      hourInput.value = String(parts.hour); minuteInput.value = String(parts.minute); periodInput.value = parts.period; sync();
+    };
+    [hourInput, minuteInput, periodInput].forEach(input => input.addEventListener("change", sync));
+    form.addEventListener("reset", () => setTimeout(load, 0));
+    load();
+  }
+  function refreshEthiopianTimePicker(form, fieldName) {
+    const hidden = form.elements.namedItem(fieldName), host = form.querySelector('[data-ethiopian-time-picker="' + fieldName + '"]');
+    if (!hidden || !host) return;
+    const parts = eatToEthiopianClock(hidden.value);
+    const hour = host.querySelector('[data-clock-hour]'), minute = host.querySelector('[data-clock-minute]'), period = host.querySelector('[data-clock-period]');
+    hour.value = String(parts.hour); minute.value = String(parts.minute); period.value = parts.period;
+    if (period.value === "N" && (Number(hour.value) < 6 || Number(hour.value) > 11)) hour.value = "6";
+    if (period.value === "E" && Number(hour.value) !== 12 && (Number(hour.value) < 1 || Number(hour.value) > 5)) hour.value = "12";
+    host.querySelector('[data-clock-preview]').textContent = String(hour.value).padStart(2, "0") + ":" + String(minute.value).padStart(2, "0") + " · " + ethiopianPeriodLabel(hour.value, period.value);
+  }
+  function ethiopianTimeText(value) {
+    const parts = eatToEthiopianClock(value);
+    if (!/^\d{1,2}:\d{2}$/.test(String(value || ""))) return String(value || "—");
+    return String(parts.hour).padStart(2, "0") + ":" + String(parts.minute).padStart(2, "0") + " · " + ethiopianPeriodLabel(String(parts.hour), parts.period);
   }
   function pill(status) {
     const text = String(status ?? "UNKNOWN");
@@ -349,15 +424,15 @@
         '<div class="field"><label for="route-name-am">Route name (Amharic) *</label><input id="route-name-am" name="nameAm" required maxlength="120" placeholder="ቦሌ - መርካቶ"></div>' +
         '<div class="field"><label for="route-description">Description</label><input id="route-description" name="description" maxlength="400"></div>' +
         '<div class="field"><label for="route-distance">Distance (km)</label><input id="route-distance" name="distanceKm" type="number" min="0.1" step="0.1" value="10"></div>' +
-        '<div class="field"><label for="route-morning">Morning departure</label><input id="route-morning" name="morningDeparture" type="time" value="06:30" required></div>' +
-        '<div class="field"><label for="route-evening">Evening departure</label><input id="route-evening" name="eveningDeparture" type="time" value="17:30" required></div>' +
+        '<div class="field"><label for="route-morning">Morning departure · Ethiopian time</label><input id="route-morning" name="morningDeparture" type="hidden" value="06:30"><div data-ethiopian-time-picker="morningDeparture"></div></div>' +
+        '<div class="field"><label for="route-evening">Evening departure · Ethiopian time</label><input id="route-evening" name="eveningDeparture" type="hidden" value="17:30"><div data-ethiopian-time-picker="eveningDeparture"></div></div>' +
         '</div><div class="field" style="margin-top:14px"><strong>Route locations</strong><span class="hint">Search saved locations or choose a point on the map. Add any stops in travel order.</span><div id="route-location-editor"></div></div>' +
         '<input name="routeId" type="hidden"><div class="form-actions"><button class="btn btn-primary" type="submit">Create route</button><button class="btn btn-secondary" id="route-cancel" type="button" hidden>Cancel edit</button></div><p id="route-form-message" class="form-message" hidden role="status"></p></form>') +
       section("Existing routes", routes.length + " route(s)",
         table([
           { label: "Route", render: r => "<strong>" + esc(value(r, "name")) + "</strong><br><span class=\"muted\">" + esc(value(r, "nameAm", "name_am")) + "</span>" },
-          { label: "Morning", keys: ["morningDeparture", "morning_departure"] },
-          { label: "Evening", keys: ["eveningDeparture", "evening_departure"] },
+          { label: "Morning · Ethiopia time", render: r => esc(ethiopianTimeText(value(r, "morningDeparture", "morning_departure"))) },
+          { label: "Evening · Ethiopia time", render: r => esc(ethiopianTimeText(value(r, "eveningDeparture", "evening_departure"))) },
           { label: "Distance", render: r => esc(value(r, "distanceKm", "distance_km")) + " km" },
           { label: "Status", render: r => pill(value(r, "active") === false || value(r, "active") === 0 ? "INACTIVE" : "ACTIVE") },
           { label: "Actions", render: r => '<div class="inline-actions"><button class="btn btn-secondary" data-edit-route="' + esc(r.id) + '">Edit</button><button class="btn btn-secondary" data-geofence-route="' + esc(r.id) + '">Departure area</button><button class="btn btn-secondary" data-toggle-route="' + esc(r.id) + '">' + (r.active === false || r.active === 0 ? "Activate" : "Deactivate") + '</button></div>' }
@@ -607,6 +682,8 @@
       const routeForm = $("#create-route-form");
       if (routeForm) {
         routeEditor = window.PassoRouteEditor.mount({ container: $("#route-location-editor"), api });
+        bindEthiopianTimePicker(routeForm, "morningDeparture");
+        bindEthiopianTimePicker(routeForm, "eveningDeparture");
         routeForm.addEventListener("submit", submitRoute);
         const cancelButton = $("#route-cancel");
         if (cancelButton) cancelButton.addEventListener("click", cancelRouteEdit);
@@ -838,6 +915,8 @@
       if (field) field.value = value(route, ...keys) === "—" ? "" : value(route, ...keys);
     }
     form.elements.namedItem("routeId").value = routeId;
+    refreshEthiopianTimePicker(form, "morningDeparture");
+    refreshEthiopianTimePicker(form, "eveningDeparture");
     routeEditor.setStops(stops);
     form.querySelector('button[type="submit"]').textContent = "Save route changes";
     $("#route-cancel").hidden = false;

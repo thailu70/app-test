@@ -875,6 +875,17 @@ function createRidesService({
       ),
     );
   }
+  async function verifiedPassengerPhone(user, tx = db) {
+    if (!user?.id || user.role !== "PASSENGER") return "";
+    if (user._verifiedPassengerPhone) return user._verifiedPassengerPhone;
+    const account = await tx.prepare("SELECT phone FROM users WHERE id=? AND role='PASSENGER'").get(user.id);
+    return normalizePhone(account?.phone);
+  }
+  async function isStreetPassenger(row, viewer, tx = db) {
+    if (row?.source !== "STREET" || viewer?.role !== "PASSENGER") return false;
+    const ridePhone = normalizePhone(row.street_passenger_phone);
+    return Boolean(ridePhone && ridePhone === await verifiedPassengerPhone(viewer, tx));
+  }
   function waitingDetails(row) {
     const tariff = parse(row.tariff_json),
       multiplier = Number(tariff.multiplier || 1),
@@ -977,16 +988,17 @@ function createRidesService({
       paymentMode: "DIRECT_TO_DRIVER",
       qualityFlags: row.quality_flags || "",
     };
+    const streetPassenger = await isStreetPassenger(row, viewer, tx);
     const participant =
       viewer &&
       (viewer.role === "ADMIN" ||
         viewer.id === row.passenger_id ||
-        viewer.id === row.driver_id);
+        viewer.id === row.driver_id || streetPassenger);
     if (participant && !pool) {
-      if (row.passenger_id) {
+      if (row.passenger_id || streetPassenger) {
         const p = await tx
           .prepare("SELECT fullName,phone FROM users WHERE id=?")
-          .get(row.passenger_id);
+          .get(row.passenger_id || viewer.id);
         result.passengerName = p?.fullName || "";
         result.passengerPhone = p?.phone || "";
       }
@@ -1042,7 +1054,8 @@ function createRidesService({
       !(
         viewer.role === "ADMIN" ||
         viewer.id === row.passenger_id ||
-        viewer.id === row.driver_id
+        viewer.id === row.driver_id ||
+        await isStreetPassenger(row, viewer, tx)
       )
     )
       fail(404, "Ride unavailable.");
@@ -1427,7 +1440,7 @@ function createRidesService({
       await hold(tx, user.id, rid, cents);
       await tx
         .prepare(
-          "INSERT INTO ride_jobs(id,driver_id,vehicle_id,status,source,tier,route_json,tariff_json,estimate_json,idempotency_owner,idempotency_key,commission_cents,settlement,created_at,accepted_at,started_at,last_latitude,last_longitude,last_accuracy,last_point_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "INSERT INTO ride_jobs(id,driver_id,vehicle_id,status,source,tier,route_json,tariff_json,estimate_json,idempotency_owner,idempotency_key,street_passenger_phone,commission_cents,settlement,created_at,accepted_at,started_at,last_latitude,last_longitude,last_accuracy,last_point_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         )
         .run(
           rid,
@@ -1441,6 +1454,7 @@ function createRidesService({
           JSON.stringify(data.estimate),
           user.id,
           key,
+          streetPassengerPhone,
           cents,
           "HELD",
           instant(),
@@ -1904,7 +1918,6 @@ function createRidesService({
       if (r.status === "COMPLETED") return;
       if (r.status !== "IN_PROGRESS")
         fail(409, "Start the trip before completing it.");
-      geofence(r, p, "destination");
       if (
         input.finalSequence !== undefined &&
         Number(r.last_sequence) <
@@ -1919,15 +1932,7 @@ function createRidesService({
         r.quality_flags === "GPS_GAP" ||
         !r.last_point_at ||
         now() - Date.parse(r.last_point_at) > 120000 ||
-        Number(r.distance_m) < 50 ||
-        km(
-          Number(r.last_latitude),
-          Number(r.last_longitude),
-          p.latitude,
-          p.longitude,
-        ) *
-          1000 >
-          100
+        Number(r.distance_m) < 50
       )
         fail(
           409,
@@ -2005,12 +2010,14 @@ function createRidesService({
   }
   async function me(user) {
     await expireRequests();
+    const phone = await verifiedPassengerPhone(user);
+    const passengerView = { ...user, _verifiedPassengerPhone: phone };
     const rows = await db
         .prepare(
-          "SELECT * FROM ride_jobs WHERE passenger_id=? ORDER BY created_at DESC LIMIT 50",
+          "SELECT * FROM ride_jobs WHERE passenger_id=? OR (source='STREET' AND street_passenger_phone=? AND ?<>'') ORDER BY created_at DESC LIMIT 50",
         )
-        .all(user.id),
-      rides = await Promise.all(rows.map((r) => rideView(r, user)));
+        .all(user.id, phone, phone),
+      rides = await Promise.all(rows.map((r) => rideView(r, passengerView)));
     const shared = await db
         .prepare(
           "SELECT * FROM ride_shared_trips WHERE passenger_id=? ORDER BY departure_at DESC LIMIT 50",

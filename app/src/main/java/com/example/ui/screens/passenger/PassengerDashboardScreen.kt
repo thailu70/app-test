@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.example.core.localization.AppLanguage
+import com.example.core.time.EthiopianDateTime
 import com.example.data.entity.PaymentTransactionEntity
 import com.example.data.entity.RouteEntity
 import com.example.data.entity.SubscriptionEntity
@@ -304,7 +305,7 @@ fun SubscriptionStatusCard(
         } else {
             if (!userAppliedRoute.isNullOrBlank()) Text(userAppliedRoute, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Slate900)
             if (subscription.subscriptionStatus == "PENDING") Text(passengerText(lang, "Your pass is waiting for activation by your administrator.", "የጉዞ ፈቃድዎ በአስተዳዳሪዎ እስኪነቃ እየጠበቀ ነው።"), style = MaterialTheme.typography.bodySmall, color = Slate600)
-            if (subscription.endDate.isNotBlank()) DetailRow(passengerText(lang, "Valid until", "የሚያበቃበት ቀን"), subscription.endDate.take(10))
+            if (subscription.endDate.isNotBlank()) DetailRow(passengerText(lang, "Valid until", "የሚያበቃበት ቀን"), EthiopianDateTime.formatDate(subscription.endDate, lang))
             DetailRow(passengerText(lang, "Days remaining", "የቀሩ ቀናት"), daysLeft?.toString() ?: passengerText(lang, "Not available", "አልተገኘም"))
             DetailRow(passengerText(lang, "Payment", "ክፍያ"), paymentStatus(subscription.paymentStatus, lang))
             DetailRow(passengerText(lang, "Service class", "የአገልግሎት ደረጃ"), serviceClassLabel(subscription.serviceClass))
@@ -394,7 +395,7 @@ fun FinancialBalanceCard(
         if (subscription != null) {
             DetailRow(passengerText(lang, "Service class", "የአገልግሎት ደረጃ"), serviceClassLabel(subscription.serviceClass))
             DetailRow(passengerText(lang, "Payment status", "የክፍያ ሁኔታ"), paymentStatus(subscription.paymentStatus, lang))
-            if (subscription.endDate.isNotBlank()) DetailRow(passengerText(lang, "Pass valid until", "የፈቃድ ማብቂያ ቀን"), subscription.endDate.take(10))
+            if (subscription.endDate.isNotBlank()) DetailRow(passengerText(lang, "Pass valid until", "የፈቃድ ማብቂያ ቀን"), EthiopianDateTime.formatDate(subscription.endDate, lang))
         }
         Text(passengerText(lang, "Your administrator can also activate your pass. Payment is confirmed only after verification.", "አስተዳዳሪዎም የጉዞ ፈቃድዎን ማግበር ይችላል። ክፍያ ከተረጋገጠ በኋላ ብቻ ይፀድቃል።"), style = MaterialTheme.typography.bodySmall, color = Slate600)
         Button(onClick = onPayClick, enabled = paymentAvailable, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("telebirr_pay_quick_button"), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = TransportGreenPrimary)) {
@@ -412,7 +413,7 @@ fun PaymentHistoryCard(payments: List<PaymentTransactionEntity>, lang: AppLangua
             Column(Modifier.fillMaxWidth().clickable { onReceiptClick(payment) }.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(etb(payment.amountEtb), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Slate900)
                 Text("${payment.provider} · ${paymentStatus(payment.status, lang)}", style = MaterialTheme.typography.bodyMedium, color = Slate600)
-                Text(payment.timestamp, style = MaterialTheme.typography.bodySmall, color = Slate600)
+                Text(EthiopianDateTime.formatTimestamp(payment.timestamp, lang), style = MaterialTheme.typography.bodySmall, color = Slate600)
                 Text(passengerText(lang, "View details", "ዝርዝሮችን ይመልከቱ"), color = TransportGreenPrimary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
                 HorizontalDivider(Modifier.padding(top = 8.dp), color = Slate200)
             }
@@ -428,7 +429,7 @@ fun TripAttendanceCard(checkIns: List<com.example.data.entity.CheckInRecordEntit
         else checkIns.forEach { item ->
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(item.stopName, fontWeight = FontWeight.SemiBold)
-                Text(item.checkInTimestamp, style = MaterialTheme.typography.bodySmall, color = Slate600)
+                Text(EthiopianDateTime.formatTimestamp(item.checkInTimestamp, lang), style = MaterialTheme.typography.bodySmall, color = Slate600)
                 Text(item.status.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelMedium, color = Slate600)
                 HorizontalDivider(Modifier.padding(top = 8.dp), color = Slate200)
             }
@@ -448,7 +449,7 @@ fun ComplaintsCard(complaints: List<com.example.data.entity.ComplaintEntity>, la
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(complaint.category, fontWeight = FontWeight.SemiBold)
                 Text(complaint.text, style = MaterialTheme.typography.bodyMedium)
-                Text("${complaint.date} · ${complaint.status.replace('_', ' ').lowercase()}", style = MaterialTheme.typography.bodySmall, color = Slate600)
+                Text("${EthiopianDateTime.formatTimestamp(complaint.date, lang)} · ${complaint.status.replace('_', ' ').lowercase()}", style = MaterialTheme.typography.bodySmall, color = Slate600)
                 HorizontalDivider(Modifier.padding(top = 8.dp), color = Slate200)
             }
         }
@@ -523,7 +524,7 @@ fun ReceiptDetailsDialog(receipt: PaymentTransactionEntity, lang: AppLanguage, o
         ReceiptRow(passengerText(lang, "Transaction reference", "የክፍያ ማጣቀሻ"), receipt.transactionRef)
         if (receipt.receiptNumber.isNotBlank()) ReceiptRow(passengerText(lang, "Receipt number", "የደረሰኝ ቁጥር"), receipt.receiptNumber)
         ReceiptRow(passengerText(lang, "Phone", "ስልክ"), receipt.paymentPhone)
-        ReceiptRow(passengerText(lang, "Date & time", "ቀን እና ሰዓት"), receipt.timestamp)
+        ReceiptRow(passengerText(lang, "Date & time", "ቀን እና ሰዓት"), EthiopianDateTime.formatTimestamp(receipt.timestamp, lang))
         Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("close_receipt_button"), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = TransportGreenPrimary)) {
             Text(passengerText(lang, "Done", "ተከናውኗል"))
         }

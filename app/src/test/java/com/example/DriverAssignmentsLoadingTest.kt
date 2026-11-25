@@ -86,7 +86,7 @@ class DriverAssignmentsLoadingTest {
     @Before fun isolatedDriverInstallation() {
         ApiClient.setAuthToken(null)
         response = assignmentJson()
-        compose.runOnIdle {
+        compose.activity.runOnUiThread {
             val direct = java.util.concurrent.Executor { it.run() }
             database = Room.inMemoryDatabaseBuilder(compose.activity, TransportDatabase::class.java)
                 .allowMainThreadQueries().setQueryExecutor(direct).setTransactionExecutor(direct).build()

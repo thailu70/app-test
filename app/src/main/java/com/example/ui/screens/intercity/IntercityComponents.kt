@@ -35,14 +35,17 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.PopupProperties
 import com.example.R
 import com.example.core.localization.AppLanguage
+import com.example.core.time.EthiopianDateTime
 import com.example.data.api.IntercityDeparture
 import com.example.ui.screens.passenger.CommuteCream
 import com.example.ui.screens.passenger.CommuteInk
@@ -51,7 +54,6 @@ import com.example.ui.screens.passenger.CommuteTeal
 import com.example.ui.components.PassoMobilityPalette
 import com.example.ui.screens.passenger.CommuterLanguageSwitch
 import java.text.NumberFormat
-import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
@@ -62,6 +64,124 @@ internal fun intercityText(language: AppLanguage, en: String, am: String, om: St
 }
 
 private val IntercityMuted = PassoMobilityPalette.muted
+
+internal fun formatMobilityDateTime(date: String, time: String, language: AppLanguage): String =
+    listOfNotNull(
+        date.takeIf { it.isNotBlank() }?.let { EthiopianDateTime.formatDate(it, language) },
+        time.takeIf { it.isNotBlank() }?.let { EthiopianDateTime.formatClock(it, language) }
+    ).joinToString(" · ")
+
+@Composable
+internal fun EthiopianTimeField(value: String, onValue: (String) -> Unit, label: String, tag: String, enabled: Boolean = true,
+    language: AppLanguage = AppLanguage.ENGLISH, modifier: Modifier = Modifier) {
+    var showPicker by remember { mutableStateOf(false) }
+    val initialClock = remember(value) { EthiopianDateTime.parseClock(value) ?: EthiopianDateTime.EthiopianClock(2, 0, true) }
+    var hour by remember(value) { mutableIntStateOf(initialClock.hour) }
+    var minute by remember(value) { mutableIntStateOf(initialClock.minute) }
+    var morning by remember(value) { mutableStateOf(initialClock.morning) }
+    var selectedPeriod by remember(value) { mutableStateOf(EthiopianDateTime.periodFor(initialClock)) }
+    OutlinedButton(
+        onClick = { showPicker = true },
+        enabled = enabled,
+        modifier = modifier.fillMaxWidth().testTag(tag),
+        shape = RoundedCornerShape(14.dp),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
+    ) {
+        Icon(Icons.Default.Schedule, contentDescription = null, tint = CommuteTeal, modifier = Modifier.size(19.dp))
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+            Text(label, fontSize = 11.sp, color = PassoMobilityPalette.muted)
+            Text("${EthiopianDateTime.formatClock(value, language)}", fontSize = 15.sp, color = CommuteInk, fontWeight = FontWeight.SemiBold)
+        }
+    }
+    if (showPicker) Dialog(onDismissRequest = { showPicker = false }) {
+        Surface(color = PassoMobilityPalette.card, shape = RoundedCornerShape(24.dp), tonalElevation = 8.dp) {
+            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
+                Text(intercityText(language, "Choose Ethiopia time", "የኢትዮጵያ ሰዓት ይምረጡ", "Yeroo Itoophiyaa filadhu"), color = CommuteInk, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    EthiopianClockWheel(
+                        title = intercityText(language, "Hour", "ሰዓት", "Sa'aatii"), value = hour,
+                        range = 1..12, onValue = {
+                            hour = it
+                            selectedPeriod = EthiopianDateTime.periodFor(EthiopianDateTime.EthiopianClock(it, minute, morning))
+                        }, modifier = Modifier.weight(1f), tag = "${tag}_hour"
+                    )
+                    EthiopianClockWheel(
+                        title = intercityText(language, "Minute", "ደቂቃ", "Daqiiqaa"), value = minute,
+                        range = 0..59, onValue = { minute = it }, modifier = Modifier.weight(1f), tag = "${tag}_minute"
+                    )
+                }
+                EthiopianPeriodOptions(selectedPeriod, language, tag) { period ->
+                    val selected = EthiopianDateTime.clockInPeriod(EthiopianDateTime.EthiopianClock(hour, minute, morning), period)
+                    hour = selected.hour
+                    morning = selected.morning
+                    selectedPeriod = period
+                }
+                Text(EthiopianDateTime.formatClock(EthiopianDateTime.encodeClock(hour, minute, morning), language), color = CommuteTeal, fontWeight = FontWeight.SemiBold)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { showPicker = false }) { Text(intercityText(language, "Cancel", "ሰርዝ", "Haqi")) }
+                    Button(onClick = { onValue(EthiopianDateTime.encodeClock(hour, minute, morning)); showPicker = false }, colors = ButtonDefaults.buttonColors(containerColor = CommuteTeal), modifier = Modifier.testTag("${tag}_done")) {
+                        Text(intercityText(language, "Done", "ጨርስ", "Xumuri"))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EthiopianPeriodOptions(
+    selected: EthiopianDateTime.EthiopianPeriod,
+    language: AppLanguage,
+    tag: String,
+    onSelected: (EthiopianDateTime.EthiopianPeriod) -> Unit
+) {
+    val periods = EthiopianDateTime.EthiopianPeriod.values().toList()
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        listOf(periods.take(3), periods.drop(3)).forEach { rowPeriods ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                rowPeriods.forEach { period ->
+                    FilterChip(
+                        selected = selected == period,
+                        onClick = { onSelected(period) },
+                        label = {
+                            Text(
+                                ethiopianPeriodLabel(period, language),
+                                fontSize = 9.sp,
+                                lineHeight = 11.sp,
+                                maxLines = 2,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        },
+                        modifier = Modifier.weight(1f).heightIn(min = 42.dp)
+                            .testTag("${tag}_period_${period.name.lowercase(Locale.US)}")
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun ethiopianPeriodLabel(period: EthiopianDateTime.EthiopianPeriod, language: AppLanguage): String = when (period) {
+    EthiopianDateTime.EthiopianPeriod.DAY -> intercityText(language, "Day\nቀን", "ቀን", "Guyyaa")
+    EthiopianDateTime.EthiopianPeriod.EVENING -> intercityText(language, "Evening\nማታ", "ማታ", "Galgal")
+    EthiopianDateTime.EthiopianPeriod.NIGHT -> intercityText(language, "Night\nሌሊት", "ሌሊት", "Halkan")
+}
+
+@Composable
+private fun EthiopianClockWheel(title: String, value: Int, range: IntRange, onValue: (Int) -> Unit, modifier: Modifier, tag: String) {
+    Surface(color = PassoMobilityPalette.cardRaised, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, PassoMobilityPalette.border), modifier = modifier) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 9.dp)) {
+            Text(title, color = PassoMobilityPalette.muted, fontSize = 12.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { onValue(if (value <= range.first) range.last else value - 1) }, modifier = Modifier.testTag("${tag}_minus")) { Icon(Icons.Default.Remove, "Decrease $title", tint = CommuteTeal) }
+                Text("%02d".format(Locale.US, value), color = CommuteInk, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("${tag}_value"))
+                IconButton(onClick = { onValue(if (value >= range.last) range.first else value + 1) }, modifier = Modifier.testTag("${tag}_plus")) { Icon(Icons.Default.Add, "Increase $title", tint = CommuteTeal) }
+            }
+        }
+    }
+}
 
 /** Only clean photographic/brand regions are reused. All labels and controls remain native. */
 @Composable
@@ -215,10 +335,7 @@ private fun IntercityCityInput(
 }
 
 internal fun formatIntercityTime(value: String): String {
-    val date = listOf("yyyy-MM-dd'T'HH:mm:ss.SSSX", "yyyy-MM-dd'T'HH:mm:ssX").firstNotNullOfOrNull { pattern ->
-        runCatching { SimpleDateFormat(pattern, Locale.US).apply { isLenient = false }.parse(value) }.getOrNull()
-    } ?: return value
-    return SimpleDateFormat("EEE, d MMM · h:mm a", Locale.ENGLISH).apply { timeZone = TimeZone.getTimeZone("Africa/Addis_Ababa") }.format(date)
+    return EthiopianDateTime.formatTimestamp(value)
 }
 
 internal fun formatIntercityFare(value: Double): String = NumberFormat.getNumberInstance(Locale.US).apply { maximumFractionDigits = 2; minimumFractionDigits = 0 }.format(value)

@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const $ = s => document.querySelector(s), esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
-  const when = value => new Date(value).toLocaleString('en-GB', { timeZone:'Africa/Addis_Ababa', weekday:'short', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:true });
+  const when = value => window.PassoEthiopianDateTime?.formatTimestamp(value) || String(value || 'Not specified');
   const money = n => Number(n).toLocaleString('en-ET', { maximumFractionDigits:2 }) + ' ETB';
   let departures = [], selected = null, seat = null, current = null, secret = '';
   let testProof = '', testProofBooking = '', testProofPhone = '';

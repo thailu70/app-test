@@ -39,6 +39,7 @@ import com.example.ui.screens.assignedRouteLocations
 import com.example.ui.components.PassoMobilityPalette
 import com.example.R
 import com.example.core.localization.AppLanguage
+import com.example.core.time.EthiopianDateTime
 import com.example.data.api.TrackedVehicleDto
 import com.example.data.entity.RouteEntity
 import com.example.data.entity.RouteStopEntity
@@ -46,10 +47,7 @@ import com.example.data.entity.SubscriptionEntity
 import com.example.ui.components.MiniVehicleMap
 import com.example.ui.components.QrCodeCanvas
 import com.example.ui.screens.profile.AuthenticatedProfilePhoto
-import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
 
 internal val CommuteInk = PassoMobilityPalette.text
 internal val CommuteTeal = PassoMobilityPalette.brand
@@ -124,20 +122,22 @@ fun CommuterActiveTripCard(
     val daysLeft = rememberSubscriptionDaysLeft(subscription)
     val morning = subscription?.morningSchedule?.takeIf { it.isNotBlank() } ?: route?.morningDeparture.orEmpty()
     val evening = subscription?.eveningSchedule?.takeIf { it.isNotBlank() } ?: route?.eveningDeparture.orEmpty()
+    val morningTime = morning.takeIf { it.isNotBlank() }?.let { EthiopianDateTime.formatClock(it, lang) } ?: "—"
+    val eveningTime = evening.takeIf { it.isNotBlank() }?.let { EthiopianDateTime.formatClock(it, lang) } ?: "—"
     var callError by remember(driver?.phone) { mutableStateOf(false) }
     Surface(color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, PassoMobilityPalette.border), modifier = Modifier.fillMaxWidth().testTag("commuter_active_trip")) {
         Column {
             Row(Modifier.fillMaxWidth().background(CommuteTeal).padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Default.DirectionsBus, null, Modifier.size(24.dp), tint = Color.White)
                 Text(commuteText(lang, if (canBoard) "ACTIVE COMMUTE" else "YOUR COMMUTE", "የእርስዎ ጉዞ", "IMALA KEETII"), Modifier.weight(1f), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, color = Color.White)
-                Text(SimpleDateFormat("EEE, d MMM", Locale.ENGLISH).apply { timeZone = TimeZone.getTimeZone("Africa/Addis_Ababa") }.format(Date()), fontSize = 10.sp, color = Color.White)
+                Text(EthiopianDateTime.formatDate(Date(), lang), fontSize = 10.sp, color = Color.White)
             }
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(routeName?.takeIf { it.isNotBlank() } ?: commuteText(lang, "Route awaiting assignment", "መስመር እየተጠበቀ ነው", "Karaa eeggachaa jira"), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = PassoMobilityPalette.text)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        CommuteStop(morning.ifBlank { "—" }, pickup ?: commuteText(lang, "Pickup unavailable", "መሳፈሪያ አልተገኘም", "Ka'umsi hin argamne"), commuteText(lang, "Departure", "መነሻ", "Ka'umsa"))
-                        CommuteStop(commuteText(lang, "Return", "መመለሻ", "Deebii") + " · " + evening.ifBlank { "—" }, destination ?: commuteText(lang, "Destination unavailable", "መድረሻ አልተገኘም", "Ga'umsi hin argamne"), commuteText(lang, "Destination / return pickup", "መድረሻ / የመመለሻ መሳፈሪያ", "Ga'umsa / ka'umsa deebii"))
+                        CommuteStop(morningTime, pickup ?: commuteText(lang, "Pickup unavailable", "መሳፈሪያ አልተገኘም", "Ka'umsi hin argamne"), commuteText(lang, "Departure", "መነሻ", "Ka'umsa"))
+                        CommuteStop(commuteText(lang, "Return", "መመለሻ", "Deebii") + " · " + eveningTime, destination ?: commuteText(lang, "Destination unavailable", "መድረሻ አልተገኘም", "Ga'umsi hin argamne"), commuteText(lang, "Destination / return pickup", "መድረሻ / የመመለሻ መሳፈሪያ", "Ga'umsa / ka'umsa deebii"))
                     }
                     VerticalDivider(Modifier.height(154.dp), color = PassoMobilityPalette.border)
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -173,7 +173,7 @@ fun CommuterActiveTripCard(
                         if (subscription != null) {
                             Text(if (daysLeft != null) commuteText(lang, "$daysLeft days remaining", "$daysLeft ቀናት ቀርተዋል", "Guyyoota $daysLeft hafe")
                                 else commuteText(lang, "Validity not available", "የማብቂያ ጊዜ አልተገኘም", "Yeroon tajaajilaa hin argamne"), fontSize = 11.sp, color = PassoMobilityPalette.muted, modifier = Modifier.testTag("commuter_days_remaining"))
-                            subscription.endDate.takeIf { it.isNotBlank() }?.let { Text(commuteText(lang, "Valid until", "የሚያበቃበት ቀን", "Hanga") + " " + it.take(10), fontSize = 10.sp, color = PassoMobilityPalette.muted) }
+                            subscription.endDate.takeIf { it.isNotBlank() }?.let { Text(commuteText(lang, "Valid until", "የሚያበቃበት ቀን", "Hanga") + " " + EthiopianDateTime.formatDate(it, lang), fontSize = 10.sp, color = PassoMobilityPalette.muted) }
                         } else Text(commuteText(lang, "Your pass appears after activation.", "የጉዞ ፈቃድዎ ሲነቃ ይታያል።", "Hayyamni erga mirkanaa'ee mul'ata."), fontSize = 11.sp, color = PassoMobilityPalette.muted)
                     }
                     if (subscription != null && subscription.subscriptionStatus != "CANCELLED") TextButton(onClick = onRenew, enabled = paymentAvailable, modifier = Modifier.testTag("commuter_payment_action")) {

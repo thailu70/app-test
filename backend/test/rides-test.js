@@ -478,6 +478,13 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       assert.equal(street.source, "STREET");
       assert.equal(street.boardingQrToken, undefined);
       assert.equal(street.status, "IN_PROGRESS");
+      const linkedPassenger = await service.me(passenger);
+      assert.equal(linkedPassenger.ride?.id, street.id, "the verified account using the entered phone sees the active street pickup portal");
+      assert.equal(linkedPassenger.rides.some((ride) => ride.id === street.id), true, "the linked street pickup is retained in passenger trip history");
+      assert.equal(linkedPassenger.ride?.driverName, drivers[0].id, "the live portal includes the assigned driver details");
+      assert.equal(linkedPassenger.ride?.location?.latitude, 9, "the live portal includes the driver location");
+      assert.equal((await service.get(passenger, street.id)).ride.status, "IN_PROGRESS", "the linked passenger can reopen the live street trip");
+      await assert.rejects(service.get(otherPassenger, street.id), (e) => e.status === 404, "another account cannot see the phone-matched ride");
       const startSms = smsDeliveries.find((item) => item.eventKey.startsWith("ride-start:" + street.id + ":"));
       assert.ok(startSms, "street pickup queues the started-trip SMS");
       assert.equal(startSms.phone, "+251900000001", "street pickup uses the entered passenger phone");
@@ -486,6 +493,21 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
         action: "CANCEL",
         note: "Fixture street cancellation",
       });
+    },
+  );
+  await t.test(
+    "a taxi driver can finish a trip at the actual stop away from the planned destination",
+    async () => {
+      const earlyStop = await appTrip("early-stop-completion", drivers[0]);
+      clock += 120000;
+      const stop = position(9.02, 38.77);
+      const sequence = (await service.get(drivers[0], earlyStop.id)).ride.lastSequence + 1;
+      await service.samples(drivers[0], earlyStop.id, { points: [{ ...stop, sequence }] });
+      const stopped = (await service.get(drivers[0], earlyStop.id)).ride;
+      assert.ok(stopped.meterDistanceKm > 2, "meter distance reflects the actual GPS path to the stop");
+      const done = (await service.complete(drivers[0], earlyStop.id, stop)).ride;
+      assert.equal(done.status, "COMPLETED", "completion does not require arrival inside a destination perimeter");
+      assert.ok(done.fareEtb > 30, "fare is settled from the meter distance at the actual stop");
     },
   );
   let shared, booking;

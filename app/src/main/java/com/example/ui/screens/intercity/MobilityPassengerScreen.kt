@@ -35,10 +35,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.core.localization.AppLanguage
+import com.example.core.time.EthiopianDateTime
 import com.example.data.api.*
 import com.example.data.repository.AndroidEncryptedIntercityBookingStore
 import com.example.ui.components.QrCodeCanvas
 import com.example.ui.components.PassoMobilityPalette
+import com.example.ui.components.EthiopianDatePickerDialog
 import com.example.ui.screens.passenger.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -140,7 +142,7 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
                 }
                 MobilityPhase.REQUEST_STATUS -> item { state.request?.let { request ->
                     com.example.core.notifications.MobilityNotificationOptIn(driver = false, language = language)
-                    MobilityRequestStatus(request, state.busy, { model.openRequest(request.id) }, model::retryCargo)
+                    MobilityRequestStatus(request, state.busy, language, { model.openRequest(request.id) }, model::retryCargo)
                     RequestMarketplacePanel(state, model::selectQuote, model::confirmRequest, model::reviewRequest)
                 } }
                 MobilityPhase.HISTORY -> {
@@ -181,20 +183,14 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
         Text("I am 18 or older. I have permission to provide the travelers’ contact details.", fontSize = 12.sp, color = PassoMobilityPalette.text, modifier = Modifier.weight(1f))
     }
 }
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun MobilityDateField(value: String, onValue: (String) -> Unit, allowAny: Boolean = false) {
+@Composable internal fun MobilityDateField(value: String, onValue: (String) -> Unit, allowAny: Boolean = false, language: AppLanguage = AppLanguage.ENGLISH) {
     var open by remember { mutableStateOf(false) }
     OutlinedButton(onClick = { open = true }, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth(),
         border = BorderStroke(1.dp, PassoMobilityPalette.border), colors = ButtonDefaults.outlinedButtonColors(contentColor = PassoMobilityPalette.text)) {
-        Icon(Icons.Default.CalendarMonth, null); Spacer(Modifier.width(8.dp)); Text(value.ifBlank { if (allowAny) "Any upcoming date" else "Choose travel date" })
+        Icon(Icons.Default.CalendarMonth, null); Spacer(Modifier.width(8.dp)); Text(value.takeIf(String::isNotBlank)?.let { EthiopianDateTime.formatDate(it, language) } ?: if (allowAny) "Any upcoming date" else "Choose travel date")
     }
-    if (open) {
-        val formatter = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") } }
-        val today = formatter.parse(intercityToday())!!.time
-        val picker = rememberDatePickerState(selectableDates = object : SelectableDates { override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis >= today })
-        DatePickerDialog(onDismissRequest = { open = false }, confirmButton = { TextButton(onClick = { picker.selectedDateMillis?.let { onValue(formatter.format(java.util.Date(it))) }; open = false }) { Text("Choose") } },
-            dismissButton = { TextButton(onClick = { if (allowAny) onValue(""); open = false }) { Text(if (allowAny) "Any date" else "Cancel") } }) { DatePicker(picker) }
-    }
+    if (open) EthiopianDatePickerDialog(value.ifBlank { null }, EthiopianDateTime.todayIso(), language,
+        onDismiss = { if (allowAny && value.isBlank()) onValue(""); open = false }, onSelect = { onValue(it); open = false })
 }
 @Composable private fun MobilityTripCard(trip: MobilityTrip, busy: Boolean, onSelect: () -> Unit) {
     MobilityCard {
@@ -329,7 +325,7 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
     val signedIn = accountName.isNotBlank() && accountPhone.isNotBlank()
     var name by remember(accountName) { mutableStateOf(accountName) }; var phone by remember(accountPhone) { mutableStateOf(accountPhone) }
     var origin by remember { mutableStateOf("") }; var destination by remember { mutableStateOf("") }
-    var weight by remember { mutableStateOf("") }; var travelTime by remember { mutableStateOf("08:00") }
+    var weight by remember { mutableStateOf("") }; var travelTime by remember { mutableStateOf(EthiopianDateTime.clockValueFromEAT(8, 0)) }
     var date by remember { mutableStateOf(intercityToday()) }; var people by remember { mutableStateOf("") }
     var type by remember { mutableStateOf("") }; var details by remember { mutableStateOf("") }
     var fromPoint by remember { mutableStateOf<Pair<Double, Double>?>(null) }; var toPoint by remember { mutableStateOf<Pair<Double, Double>?>(null) }
@@ -352,12 +348,16 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
         }
     }
     val photo = rememberCargoPhoto()
-    fun requestInput(verificationToken: String? = null) = MobilityRequestInput(kind, origin.trim(), destination.trim(), date,
-        people.toIntOrNull(), type, details.trim().takeIf { kind == "CARGO" },
-        (if (signedIn) accountName else name).trim(), (if (signedIn) accountPhone else phone).trim(), state.adultConfirmed,
-        fromPoint?.first, fromPoint?.second, toPoint?.first, toPoint?.second,
-        travelTime = travelTime, otpVerificationToken = verificationToken,
-        estimatedWeightQuintals = weight.toDoubleOrNull().takeIf { kind == "CARGO" })
+    fun requestInput(verificationToken: String? = null): MobilityRequestInput {
+        val (apiDate, apiTime) = EthiopianDateTime.toApiDateTime(date, travelTime)
+            ?: error("Choose a valid Ethiopian date and time.")
+        return MobilityRequestInput(kind, origin.trim(), destination.trim(), apiDate,
+            people.toIntOrNull(), type, details.trim().takeIf { kind == "CARGO" },
+            (if (signedIn) accountName else name).trim(), (if (signedIn) accountPhone else phone).trim(), state.adultConfirmed,
+            fromPoint?.first, fromPoint?.second, toPoint?.first, toPoint?.second,
+            travelTime = apiTime, otpVerificationToken = verificationToken,
+            estimatedWeightQuintals = weight.toDoubleOrNull().takeIf { kind == "CARGO" })
+    }
     if (picking != null && kind != "CARGO") {
         val pickup = picking == "origin"
         MobilityLocationPicker(
@@ -436,9 +436,9 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
             Box(Modifier.testTag("request_pickup_location")) { CargoLocationField("Pickup location", origin, false, "request_origin", !state.busy) { picking = "origin" } }
             Box(Modifier.testTag("request_delivery_location")) { CargoLocationField("Destination", destination, false, "request_destination", !state.busy) { picking = "destination" } }
         }
-        MobilityDateField(date, { date = it })
+        MobilityDateField(date, { date = it }, language = language)
         roadDistance?.let { Text(it, color = CommuteTeal, fontSize = 12.sp) }
-        MobilityField(travelTime, { travelTime = it.take(5) }, "Pickup time · HH:mm", "request_time")
+        EthiopianTimeField(travelTime, { travelTime = it }, intercityText(language, "Pickup time · Ethiopia time", "የመነሻ ሰዓት · የኢትዮጵያ ሰዓት", "Yeroo ka'umsaa · yeroo Itoophiyaa"), "request_time", language = language)
         if (kind == "GROUP") MobilityField(people, { people = it.filter(Char::isDigit).take(4) }, "Number of people", "request_people", number = true)
         MobilityVehicleChoice(type, state.types, { type = it }, !state.busy)
         if (kind == "CARGO") {
@@ -448,7 +448,7 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
         }
         MobilityAdult(state.adultConfirmed, !state.busy, onAdult)
         val validCargo = kind != "CARGO" || (details.isNotBlank() && (weight.toDoubleOrNull() ?: 0.0) > 0 && photo.bytes != null && fromPoint != null && toPoint != null)
-        MobilityButton("Send request", !state.busy && !photo.busy && state.adultConfirmed && (signedIn || (name.isNotBlank() && phone.isNotBlank())) && origin.isNotBlank() && destination.isNotBlank() && type.isNotBlank() && validCargo && (kind != "GROUP" || ((people.toIntOrNull() ?: 0) > 0 && fromPoint != null && toPoint != null && fromPoint != toPoint)), "mobility_send_request") {
+        MobilityButton("Send request", !state.busy && !photo.busy && state.adultConfirmed && EthiopianDateTime.toApiDateTime(date, travelTime) != null && (signedIn || (name.isNotBlank() && phone.isNotBlank())) && origin.isNotBlank() && destination.isNotBlank() && type.isNotBlank() && validCargo && (kind != "GROUP" || ((people.toIntOrNull() ?: 0) > 0 && fromPoint != null && toPoint != null && fromPoint != toPoint)), "mobility_send_request") {
             if (signedIn) send(requestInput(), photo.bytes, photo.type)
             else { showPhoneVerification = true; otpSent = false; phoneCode = ""; otpMessage = null }
         }
@@ -501,14 +501,14 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
         TextButton(onClick = onClick) { Text("View request", color = CommuteTeal) }
     }
 }
-@Composable private fun MobilityRequestStatus(request: MobilityRequest, busy: Boolean, refresh: () -> Unit,
+@Composable private fun MobilityRequestStatus(request: MobilityRequest, busy: Boolean, language: AppLanguage, refresh: () -> Unit,
     retry: (ByteArray, String) -> Unit) {
     val photo = rememberCargoPhoto()
     MobilityCard {
         Icon(if (request.kind == "CARGO") Icons.Default.LocalShipping else Icons.Default.Groups, null, tint = CommuteTeal, modifier = Modifier.size(38.dp))
         Text("${request.origin} → ${request.destination}", color = PassoMobilityPalette.text, fontSize = 23.sp, fontWeight = FontWeight.Bold)
         Text(request.status.replace('_', ' '), color = CommuteTeal, fontWeight = FontWeight.Bold)
-        Text("${request.travelDate} · ${request.vehicleType}", fontSize = 13.sp)
+        Text("${formatMobilityDateTime(request.travelDate, "", language)} · ${request.vehicleType}", fontSize = 13.sp)
         request.people?.let { Text("$it people") }; request.cargoDetails?.let { Text(it) }
         (request.estimatedWeightQuintals ?: request.estimatedWeightKg?.div(100.0))?.let { Text("Estimated weight: ${formatIntercityFare(it)} quintals") }
         request.routeDistanceKm?.let { Text("Road distance: ${formatIntercityFare(it)} km") }

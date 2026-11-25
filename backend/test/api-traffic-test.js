@@ -8,6 +8,7 @@ const path = require('node:path');
 process.env.NODE_ENV = 'test';
 process.env.PAYMENT_MODE = 'TEST';
 process.env.JWT_SECRET = 'routepass-capacity-security-regression-secret';
+process.env.ADMIN_REGISTRATION_SECRET = 'routepass-capacity-test-admin-secret';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'routepass-api-traffic-'));
 delete process.env.DATABASE_URL;
 
@@ -185,20 +186,30 @@ test('capacity admission preserves active-account validation and route-specific 
   });
 
   await t.test('authenticated quota bypass does not weaken existing login, OTP or company-login limits', async t => {
-    const api = await harness(t, { anonymousLimit: 1, authRoutes: true });
-    for (let i = 0; i < 10; i++) {
-      const endpoint = i % 2 ? '/api/auth/request-otp' : '/api/auth/login';
-      assert.equal((await api.request(endpoint, { token: driverA, method: 'POST', body: {} })).status, 400);
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      // The auth router sets a deliberately higher cap under NODE_ENV=test.
+      // Exercise production policy explicitly while keeping invalid payloads
+      // so this test never sends an SMS or authenticates a real account.
+      const api = await harness(t, { anonymousLimit: 1, authRoutes: true });
+      for (let i = 0; i < 10; i++) {
+        const endpoint = i % 2 ? '/api/auth/request-otp' : '/api/auth/login';
+        assert.equal((await api.request(endpoint, { token: driverA, method: 'POST', body: {} })).status, 400);
+      }
+      const limitedOtp = await api.request('/api/auth/request-otp', { token: driverA, method: 'POST', body: {} });
+      assert.equal(limitedOtp.status, 429);
+      assert.equal(limitedOtp.headers.get('ratelimit-limit'), '10');
+      for (let i = 0; i < 8; i++) {
+        assert.equal((await api.request('/api/companies/login', { token: driverA, method: 'POST', body: {} })).status, 401);
+      }
+      const limitedCompany = await api.request('/api/companies/login', { token: driverA, method: 'POST', body: {} });
+      assert.equal(limitedCompany.status, 429);
+      assert.equal(limitedCompany.headers.get('ratelimit-limit'), '8');
+    } finally {
+      if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = originalNodeEnv;
     }
-    const limitedOtp = await api.request('/api/auth/request-otp', { token: driverA, method: 'POST', body: {} });
-    assert.equal(limitedOtp.status, 429);
-    assert.equal(limitedOtp.headers.get('ratelimit-limit'), '10');
-    for (let i = 0; i < 8; i++) {
-      assert.equal((await api.request('/api/companies/login', { token: driverA, method: 'POST', body: {} })).status, 401);
-    }
-    const limitedCompany = await api.request('/api/companies/login', { token: driverA, method: 'POST', body: {} });
-    assert.equal(limitedCompany.status, 429);
-    assert.equal(limitedCompany.headers.get('ratelimit-limit'), '8');
   });
   await t.test('overload preserves a bounded verified-account continuity lane but blocks new work and forged credentials', async t => {
     const resourceMonitor = { middleware: (_req, res) => res.status(503).json({ success: false, code: 'SERVER_BUSY' }) };

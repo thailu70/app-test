@@ -8,6 +8,7 @@ import com.example.data.repository.TransportRepository
 import kotlinx.coroutines.CancellationException
 import java.text.SimpleDateFormat
 import java.util.Date
+import com.example.core.time.EthiopianDateTime
 import java.util.Locale
 import java.util.UUID
 
@@ -96,7 +97,7 @@ object TelebirrGateway {
                     amountEtb = txnDto?.amountEtb ?: amountEtb,
                     provider = "Telebirr",
                     status = "SUCCESS",
-                    timestamp = txnDto?.date ?: SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date()),
+                    timestamp = txnDto?.date ?: EthiopianDateTime.apiTimestamp(),
                     paymentPhone = cleanPhone,
                     receiptNumber = "REC-ET-${(10000..99999).random()}"
                 )

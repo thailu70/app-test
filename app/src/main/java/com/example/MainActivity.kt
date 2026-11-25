@@ -43,6 +43,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import com.example.core.localization.AppLanguage
 import com.example.core.localization.AppStrings
+import com.example.core.time.EthiopianDateTime
 import com.example.data.api.ApiClient
 import com.example.data.database.TransportDatabase
 import com.example.data.repository.TransportRepository
@@ -64,6 +65,7 @@ import com.example.ui.screens.home.WelcomeService
 import com.example.ui.screens.home.HostedPortalScreen
 import com.example.ui.screens.intercity.IntercityPassengerScreen
 import com.example.ui.screens.intercity.MobilityPassengerScreen
+import com.example.ui.screens.intercity.EthiopianTimeField
 import com.example.ui.screens.profile.ProfileCompletionScreen
 import com.example.ui.screens.profile.AccountPrivacyScreen
 import com.example.ui.screens.driver.DriverTripScreen
@@ -678,6 +680,7 @@ fun MainTransportApp(viewModel: MainViewModel) {
             NotificationTrayDialog(
                 role = currentRole,
                 notifications = relevantNotifications,
+                language = currentLang,
                 onDismiss = { viewModel.closeNotificationTray() },
                 onSendBroadcast = { title, msg, aud ->
                     viewModel.sendBroadcastNotification(title, msg, aud)
@@ -1159,12 +1162,12 @@ private fun LegacyCompanyPortalScreen(onExit: () -> Unit) {
                         CompanyPortalField("Destination", routeDestination, { routeDestination = it }, modifier = Modifier.weight(1f))
                     }
                     if (routeType == "INTERCITY") {
-                        CompanyPortalField("Departure time", intercityDeparture, { intercityDeparture = it })
+                        EthiopianTimeField(intercityDeparture, { intercityDeparture = it }, "Departure time · Ethiopia clock", "company_intercity_time", language = AppLanguage.ENGLISH)
                         Text("Intercity routes have one scheduled departure. Return journeys should be created as a separate route if they run at a different time.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                            CompanyPortalField("Morning departure", morning, { morning = it }, modifier = Modifier.weight(1f))
-                            CompanyPortalField("Evening departure", evening, { evening = it }, modifier = Modifier.weight(1f))
+                            EthiopianTimeField(morning, { morning = it }, "Morning · Ethiopia clock", "company_morning_time", language = AppLanguage.ENGLISH, modifier = Modifier.weight(1f))
+                            EthiopianTimeField(evening, { evening = it }, "Evening · Ethiopia clock", "company_evening_time", language = AppLanguage.ENGLISH, modifier = Modifier.weight(1f))
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -1175,13 +1178,16 @@ private fun LegacyCompanyPortalScreen(onExit: () -> Unit) {
                         scope.launch {
                             busy = true
                             try {
-                                val departure = if (routeType == "INTERCITY") intercityDeparture.trim() else morning.trim()
+                                val selectedMorning = EthiopianDateTime.toApiDateTime(EthiopianDateTime.todayIso(), morning)?.second ?: morning.trim()
+                                val selectedEvening = EthiopianDateTime.toApiDateTime(EthiopianDateTime.todayIso(), evening)?.second ?: evening.trim()
+                                val selectedIntercity = EthiopianDateTime.toApiDateTime(EthiopianDateTime.todayIso(), intercityDeparture)?.second ?: intercityDeparture.trim()
+                                val departure = if (routeType == "INTERCITY") selectedIntercity else selectedMorning
                                 val payload = mapOf(
                                     "name" to routeName.trim(), "routeType" to routeType,
                                     "origin" to routeOrigin.trim(), "destination" to routeDestination.trim(),
                                     "departureTime" to departure,
-                                    "morningDeparture" to departure,
-                                    "eveningDeparture" to if (routeType == "INTERCITY") departure else evening.trim(),
+                                    "morningDeparture" to if (routeType == "INTERCITY") departure else selectedMorning,
+                                    "eveningDeparture" to if (routeType == "INTERCITY") departure else selectedEvening,
                                     "distanceKm" to (distance.toDoubleOrNull() ?: 10.0),
                                     "basePriceEtb" to (fare.toDoubleOrNull() ?: 0.0)
                                 )
@@ -1201,7 +1207,7 @@ private fun LegacyCompanyPortalScreen(onExit: () -> Unit) {
                         Text(r["name"]?.toString() ?: "Route", fontWeight = FontWeight.Bold)
                         Text("${r["origin"] ?: "Origin not set"} → ${r["destination"] ?: "Destination not set"}", style = MaterialTheme.typography.bodyLarge)
                         val type = r["routeType"]?.toString() ?: "DAILY_COMMUTE"
-                        Text(if (type == "INTERCITY") "Intercity • Departure: ${r["departureTime"] ?: r["morningDeparture"] ?: "—"}" else "Daily commute • Morning: ${r["morningDeparture"] ?: "—"} • Evening: ${r["eveningDeparture"] ?: "—"}")
+                        Text(if (type == "INTERCITY") "Intercity • Departure: ${EthiopianDateTime.formatClock(r["departureTime"]?.toString() ?: r["morningDeparture"]?.toString().orEmpty())}" else "Daily commute • Morning: ${EthiopianDateTime.formatClock(r["morningDeparture"]?.toString().orEmpty())} • Evening: ${EthiopianDateTime.formatClock(r["eveningDeparture"]?.toString().orEmpty())}")
                         Text("${r["distanceKm"] ?: "—"} km • Fare: ${r["basePriceEtb"] ?: "—"} ETB")
                         OutlinedButton(onClick = {
                             editingRouteId = r["id"]?.toString().orEmpty()

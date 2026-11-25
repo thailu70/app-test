@@ -38,6 +38,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.core.localization.AppLanguage
+import com.example.core.time.EthiopianDateTime
 import com.example.data.api.ApiClient
 import com.example.data.api.IntercityPassengerApi
 import com.example.data.repository.AndroidEncryptedIntercityBookingStore
@@ -46,10 +47,7 @@ import com.example.ui.screens.passenger.CommuteInk
 import com.example.ui.screens.passenger.CommuteMint
 import com.example.ui.screens.passenger.CommuteTeal
 import com.example.ui.components.PassoMobilityPalette
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
+import com.example.ui.components.EthiopianDatePickerDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,13 +108,8 @@ internal fun IntercityPassengerScreen(
         if (uri != null) model.savePdf { context.contentResolver.openOutputStream(uri) }
     }
     if (datePickerOpen) {
-        val iso = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") } }
-        val today = iso.parse(intercityToday())!!.time
-        val picker = rememberDatePickerState(initialSelectedDateMillis = runCatching { iso.parse(state.date)?.time }.getOrNull(),
-            selectableDates = object : SelectableDates { override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis >= today })
-        DatePickerDialog(onDismissRequest = { datePickerOpen = false },
-            confirmButton = { TextButton(onClick = { picker.selectedDateMillis?.let { model.setDate(iso.format(Date(it))) }; datePickerOpen = false }) { Text(intercityText(language, "Choose date", "ቀን ይምረጡ", "Guyyaa filadhu")) } },
-            dismissButton = { TextButton(onClick = { datePickerOpen = false }) { Text(intercityText(language, "Cancel", "ሰርዝ", "Dhiisi")) } }) { DatePicker(picker) }
+        EthiopianDatePickerDialog(state.date, EthiopianDateTime.todayIso(), language,
+            onDismiss = { datePickerOpen = false }, onSelect = model::setDate)
     }
     Column(modifier.fillMaxSize().background(CommuteCream).windowInsetsPadding(WindowInsets.safeDrawing)) {
         if (state.phase != IntercityPhase.BROWSE) {
@@ -135,7 +128,7 @@ internal fun IntercityPassengerScreen(
                 item {
                     Column {
                         IntercityHero(language, onLanguage, onExit)
-                        IntercitySearchPanel(state.origin, state.destination, intercityDateLabel(state.date),
+                        IntercitySearchPanel(state.origin, state.destination, intercityDateLabel(state.date, language),
                             state.directory.flatMap { listOf(it.origin, it.destination) }.distinct().sorted(), state.serviceTab, language,
                             model::setOrigin, model::setDestination, model::swapCities, { datePickerOpen = true }, model::search, model::setTab,
                             state.busy, Modifier.padding(horizontal = 12.dp).layout { measurable, constraints ->
@@ -298,11 +291,7 @@ private fun IntercityTestPaymentVerification(
 
 private fun toggleIntercityFavorite(saved: Set<String>, id: String): Set<String> = if (id in saved) saved - id else saved + id
 
-internal fun intercityDateLabel(iso: String): String = runCatching {
-    val utc = TimeZone.getTimeZone("UTC")
-    val value = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = utc; isLenient = false }.parse(iso)!!
-    SimpleDateFormat("EEE, d MMM yyyy", Locale.ENGLISH).apply { timeZone = utc }.format(value)
-}.getOrDefault(iso)
+internal fun intercityDateLabel(iso: String, language: AppLanguage = AppLanguage.ENGLISH): String = EthiopianDateTime.formatDate(iso, language)
 
 @Composable
 private fun IntercityRequestForm(state: IntercityUiState, language: AppLanguage, onOrigin: (String) -> Unit,
@@ -317,7 +306,7 @@ private fun IntercityRequestForm(state: IntercityUiState, language: AppLanguage,
             Text(intercityText(language, "A request does not reserve seats or collect payment.", "ጥያቄ መቀመጫ አይይዝም፣ ክፍያም አይጠይቅም።", "Gaaffiin teessoo hin qabatu, kaffaltii hin gaafatu."), fontSize = 12.sp, color = PassoMobilityPalette.muted)
             OutlinedTextField(state.origin, onOrigin, label = { Text(intercityText(language, "From", "መነሻ", "Irraa")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             OutlinedTextField(state.destination, onDestination, label = { Text(intercityText(language, "To", "መድረሻ", "Gara")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-            OutlinedButton(onClick = onDate, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.CalendarMonth, null); Spacer(Modifier.width(8.dp)); Text(intercityDateLabel(state.date)) }
+            OutlinedButton(onClick = onDate, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.CalendarMonth, null); Spacer(Modifier.width(8.dp)); Text(intercityDateLabel(state.date, language)) }
             Box {
                 OutlinedButton(onClick = { companyMenu = true }, modifier = Modifier.fillMaxWidth()) { Text(state.companies.find { it.id == company }?.name ?: intercityText(language, "Choose a company", "ኩባንያ ይምረጡ", "Dhaabbata filadhu")); Icon(Icons.Default.ArrowDropDown, null) }
                 DropdownMenu(companyMenu, { companyMenu = false }) { state.companies.forEach { item -> DropdownMenuItem(text = { Text(item.name) }, onClick = { company = item.id; companyMenu = false }) } }

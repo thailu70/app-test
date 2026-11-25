@@ -1,8 +1,9 @@
 (function (root, factory) {
-  const resources = factory();
+  const resources = factory(typeof module === 'object' && module.exports
+    ? require('../shared/ethiopian-datetime') : root?.PassoEthiopianDateTime);
   if (typeof module === 'object' && module.exports) module.exports = resources;
   if (root) root.RoutepassResources = resources;
-})(typeof window === 'undefined' ? null : window, function () {
+})(typeof window === 'undefined' ? null : window, function (ethiopianDateTime) {
   'use strict';
 
   function markup() {
@@ -74,8 +75,9 @@
         ? 'The server is busy. Apps are asked to retry in 10 seconds.'
         : bothKnown ? 'Normal app traffic is allowed. Login protections remain active.' : 'The server has not supplied every reading yet.';
       const sampledAt = typeof resources.sampledAt === 'number' && Number.isFinite(resources.sampledAt) ? new Date(resources.sampledAt) : null;
-      find('resource-live-updated').textContent = sampledAt && !Number.isNaN(sampledAt.getTime())
-        ? 'Updated ' + sampledAt.toLocaleTimeString() : 'No sample time available';
+      if (sampledAt && !Number.isNaN(sampledAt.getTime())) {
+        find('resource-live-updated').textContent = ethiopianDateTime.formatUpdated(sampledAt);
+      } else find('resource-live-updated').textContent = 'No sample time available';
       find('resource-thresholds').textContent = 'Pause at ' + high + '% CPU or RAM. Resume when both are ' + low + '% or lower.';
       preview();
     }

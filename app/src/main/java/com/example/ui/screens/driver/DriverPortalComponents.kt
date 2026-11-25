@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.localization.AppLanguage
+import com.example.core.time.EthiopianDateTime
 import com.example.data.api.CompletionProfile
 import com.example.data.api.DriverDepartureValidation
 import com.example.data.api.DriverGpsFix
@@ -75,7 +76,7 @@ internal fun driverWindowInfo(schedule: String, now: Long): DriverWindowInfo {
         delta >= -1_800_000 -> "Departure window open. Your GPS area still needs confirmation."
         else -> "Departure window passed. Contact your operator."
     }
-    return DriverWindowInfo(SimpleDateFormat("h:mm a", Locale.ENGLISH).apply { timeZone = zone }.format(target), text)
+    return DriverWindowInfo(EthiopianDateTime.formatClock(target.time), text)
 }
 
 @Composable
@@ -114,9 +115,8 @@ fun DriverGreeting(userId: String, fullName: String, language: AppLanguage, now:
             Text(driverText(language, "Safe trips. Brighter tomorrows.", "ደህንነቱ የተጠበቀ ጉዞ።", "Imala nagaa, boru ifaa."), fontSize = 11.sp, lineHeight = 15.sp, color = Color(0xFF526575))
         }
         Column(horizontalAlignment = Alignment.End) {
-            val zone = TimeZone.getTimeZone("Africa/Addis_Ababa")
-            Text(SimpleDateFormat("EEE, d MMM", Locale.ENGLISH).apply { timeZone = zone }.format(Date(now)), fontSize = 9.sp, color = CommuteInk)
-            Text(SimpleDateFormat("h:mm a", Locale.ENGLISH).apply { timeZone = zone }.format(Date(now)), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
+            Text(EthiopianDateTime.formatDate(Date(now), language), fontSize = 9.sp, color = CommuteInk)
+            Text(EthiopianDateTime.formatClock(now, language), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
         }
     }
 }

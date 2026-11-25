@@ -50,7 +50,7 @@ class DriverUiStateTest {
     @Test fun `daily departure countdown measures until boarding window opens`() {
         // At 06:00 Addis Ababa time, a 07:15 departure opens boarding in 45 minutes.
         val info = driverWindowInfo("07:15", at("2026-10-19T03:00:00Z"))
-        assertEquals("7:15 AM", info.timeLabel)
+        assertEquals("01:15 · Morning", info.timeLabel)
         assertEquals("Boarding window opens in 45 min.", info.message)
         assertEquals("Boarding window opens in 45 min.",
             driverWindowInfo("07:15", at("2026-10-19T03:00:30Z")).message)
@@ -70,7 +70,7 @@ class DriverUiStateTest {
         val now = at("2026-10-19T03:00:00Z")
         for (schedule in listOf("2026-10-19T04:15:00Z", "2026-10-19T04:15:00.000Z")) {
             val info = driverWindowInfo(schedule, now)
-            assertEquals("7:15 AM", info.timeLabel)
+            assertEquals("01:15 · Morning", info.timeLabel)
             assertEquals("Boarding window opens in 45 min.", info.message)
         }
         assertEquals("Boarding window opens in 1485 min.",

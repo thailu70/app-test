@@ -59,6 +59,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.core.time.EthiopianDateTime
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.core.localization.AppLanguage
@@ -410,11 +411,7 @@ private fun departureReadinessNotice(value: String): String = runCatching {
     }
 }.getOrElse { "Start boarding opens within 30 minutes of departure when your GPS is inside the departure area." }
 
-private fun driverLocalTime(value: String): String = runCatching {
-    val parser = java.text.SimpleDateFormat(if (value.contains('.')) "yyyy-MM-dd'T'HH:mm:ss.SSSX" else "yyyy-MM-dd'T'HH:mm:ssX", java.util.Locale.US)
-    val date = parser.parse(value) ?: return@runCatching value
-    java.text.SimpleDateFormat("EEE, dd MMM · HH:mm", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("Africa/Addis_Ababa") }.format(date)
-}.getOrDefault(value.ifBlank { "Not configured" })
+private fun driverLocalTime(value: String): String = EthiopianDateTime.formatTimestamp(value).ifBlank { "Not configured" }
 
 @Composable
 private fun DriverPassengerRosterRow(passenger: com.example.data.api.DriverRosterPassenger) {

@@ -227,12 +227,11 @@ public class SmsGatewayService extends Service {
                 throw new SmsSendSecurityException("manager_lookup", error);
             }
         }
-        java.util.ArrayList<String> parts;
-        try {
-            parts = smsManager.divideMessage(message);
-        } catch (SecurityException error) {
-            throw new SmsSendSecurityException("message_split", error);
-        }
+        // Split locally. Some Samsung builds throw SecurityException from
+        // SmsManager.divideMessage even when SEND_SMS is granted. This splitter
+        // follows GSM 03.38 septet counts and UCS-2 code-unit limits without
+        // querying the telephony service.
+        java.util.ArrayList<String> parts = SmsPartSplitter.divide(message);
         if (parts == null || parts.isEmpty() || parts.size() > 10) return "sms_parts_limit";
 
         String trackerKey = jobId + ":" + lease;

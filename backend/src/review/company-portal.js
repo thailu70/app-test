@@ -11,13 +11,14 @@ const ASSETS = Object.freeze({
   '/company/company.css': 'company/company.css', '/company/admin.css': 'admin/admin.css',
   '/company/applications.js': 'shared/applications.js', '/company/applications.css': 'shared/applications.css',
   '/company/fleet-map.js': 'shared/fleet-map.js', '/company/fleet-map.css': 'shared/fleet-map.css',
+  '/company/ethiopian-datetime.js': 'shared/ethiopian-datetime.js',
   '/company/review-session.js': 'company/review-session.js', '/company/review.css': 'company/review.css'
 });
 const CSP = "default-src 'none'; script-src https://passo.live/review/company/; style-src https://passo.live/review/company/ 'unsafe-inline'; img-src https://passo.live/review/api/ data: blob:; font-src https://passo.live/review/company/; connect-src https://passo.live/review/api/; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'";
 function renderCompanyHtml(source) {
   return source
     .replace('<head>', '<head><script src="/review/company/review-session.js" defer></script><link rel="stylesheet" href="/review/company/review.css">')
-    .replace(/(?:href|src)="\/(?:company\/|admin\/admin\.css|shared\/(?:applications\.(?:js|css)|fleet-map\.(?:js|css)))/g, value => value.replace(/"\//, '"/review/').replace('/review/admin/admin.css','/review/company/admin.css').replace('/review/shared/','/review/company/'))
+    .replace(/(?:href|src)="\/(?:company\/|admin\/admin\.css|shared\/(?:applications\.(?:js|css)|fleet-map\.(?:js|css)|ethiopian-datetime\.js))/g, value => value.replace(/"\//, '"/review/').replace('/review/admin/admin.css','/review/company/admin.css').replace('/review/shared/','/review/company/'))
     .replace(/<a href="\/join\/[^\"]*">[^<]*<\/a>/g, '<span>Sign in with the supplied synthetic company owner account.</span>')
     .replace(/<a href="\/travel\/"[^>]*>[^<]*<\/a>/g, '<span class="muted">Demo departures are visible in the native travel screen.</span>')
     .replace('Register an invited company →','Company workspace →')

@@ -62,6 +62,11 @@ test('public driver and company onboarding isolates credentials, verifies real d
   }
   const api = (suffix, method, token, body, mime) => request('/api/onboarding' + suffix, method, token, body, mime);
   const password = 'Onboarding fixture password';
+  async function assertDriverPasswordLoginRemoved(phone) {
+    const response = await api('/login', 'POST', null, { role: 'DRIVER', phone, password });
+    assert.equal(response.status, 410, JSON.stringify(response.data));
+    assert.match(response.data.error, /phone number and SMS code/i);
+  }
   const driverInput = (phone = '0912346001', plate = 'ONBOARD-001') => ({ role: 'DRIVER', fullName: 'Applicant Driver', phone, password, licenseNumber: 'LICENSE-1', assignedVehiclePlate: plate, vehicleModel: 'Minivan', vehicleType: 'MINIVAN_8', routeChoice: 'PROPOSED', proposedDeparture: 'Bole', proposedDestination: 'CMC', proposedMonthlyFeeEtb: 50000, proposedMonthlyFeeBasis: 'PER_VEHICLE' });
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aB9sAAAAASUVORK5CYII=', 'base64');
   const pdf = Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF');
@@ -116,7 +121,7 @@ test('public driver and company onboarding isolates credentials, verifies real d
     assert.equal((await DB.prepare('SELECT appliedRouteId FROM users WHERE id=?').get(driver.account.id)).appliedRouteId, '');
     assert.equal((await DB.prepare('SELECT assignedRouteId FROM vehicles WHERE driverId=?').get(driver.account.id)).assignedRouteId, null);
     assert.equal(messages.length, 0, 'Registration never sends an unsolicited code');
-    assert.equal((await api('/login', 'POST', null, { role: 'DRIVER', phone: '+251912346001', password })).status, 200);
+    await assertDriverPasswordLoginRemoved('+251912346001');
     assert.equal((await api('/register', 'POST', null, driverInput('+251912346001', 'DIFFERENT-PLATE'))).status, 409);
     assert.equal((await api('/register', 'POST', null, { ...driverInput(), role: 'ADMIN' })).status, 400);
     assert.equal((await request('/private', 'GET', driver.token)).status, 401);
@@ -323,7 +328,7 @@ test('public driver and company onboarding isolates credentials, verifies real d
     const contactChanged = await api('/me', 'GET', applicant.token);
     assert.equal(contactChanged.data.onboarding.acceptedAt, null);
     assert.equal((await DB.prepare('SELECT normalized_phone FROM onboarding_accounts WHERE account_id=?').get(applicant.account.id)).normalized_phone, '+251912346032', 'Existing contact editors keep onboarding phone ownership synchronized');
-    assert.equal((await api('/login', 'POST', null, { role: 'DRIVER', phone: '0912346032', password })).status, 200);
+    await assertDriverPasswordLoginRemoved('0912346032');
     await confirmUploadAccess(applicant);
     await verify(applicant); assert.equal(messages.at(-1).phone, '+251912346032');
   });
@@ -397,7 +402,7 @@ test('public driver and company onboarding isolates credentials, verifies real d
       assert.equal(applicant.onboarding.canVerifyAndUpload, true);
       assert.equal((await api('/documents/LICENSE','PUT',applicant.token,png,'image/png')).status,200);
       assert.equal((await api('/applications/DRIVER/'+applicant.account.id+'/review','POST',admin,{decision:'APPROVE'})).status,428);
-      assert.equal((await api('/login','POST',null,{role:'DRIVER',phone,password})).data.account.serviceType, serviceType);
+      await assertDriverPasswordLoginRemoved(phone);
       await confirmUploadAccess(applicant);
       await completeDriverProfile(applicant);
       const submitted = await api('/submit','POST',applicant.token,{});
@@ -474,8 +479,8 @@ test('public driver and company onboarding isolates credentials, verifies real d
     assert.equal(changed.data.onboarding.acceptedAt, null); assert.equal(changed.data.onboarding.canVerifyAndUpload, true);
     assert.equal((await api('/submit', 'POST', driver.token, {})).status, 200);
     assert.equal((await api('/me', 'GET', driver.token)).data.onboarding.canVerifyAndUpload, true);
-    assert.equal((await api('/login', 'POST', null, { role: 'DRIVER', phone: '0912346001', password })).status, 401);
-    assert.equal((await api('/login', 'POST', null, { role: 'DRIVER', phone: '+251912346002', password })).status, 200);
+    await assertDriverPasswordLoginRemoved('0912346001');
+    await assertDriverPasswordLoginRemoved('+251912346002');
     await confirmUploadAccess(driver); await verify(driver); assert.equal(messages.at(-1).phone, '+251912346002');
   });
 
@@ -490,7 +495,7 @@ test('public driver and company onboarding isolates credentials, verifies real d
     assert.equal((await api('/verify-otp', 'POST', applicant.token, { code })).status, 400);
     assert.equal((await api('/me', 'GET', applicant.token)).data.onboarding.phoneVerified, false);
     smsAvailable = true;
-    for (let index = 0; index < 2; index++) assert.equal((await request('/limited/login', 'POST', null, { role: 'DRIVER', phone: '0912346012', password: 'wrong' })).status, 401);
+    for (let index = 0; index < 2; index++) assert.equal((await request('/limited/login', 'POST', null, { role: 'DRIVER', phone: '0912346012', password: 'wrong' })).status, 410);
     assert.equal((await request('/limited/login', 'POST', null, { role: 'DRIVER', phone: '0912346012', password: 'wrong' })).status, 429);
     assert.equal(await getOnboardingReadiness('usr_drv_kassahun', 'DRIVER').then(result => result.tracked), false, 'Existing accounts are not retrospectively enrolled');
     assert.equal(await isOperationallyEligible('onb_company_a', 'COMPANY'), true);
@@ -513,7 +518,7 @@ test('public driver and company onboarding isolates credentials, verifies real d
     assert.equal(result.status, 201); const applicant = result.data;
     for (const status of ['SUSPENDED','DELETED','INACTIVE']) {
       await DB.prepare('UPDATE users SET status=? WHERE id=?').run(status, applicant.account.id);
-      assert.equal((await api('/login', 'POST', null, { role: 'DRIVER', phone: '0912346014', password })).status, 401);
+      await assertDriverPasswordLoginRemoved('0912346014');
       assert.equal((await api('/me', 'GET', applicant.token)).status, 403);
       assert.equal((await api('/request-otp', 'POST', applicant.token, {})).status, 403);
       assert.equal((await api('/profile', 'PATCH', applicant.token, { vehicleColor: 'Red' })).status, 403);
@@ -549,7 +554,7 @@ test('public driver and company onboarding isolates credentials, verifies real d
     assert.equal((await api('/request-otp', 'POST', created.data.token, {})).status, 200);
     assert.equal((await api('/documents/PHOTO', 'PUT', created.data.token, png, 'image/png')).status, 200);
     assert.equal((await api('/me', 'GET', old.token)).status, 403);
-    assert.equal((await api('/login', 'POST', null, { role: 'DRIVER', phone: '0912346015', password })).status, 401);
+    await assertDriverPasswordLoginRemoved('0912346015');
     assert.equal((await DB.prepare('SELECT status FROM users WHERE id=?').get(old.account.id)).status, 'DELETED');
   });
 });

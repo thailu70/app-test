@@ -32,6 +32,7 @@ function portal(file, responses, failures = {}) {
   let nextTimer = 0;
   let removed = false;
   const context = { document: { querySelector: get, querySelectorAll: () => [] }, Date, console, URLSearchParams, AbortController,
+    PassoEthiopianDateTime: require('../public/shared/ethiopian-datetime'),
     setTimeout: (fn, ms) => { const id = ++nextTimer; timers.set(id, { fn, ms }); return id; },
     clearTimeout: id => timers.delete(id),
     sessionStorage: { getItem: () => 'test-company-token', setItem() {}, removeItem() { removed = true; } },

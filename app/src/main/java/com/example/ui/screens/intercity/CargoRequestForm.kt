@@ -1,6 +1,5 @@
 package com.example.ui.screens.intercity
 
-import android.app.TimePickerDialog
 import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -47,10 +46,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.core.localization.AppLanguage
+import com.example.core.time.EthiopianDateTime
 import com.example.data.api.ApiClient
 import com.example.data.api.MobilityApi
 import com.example.data.api.MobilityRequestInput
 import com.example.ui.components.PassoMobilityPalette
+import com.example.ui.components.EthiopianDatePickerDialog
 import com.example.ui.screens.passenger.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -62,7 +63,7 @@ import java.util.Locale
 /** Only form values are saved. Photo bytes and private request access keep their existing storage rules. */
 internal data class CargoRequestDraft(
     val origin: String = "", val destination: String = "", val date: String = intercityToday(),
-    val time: String = "08:00", val weight: String = "", val vehicleType: String = "",
+    val time: String = EthiopianDateTime.clockValueFromEAT(8, 0), val weight: String = "", val vehicleType: String = "",
     val details: String = "", val name: String = "", val phone: String = "",
     val pickup: Pair<Double, Double>? = null, val delivery: Pair<Double, Double>? = null
 )
@@ -118,12 +119,13 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
     val contactReady = errors.none { it in setOf("name", "phone") }
     val typeName = state.types.find { it.id == draft.vehicleType }?.name ?: draft.vehicleType
     fun submitCargoRequest(token: String?) {
-        send(MobilityRequestInput("CARGO", draft.origin.trim(), draft.destination.trim(), draft.date,
+        val (apiDate, apiTime) = requireNotNull(EthiopianDateTime.toApiDateTime(draft.date, draft.time)) { "Choose a valid Ethiopian date and time." }
+        send(MobilityRequestInput("CARGO", draft.origin.trim(), draft.destination.trim(), apiDate,
             vehicleType = draft.vehicleType, cargoDetails = draft.details.trim(), customerName = draft.name.trim(),
             customerPhone = draft.phone.trim(), adultConfirmed = state.adultConfirmed,
             originLatitude = draft.pickup?.first, originLongitude = draft.pickup?.second,
             destinationLatitude = draft.delivery?.first, destinationLongitude = draft.delivery?.second,
-            estimatedWeightQuintals = draft.weight.toDoubleOrNull(), travelTime = draft.time, otpVerificationToken = token), photo.bytes, photo.type)
+            estimatedWeightQuintals = draft.weight.toDoubleOrNull(), travelTime = apiTime, otpVerificationToken = token), photo.bytes, photo.type)
     }
     LaunchedEffect(draft.pickup, draft.delivery) {
         val from = draft.pickup; val to = draft.delivery
@@ -166,12 +168,8 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
                     Text(t("Search places or choose on map", "ቦታ ይፈልጉ ወይም በካርታ ይምረጡ", "Bakka barbaadi yookaan kaartaa irratti filadhu"), color = PassoMobilityPalette.muted, fontSize = 12.sp, lineHeight = 17.sp)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1.15f)) { CargoDateSelector(draft.date, { draft = draft.copy(date = it) }, enabled, t("Date", "ቀን", "Guyyaa")) }
-                    CargoOutlinedSlot(t("Time", "ሰዓት", "Yeroo"), false, "request_time", enabled, Modifier.weight(1f), onClick = {
-                        val parts = draft.time.split(':'); TimePickerDialog(context, { _, hour, minute -> draft = draft.copy(time = String.format(Locale.US, "%02d:%02d", hour, minute)) }, parts.firstOrNull()?.toIntOrNull() ?: 8, parts.getOrNull(1)?.toIntOrNull() ?: 0, true).show()
-                    }) {
-                        Icon(Icons.Default.Schedule, null, tint = CommuteTeal, modifier = Modifier.size(19.dp)); Spacer(Modifier.width(5.dp)); Text(draft.time, color = CommuteInk)
-                    }
+                    Box(Modifier.weight(1.15f)) { CargoDateSelector(draft.date, { draft = draft.copy(date = it) }, enabled, t("Date", "ቀን", "Guyyaa"), language) }
+                    Box(Modifier.weight(1f)) { EthiopianTimeField(draft.time, { draft = draft.copy(time = it) }, t("Pickup time", "የመጫኛ ሰዓት", "Yeroo fe'umsaa"), "request_time", enabled, language) }
                 }
                 Text(listOfNotNull(road, t("Ethiopia time", "የኢትዮጵያ ሰዓት", "Yeroo Itoophiyaa")).joinToString(" · "),
                     color = PassoMobilityPalette.muted, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.testTag("cargo_road_distance"))
@@ -235,7 +233,7 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
         title = { Text(t("Review cargo request", "የጭነት ጥያቄን ይገምግሙ", "Gaaffii fe'umsaa ilaali"), color = CommuteInk, fontWeight = FontWeight.Bold) }, text = {
         Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("${draft.origin} → ${draft.destination}", fontWeight = FontWeight.Bold, color = CommuteInk)
-            Text("${draft.date} · ${draft.time} · ${t("Ethiopia time", "የኢትዮጵያ ሰዓት", "Yeroo Itoophiyaa")}")
+            Text("${EthiopianDateTime.formatDate(draft.date, language)} · ${EthiopianDateTime.formatClock(draft.time, language)} · ${t("Ethiopia time", "የኢትዮጵያ ሰዓት", "Yeroo Itoophiyaa")}")
             road?.let { Text(it, color = CommuteTeal) }
             HorizontalDivider(); Text("$typeName · ${draft.weight} quintals", fontWeight = FontWeight.Bold); Text(draft.details)
             CargoPhotoPreview(photo, Modifier.fillMaxWidth().height(120.dp))
@@ -420,24 +418,16 @@ private fun cargoPhoneLocal(phone: String): String {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable private fun CargoDateSelector(value: String, onValue: (String) -> Unit, enabled: Boolean, label: String) {
+@Composable private fun CargoDateSelector(value: String, onValue: (String) -> Unit, enabled: Boolean, label: String, language: AppLanguage) {
     var open by remember { mutableStateOf(false) }
-    val parser = remember { java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") } }
-    val formatted = remember(value) { runCatching { java.text.SimpleDateFormat("EEE, d MMM yyyy", Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(parser.parse(value)!!) }.getOrDefault(value) }
+    val formatted = remember(value, language) { EthiopianDateTime.formatDate(value, language) }
     CargoOutlinedSlot(label, false, "cargo_pickup_date", enabled, onClick = { open = true }) {
         Icon(Icons.Default.CalendarMonth, null, tint = CommuteTeal, modifier = Modifier.size(19.dp)); Spacer(Modifier.width(6.dp))
         Text(formatted, color = CommuteInk, fontSize = 11.sp, lineHeight = 15.sp, maxLines = 1, modifier = Modifier.weight(1f))
         Icon(Icons.Default.ChevronRight, null, tint = CommuteInk, modifier = Modifier.size(16.dp))
     }
-    if (open) {
-        val today = parser.parse(intercityToday())!!.time
-        val picker = rememberDatePickerState(initialSelectedDateMillis = runCatching { parser.parse(value)?.time }.getOrNull(), selectableDates = object : SelectableDates {
-            override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis >= today
-        })
-        DatePickerDialog(onDismissRequest = { open = false }, confirmButton = { TextButton(onClick = { picker.selectedDateMillis?.let { onValue(parser.format(java.util.Date(it))) }; open = false }) { Text("Choose") } },
-            dismissButton = { TextButton(onClick = { open = false }) { Text("Cancel") } }) { DatePicker(picker) }
-    }
+    if (open) EthiopianDatePickerDialog(value, EthiopianDateTime.todayIso(), language,
+        onDismiss = { open = false }, onSelect = { onValue(it); open = false })
 }
 
 @Composable private fun CargoInput(value: String, onValue: (String) -> Unit, label: String, tag: String,

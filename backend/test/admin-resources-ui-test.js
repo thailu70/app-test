@@ -182,7 +182,7 @@ test('admin navigation and logout release Settings polling while unavailable SMS
       addEventListener: (name, listener) => documentListeners.set(name, listener),
     },
     sessionStorage: { getItem: () => 'test-admin-token', setItem() {}, removeItem() { removed = true; } },
-    AbortController, Date, console,
+    AbortController, Date, console, PassoEthiopianDateTime: require('../public/shared/ethiopian-datetime'),
     setTimeout: (fn, ms) => { const id = ++nextTimer; timers.set(id, { fn, ms }); return id; },
     clearTimeout: id => timers.delete(id),
     fetch: async (url, options) => {

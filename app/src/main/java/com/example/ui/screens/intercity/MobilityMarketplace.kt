@@ -197,11 +197,11 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
             "Current" -> {
                 current?.let { job -> DriverJobCard(api, job, working, permission, onPhoto,
                     enableLocation = { permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) },
-                    progress = { action -> act { val response = mobilityBody(api.progress(job.id, MobilityProgressInput(action))); check(response.success) { response.error ?: "Could not update this task." } } }, driverLocation = ownLocation) }
+                    progress = { action -> act { val response = mobilityBody(api.progress(job.id, MobilityProgressInput(action))); check(response.success) { response.error ?: "Could not update this task." } } }, driverLocation = ownLocation, language = language) }
                     ?: Unit
                 if (active == null && result?.busy != true) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text("Available requests", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = CommuteInk, modifier = Modifier.weight(1f)); TextButton(onClick = { tab = "Requests" }) { Text("View all"); Icon(Icons.Default.ArrowForward, null, Modifier.size(16.dp)) } }
-                    result?.requests?.take(2)?.forEach { job -> DriverOpportunityCard(api, job, !working && dashboard.vehicles.isNotEmpty(), compact = true, onPhoto = onPhoto) { quoting = job } }
+                    result?.requests?.take(2)?.forEach { job -> DriverOpportunityCard(api, job, !working && dashboard.vehicles.isNotEmpty(), compact = true, onPhoto = onPhoto, language = language) { quoting = job } }
                     if (result == null) Text("Finding available requests…", fontSize = 13.sp, color = CommuteInk)
                     else if (result?.requests?.isEmpty() == true) Text("No matching requests yet. We’ll refresh this list automatically.", fontSize = 13.sp, color = CommuteInk)
                 }
@@ -214,13 +214,13 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
                 else {
                     if (result == null) Text("Finding available requests…", color = CommuteInk)
                     else if (result?.requests?.isEmpty() == true) MobilityCard { Text("No matching requests yet", fontWeight = FontWeight.Bold, color = CommuteInk); Text("Your matching requests will appear here automatically.", fontSize = 13.sp, color = CommuteInk) }
-                    result?.requests?.forEach { job -> DriverOpportunityCard(api, job, !working && dashboard.vehicles.isNotEmpty(), onPhoto = onPhoto) { quoting = job } }
+                    result?.requests?.forEach { job -> DriverOpportunityCard(api, job, !working && dashboard.vehicles.isNotEmpty(), onPhoto = onPhoto, language = language) { quoting = job } }
                 }
                 TextButton(enabled = !working, onClick = { act {} }) { Icon(Icons.Default.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Refresh requests") }
             }
             "History" -> {
-                pending.forEach { job -> DriverJobCard(api, job, working, permission, onPhoto, {}, {}, compact = true) }
-                history.forEach { job -> DriverJobCard(api, job, working, permission, onPhoto, {}, {}, compact = true) }
+                pending.forEach { job -> DriverJobCard(api, job, working, permission, onPhoto, {}, {}, compact = true, language = language) }
+                history.forEach { job -> DriverJobCard(api, job, working, permission, onPhoto, {}, {}, compact = true, language = language) }
                 if (pending.isEmpty() && history.isEmpty()) MobilityCard { Text("Your completed jobs will appear here", color = CommuteInk, fontWeight = FontWeight.Bold); Text("You can open any job to see its customer, agreed price and service details.", fontSize = 13.sp, color = CommuteInk) }
             }
         }
@@ -228,13 +228,13 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
 }
 
 @Composable private fun DriverOpportunityCard(api: MobilityApi, job: MobilityOpportunity, enabled: Boolean, compact: Boolean = false,
-    onPhoto: (String) -> Unit, quote: () -> Unit) {
+    onPhoto: (String) -> Unit, language: AppLanguage = AppLanguage.ENGLISH, quote: () -> Unit) {
     var expanded by remember(job.id) { mutableStateOf(!compact) }
     Surface(color = Color.White, shape = RoundedCornerShape(17.dp), border = BorderStroke(1.dp, Color(0xFFE7E3DB)), modifier = Modifier.fillMaxWidth().animateContentSize()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }, verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.LocationOn, null, tint = CommuteTeal, modifier = Modifier.size(22.dp)); Spacer(Modifier.width(9.dp))
-                Column(Modifier.weight(1f)) { Text("${job.origin} → ${job.destination}", fontWeight = FontWeight.Bold, color = CommuteInk, fontSize = 15.sp); Text(listOf(job.travelDate, job.travelTime).filter { it.isNotBlank() }.joinToString(" · "), fontSize = 12.sp, color = CommuteInk) }
+                Column(Modifier.weight(1f)) { Text("${job.origin} → ${job.destination}", fontWeight = FontWeight.Bold, color = CommuteInk, fontSize = 15.sp); Text(formatMobilityDateTime(job.travelDate, job.travelTime, language), fontSize = 12.sp, color = CommuteInk) }
                 Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ChevronRight, if (expanded) "Collapse request" else "View request", tint = CommuteTeal)
             }
             if (expanded) {
@@ -257,7 +257,7 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
 
 @Composable private fun DriverJobCard(api: MobilityApi, job: MobilityRequest, working: Boolean, permission: Boolean,
     onPhoto: (String) -> Unit, enableLocation: () -> Unit, progress: (String) -> Unit, compact: Boolean = false,
-    driverLocation: MobilityLocation? = null) {
+    driverLocation: MobilityLocation? = null, language: AppLanguage = AppLanguage.ENGLISH) {
     val context = LocalContext.current
     var expanded by remember(job.id) { mutableStateOf(!compact) }
     var detailsOpen by remember(job.id) { mutableStateOf(false) }
@@ -269,7 +269,7 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
             Row(Modifier.padding(horizontal = 11.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { Icon(if (awaiting) Icons.Default.Schedule else if (job.status == "COMPLETED") Icons.Default.CheckCircle else Icons.Default.LocalShipping, null, tint = if (awaiting) Color(0xFFAC6200) else CommuteTeal, modifier = Modifier.size(21.dp)); Spacer(Modifier.width(8.dp)); Text(mobilityDriverStatus(job.status), fontWeight = FontWeight.SemiBold, color = if (awaiting) Color(0xFF995400) else CommuteTeal, fontSize = 13.sp) }
         }
         Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }, verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { Text("${job.origin} → ${job.destination}", fontWeight = FontWeight.Bold, color = CommuteInk, fontSize = if (compact) 16.sp else 19.sp); if (compact && !expanded) Text("${job.travelDate} · ${mobilityDriverStatus(job.status)}", color = CommuteTeal, fontSize = 12.sp) }
+            Column(Modifier.weight(1f)) { Text("${job.origin} → ${job.destination}", fontWeight = FontWeight.Bold, color = CommuteInk, fontSize = if (compact) 16.sp else 19.sp); if (compact && !expanded) Text("${formatMobilityDateTime(job.travelDate, "", language)} · ${mobilityDriverStatus(job.status)}", color = CommuteTeal, fontSize = 12.sp) }
             Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ChevronRight, if (expanded) "Collapse job" else "View job", tint = CommuteTeal)
         }
         if (expanded) {
@@ -304,7 +304,7 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
                 Column(Modifier.weight(1f)) { Text("Customer", color = Color(0xFF61768A), fontSize = 11.sp); Text(job.customerName, color = CommuteInk, fontWeight = FontWeight.Medium, fontSize = 14.sp) }
                 if (job.customerPhone.isNotBlank()) OutlinedButton(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${job.customerPhone}"))) } }, shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp), modifier = Modifier.testTag("market_call_customer")) { Icon(Icons.Default.Call, null, Modifier.size(17.dp)); Spacer(Modifier.width(5.dp)); Text("Call customer", fontSize = 12.sp) }
             }
-            if (inProgress || detailsOpen) Text(listOf(job.travelDate, job.travelTime, job.vehiclePlate.orEmpty()).filter { it.isNotBlank() }.joinToString(" · "), color = Color(0xFF61768A), fontSize = 12.sp)
+            if (inProgress || detailsOpen) Text(listOf(formatMobilityDateTime(job.travelDate, job.travelTime, language), job.vehiclePlate.orEmpty()).filter { it.isNotBlank() }.joinToString(" · "), color = Color(0xFF61768A), fontSize = 12.sp)
             TextButton(onClick = { detailsOpen = !detailsOpen }, contentPadding = PaddingValues(0.dp), modifier = Modifier.testTag("market_job_details")) { Icon(Icons.Default.Description, null, Modifier.size(19.dp)); Spacer(Modifier.width(7.dp)); Text(if (detailsOpen) "Hide details" else if (job.kind == "CARGO") "View delivery details" else "View journey details", fontSize = 13.sp); Spacer(Modifier.width(7.dp)); Icon(if (detailsOpen) Icons.Default.ExpandLess else Icons.Default.ArrowForward, null, Modifier.size(16.dp)) }
             if (detailsOpen) {
                 job.cargoDetails?.takeIf { it.isNotBlank() }?.let { Text(it, color = CommuteInk, fontSize = 13.sp) }

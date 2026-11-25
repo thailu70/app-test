@@ -63,15 +63,17 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 
-private suspend fun nearestTaxiPickupArea(api: MobilityApi, context: android.content.Context, point: Pair<Double, Double>, language: AppLanguage): String? {
-    try {
-        val response = api.reverseLocation(point.first, point.second)
-        val area = response.body()?.takeIf { response.isSuccessful && it.success }?.name?.trim()?.takeIf(String::isNotEmpty)
-        if (area != null) return area
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (_: Exception) {
-        // Keep Android's local geocoder as a fallback when the app cannot reach Photon.
+internal suspend fun nearestTaxiPickupArea(api: MobilityApi?, context: android.content.Context, point: Pair<Double, Double>, language: AppLanguage): String? {
+    if (api != null) {
+        try {
+            val response = api.reverseLocation(point.first, point.second)
+            val area = response.body()?.takeIf { response.isSuccessful && it.success }?.name?.trim()?.takeIf(String::isNotEmpty)
+            if (area != null) return area
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Keep Android's local geocoder as a fallback when the app cannot reach Photon.
+        }
     }
     if (!Geocoder.isPresent()) return null
     val locale = when (language) {
@@ -109,7 +111,7 @@ private suspend fun nearestTaxiPickupArea(api: MobilityApi, context: android.con
     }
 }
 
-private fun isGenericTaxiPickupLabel(value: String): Boolean =
+internal fun isGenericTaxiPickupLabel(value: String): Boolean =
     value.isBlank() || value.contains("pickup location", ignoreCase = true) ||
         value.contains("current location", ignoreCase = true) || value.contains("selected map point", ignoreCase = true) ||
         value.startsWith("አሁን") || value.startsWith("Bakka amma", ignoreCase = true) || value.startsWith("Bakka kaartaa", ignoreCase = true)
@@ -147,6 +149,7 @@ private fun isGenericTaxiPickupLabel(value: String): Boolean =
     var pickupName by remember { mutableStateOf(pending?.route?.origin ?: taxiText(language, "Current location", "አሁን ያሉበት ቦታ", "Bakka amma jirtan")) }
     var destinationName by remember { mutableStateOf(pending?.route?.destination.orEmpty()) }
     var tier by remember { mutableStateOf(pending?.route?.tier ?: "ECONOMY") }
+    var attemptedEstimateKey by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(pending, model) { pending?.sharedId?.let(model::chooseTrip) }
     var picker by remember { mutableStateOf<String?>(null) }
     var localNotice by remember { mutableStateOf<String?>(null) }
@@ -210,6 +213,16 @@ private fun isGenericTaxiPickupLabel(value: String): Boolean =
         val from = pickup ?: return null; val to = destination ?: return null
         return TaxiRouteInput(pickupName, destinationName, from.first, from.second, to.first, to.second, tier)
     }
+    fun estimateKey(input: TaxiRouteInput): String = listOf(input.origin, input.destination,
+        input.originLatitude, input.originLongitude, input.destinationLatitude, input.destinationLongitude, input.tier).joinToString("|")
+    fun requestEstimate(retry: Boolean = false) {
+        val input = route() ?: return
+        val key = estimateKey(input)
+        if (!retry && attemptedEstimateKey == key) return
+        attemptedEstimateKey = key
+        model.clearMessage()
+        model.estimate(input)
+    }
     val clearDestination: () -> Unit = {
         destination = null
         destinationName = ""
@@ -226,10 +239,13 @@ private fun isGenericTaxiPickupLabel(value: String): Boolean =
         }
     }
     LaunchedEffect(pickup, destination, state.settings.enabled, state.estimate, state.busy) {
-        if (pickup != null && destination != null && state.settings.enabled && state.estimate == null && !state.busy) route()?.let(model::estimate)
+        if (pickup != null && destination != null && state.settings.enabled && state.estimate == null && !state.busy) requestEstimate()
     }
     LaunchedEffect(pickup, destination) {
-        if (pickup == null || destination == null) model.clearEstimate()
+        if (pickup == null || destination == null) {
+            attemptedEstimateKey = null
+            model.clearEstimate()
+        }
     }
     LaunchedEffect(newPassengerPhone) {
         if (!newPassengerPhone.isNullOrBlank()) {
@@ -345,7 +361,7 @@ private fun isGenericTaxiPickupLabel(value: String): Boolean =
         Box(Modifier.weight(1f).smoothPortalMotion("$page:${state.ride?.status}:${state.selectedTrip?.id}")) {
             when {
                 page == "shared" -> { SharedPassengerContent(model, state, authenticated, chooseSignIn, { page = "home" }, startShared,
-                    passengerPickup = pickup, passengerPickupName = pickupName)
+                    passengerPickup = pickup, passengerPickupName = pickupName, language = language)
                     LaunchedEffect(Unit) { startShared = false }
                 }
                 page == "payments" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
@@ -381,7 +397,8 @@ private fun isGenericTaxiPickupLabel(value: String): Boolean =
                     onService = { service -> if (service == "COMMUTE") onDailyCommute() else if (service != "TAXI") onOpenMobility(service) },
                     // This banner promotes shared city taxi rides, not the separate intercity group-travel portal.
                     onTravelTogether = { page = "shared" },
-                    onEstimate = { route()?.let(model::estimate) },
+                    onEstimate = { requestEstimate(retry = true) },
+                    onRetryEstimate = { requestEstimate(retry = true) },
                     onNotificationOptIn = if (authenticated) ({ com.example.core.notifications.MobilityNotificationOptIn(driver = false, taxi = true) }) else null,
                     mapTiles = mapTiles
                 )
@@ -612,6 +629,7 @@ private fun TaxiPassengerHome(
     onService: (String) -> Unit,
     onTravelTogether: () -> Unit,
     onEstimate: () -> Unit,
+    onRetryEstimate: () -> Unit,
     onNotificationOptIn: (@Composable () -> Unit)?,
     mapTiles: Boolean
 ) {
@@ -621,6 +639,7 @@ private fun TaxiPassengerHome(
     var nearbyLayerVisible by remember { mutableStateOf(true) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val availableHeight = maxHeight
+        val routePreviewMapHeight = (availableHeight - 390.dp).coerceIn(180.dp, 280.dp)
         if (!hasDestination) {
             Box(Modifier.fillMaxSize().testTag("taxi_home_map_canvas")) {
                 TaxiMap(pickup, null, height = availableHeight.value.toInt(), pickupLabel = pickupName,
@@ -753,8 +772,8 @@ private fun TaxiPassengerHome(
             Column(Modifier.fillMaxWidth().heightIn(min = availableHeight).verticalScroll(rememberScrollState()).animateContentSize().background(TaxiCanvas).padding(horizontal = 16.dp, vertical = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (routePreview) {
-                    Box(Modifier.fillMaxWidth().height(390.dp).clip(RoundedCornerShape(24.dp))) {
-                        TaxiMap(pickup, destination, height = 390, pickupLabel = pickupName, destinationLabel = destinationName,
+                    Box(Modifier.fillMaxWidth().height(routePreviewMapHeight).clip(RoundedCornerShape(24.dp))) {
+                        TaxiMap(pickup, destination, height = routePreviewMapHeight.value.toInt(), pickupLabel = pickupName, destinationLabel = destinationName,
                             tileDownloadsEnabled = mapTiles, routeGeometry = estimate?.routeGeometry, routeGeometryQuality = estimate?.routeGeometryQuality,
                             nearbyCars = state.nearbyCars, modifier = Modifier.fillMaxSize())
                         Surface(Modifier.align(Alignment.TopStart).padding(11.dp), color = Color.White.copy(alpha = .94f), shape = CircleShape) {
@@ -789,10 +808,18 @@ private fun TaxiPassengerHome(
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Route, null, tint = CommuteTeal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
                     Text(estimate?.let { "${"%.1f".format(it.distanceKm)} km · about ${it.durationMinutes.toInt()} min" }
-                        ?: taxiText(language, "Calculating route…", "መንገዱ በማስላት ላይ…", "Karaa shallagamaa jira…"), color = Color(0xFF627385), fontSize = 12.sp, maxLines = 1)
+                        ?: if (state.busy) taxiText(language, "Calculating route…", "መንገዱ በማስላት ላይ…", "Karaa shallagamaa jira…")
+                        else if (state.message != null) taxiText(language, "Could not calculate fare. Check your connection and retry.", "ዋጋውን ማስላት አልተቻለም። ግንኙነትዎን ያረጋግጡና እንደገና ይሞክሩ።", "Gatiin hin shallagamne. Walqunnamtii mirkaneessii irra deebi'i.")
+                        else taxiText(language, "Choose a destination to estimate your fare", "ዋጋውን ለማስላት መድረሻ ይምረጡ", "Gatii tilmaamuuf bakka ga'umsaa filadhu"),
+                        color = Color(0xFF627385), fontSize = 12.sp, maxLines = 2)
+                }
+                if (state.estimate == null && !state.busy && state.message != null) {
+                    TextButton(onClick = onRetryEstimate, modifier = Modifier.align(Alignment.End).heightIn(min = 38.dp)) {
+                        Text(taxiText(language, "Retry fare", "ዋጋውን እንደገና ሞክር", "Gatii irra deebi'i"), color = CommuteTeal, fontWeight = FontWeight.Bold)
+                    }
                 }
                 TaxiRequestButton(enabled = estimate != null && estimate.estimatedFareEtb > 0.0 && !state.busy, language = language, onClick = onRequest)
-                onNotificationOptIn?.invoke()
+                if (!routePreview) onNotificationOptIn?.invoke()
                 Spacer(Modifier.height(9.dp))
             }
         }

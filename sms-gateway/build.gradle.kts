@@ -10,12 +10,18 @@ android {
     applicationId = "live.passo.smsgateway"
     minSdk = 26
     targetSdk = 35
-    versionCode = 13
-    versionName = "0.2.11"
+    versionCode = 14
+    versionName = "0.2.12"
   }
 
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
   }
+
+  testOptions { unitTests.isIncludeAndroidResources = true }
+}
+
+dependencies {
+  testImplementation(libs.junit)
 }

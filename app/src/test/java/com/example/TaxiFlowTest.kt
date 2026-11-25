@@ -30,6 +30,12 @@ class TaxiFlowTest {
         "shared", "me" -> Response.success(TaxiResponse(true))
         else -> error("Unexpected API call $name")
     }
+    @Test fun `taxi durations stay readable for long active trips`() {
+        assertEquals("08:42", taxiDuration(522))
+        assertEquals("1h 00m", taxiDuration(3_600))
+        assertEquals("4h 31m", taxiDuration(16_288))
+        assertEquals("00:00", taxiDuration(-8))
+    }
     @Test fun `anonymous discovery calls only catalog and shared and estimate uses server fare`() = runTest(dispatcher) {
         val calls = mutableListOf<String>()
         val vm = TaxiViewModel(fake { name, _ -> calls += name; if (name == "estimate") Response.success(TaxiResponse(true, estimate = TaxiEstimate(8.0, 22.0, 325.0))) else initial(name) }, false, false)

@@ -1,7 +1,5 @@
 package com.example.ui.screens.taxi
 
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,25 +21,29 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.api.*
+import com.example.core.localization.AppLanguage
+import com.example.core.time.EthiopianDateTime
+import com.example.ui.components.EthiopianDatePickerDialog
 import com.example.R
 import com.example.ui.components.PassoMobilityPalette
 import com.example.ui.components.QrCodeCanvas
 import com.example.ui.screens.intercity.freshMobilityLocation
 import com.example.ui.screens.intercity.mobilityDepartureIso
+import com.example.ui.screens.intercity.EthiopianTimeField
 import com.example.ui.screens.passenger.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-@Composable internal fun SharedPassengerContent(model: TaxiViewModel, state: TaxiUiState, authenticated: Boolean, onSignIn: () -> Unit, onBack: () -> Unit = {}, initialCreate: Boolean = false, passengerPickup: Pair<Double, Double>? = null, passengerPickupName: String = "Your location") {
+@Composable internal fun SharedPassengerContent(model: TaxiViewModel, state: TaxiUiState, authenticated: Boolean, onSignIn: () -> Unit, onBack: () -> Unit = {}, initialCreate: Boolean = false, passengerPickup: Pair<Double, Double>? = null, passengerPickupName: String = "Your location", language: AppLanguage = AppLanguage.ENGLISH) {
     var creating by remember { mutableStateOf(initialCreate) }
     val trip = state.selectedTrip
     Column(Modifier.fillMaxSize().background(PassoMobilityPalette.canvas)) {
         TaxiHeader("Group Ride", onBack = { when { trip != null -> model.closeTrip(); creating -> creating = false; else -> onBack() } })
         when {
             trip != null -> SharedTripDetail(model, state, authenticated, onSignIn)
-            creating -> TaxiTripForm(state, driver = false, street = false, model = model, onClose = { creating = false }, passengerGroupRequest = true, initialPickup = passengerPickup, initialOrigin = passengerPickupName) { input -> if (authenticated) model.sharedRequest(input) else onSignIn() }
+            creating -> TaxiTripForm(state, driver = false, street = false, model = model, onClose = { creating = false }, passengerGroupRequest = true, initialPickup = passengerPickup, initialOrigin = passengerPickupName, language = language) { input -> if (authenticated) model.sharedRequest(input) else onSignIn() }
             else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                 Text("Share the route. Pay per seat.", color = CommuteInk, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
                 TaxiPrimary("Start a group ride", !state.busy && state.settings.sharedEnabled, "shared_start_request") { if (authenticated) creating = true else { TaxiPendingNavigation.shared(start = true); onSignIn() } }
@@ -130,6 +132,7 @@ import java.util.*
     initialPickup: Pair<Double, Double>? = null, initialOrigin: String = "Your location",
     mapTiles: Boolean = true, mapApi: MobilityApi? = null,
     onAvailabilityChange: (Boolean, String) -> Unit = { _, _ -> }, onCreditClick: () -> Unit = {},
+    language: AppLanguage = AppLanguage.ENGLISH,
     onSubmit: (TaxiRouteInput) -> Unit) {
     val context = LocalContext.current
     var origin by remember(acceptRequest?.id, initialOrigin, street, passengerGroupRequest) {
@@ -148,8 +151,9 @@ import java.util.*
     var streetPassengerPhone by remember { mutableStateOf("") }
     var lastEstimatedRouteKey by remember(acceptRequest?.id) { mutableStateOf<String?>(null) }
     val calendar = remember { Calendar.getInstance(TimeZone.getTimeZone("Africa/Addis_Ababa")).apply { add(Calendar.MINUTE, 30) } }
-    var date by remember { mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = calendar.timeZone }.format(calendar.time)) }
-    var time by remember { mutableStateOf(SimpleDateFormat("HH:mm", Locale.US).apply { timeZone = calendar.timeZone }.format(calendar.time)) }
+    var date by remember { mutableStateOf(EthiopianDateTime.clockDateIso(calendar.timeInMillis)) }
+    var datePickerOpen by remember { mutableStateOf(false) }
+    var time by remember { mutableStateOf(EthiopianDateTime.clockValueFromEAT(calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE))) }
     val vehicles = state.dashboard?.vehicles.orEmpty()
     val vehicle = vehicles.find { it.id == vehicleId }
     val capacity = if (driver) vehicle?.capacityLimit?.coerceIn(0, 100) ?: 0 else 100
@@ -166,11 +170,20 @@ import java.util.*
         listOf(route.origin, route.destination, route.originLatitude, route.originLongitude, route.destinationLatitude,
             route.destinationLongitude, route.tier, route.vehicleId.orEmpty()).joinToString("|")
     }
-    LaunchedEffect(driver, street, estimateRouteKey, acceptRequest?.id) {
+    LaunchedEffect(driver, street, passengerGroupRequest, estimateRouteKey, acceptRequest?.id) {
         val route = base
-        if (driver && route != null && vehicle != null && estimateRouteKey != null && lastEstimatedRouteKey != estimateRouteKey) {
+        if ((driver || passengerGroupRequest) && !street && route != null && (!driver || vehicle != null) &&
+            estimateRouteKey != null && lastEstimatedRouteKey != estimateRouteKey) {
             lastEstimatedRouteKey = estimateRouteKey
             model.estimate(route.copy(farePerSeatEtb = null))
+        }
+    }
+    LaunchedEffect(driver, passengerGroupRequest, pickup, origin, mapApi, language) {
+        val point = pickup
+        if ((driver || passengerGroupRequest) && point != null && isGenericTaxiPickupLabel(origin)) {
+            val resolved = nearestTaxiPickupArea(mapApi, context, point, language)
+                ?: String.format(Locale.US, "%.5f, %.5f", point.first, point.second)
+            if (pickup == point && isGenericTaxiPickupLabel(origin)) origin = resolved
         }
     }
     LaunchedEffect(state.estimate?.estimatedFareEtb, count, driver, street) {
@@ -183,6 +196,13 @@ import java.util.*
         if (type == "destination") { destination = name; dropoff = point } else { origin = name; pickup = point }
         model.clearEstimate(); picker = null
     } }
+    if (datePickerOpen) EthiopianDatePickerDialog(
+        initialIsoDate = date,
+        minimumIsoDate = EthiopianDateTime.clockDateIso(),
+        language = language,
+        onDismiss = { datePickerOpen = false },
+        onSelect = { date = it }
+    )
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { Text(when { street -> "Start a street pickup"; acceptRequest != null -> "Offer this requested route"; driver -> "Offer a group ride"; else -> "Start a group ride" }, Modifier.weight(1f), color = CommuteInk, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold); IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Close form") } }
         if (!driver) Text(if (passengerGroupRequest) "Choose your destination. Your current location is used as the pickup." else "Separate passengers can join this route and pay per seat.", color = Color(0xFF627385), fontSize = 13.sp)
@@ -239,8 +259,8 @@ import java.util.*
         }
         if (!street) {
             if (!passengerGroupRequest && acceptRequest == null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                OutlinedButton(onClick = { DatePickerDialog(context, { _, y, m, d -> date = "%04d-%02d-%02d".format(Locale.US, y, m + 1, d) }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show() }, enabled = !state.busy, modifier = Modifier.weight(1f)) { Text(date) }
-                OutlinedButton(onClick = { val parts = time.split(':'); TimePickerDialog(context, { _, h, m -> time = "%02d:%02d".format(Locale.US, h, m) }, parts[0].toInt(), parts[1].toInt(), true).show() }, enabled = !state.busy, modifier = Modifier.weight(1f)) { Text(time + " · Ethiopia") }
+                OutlinedButton(onClick = { datePickerOpen = true }, enabled = !state.busy, modifier = Modifier.weight(1f)) { Text(EthiopianDateTime.formatDate(date, language), maxLines = 1) }
+                EthiopianTimeField(time, { time = it }, "Ethiopia time", "shared_time", !state.busy, language, Modifier.weight(1f))
             } else if (!passengerGroupRequest && acceptRequest != null) Text(taxiTime(acceptRequest.departureAt), color = CommuteTeal)
             if (!passengerGroupRequest) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(if (driver) "Seats to offer" else "Seats requested", fontWeight = FontWeight.Bold, color = CommuteInk); Text(if (driver) "Up to $capacity approved passenger seats" else "You can select actual seats after a driver accepts", color = Color(0xFF627385), fontSize = 12.sp) }
                 IconButton(onClick = { count = (count - 1).coerceAtLeast(1) }, enabled = !state.busy && count > 1) { Icon(Icons.Default.Remove, "Fewer seats") }; Text(count.toString(), fontSize = 22.sp, fontWeight = FontWeight.Bold); IconButton(onClick = { count = (count + 1).coerceAtMost(capacity) }, enabled = !state.busy && count < capacity) { Icon(Icons.Default.Add, "More seats") }
@@ -248,7 +268,30 @@ import java.util.*
             if (driver) {
                 OutlinedTextField(fare, { fare = it.take(12) }, label = { Text("Proposed fare per seat · ETB") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, enabled = !state.busy, modifier = Modifier.fillMaxWidth().testTag("shared_fare"))
                 state.estimate?.let { estimate -> Text("Route estimate ${taxiMoney(estimate.estimatedFareEtb)} · Suggested per seat ${taxiMoney(estimate.estimatedFareEtb / count.coerceAtLeast(1))}", color = CommuteTeal, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
-            } else Text("A driver will propose a per-seat fare. You must confirm that fare before booking.", color = Color(0xFF627385), fontSize = 13.sp)
+            } else {
+                state.estimate?.let { estimate ->
+                    Surface(color = CommuteMint, shape = RoundedCornerShape(17.dp), modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Estimated route fare", color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text("${"%.1f".format(estimate.distanceKm)} km · about ${estimate.durationMinutes.toInt()} min", color = Color(0xFF627385), fontSize = 12.sp)
+                            }
+                            Text(taxiMoney(estimate.estimatedFareEtb), color = TaxiBrandDeepEmerald, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                        }
+                    }
+                    Text("Drivers set the final fare per seat. Confirm the offer before booking.", color = Color(0xFF627385), fontSize = 12.sp)
+                } ?: run {
+                    if (state.busy) Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = CommuteTeal)
+                        Spacer(Modifier.width(8.dp)); Text("Calculating group fare…", color = CommuteTeal, fontWeight = FontWeight.SemiBold)
+                    } else if (base != null) {
+                        Text(if (state.message != null) "Fare estimate unavailable. Check your connection and retry." else "A fare estimate will appear for this route. Drivers set the final price per seat.", color = Color(0xFF627385), fontSize = 12.sp)
+                        TaxiPrimary(if (state.message != null) "Retry fare estimate" else "Calculate fare estimate",
+                            !state.busy, "shared_estimate") { base?.let { model.estimate(it.copy(farePerSeatEtb = null)) } }
+                    }
+                }
+                Text("A driver will propose a per-seat fare. You must confirm that fare before booking.", color = Color(0xFF627385), fontSize = 13.sp)
+            }
             TaxiPrimary(if (acceptRequest != null) "Offer route and fare" else if (driver) "Publish group ride" else "Request group ride",
                 !state.busy && state.settings.sharedEnabled && base != null && departure != null && count in 1..capacity && (!driver || (vehicle != null && base.farePerSeatEtb != null)), "shared_submit") { base?.let(onSubmit) }
         } else {

@@ -18,6 +18,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -46,13 +50,13 @@ import com.example.ui.components.PassoMobilityPalette
 import com.example.ui.components.replaceRoadOverlays
 import com.example.ui.screens.intercity.MobilityLocationPicker
 import com.example.ui.screens.passenger.*
+import com.example.core.time.EthiopianDateTime
 import kotlinx.coroutines.delay
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import java.text.NumberFormat
-import java.text.SimpleDateFormat
 import java.util.*
 
 internal fun taxiText(language: AppLanguage, english: String, amharic: String, oromo: String): String = when (language) {
@@ -80,11 +84,16 @@ internal val TaxiBrandEmerald = Color(0xFF00A86B)
 internal val TaxiBrandDeepEmerald = PassoMobilityPalette.brand
 internal val TaxiBrandNavy = PassoMobilityPalette.text
 internal val TaxiCanvas = PassoMobilityPalette.canvas
-internal fun taxiDuration(value: Int) = "%02d:%02d".format(Locale.US, value / 60, value % 60)
-internal fun taxiTime(value: String): String = runCatching {
-    val date = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC"); isLenient = false }.parse(value) ?: error("Invalid trip date")
-    SimpleDateFormat("EEE, d MMM · h:mm a", Locale.ENGLISH).apply { timeZone = TimeZone.getTimeZone("Africa/Addis_Ababa") }.format(date)
-}.getOrDefault(value)
+internal fun taxiDuration(value: Int): String {
+    val seconds = value.coerceAtLeast(0)
+    val minutes = seconds / 60
+    return if (minutes >= 60) {
+        "%dh %02dm".format(Locale.US, minutes / 60, minutes % 60)
+    } else {
+        "%02d:%02d".format(Locale.US, minutes, seconds % 60)
+    }
+}
+internal fun taxiTime(value: String): String = EthiopianDateTime.formatTimestamp(value)
 internal fun taxiActive(status: String) = status in setOf("ACCEPTED", "AT_PICKUP", "IN_PROGRESS")
 internal fun sharedActive(status: String) = status in setOf("BOARDING", "IN_PROGRESS")
 internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFreeRemainingSeconds): String = when {
@@ -232,10 +241,17 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
     enabled: Boolean, onSelect: (String) -> Unit, language: AppLanguage = AppLanguage.ENGLISH,
     estimate: TaxiEstimate? = null) {
     val fallback = listOf(TaxiTier("ECONOMY", "Economy", 1.0), TaxiTier("COMFORT", "Comfort", 1.25), TaxiTier("MINI_VAN", "Mini-Van", 1.5))
+    val carSweep = rememberInfiniteTransition(label = "Taxi car highlight")
+    val sweepProgress by carSweep.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(2000, easing = LinearEasing), RepeatMode.Restart),
+        label = "Car light sweep"
+    )
     Row(Modifier.fillMaxWidth().animateContentSize(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             (tiers.ifEmpty { fallback }).take(3).forEach { tier ->
                 val active = tier.id == selected
-                val surface by animateColorAsState(if (active) CommuteMint else Color.White.copy(alpha = .84f), tween(180), label = "Vehicle tier surface")
+                val surface by animateColorAsState(if (active) CommuteMint.copy(alpha = .58f) else Color.Transparent, tween(180), label = "Vehicle tier surface")
                 val border by animateColorAsState(if (active) TaxiBrandEmerald else Color(0xFFD9DFDE), tween(180), label = "Vehicle tier border")
                 val fare = estimate?.let {
                     val raw = (settings.baseFareEtb + it.distanceKm * settings.perKmEtb) * tier.multiplier
@@ -248,19 +264,30 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
                 }
                 Surface(onClick = { onSelect(tier.id) }, enabled = enabled && settings.enabled,
                     modifier = Modifier.weight(1f).testTag("taxi_tier_${tier.id}"), color = surface,
-                    border = BorderStroke(if (active) 2.dp else 1.dp, border), shape = RoundedCornerShape(16.dp), shadowElevation = if (active) 2.dp else 1.dp) {
-                    Column(Modifier.fillMaxWidth().height(98.dp).padding(horizontal = 4.dp, vertical = 5.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    border = BorderStroke(if (active) 2.dp else 1.dp, border), shape = RoundedCornerShape(16.dp), shadowElevation = 0.dp) {
+                    Column(Modifier.fillMaxWidth().height(104.dp).padding(horizontal = 4.dp, vertical = 5.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                         Image(painterResource(vehicleArt), contentDescription = when (tier.id) {
                             "COMFORT" -> taxiText(language, "Modern electric sedan", "ዘመናዊ ኤሌክትሪክ ሴዳን", "Sedaanii elektirikii ammayyaa")
                             "MINI_VAN" -> taxiText(language, "Minivan", "ሚኒ ቫን", "Minivan")
                             else -> taxiText(language, "2007 Toyota compact", "የ2007 ቶዮታ ኮምፓክት", "Toyota xiqqaa bara 2007")
-                        }, modifier = Modifier.fillMaxWidth().height(47.dp).padding(horizontal = 2.dp), contentScale = ContentScale.Fit)
+                        }, modifier = Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 2.dp).drawWithContent {
+                            drawContent()
+                            val sweepX = (sweepProgress * 1.8f - .4f) * size.width
+                            drawRect(
+                                brush = Brush.linearGradient(
+                                    colors = listOf(Color.Transparent, Color.White.copy(alpha = .16f), Color.White.copy(alpha = .68f), Color.White.copy(alpha = .16f), Color.Transparent),
+                                    start = Offset(sweepX, 0f),
+                                    end = Offset(sweepX + size.width * .42f, size.height)
+                                ),
+                                blendMode = BlendMode.SrcAtop
+                            )
+                        }, contentScale = ContentScale.Fit)
                         Text(when (tier.id) {
                             "COMFORT" -> taxiText(language, "Comfort", "ምቹ", "Mijataa")
                             "MINI_VAN" -> taxiText(language, "Minivan", "ሚኒ ቫን", "Minivan")
                             else -> taxiText(language, "Economy", "ኢኮኖሚ", "Diinagdee")
                         }, color = CommuteInk, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
-                        Text(fare?.let(::taxiMoney) ?: "—", color = if (active) TaxiBrandDeepEmerald else Color(0xFF627385), fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                        Text(fare?.let(::taxiMoney) ?: "—", color = if (active) TaxiBrandDeepEmerald else Color(0xFF627385), fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
