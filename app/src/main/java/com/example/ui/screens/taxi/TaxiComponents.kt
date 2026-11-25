@@ -98,7 +98,7 @@ internal fun taxiActive(status: String) = status in setOf("ACCEPTED", "AT_PICKUP
 internal fun taxiGpsWaiting(ride: TaxiRide) = ride.waiting in setOf("TRAFFIC", "STOP")
 internal fun sharedActive(status: String) = status in setOf("BOARDING", "IN_PROGRESS")
 internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFreeRemainingSeconds): String = when {
-    ride.waitingState == "GPS_PAUSED" -> "Waiting clock paused · fresh GPS needed"
+    ride.waitingState == "GPS_PAUSED" -> "GPS paused · waiting time not counted"
     ride.waitingState == "LIMIT_REACHED" -> "Waiting limit reached · distance paused"
     ride.distancePaused && freeSeconds != null && freeSeconds > 0 -> "Distance paused · free waiting ${taxiDuration(freeSeconds)}"
     ride.distancePaused && ride.waitingRateEtbPerMinute != null -> "Distance paused · waiting ${taxiMoney(ride.waitingRateEtbPerMinute)}/min"

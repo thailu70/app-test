@@ -27,8 +27,8 @@ android {
     applicationId = "live.passo.app"
     minSdk = 24
     targetSdk = 36
-        versionCode = 78
-        versionName = "1.1.75"
+        versionCode = 79
+        versionName = "1.1.76"
     buildConfigField("String", "ROUTEPASS_API_BASE_URL", "\"$routePassApiBaseUrl\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -124,7 +124,7 @@ dependencies {
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
-  // implementation(libs.play.services.location)
+  implementation(libs.play.services.location)
   implementation(libs.retrofit)
   // Real camera QR scanning (bundled ML Kit model works without a first-run model download).
   implementation("androidx.camera:camera-camera2:1.6.2")

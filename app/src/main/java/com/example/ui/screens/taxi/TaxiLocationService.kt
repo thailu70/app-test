@@ -21,6 +21,11 @@ import com.example.R
 import com.example.core.environment.ApiSessionScope
 import com.example.data.api.*
 import com.example.ui.screens.intercity.mobilityBody
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -178,6 +183,7 @@ class TaxiLocationService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var listener: LocationListener? = null
     private var manager: LocationManager? = null
+    private var fusedCallback: LocationCallback? = null
     private var worker: Job? = null
     private var last: Location? = null
     private var active: TaxiTrackingSession? = null
@@ -263,7 +269,12 @@ class TaxiLocationService : Service() {
                                 uploads.withLock { uploadBatch(api, session.target.tripId) }
                             }
                         }
-                        TaxiTracking.report(if (point == null) "Location sharing is on. Waiting for precise GPS." else "Location sharing is on, including while the screen is locked.")
+                        TaxiTracking.report(when {
+                            point == null -> "Location sharing is on. Waiting for precise GPS."
+                            session.target.tripId != null && !session.target.shared && point.accuracy > 50f ->
+                                "Waiting for precise GPS. The meter is paused until location is accurate."
+                            else -> "Location sharing is on, including while the screen is locked."
+                        })
                     } catch (e: CancellationException) { throw e }
                     catch (_: Exception) { TaxiTracking.report("Connection interrupted. Trip locations are queued for retry; the server meter remains authoritative.") }
                     delay(session.target.uploadSeconds.coerceIn(1, 60) * 1000L)
@@ -293,6 +304,9 @@ class TaxiLocationService : Service() {
     @Suppress("MissingPermission", "DEPRECATION")
     private fun begin(session: TaxiTrackingSession) {
         manager = getSystemService(LOCATION_SERVICE) as LocationManager
+        check(listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER).any { manager!!.isProviderEnabled(it) }) {
+            "Turn on device location before going online."
+        }
         listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
                 if (!TaxiTracking.current(session) || !usableTaxiFix(location)) return
@@ -312,9 +326,34 @@ class TaxiLocationService : Service() {
             override fun onProviderDisabled(provider: String) { TaxiTracking.report("Turn on device location to continue accurate tracking.") }
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
         }
-        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER).filter { manager!!.isProviderEnabled(it) }
-        check(providers.isNotEmpty()) { "Turn on device location before going online." }
         val intervalMs = session.target.uploadSeconds.coerceIn(1, 60) * 1_000L
+        val callback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                result.locations.forEach { location -> listener?.onLocationChanged(location) }
+            }
+        }
+        fusedCallback = callback
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMs.toLong())
+            .setMinUpdateIntervalMillis((intervalMs / 2).coerceAtLeast(1_000L))
+            .setMaxUpdateDelayMillis(intervalMs.toLong())
+            .setWaitForAccurateLocation(true)
+            .build()
+        LocationServices.getFusedLocationProviderClient(this)
+            .requestLocationUpdates(request, callback, Looper.getMainLooper())
+            .addOnFailureListener {
+                if (!TaxiTracking.current(session)) return@addOnFailureListener
+                runCatching { startPlatformLocationFallback(session, intervalMs) }
+                    .onFailure { TaxiTracking.report("Turn on device location and wait for a precise GPS fix.") }
+            }
+    }
+    @Suppress("MissingPermission", "DEPRECATION")
+    private fun startPlatformLocationFallback(session: TaxiTrackingSession, intervalMs: Long) {
+        manager = getSystemService(LOCATION_SERVICE) as LocationManager
+        val providers = (if (session.target.tripId != null && !session.target.shared)
+            listOf(LocationManager.GPS_PROVIDER)
+        else listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER))
+            .filter { manager!!.isProviderEnabled(it) }
+        check(providers.isNotEmpty()) { "Turn on device location before going online." }
         providers.forEach { manager!!.requestLocationUpdates(it, intervalMs, 0f, listener!!, Looper.getMainLooper()) }
     }
     private fun notification(): Notification {
@@ -326,7 +365,13 @@ class TaxiLocationService : Service() {
             .setContentTitle("PASSO · Taxi location sharing").setContentText("Location supports nearby calls and the trip meter. Stop sharing to pause.")
             .setOngoing(true).setOnlyAlertOnce(true).setContentIntent(open).addAction(0, "Stop sharing", stop).build()
     }
-    private fun clean() { worker?.cancel(); worker = null; listener?.let { runCatching { manager?.removeUpdates(it) } }; listener = null; last = null; pending.clear(); queue = null; TaxiTracking.finisher = null }
+    private fun clean() {
+        worker?.cancel(); worker = null
+        fusedCallback?.let { callback -> runCatching { LocationServices.getFusedLocationProviderClient(this).removeLocationUpdates(callback) } }
+        fusedCallback = null
+        listener?.let { runCatching { manager?.removeUpdates(it) } }
+        listener = null; manager = null; last = null; pending.clear(); queue = null; TaxiTracking.finisher = null
+    }
     override fun onTaskRemoved(rootIntent: Intent?) {
         TaxiTracking.stop("Driver availability stopped because Passo was closed.")
         super.onTaskRemoved(rootIntent)
