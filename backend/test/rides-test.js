@@ -676,7 +676,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
     },
   );
   await t.test(
-    "completion rejects missing samples and a disconnected beginning of the meter",
+    "completion needs a fresh location but settles verified fare after an earlier GPS gap",
     async () => {
       const r = await appTrip("coverage-required");
       await assert.rejects(
@@ -688,7 +688,7 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       );
       await assert.rejects(
         service.complete(drivers[0], r.id, position(9.01, 38.76)),
-        (e) => e.code === "METER_REVIEW_REQUIRED",
+        (e) => e.code === "GPS_LOCATION_REQUIRED",
       );
       clock += 6 * 60000;
       await service.samples(drivers[0], r.id, {
@@ -698,14 +698,11 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       await service.samples(drivers[0], r.id, {
         points: [{ ...position(9.01, 38.76), sequence: 2 }],
       });
-      await assert.rejects(
-        service.complete(drivers[0], r.id, position(9.01, 38.76)),
-        (e) => e.code === "METER_REVIEW_REQUIRED",
-      );
-      await service.resolve(admin, r.id, {
-        action: "CANCEL",
-        note: "Fixture missing meter evidence",
-      });
+      const flagged = await DB.prepare("SELECT quality_flags FROM ride_jobs WHERE id=?").get(r.id);
+      assert.equal(flagged.quality_flags, "GPS_GAP");
+      const completed = (await service.complete(drivers[0], r.id, position(9.01, 38.76))).ride;
+      assert.equal(completed.status, "COMPLETED");
+      assert.equal(completed.settlement, "CAPTURED");
     },
   );
   await t.test(
@@ -744,6 +741,37 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       await service.resolve(admin, r.id, {
         action: "CANCEL",
         note: "Fixture waiting meter resolved",
+      });
+    },
+  );
+  await t.test(
+    "a seven-minute traffic stop is billed with one-minute GPS updates",
+    async () => {
+      await service.updateSettings(admin.id, {
+        gpsUploadSeconds: 60,
+        stopGraceMinutes: 1,
+        waitingPerMinuteEtb: 2,
+      });
+      const r = await appTrip("one-minute-gps-seven-minute-stop");
+      for (let sequence = 1; sequence <= 7; sequence++) {
+        clock += 60000;
+        await service.samples(drivers[0], r.id, {
+          points: [{ ...position(), sequence }],
+        });
+      }
+      const view = (await service.get(passenger, r.id)).ride;
+      assert.equal(view.waiting, "TRAFFIC");
+      assert.equal(view.waitingState, "BILLABLE_WAITING");
+      assert.equal(view.billableWaitingSeconds, 5 * 60);
+      assert.equal(view.waitingFareEtb, 10);
+      await service.resolve(admin, r.id, {
+        action: "CANCEL",
+        note: "Fixture one-minute GPS stop checked",
+      });
+      await service.updateSettings(admin.id, {
+        gpsUploadSeconds: 10,
+        stopGraceMinutes: 1,
+        waitingPerMinuteEtb: 2,
       });
     },
   );

@@ -1658,14 +1658,20 @@ function createRidesService({
           5,
           (p.accuracyMeters + Number(r.last_accuracy || p.accuracyMeters)) / 2,
         );
+        const gpsUploadSeconds = Number(parse(r.tariff_json).gpsUploadSeconds) || 10;
+        const stopDetectionMaxGapSeconds = Math.max(
+          30,
+          Math.min(120, gpsUploadSeconds * 2),
+        );
         // A meter stop is detected from GPS only. A single fix after a long
-        // gap cannot start paid waiting; require a recent, accurate, stationary
+        // gap cannot start paid waiting; allow the configured GPS cadence and
+        // reasonable delivery jitter, but require a recent, accurate, stationary
         // sample pair first.
         if (
           !r.waiting_kind &&
           r.status === "IN_PROGRESS" &&
           dt > 0 &&
-          dt <= 30 &&
+          dt <= stopDetectionMaxGapSeconds &&
           p.accuracyMeters <= 50 &&
           timingValid &&
           plausible &&
@@ -1875,15 +1881,14 @@ function createRidesService({
           "GPS_UPLOAD_REQUIRED",
         );
       if (
-        r.quality_flags === "GPS_GAP" ||
+        Number(r.last_sequence) < 1 ||
         !r.last_point_at ||
-        now() - Date.parse(r.last_point_at) > 120000 ||
-        Number(r.distance_m) < 50
+        now() - Date.parse(r.last_point_at) > 120000
       )
         fail(
           409,
-          "A gap in GPS samples needs Passo review before settling this meter.",
-          "METER_REVIEW_REQUIRED",
+          "Wait for a fresh GPS location, then try completing the trip again.",
+          "GPS_LOCATION_REQUIRED",
         );
       await tx
         .prepare(
