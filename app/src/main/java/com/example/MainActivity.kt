@@ -10,7 +10,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -28,8 +30,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -41,6 +45,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import com.example.core.localization.AppLanguage
 import com.example.core.localization.AppStrings
 import com.example.core.time.EthiopianDateTime
@@ -48,7 +53,6 @@ import com.example.data.api.ApiClient
 import com.example.data.database.TransportDatabase
 import com.example.data.repository.TransportRepository
 import com.example.ui.components.NotificationTrayDialog
-import com.example.ui.components.LocalEnvironmentSettings
 import com.example.core.environment.AppEnvironment
 import com.example.core.environment.EnvironmentPreferences
 import com.example.core.location.DriverLocationSharing
@@ -100,9 +104,29 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MyApplicationTheme {
-                AppLocationPrompt(enabled = true)
-                Column(Modifier.fillMaxSize().background(Color(0xFFFFFBF4))) {
-                    Box(Modifier.weight(1f)) { MainTransportApp(viewModel = viewModel) }
+                var showLaunchSplash by rememberSaveable { mutableStateOf(true) }
+                LaunchedEffect(Unit) {
+                    delay(1_200)
+                    showLaunchSplash = false
+                }
+                val launchSplashAlpha by animateFloatAsState(
+                    targetValue = if (showLaunchSplash) 1f else 0f,
+                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                    label = "launchSplashAlpha"
+                )
+                Box(Modifier.fillMaxSize()) {
+                    AppLocationPrompt(enabled = !showLaunchSplash)
+                    Column(Modifier.fillMaxSize().background(Color(0xFFFFFBF4))) {
+                        Box(Modifier.weight(1f)) { MainTransportApp(viewModel = viewModel) }
+                    }
+                    if (launchSplashAlpha > 0.01f) {
+                        Image(
+                            painter = painterResource(R.drawable.passo_launch_splash),
+                            contentDescription = "PASSO — Go Further, Together",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize().graphicsLayer { alpha = launchSplashAlpha }
+                        )
+                    }
                 }
             }
         }
@@ -134,7 +158,6 @@ internal fun PassengerTopBar(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var servicesOpen by remember { mutableStateOf(false) }
-    val environmentSettings = LocalEnvironmentSettings.current
     TopAppBar(
         title = {
             if (profileOpen) Text("Your profile", fontWeight = FontWeight.Bold)
@@ -172,7 +195,6 @@ internal fun PassengerTopBar(
                     Icon(Icons.Default.MoreVert, contentDescription = "Account options")
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    if (environmentSettings != null) DropdownMenuItem(text = { Text("About & demo") }, leadingIcon = { Icon(Icons.Default.Info, null) }, onClick = { menuOpen = false; environmentSettings() })
                     DropdownMenuItem(text = { Text("Notifications" + if (notificationCount > 0) " ($notificationCount)" else "") }, leadingIcon = { Icon(Icons.Default.NotificationsNone, null) }, onClick = { menuOpen = false; onNotifications() }, modifier = Modifier.testTag("top_bar_notifications_button"))
                     DropdownMenuItem(text = { Text("Profile & documents") }, leadingIcon = { Icon(Icons.Default.AccountCircle, null) }, onClick = { menuOpen = false; onProfile() })
                     DropdownMenuItem(text = { Text(if (language == AppLanguage.ENGLISH) "አማርኛ" else "English") }, leadingIcon = { Icon(Icons.Default.Language, null) }, onClick = { menuOpen = false; onLanguage() }, modifier = Modifier.testTag("top_bar_language_button"))

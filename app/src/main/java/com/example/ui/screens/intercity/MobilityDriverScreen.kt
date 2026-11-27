@@ -67,7 +67,7 @@ import kotlin.coroutines.resumeWithException
         error = null
         try { val result = mobilityBody(api.driverDashboard()); check(result.success) { result.error ?: "Driver portal is unavailable." }; dashboard = result }
         catch (e: CancellationException) { throw e }
-        catch (e: Exception) { error = e.message ?: "Could not open the driver portal." }
+        catch (e: Exception) { error = com.example.core.network.userFacingNetworkError(e) }
     }
     val result = dashboard
     if (result != null && result.serviceType !in setOf("GROUP_TRAVEL", "CARGO")) { fallback(); return }
@@ -104,7 +104,7 @@ import kotlin.coroutines.resumeWithException
         scope.launch {
             try { block() }
             catch (e: CancellationException) { throw e }
-            catch (e: Exception) { notice = e.message ?: "Could not complete this action." }
+            catch (e: Exception) { notice = com.example.core.network.userFacingNetworkError(e) }
             finally { busy = false }
         }
     }
@@ -180,7 +180,7 @@ import kotlin.coroutines.resumeWithException
                         }
                     }
                 } }
-                if (roster.isEmpty()) item { Text("Paid travelers will appear here after booking confirmation.", color = CommuteInk) }
+                if (roster.isEmpty()) item { Text("No passengers yet", color = CommuteInk) }
                 items(roster, key = { it.id }) { traveler -> MobilityCard {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(if (traveler.status == "BOARDED") Icons.Default.CheckCircle else Icons.Default.Person, null, tint = CommuteTeal)
@@ -192,7 +192,7 @@ import kotlin.coroutines.resumeWithException
                     }
                 } }
             } else {
-                item { DriverMarketplacePanel(api, dashboard, { scope.launch { try { refresh() } catch (e: CancellationException) { throw e } catch (e: Exception) { notice = e.message ?: "Could not refresh assignments." } } }, onPhoto = { photoRequest = it }, language = language) }
+                item { DriverMarketplacePanel(api, dashboard, { scope.launch { try { refresh() } catch (e: CancellationException) { throw e } catch (e: Exception) { notice = com.example.core.network.userFacingNetworkError(e) } } }, onPhoto = { photoRequest = it }, language = language) }
                 if (group) item { MobilityCard {
                     Row(Modifier.fillMaxWidth().clickable { journeysExpanded = !journeysExpanded }, verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Groups, null, tint = CommuteTeal, modifier = Modifier.size(24.dp)); Spacer(Modifier.width(9.dp))

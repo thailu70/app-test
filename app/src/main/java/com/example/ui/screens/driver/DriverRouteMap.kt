@@ -57,7 +57,8 @@ fun DriverRouteMap(
     modifier: Modifier = Modifier,
     language: AppLanguage = AppLanguage.ENGLISH,
     pickup: Pair<Double, Double>? = null, destination: Pair<Double, Double>? = null,
-    pickupLabel: String = "Departure", destinationLabel: String = "Destination", inProgress: Boolean = false
+    pickupLabel: String = "Departure", destinationLabel: String = "Destination", inProgress: Boolean = false,
+    providedApi: com.example.data.api.MobilityApi? = null, tileDownloadsEnabled: Boolean = true
 ) {
     if (pickup != null || destination != null) {
         com.example.ui.components.MobilityRoadMap(pickup, destination,
@@ -65,8 +66,8 @@ fun DriverRouteMap(
                 com.example.data.api.MobilityLocation(it.latitude, it.longitude, java.time.Instant.ofEpochMilli(it.timestamp).toString(), it.accuracyMeters)
             }, stage = if (inProgress) "IN_PROGRESS" else "ASSIGNED", pickupLabel = pickupLabel,
             destinationLabel = destinationLabel, modifier = modifier, mapHeight = 240,
-            statusMessage = if (driverMapFreshFix(fix, System.currentTimeMillis()) == null)
-                driverText(language, "Your current GPS location will appear here.", "የእርስዎ ወቅታዊ የGPS ቦታ እዚህ ይታያል።", "Bakki GPS kee yeroo ammaa asitti mul'ata.") else null)
+            providedApi = providedApi, tileDownloadsEnabled = tileDownloadsEnabled,
+            statusMessage = if (driverMapFreshFix(fix, System.currentTimeMillis()) == null) "LOADING…" else null)
         return
     }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -97,25 +98,8 @@ fun DriverRouteMap(
                     tint = Color(0xFF00685C),
                     modifier = Modifier.size(24.dp)
                 )
-                Text(
-                    driverText(language, "Awaiting location", "ቦታ በመጠባበቅ ላይ", "Bakka eeggachaa"),
-                    modifier = Modifier.padding(top = 5.dp, bottom = 4.dp),
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp,
-                    textAlign = TextAlign.Center,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF092C3E)
-                )
-                Text(
-                    driverText(language,
-                        "Your current GPS location will appear here.",
-                        "የእርስዎ ወቅታዊ የGPS ቦታ እዚህ ይታያል።",
-                        "Bakki GPS kee yeroo ammaa asitti mul'ata."),
-                    textAlign = TextAlign.Center,
-                    fontSize = 11.sp,
-                    lineHeight = 14.sp,
-                    color = Color(0xFF586A72)
-                )
+                Text("LOADING…", modifier = Modifier.padding(top = 5.dp), fontSize = 12.sp,
+                    textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, color = Color(0xFF092C3E))
             }
         } else {
             Box(Modifier.fillMaxSize().clip(shape)) {

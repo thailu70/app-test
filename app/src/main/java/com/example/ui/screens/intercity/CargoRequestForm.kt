@@ -258,7 +258,7 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
                 check(result.success && result.delivery == "SENT") { result.error ?: "The code could not be sent. Try again." }
                 otpSent = true; phoneCode = ""; otpMessage = null; resendSeconds = 45
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { otpMessage = failure.message ?: "Phone verification failed. Try again." }
+            catch (failure: Exception) { otpMessage = com.example.core.network.userFacingNetworkError(failure) }
             finally { otpBusy = false }
         }
     }
@@ -328,7 +328,7 @@ internal fun cargoDraftErrors(draft: CargoRequestDraft, photo: CargoPhotoState, 
                                 val token = result.verificationToken?.takeIf { it.length >= 20 } ?: error("The code could not be confirmed. Try again.")
                                 verifyingPhone = false; submitCargoRequest(token)
                             } catch (cancelled: CancellationException) { throw cancelled }
-                            catch (failure: Exception) { otpMessage = failure.message ?: "Phone verification failed. Try again." }
+                            catch (failure: Exception) { otpMessage = com.example.core.network.userFacingNetworkError(failure) }
                             finally { otpBusy = false }
                         }
                     }, enabled = !otpBusy && phoneCode.length == 6, shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF079653)), modifier = Modifier.fillMaxWidth().height(54.dp).testTag("cargo_verify_otp")) {

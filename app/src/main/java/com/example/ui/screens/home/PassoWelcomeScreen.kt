@@ -161,7 +161,6 @@ fun PassoWelcomeScreen(
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)) {
                     Text(copy("Privacy policy", "የግላዊነት መመሪያ", "Imaammata dhuunfaa"), fontSize = 11.sp, color = WelcomeTeal)
                 }
-                com.example.ui.components.EnvironmentSettingsButton()
                 }
                 Spacer(Modifier.height(8.dp))
             }

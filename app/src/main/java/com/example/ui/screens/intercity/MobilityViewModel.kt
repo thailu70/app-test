@@ -31,6 +31,7 @@ internal data class MobilityUiState(val phase: MobilityPhase = MobilityPhase.BRO
 
 internal fun <T> mobilityBody(response: Response<T>): T {
     if (!response.isSuccessful) {
+        if (response.code() >= 500) throw java.io.IOException("service unavailable")
         val serverMessage = runCatching { org.json.JSONObject(response.errorBody()?.string().orEmpty()).optString("error") }.getOrNull()
         error(serverMessage?.takeIf { it.isNotBlank() } ?: "Could not complete the request. Please try again.")
     }
@@ -59,7 +60,7 @@ internal class MobilityViewModel(private val api: MobilityApi, private val store
         viewModelScope.launch {
             try { block(expected) }
             catch (e: CancellationException) { throw e }
-            catch (e: Exception) { if (expected == epoch) mutable.update { it.copy(message = e.message ?: "Please try again.") } }
+            catch (e: Exception) { if (expected == epoch) mutable.update { it.copy(message = com.example.core.network.userFacingNetworkError(e)) } }
             finally { mutable.update { it.copy(busy = false) } }
         }
     }

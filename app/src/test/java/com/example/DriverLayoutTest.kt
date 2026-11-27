@@ -150,7 +150,7 @@ class DriverLayoutTest {
         compose.onNodeWithTag("mobility_road_map").assertExists()
         compose.onNodeWithText("Journey route").assertExists()
         compose.onNodeWithTag("road_map_estimate").assertDoesNotExist()
-        compose.onNodeWithText("Your current GPS location will appear here.").assertExists()
+        compose.onNodeWithText("LOADING…").assertExists()
     }
 
     @Test fun `driver home uses real data and preserves boarding profile documents and completion actions`() {
@@ -243,7 +243,7 @@ class DriverLayoutTest {
             }
         }
         compose.onNodeWithTag("driver_boarding_banner").assertIsNotEnabled()
-        compose.onNodeWithText("Waiting for a fresh, precise GPS fix").assertExists()
+        compose.onNodeWithText("LOADING…").assertExists()
         compose.runOnIdle { preciseGps = true; busy = true }
         compose.onNodeWithTag("driver_boarding_banner").assertIsNotEnabled()
         compose.runOnIdle { busy = false; completed = true }

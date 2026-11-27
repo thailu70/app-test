@@ -85,6 +85,7 @@ import kotlinx.coroutines.launch
         }
     }
     val trackingStatus by TaxiTracking.status.collectAsState()
+    val trackedDriverLocation by TaxiTracking.location.collectAsState()
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         if (com.example.core.notifications.MobilityPush.notificationsGranted(context)) com.example.core.notifications.MobilityPush.onPermissionGranted(context)
         notice = if (taxiLocationPermission(context) && NotificationManagerCompat.from(context).areNotificationsEnabled()) "Permissions ready. Choose your action again." else "Precise location and notifications are required while you are online or on a trip."
@@ -132,7 +133,16 @@ import kotlinx.coroutines.launch
     LaunchedEffect(target) {
         if (!trackingEnabled) return@LaunchedEffect
         if (target != null && target.driverId.isNotBlank() && target.vehicleId.isNotBlank()) TaxiTracking.start(context, target)
-        else if (TaxiTracking.session?.target?.driverId == userId) TaxiTracking.stop()
+        else if (state.dashboard != null && TaxiTracking.session?.target?.driverId == userId) TaxiTracking.stop()
+    }
+    LaunchedEffect(target, trackedDriverLocation) {
+        if (target?.driverId == userId && trackedDriverLocation != null) {
+            driverFix = trackedDriverLocation
+            driverLocation = trackedDriverLocation!!.latitude to trackedDriverLocation!!.longitude
+        } else if (state.dashboard?.online == false) {
+            driverFix = null
+            driverLocation = null
+        }
     }
     BackHandler(enabled = driverMenu || state.selectedTrip != null || page != "calls" || onCargoPortal != null) {
         when { driverMenu -> driverMenu = false; state.selectedTrip != null -> model.closeTrip(); page != "calls" -> { page = "calls"; requested = null }; else -> onExit() }
@@ -181,11 +191,10 @@ import kotlinx.coroutines.launch
                                 }
                             }
                             Text("Driver credit", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = CommuteInk)
-                            Text("Contact info@passo.live to top up. Only verified payments are credited. Your available balance updates as requests and trips are completed.", color = CommuteInk, fontSize = 14.sp)
                         } else if (page == "trips") {
                             Text("Your trips", fontWeight = FontWeight.ExtraBold, fontSize = 26.sp, color = CommuteInk)
                             dashboard.sharedTrips.forEach { trip -> SharedTripRow(trip) { model.chooseTrip(trip.id) } }
-                            if (dashboard.sharedTrips.isEmpty()) Text("Shared trips you publish or accept appear here.", color = Color(0xFF627385))
+                            if (dashboard.sharedTrips.isEmpty()) Text("No trips yet.", color = Color(0xFF627385))
                         } else {
                             val requestMarkers = dashboard.calls.map { TaxiNearbyCar(it.originLatitude, it.originLongitude, it.tier) } +
                                 dashboard.sharedRequests.map { TaxiNearbyCar(it.originLatitude, it.originLongitude, "GROUP") }
@@ -210,12 +219,12 @@ import kotlinx.coroutines.launch
                                         Spacer(Modifier.width(5.dp)); Text(taxiMoney(dashboard.wallet.availableEtb), color = PassoMobilityPalette.brand, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
                                     }
                                 }
-                                if (locating || (target != null && trackingEnabled && trackingStatus.contains("Waiting for precise GPS", ignoreCase = true)))
-                                    Surface(Modifier.align(Alignment.BottomStart).padding(10.dp), color = PassoMobilityPalette.text.copy(alpha = .9f), shape = RoundedCornerShape(12.dp)) {
+                                if (locating || (dashboard.online && trackingEnabled && (driverFix == null || trackingStatus.contains("Waiting for precise GPS", ignoreCase = true))))
+                                    Surface(Modifier.align(Alignment.BottomStart).padding(10.dp).testTag("taxi_driver_gps_loading"), color = PassoMobilityPalette.text.copy(alpha = .9f), shape = RoundedCornerShape(12.dp)) {
                                         Text("LOADING...", Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
                             }
-                            if (!dashboard.eligible) Text("Taxi and shared-ride access needs driver and vehicle approval.", color = CommuteInk, fontSize = 14.sp)
+                            if (!dashboard.eligible) Text("Approval required", color = CommuteInk, fontSize = 14.sp)
                             else if (dashboard.vehicles.isNotEmpty()) Box {
                                 OutlinedButton(onClick = { vehicleMenu = true }, enabled = !state.busy && !dashboard.online, modifier = Modifier.fillMaxWidth()) {
                                     Text(dashboard.vehicles.find { it.id == vehicleId }?.let { "${it.model} · ${it.plateNumber}" } ?: "Choose approved vehicle")
@@ -283,7 +292,6 @@ import kotlinx.coroutines.launch
                                         Text("Group call", color = PassoMobilityPalette.brand, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                         Text("${request.origin} → ${request.destination}", color = PassoMobilityPalette.text, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                                         Text("${request.seats.coerceAtLeast(1)} passengers · approx. pickup ${pickupDistance(driverLocation, request.originLatitude to request.originLongitude)} km away", color = PassoMobilityPalette.muted, fontSize = 13.sp)
-                                        Text("Quote your fare per passenger, then send your offer.", color = PassoMobilityPalette.muted, fontSize = 12.sp)
                                         TaxiPrimary("Quote group call", !state.busy && dashboard.online && vehicleId.isNotBlank(), "taxi_group_quote_${request.id}") { requested = request; page = "offer" }
                                     }
                                 } }
@@ -399,7 +407,6 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
     var scanOpen by remember(ride.id) { mutableStateOf(false) }
     var confirmComplete by remember { mutableStateOf(false) }
     if (confirmComplete) AlertDialog(onDismissRequest = { confirmComplete = false }, title = { Text("Complete this ride?") },
-        text = { Text("Complete only after arriving at the destination. Your GPS location and final fare are confirmed once.") },
         confirmButton = { TextButton(onClick = { confirmComplete = false; withFix(model::complete) }) { Text("Complete ride") } }, dismissButton = { TextButton(onClick = { confirmComplete = false }) { Text("Keep driving") } })
     if (scanOpen) DriverQrScannerDialog(
         scanResult = null,
@@ -423,11 +430,6 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
         if (!ride.passengerPhone.isNullOrBlank()) OutlinedButton(onClick = { callTaxiContact(context, ride.passengerPhone) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Phone, null); Spacer(Modifier.width(7.dp)); Text("Call passenger") }
         Text(if (ride.status in setOf("IN_PROGRESS", "COMPLETED")) "Meter fare" else "Estimated fare", color = Color(0xFF627385), fontSize = 13.sp)
         Text(taxiMoney(ride.fareEtb ?: ride.estimatedFareEtb), color = CommuteTeal, fontWeight = FontWeight.ExtraBold, fontSize = 36.sp)
-        if (ride.status in setOf("IN_PROGRESS", "COMPLETED")) {
-            Text("Distance ${"%.2f".format(ride.meterDistanceKm)} km · Billable waiting ${taxiDuration(ride.billableWaitingSeconds)}", color = CommuteInk, fontSize = 14.sp)
-            Text("Trip duration ${taxiDuration(ride.tripDurationSeconds)} · GPS-detected stops use the free allowance, then ${ride.waitingRateEtbPerMinute?.let(::taxiMoney) ?: "the configured rate"}/min", color = Color(0xFF627385), fontSize = 12.sp)
-        }
-        Text("Passenger pays you directly. The app does not collect the fare.", color = Color(0xFF627385), fontSize = 12.sp)
         when (ride.status) {
             "ACCEPTED" -> TaxiPrimary("Arrived at pickup", !state.busy, "taxi_arrive") { withFix(model::arrive) }
             "AT_PICKUP" -> {
@@ -446,7 +448,6 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
 @Composable private fun DriverActiveMeter(ride: TaxiRide, busy: Boolean, model: TaxiViewModel,
     mapTiles: Boolean, mapApi: MobilityApi?, withFix: ((Map<String, Any>) -> Unit) -> Unit, onComplete: () -> Unit) {
     val context = LocalContext.current
-    val freeWaiting = taxiFreeWaitingSeconds(ride, mapTiles)
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val compact = maxHeight < 620.dp
         Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -463,20 +464,17 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
                     Surface(color = CommuteMint, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(horizontal = 9.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.CheckCircle, null, tint = CommuteTeal, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(6.dp))
-                            Text(if (taxiGpsWaiting(ride)) "Traffic stop · timed automatically by GPS" else if (ride.source == "STREET") "Street pickup · passenger agreed" else "Passenger QR verified", color = CommuteTeal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text(if (taxiGpsWaiting(ride)) "Traffic stop" else if (ride.source == "STREET") "Street pickup" else "Passenger onboard", color = CommuteTeal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
-                    Text(if (ride.distancePaused) "Fare so far · distance paused" else "Fare so far", color = Color(0xFF627385), fontSize = 11.sp)
+                    Text("Meter fare", color = Color(0xFF627385), fontSize = 11.sp)
                     Text(ride.fareEtb?.let { String.format(java.util.Locale.US, "ETB %,.2f", it) } ?: "Updating meter…", color = CommuteInk,
                         fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.testTag("taxi_meter_fare"))
                     HorizontalDivider(color = Color(0xFFE0E7E3))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f)) { Text("Distance", color = Color(0xFF627385), fontSize = 11.sp)
                             Text("${"%.2f".format(java.util.Locale.US, ride.meterDistanceKm)} km", color = CommuteInk, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("taxi_meter_distance")) }
-                        Column(Modifier.weight(1f)) { Text("Billable waiting", color = Color(0xFF627385), fontSize = 11.sp)
-                            Text(taxiDuration(ride.billableWaitingSeconds), color = CommuteInk, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("taxi_meter_waiting")) }
                     }
-                    Text(if (taxiGpsWaiting(ride)) taxiStopSummary(ride, freeWaiting) else "GPS-detected stops: ${taxiDuration(ride.waitingFreeAllowanceSeconds)} free per stop, then ${ride.waitingRateEtbPerMinute?.let(::taxiMoney) ?: "configured rate"}/min · GPS gaps not billed", color = Color(0xFF627385), fontSize = 11.sp, modifier = Modifier.testTag("taxi_meter_stop_state"))
                     HorizontalDivider(color = Color(0xFFE0E7E3))
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.LocationOn, null, tint = CommuteTeal, modifier = Modifier.size(19.dp))
@@ -486,9 +484,6 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
                         }
                         if (!ride.passengerPhone.isNullOrBlank()) IconButton(onClick = { callTaxiContact(context, ride.passengerPhone) }, modifier = Modifier.size(44.dp)) { Icon(Icons.Default.Phone, "Call passenger", tint = CommuteTeal, modifier = Modifier.size(22.dp)) }
                     }
-                    Surface(color = CommuteMint, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
-                    }
-                    Text("Passenger pays you directly", color = Color(0xFF627385), fontSize = 11.sp)
                 }
             }
             TaxiPrimary("End trip", !busy, "taxi_end_trip", onComplete)
@@ -501,7 +496,6 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
     var scanBooking by remember { mutableStateOf<SharedRideBooking?>(null) }
     var missing by remember { mutableStateOf<SharedRideBooking?>(null) }
     missing?.let { booking -> AlertDialog(onDismissRequest = { missing = null }, title = { Text("Mark this passenger as a no-show?") },
-        text = { Text("Do this only after the departure waiting allowance has ended and the passenger has not boarded. Their seat booking will be cancelled.") },
         confirmButton = { TextButton(onClick = { missing = null; model.sharedAction("NO_SHOW", bookingId = booking.id) }) { Text("Confirm no-show") } }, dismissButton = { TextButton(onClick = { missing = null }) { Text("Keep waiting") } }) }
     scanBooking?.let { booking -> DriverQrScannerDialog(
         scanResult = null,
@@ -533,7 +527,7 @@ private fun pickupDistance(from: Pair<Double, Double>?, to: Pair<Double, Double>
                     Text("Seats ${booking.seatNumbers.joinToString()} · ${booking.status} · ${taxiMoney(booking.totalEtb)}", color = Color(0xFF627385), fontSize = 13.sp)
                     if (trip.status == "BOARDING" && booking.status == "CONFIRMED") {
                         OutlinedButton(onClick = { scanBooking = booking }, enabled = !state.busy) { Text("Scan passenger QR") }
-                        TextButton(onClick = { missing = booking }, enabled = !state.busy) { Text("Mark no-show after waiting allowance") }
+                        TextButton(onClick = { missing = booking }, enabled = !state.busy) { Text("Mark no-show") }
                     }
                 }
             }

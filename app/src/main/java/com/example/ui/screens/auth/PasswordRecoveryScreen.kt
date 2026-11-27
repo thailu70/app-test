@@ -50,7 +50,7 @@ internal fun PasswordRecoveryScreen(model: MainViewModel, role: AppRole, languag
                 sent = true; message = response.message
                 resendAfter = System.currentTimeMillis() + response.retryAfterSeconds.coerceIn(1, 900) * 1000L
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { error = failure.message }
+            catch (failure: Exception) { error = com.example.core.network.userFacingNetworkError(failure) }
             finally { busy = false }
         }
     }
@@ -82,7 +82,7 @@ internal fun PasswordRecoveryScreen(model: MainViewModel, role: AppRole, languag
                                     busy = true; error = null
                                     try { message = model.resetAccountPassword(role, phone, code, password).message; done = true; password = ""; confirmation = ""; code = "" }
                                     catch (cancelled: CancellationException) { throw cancelled }
-                                    catch (failure: Exception) { error = failure.message }
+                                    catch (failure: Exception) { error = com.example.core.network.userFacingNetworkError(failure) }
                                     finally { busy = false }
                                 }
                             }

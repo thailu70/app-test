@@ -17,6 +17,9 @@ import java.util.UUID
 import kotlin.math.max
 import kotlin.math.roundToInt
 import retrofit2.Response
+import com.example.core.network.userFacingNetworkError
+
+internal fun taxiUserError(error: Throwable?): String = userFacingNetworkError(error)
 
 internal enum class NearbyCarsStatus { IDLE, LOADING, AVAILABLE, EMPTY, UNAVAILABLE }
 
@@ -47,6 +50,11 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
         check(result.success) { result.error ?: "This action could not be completed." }
         return result
     }
+    private fun clearRecoveredConnectionNotice() {
+        if (mutable.value.message?.startsWith("Unable to connect", ignoreCase = true) == true) {
+            mutable.update { it.copy(message = null) }
+        }
+    }
     private fun quotedBody(response: Response<TaxiResponse>): TaxiResponse {
         if (!response.isSuccessful) {
             val value = runCatching { com.squareup.moshi.Moshi.Builder().build().adapter(Map::class.java).fromJson(response.errorBody()?.string().orEmpty()) }.getOrNull()
@@ -62,7 +70,7 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
         viewModelScope.launch {
             try { operations.withLock { block() } }
             catch (e: CancellationException) { throw e }
-            catch (e: Exception) { mutable.update { it.copy(message = e.message ?: "Check your connection and try again.") } }
+            catch (e: Exception) { mutable.update { it.copy(message = taxiUserError(e)) } }
             finally { mutable.update { it.copy(busy = false) } }
         }
     }
@@ -115,7 +123,7 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
         viewModelScope.launch {
             try { operations.withLock { if (quiet) loadLive() else load() } }
             catch (e: CancellationException) { throw e }
-            catch (e: Exception) { if (!quiet) mutable.update { it.copy(message = e.message ?: "Could not refresh rides.") } }
+            catch (e: Exception) { if (!quiet) mutable.update { it.copy(message = taxiUserError(e)) } }
             finally { refreshRunning = false }
         }
     }
@@ -154,6 +162,7 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
             mutable.value.selectedTrip?.let { loadTrip(it.id) }
             if (mutable.value.ride == null || mutable.value.ride?.status == "REQUESTED") nearbyQuery?.let { runCatching { loadNearby(it) } }
         }
+        clearRecoveredConnectionNotice()
     }
     private suspend fun load() {
         val catalog = check(mobilityBody(api.catalog()))
@@ -174,6 +183,7 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
             mutable.value.selectedTrip?.let { loadTrip(it.id) }
         }
         if (!driver && (mutable.value.ride == null || mutable.value.ride?.status == "REQUESTED")) nearbyQuery?.let { runCatching { loadNearby(it) } }
+        clearRecoveredConnectionNotice()
     }
     fun estimate(route: TaxiRouteInput) = act {
         val epoch = estimateEpoch
@@ -237,7 +247,7 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
             if (availability != null) mutable.update { it.copy(dashboard = availability, ride = null) }
             else {
                 runCatching { load() }
-                if (mutable.value.dashboard?.online != true) mutable.update { it.copy(message = "Trip completed. Reconnecting to your driver availability…") }
+                if (mutable.value.dashboard?.online != true) mutable.update { it.copy(message = "Trip completed. Offline.") }
             }
         } else {
             mutable.update { it.copy(ride = result.ride) }
@@ -253,7 +263,7 @@ internal class TaxiViewModel(private val api: TaxiApi, private val authenticated
     fun sharedRequest(route: TaxiRouteInput) = act {
         val intent = "shared-request:$route"
         val result = check(mobilityBody(api.sharedRequest(route.copy(idempotencyKey = key(intent)))))
-        mutable.update { it.copy(selectedTrip = result.trip, message = "Your route is available to eligible drivers. Confirm the fare before booking when a driver accepts.") }
+        mutable.update { it.copy(selectedTrip = result.trip, message = "Group request posted.") }
         idempotency.remove(intent)
         load()
     }

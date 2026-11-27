@@ -107,9 +107,38 @@ class MobilityLocationPickerTest {
             MobilityLocationPicker("Choose destination location", bole.latitude to bole.longitude, {}, {}, initialLabel = bole.name, providedApi = api, tileDownloadsEnabled = false)
         } }
         verifyMapIsBounded()
-        compose.onNodeWithText("Choose destination location").assertIsDisplayed()
+        compose.onNodeWithText("Where to?").assertIsDisplayed()
         compose.onNodeWithTag("mobility_location_confirm").assertIsEnabled()
         capture("06-location-picker-landscape.png")
+    }
+
+    @Test fun `selected destination can proceed while keyboard remains open`() {
+        var keyboardBottom by mutableIntStateOf(300)
+        var chosen: Pair<Double, Double>? = null
+        var name = ""
+        compose.setContent { MyApplicationTheme {
+            MobilityLocationPicker("Choose destination location", null, {}, { chosen = it }, onPlaceName = { name = it },
+                providedApi = api, tileDownloadsEnabled = false, contentInsets = WindowInsets(bottom = keyboardBottom))
+        } }
+        val search = compose.onNodeWithTag("mobility_location_search")
+        search.performClick().performTextInput("Bole")
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("mobility_location_suggestion_0").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("mobility_location_suggestion_0").performClick()
+
+        search.assertIsFocused().assertTextContains("Bole")
+        compose.onNodeWithTag("mobility_location_confirm").assertIsDisplayed().assertIsEnabled().performClick()
+        assertEquals(bole.name, name)
+        assertEquals(bole.latitude to bole.longitude, chosen)
+        compose.runOnIdle { assertEquals("Keyboard inset must remain active through Proceed", 300, keyboardBottom) }
+    }
+
+    @Test fun `taxi can keep the existing location picker design`() {
+        compose.setContent { MyApplicationTheme {
+            MobilityLocationPicker("Choose destination location", null, {}, {}, providedApi = api, tileDownloadsEnabled = false, simpleUi = false)
+        } }
+        compose.onNodeWithText("Choose destination location").assertIsDisplayed()
+        compose.onNodeWithText("Check the pickup or delivery entrance.").assertIsDisplayed()
+        compose.onNodeWithText("Use this destination").assertIsDisplayed()
     }
 
     @Test fun `pickup search retains focus text and suggestions across keyboard height changes`() {

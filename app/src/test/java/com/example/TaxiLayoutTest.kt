@@ -141,6 +141,14 @@ class TaxiLayoutTest {
                 isGenericTaxiPickupLabel(taxiPickupResolvingLabel(language)))
         }
     }
+    @Test fun `fare prompt reflects a selected destination instead of asking for one again`() {
+        assertEquals("",
+            taxiFareStatusText(false, false, null, com.example.core.localization.AppLanguage.ENGLISH))
+        assertEquals("Fare unavailable",
+            taxiFareStatusText(true, false, null, com.example.core.localization.AppLanguage.ENGLISH))
+        assertEquals("Calculating…",
+            taxiFareStatusText(true, true, null, com.example.core.localization.AppLanguage.ENGLISH))
+    }
     @Test @Config(qualifiers = "w320dp-h740dp-xhdpi") fun `daily commute shortcut stays compact on a narrow phone`() {
         var commute = 0
         compose.setContent { MyApplicationTheme { TaxiHeader(onDailyCommute = { commute++ }) } }

@@ -4,7 +4,8 @@ const { publicBaseUrl } = require('./public-url');
 const ACTIVE = ['ASSIGNED','AT_PICKUP','LOADED','IN_TRANSIT','AT_DESTINATION'];
 const schemas = new WeakMap();
 async function initMarketplaceSchema(db) {
-  if (!schemas.has(db)) schemas.set(db, Promise.resolve().then(()=>db.exec(`
+  if (!schemas.has(db)) schemas.set(db, Promise.resolve().then(async()=>{
+    await db.exec(`
     CREATE TABLE IF NOT EXISTS mobility_market_settings (id TEXT PRIMARY KEY,value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS mobility_request_market (
       request_id TEXT PRIMARY KEY REFERENCES mobility_requests(id), estimated_weight_kg NUMERIC,travel_time TEXT,
@@ -24,7 +25,15 @@ async function initMarketplaceSchema(db) {
     CREATE TABLE IF NOT EXISTS mobility_reviews (id TEXT PRIMARY KEY,request_id TEXT NOT NULL UNIQUE REFERENCES mobility_requests(id),driver_id TEXT NOT NULL REFERENCES users(id),rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),comment TEXT NOT NULL DEFAULT '',status TEXT NOT NULL DEFAULT 'PENDING',moderation_note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS mobility_review_reports (id TEXT PRIMARY KEY,review_id TEXT NOT NULL REFERENCES mobility_reviews(id),actor_id TEXT NOT NULL,reason TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(review_id,actor_id));
     CREATE INDEX IF NOT EXISTS mobility_quote_request ON mobility_quotes(request_id,status);
-  `)).catch(error => { schemas.delete(db); throw error; }));
+  `);
+    const indexes = [
+      'CREATE INDEX IF NOT EXISTS mobility_review_driver_status ON mobility_reviews(driver_id,status)',
+      'CREATE INDEX IF NOT EXISTS mobility_credit_driver_created ON mobility_credit_ledger(driver_id,created_at)',
+    ];
+    for (const index of indexes) {
+      await db.exec(db.isPostgres ? index.replace('CREATE INDEX IF NOT EXISTS', 'CREATE INDEX CONCURRENTLY IF NOT EXISTS') : index);
+    }
+  }).catch(error => { schemas.delete(db); throw error; }));
   return schemas.get(db);
 }
 const uid = prefix => prefix + crypto.randomUUID();
@@ -69,12 +78,17 @@ function createMarketplace({ db, now, fail, money, text, coordinates, vehicleDri
       await audit(tx,actor,'DRIVER_CREDIT_TOPUP',input.driverId);
     });return credits(input.driverId);
   }
-  async function enrich(row) {
-    const meta=await db.prepare('SELECT * FROM mobility_request_market WHERE request_id=?').get(row.id);
-    const count=await db.prepare("SELECT COUNT(*) AS count FROM mobility_quotes WHERE request_id=? AND status='OPEN'").get(row.id);
-    const review=await db.prepare('SELECT rating,comment,status FROM mobility_reviews WHERE request_id=?').get(row.id);
+  function requestOpportunityDetails(row, meta, count, review) {
     const weightKg=meta?.estimated_weight_kg==null?null:Number(meta.estimated_weight_kg);
     return {estimatedWeightKg:weightKg,estimatedWeightQuintals:weightKg==null?null:weightKg/100,travelTime:meta?.travel_time||'',routeDistanceKm:meta?.route_distance_km==null?null:Number(meta.route_distance_km),commissionEtb:Number(meta?.commission_etb||0),settlement:meta?.settlement||'NONE',completedAt:meta?.completed_at||null,confirmedAt:meta?.confirmed_at||null,disputeNote:meta?.dispute_note||'',quotesCount:Number(count.count),review:review?{rating:Number(review.rating),comment:review.comment,status:review.status}:null,paymentMode:'DIRECT_TO_DRIVER',paymentVerified:false};
+  }
+  async function enrich(row) {
+    const [meta,count,review] = await Promise.all([
+      db.prepare('SELECT * FROM mobility_request_market WHERE request_id=?').get(row.id),
+      db.prepare("SELECT COUNT(*) AS count FROM mobility_quotes WHERE request_id=? AND status='OPEN'").get(row.id),
+      db.prepare('SELECT rating,comment,status FROM mobility_reviews WHERE request_id=?').get(row.id),
+    ]);
+    return requestOpportunityDetails(row,meta,count,review);
   }
   async function createMeta(key,input,tx=db) {
     let weight=null,distance=null,time=null;
@@ -99,6 +113,42 @@ function createMarketplace({ db, now, fail, money, text, coordinates, vehicleDri
     const driver=await tx.prepare('SELECT fullName FROM users WHERE id=?').get(q.driver_id),vehicle=await tx.prepare('SELECT * FROM vehicles WHERE id=?').get(q.vehicle_id);
     return {id:q.id,driverId:q.driver_id,driverName:driver?.fullName||'',vehicleId:q.vehicle_id,vehicleType:vehicle?.vehicleType||'',vehicleModel:vehicle?.model||'',vehiclePlate:vehicle?.plateNumber||'',priceEtb:Number(q.price_etb),note:q.note,etaMinutes:q.eta_minutes==null?null:Number(q.eta_minutes),status:q.status,createdAt:q.created_at,...await ratings(q.driver_id,tx)};
   }
+  async function batchOpportunityDetails(rows, driverId) {
+    const ids = rows.map(row => row.id);
+    if (!ids.length) return { details: new Map(), myQuotes: new Map() };
+    const marks = ids.map(() => '?').join(',');
+    const [metas, counts, reviews, quotes] = await Promise.all([
+      db.prepare(`SELECT * FROM mobility_request_market WHERE request_id IN (${marks})`).all(...ids),
+      db.prepare(`SELECT request_id,COUNT(*) AS count FROM mobility_quotes WHERE status='OPEN' AND request_id IN (${marks}) GROUP BY request_id`).all(...ids),
+      db.prepare(`SELECT request_id,rating,comment,status FROM mobility_reviews WHERE request_id IN (${marks})`).all(...ids),
+      db.prepare(`SELECT * FROM mobility_quotes WHERE driver_id=? AND request_id IN (${marks})`).all(driverId,...ids),
+    ]);
+    const metaById = new Map(metas.map(row => [row.request_id,row]));
+    const countById = new Map(counts.map(row => [row.request_id,row]));
+    const reviewById = new Map(reviews.map(row => [row.request_id,row]));
+    const details = new Map(rows.map(row => [row.id,requestOpportunityDetails(row,metaById.get(row.id),countById.get(row.id)||{count:0},reviewById.get(row.id))]));
+    const myQuotes = new Map();
+    if (quotes.length) {
+      const vehicleIds = [...new Set(quotes.map(row => row.vehicle_id))];
+      const vehicleMarks = vehicleIds.map(() => '?').join(',');
+      const [driver, vehicles, rating] = await Promise.all([
+        db.prepare('SELECT fullName FROM users WHERE id=?').get(driverId),
+        db.prepare(`SELECT * FROM vehicles WHERE id IN (${vehicleMarks})`).all(...vehicleIds),
+        ratings(driverId),
+      ]);
+      const vehicleById = new Map(vehicles.map(vehicle => [vehicle.id,vehicle]));
+      for (const quote of quotes) {
+        const vehicle = vehicleById.get(quote.vehicle_id);
+        myQuotes.set(quote.request_id, {
+          id:quote.id,driverId:quote.driver_id,driverName:driver?.fullName||'',vehicleId:quote.vehicle_id,
+          vehicleType:vehicle?.vehicleType||'',vehicleModel:vehicle?.model||'',vehiclePlate:vehicle?.plateNumber||'',
+          priceEtb:Number(quote.price_etb),note:quote.note,etaMinutes:quote.eta_minutes==null?null:Number(quote.eta_minutes),
+          status:quote.status,createdAt:quote.created_at,...rating,
+        });
+      }
+    }
+    return { details, myQuotes };
+  }
   async function opportunities(driverId,query={}) {
     const type=await serviceType(driverId);if(!['GROUP_TRAVEL','CARGO'].includes(type))fail(403,'This marketplace is for approved group travel and cargo drivers.');
     const wallet=walletView(await walletRow(driverId));if(await busy(driverId))return {requests:[],wallet,busy:true,notifications:[]};
@@ -110,11 +160,12 @@ function createMarketplace({ db, now, fail, money, text, coordinates, vehicleDri
     if(!driverLocation)for(const v of valid){const point=await db.prepare('SELECT * FROM vehicle_live_locations WHERE vehicle_id=?').get(v.id);if(point&&now()-Date.parse(point.updated_at)<15*60000){driverLocation=point;break;}}
     const cfg=(await settings()).settings,today=new Date(now()+3*3600000).toISOString().slice(0,10);
     const rows=await db.prepare("SELECT * FROM mobility_requests WHERE kind=? AND status='REQUESTED' AND travel_date>=? ORDER BY travel_date,created_at DESC LIMIT 100").all(type==='CARGO'?'CARGO':'GROUP',today),requests=[];
+    const batched = await batchOpportunityDetails(rows,driverId);
     for(const r of rows) {
       if(!valid.some(v=>v.vehicleType===r.vehicle_type&&(r.kind!=='GROUP'||Number(v.capacityLimit)>=Number(r.people))))continue;
-      const extra=await enrich(r),my=await db.prepare('SELECT * FROM mobility_quotes WHERE request_id=? AND driver_id=?').get(r.id,driverId);
+      const extra=batched.details.get(r.id),my=batched.myQuotes.get(r.id);
       const proximity=driverLocation&&r.origin_latitude!=null?rounded(km(Number(driverLocation.latitude),Number(driverLocation.longitude),Number(r.origin_latitude),Number(r.origin_longitude))):null;
-      requests.push({id:r.id,kind:r.kind,origin:r.origin,destination:r.destination,travelDate:r.travel_date,vehicleType:r.vehicle_type,people:r.people,details:r.details,...extra,photoUrl:r.photo_storage?'/api/mobility/requests/'+encodeURIComponent(r.id)+'/photo':null,pickupDistanceKm:proximity,nearby:proximity!=null&&proximity<=cfg.notificationRadiusKm,estimatedCargoPriceEtb:r.kind==='CARGO'&&extra.estimatedWeightKg&&extra.routeDistanceKm&&cfg.cargoRateEtbPerKgKm>0?rounded(Math.max(cfg.minimumCargoFareEtb,extra.estimatedWeightKg*extra.routeDistanceKm*cfg.cargoRateEtbPerKgKm)):null,myQuote:my?await quoteView(my):null});
+      requests.push({id:r.id,kind:r.kind,origin:r.origin,destination:r.destination,travelDate:r.travel_date,vehicleType:r.vehicle_type,people:r.people,details:r.details,...extra,photoUrl:r.photo_storage?'/api/mobility/requests/'+encodeURIComponent(r.id)+'/photo':null,pickupDistanceKm:proximity,nearby:proximity!=null&&proximity<=cfg.notificationRadiusKm,estimatedCargoPriceEtb:r.kind==='CARGO'&&extra.estimatedWeightKg&&extra.routeDistanceKm&&cfg.cargoRateEtbPerKgKm>0?rounded(Math.max(cfg.minimumCargoFareEtb,extra.estimatedWeightKg*extra.routeDistanceKm*cfg.cargoRateEtbPerKgKm)):null,myQuote:my||null});
     }
     requests.sort((a,b)=>(a.pickupDistanceKm??Infinity)-(b.pickupDistanceKm??Infinity));
     return {requests,wallet,busy:false,notifications:requests.filter(r=>r.nearby&&!r.myQuote).map(r=>({id:r.id,title:r.kind==='CARGO'?'Nearby cargo request':'Nearby group travel request',origin:r.origin,destination:r.destination,travelDate:r.travelDate}))};

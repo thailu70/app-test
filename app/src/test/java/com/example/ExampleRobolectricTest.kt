@@ -14,7 +14,11 @@ class ExampleRobolectricTest {
 
   @Test
   fun `launch MainActivity without crash`() {
-    val controller = org.robolectric.Robolectric.buildActivity(MainActivity::class.java).setup()
+    // MainTransportApp includes intentional repeating visual motion. A fully
+    // resumed Robolectric activity continuously drains its paused Choreographer
+    // queue, so this smoke test checks creation without trying to idle that UI.
+    val controller = org.robolectric.Robolectric.buildActivity(MainActivity::class.java).create()
     org.junit.Assert.assertNotNull(controller.get())
+    controller.destroy()
   }
 }

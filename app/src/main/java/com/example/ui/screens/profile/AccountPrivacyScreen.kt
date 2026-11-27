@@ -110,7 +110,6 @@ fun AccountPrivacyScreen(
                     Text("PASSO", color = PrivacyTeal, fontWeight = FontWeight.SemiBold)
                 }
             }
-            com.example.ui.components.EnvironmentSettingsButton(enabled = !deleting)
             TextButton(enabled = !deleting, onClick = {
                 runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://passo.live/privacy/"))) }
                     .onFailure { error = genericError }

@@ -2,7 +2,8 @@
 const { DB } = require('../db');
 const schemas = new WeakMap();
 async function initMobilitySchema(db = DB) {
-  if (!schemas.has(db)) schemas.set(db, Promise.resolve().then(() => db.exec(`
+  if (!schemas.has(db)) schemas.set(db, Promise.resolve().then(async () => {
+    await db.exec(`
     CREATE TABLE IF NOT EXISTS mobility_trips (
       id TEXT PRIMARY KEY, driver_id TEXT NOT NULL REFERENCES users(id), vehicle_id TEXT NOT NULL REFERENCES vehicles(id),
       origin TEXT NOT NULL, destination TEXT NOT NULL, departure_at TEXT NOT NULL,
@@ -47,7 +48,17 @@ async function initMobilitySchema(db = DB) {
       lease_token TEXT, lease_until TEXT, sent_at TEXT
     );
     CREATE INDEX IF NOT EXISTS mobility_sms_delivery ON mobility_sms_outbox(status,next_attempt_at);
-  `)).catch(error => { schemas.delete(db); throw error; }));
+  `);
+    const indexes = [
+      'CREATE INDEX IF NOT EXISTS mobility_request_driver_status ON mobility_requests(driver_id,status)',
+      'CREATE INDEX IF NOT EXISTS mobility_request_feed_date ON mobility_requests(kind,status,travel_date)',
+      'CREATE INDEX IF NOT EXISTS mobility_vehicle_driver_status ON vehicles(driverId,status)',
+      'CREATE INDEX IF NOT EXISTS mobility_trip_driver_status ON mobility_trips(driver_id,status)',
+    ];
+    for (const index of indexes) {
+      await db.exec(db.isPostgres ? index.replace('CREATE INDEX IF NOT EXISTS', 'CREATE INDEX CONCURRENTLY IF NOT EXISTS') : index);
+    }
+  }).catch(error => { schemas.delete(db); throw error; }));
   return schemas.get(db);
 }
 module.exports = { initMobilitySchema };

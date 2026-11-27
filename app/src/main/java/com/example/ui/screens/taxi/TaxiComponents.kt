@@ -97,25 +97,6 @@ internal fun taxiTime(value: String): String = EthiopianDateTime.formatTimestamp
 internal fun taxiActive(status: String) = status in setOf("ACCEPTED", "AT_PICKUP", "IN_PROGRESS")
 internal fun taxiGpsWaiting(ride: TaxiRide) = ride.waiting in setOf("TRAFFIC", "STOP")
 internal fun sharedActive(status: String) = status in setOf("BOARDING", "IN_PROGRESS")
-internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFreeRemainingSeconds): String = when {
-    ride.waitingState == "GPS_PAUSED" -> "GPS paused · waiting time not counted"
-    ride.waitingState == "LIMIT_REACHED" -> "Waiting limit reached · distance paused"
-    ride.distancePaused && freeSeconds != null && freeSeconds > 0 -> "Distance paused · free waiting ${taxiDuration(freeSeconds)}"
-    ride.distancePaused && ride.waitingRateEtbPerMinute != null -> "Distance paused · waiting ${taxiMoney(ride.waitingRateEtbPerMinute)}/min"
-    ride.waitingState == "FREE_ALLOWANCE" -> "Traffic stop detected · ${freeSeconds?.let(::taxiDuration) ?: "free time"} free"
-    ride.waitingState == "BILLABLE_WAITING" -> "Traffic stop detected · ${ride.waitingRateEtbPerMinute?.let(::taxiMoney) ?: "Configured rate"}/min"
-    else -> "Traffic stops are timed automatically from GPS"
-}
-@Composable internal fun taxiFreeWaitingSeconds(ride: TaxiRide, tick: Boolean = true): Int? {
-    var remaining by remember(ride.id, ride.serverTime, ride.waitingFreeRemainingSeconds) { mutableStateOf(ride.waitingFreeRemainingSeconds) }
-    LaunchedEffect(ride.id, ride.serverTime, ride.waitingFreeRemainingSeconds, ride.waitingState, tick) {
-        if (!tick || ride.waitingState != "FREE_ALLOWANCE") return@LaunchedEffect
-        // Interpolate this display briefly; the next server snapshot remains authoritative.
-        repeat(10) { delay(1_000); remaining = remaining?.let { (it - 1).coerceAtLeast(0) }; if (remaining == 0) return@LaunchedEffect }
-    }
-    return remaining
-}
-
 @Composable internal fun taxiViewModel(authenticated: Boolean, driver: Boolean): TaxiViewModel {
     val token = ApiClient.getAuthToken()
     val identity = "taxi:${ApiClient.sessionScope()}:$token:$driver"
@@ -367,18 +348,20 @@ internal fun taxiStopSummary(ride: TaxiRide, freeSeconds: Int? = ride.waitingFre
             Surface(Modifier.size(if (compact) 30.dp else 40.dp).graphicsLayer { scaleX = phase; scaleY = phase; alpha = (1.4f - phase).coerceIn(.1f, .6f) }, shape = CircleShape, color = CommuteTeal) {}
             Icon(Icons.Default.LocationOn, null, tint = CommuteTeal, modifier = Modifier.size(if (compact) 23.dp else 28.dp))
         }
-        Column(Modifier.weight(1f)) { Text("Connecting to nearby drivers…", fontWeight = FontWeight.Bold, color = CommuteInk, fontSize = if (compact) 14.sp else 17.sp)
-            Text("Eligible drivers can select your request.", color = Color(0xFF627385), fontSize = if (compact) 10.sp else 12.sp) }
+        Text("Connecting to nearby drivers…", Modifier.weight(1f), fontWeight = FontWeight.Bold, color = CommuteInk, fontSize = if (compact) 14.sp else 17.sp)
     }
 }
 
 @Composable internal fun TaxiLocationDialog(destination: Boolean, current: Pair<Double, Double>?, label: String,
-    onDismiss: () -> Unit, onSelect: (String, Pair<Double, Double>) -> Unit) {
+    onDismiss: () -> Unit, simpleUi: Boolean = false, onSelect: (String, Pair<Double, Double>) -> Unit) {
     var selectedLabel by remember { mutableStateOf(label) }
-    MobilityLocationPicker(if (destination) "Where to?" else "Choose pickup", current, onDismiss,
+    MobilityLocationPicker(taxiLocationPickerTitle(destination), current, onDismiss,
         onChoose = { onSelect(selectedLabel.ifBlank { if (destination) "Selected destination" else "Selected pickup" }, it) },
-        onPlaceName = { selectedLabel = it }, initialLabel = label)
+        onPlaceName = { selectedLabel = it }, initialLabel = label, simpleUi = simpleUi)
 }
+
+internal fun taxiLocationPickerTitle(destination: Boolean): String =
+    if (destination) "Choose destination location" else "Choose pickup location"
 
 internal fun callTaxiContact(context: android.content.Context, number: String?) {
     number?.takeIf { Regex("[+0-9 ()-]{5,25}").matches(it) }?.let { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", it, null))) }

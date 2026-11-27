@@ -253,7 +253,6 @@ fun PassengerDashboardScreen(
                 else -> {
                     item { com.example.core.notifications.MobilityAlertToneSettings(driver = false, language = lang) }
                     item { PassengerMenuRow(passengerText(lang, "My profile", "የእኔ መገለጫ"), passengerText(lang, "Photo, ID and personal details", "ፎቶ፣ መታወቂያ እና የግል መረጃ"), Icons.Default.Person, onOpenProfile) }
-                    item { com.example.ui.components.EnvironmentSettingsButton() }
                     item { PassengerMenuRow(sectionLabel("Live Location"), passengerText(lang, "Your driver's latest position", "የአሽከርካሪዎ የቅርብ ጊዜ ቦታ"), Icons.Default.LocationOn, { passengerSection = "Live Location" }) }
                     item { PassengerMenuRow(sectionLabel("Trip Attendance"), passengerText(lang, "Review your recorded boardings", "የተመዘገቡ ጉዞዎችዎን ይመልከቱ"), Icons.Default.EventAvailable, { passengerSection = "Trip Attendance" }) }
                     item { PassengerMenuRow(sectionLabel("Help & Complaints"), passengerText(lang, "Get help or report an issue", "እገዛ ያግኙ ወይም ችግር ያሳውቁ"), Icons.Default.SupportAgent, { passengerSection = "Help & Complaints" }) }
@@ -301,7 +300,7 @@ fun SubscriptionStatusCard(
         Text(passengerText(lang, "Your pass", "የእርስዎ የጉዞ ፈቃድ"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Slate900)
         PassStatusBadge(passengerBoardingStatus(subscription), lang)
         if (subscription == null) {
-            Text(passengerText(lang, "Your pass will appear here when your route is approved and activated. Contact your administrator if you need help.", "መስመርዎ ሲጸድቅ እና ሲነቃ የጉዞ ፈቃድዎ እዚህ ይታያል። እገዛ ከፈለጉ አስተዳዳሪዎን ያግኙ።"), style = MaterialTheme.typography.bodyMedium, color = Slate600)
+            Text(passengerText(lang, "No active pass", "ንቁ ፓስ የለም"), style = MaterialTheme.typography.bodyMedium, color = Slate600)
         } else {
             if (!userAppliedRoute.isNullOrBlank()) Text(userAppliedRoute, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Slate900)
             if (subscription.subscriptionStatus == "PENDING") Text(passengerText(lang, "Your pass is waiting for activation by your administrator.", "የጉዞ ፈቃድዎ በአስተዳዳሪዎ እስኪነቃ እየጠበቀ ነው።"), style = MaterialTheme.typography.bodySmall, color = Slate600)

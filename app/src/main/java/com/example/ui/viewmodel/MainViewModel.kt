@@ -205,7 +205,7 @@ class MainViewModel(
                 refreshPassengerSubscription(passengerId)
                 onResult(true, message)
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { onResult(false, failure.message ?: "Could not select this daily route. Please try again.") }
+            catch (failure: Exception) { onResult(false, com.example.core.network.userFacingNetworkError(failure)) }
         }
     }
 
@@ -572,7 +572,7 @@ class MainViewModel(
         viewModelScope.launch {
             try { onResult(repository.requestLoginOtp(phone), null) }
             catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { onResult(null, failure.message ?: "Unable to send a sign-in code. Please try again.") }
+            catch (failure: Exception) { onResult(null, com.example.core.network.userFacingNetworkError(failure)) }
         }
     }
 
@@ -622,7 +622,7 @@ class MainViewModel(
                 }
                 repository.logAction("LOGIN_SUCCESS", user.id, user.role, "Signed in with phone verification")
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { _authError.value = failure.message ?: "Unable to sign in. Please try again." }
+            catch (failure: Exception) { _authError.value = com.example.core.network.userFacingNetworkError(failure) }
             finally { _authBusy.value = false }
         }
     }
@@ -648,7 +648,7 @@ class MainViewModel(
                 startPassengerSubscriptionRefresh(user.id)
                 repository.logAction("PASSENGER_REGISTERED", user.id, user.role, "Created an account using phone verification")
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { _authError.value = failure.message ?: "Unable to create your account. Please try again." }
+            catch (failure: Exception) { _authError.value = com.example.core.network.userFacingNetworkError(failure) }
             finally { _authBusy.value = false }
         }
     }
@@ -757,7 +757,7 @@ class MainViewModel(
                     stopPassengerSubscriptionRefresh()
                 }
             } catch (e: Exception) {
-                _authError.value = e.message ?: "Registration failed. Check the information and try again."
+                _authError.value = com.example.core.network.userFacingNetworkError(e)
             }
             } finally {
                 _authBusy.value = false
@@ -768,14 +768,14 @@ class MainViewModel(
     fun requestRegistrationOtp(phone: String, onResult: (String?, String?) -> Unit) {
         viewModelScope.launch {
             try { onResult(repository.requestRegistrationOtp(phone), null) }
-            catch (e: Exception) { onResult(null, e.message ?: "Could not send the verification SMS.") }
+            catch (e: Exception) { onResult(null, com.example.core.network.userFacingNetworkError(e)) }
         }
     }
 
     fun verifyRegistrationOtp(phone: String, code: String, onResult: (String?, String?) -> Unit) {
         viewModelScope.launch {
             try { onResult(repository.verifyRegistrationOtp(phone, code), null) }
-            catch (e: Exception) { onResult(null, e.message ?: "The verification code is invalid.") }
+            catch (e: Exception) { onResult(null, com.example.core.network.userFacingNetworkError(e)) }
         }
     }
 
@@ -943,7 +943,7 @@ class MainViewModel(
                 _driverActionMessage.value = if (stops.isEmpty()) "Trip started, but this route has no stop list configured yet." else "Live trip started. GPS sharing is available while this screen is open."
                 repository.logAction("DRIVER_NAVIGATION_START", user.id, "DRIVER", "Started live trip ${trip.id} on route ${trip.routeId}")
             } catch (e: Exception) {
-                _driverActionMessage.value = e.message ?: "Could not start the trip."
+                _driverActionMessage.value = com.example.core.network.userFacingNetworkError(e)
             }
         }
     }
@@ -981,7 +981,7 @@ class MainViewModel(
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (e: Exception) {
                 if (generation != sessionGeneration || _currentUser.value?.id != user.id) return@launch
-                val message = e.message ?: "GPS update failed."
+                val message = com.example.core.network.userFacingNetworkError(e)
                 _driverActionMessage.value = message
                 onResult?.invoke(false, message)
             } finally {

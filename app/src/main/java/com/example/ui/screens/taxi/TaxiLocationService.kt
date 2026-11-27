@@ -53,12 +53,20 @@ internal object TaxiTracking {
     @Volatile var session: TaxiTrackingSession? = null
         private set
     private var app: Context? = null
+    private val liveLocation = MutableStateFlow<MobilityLocation?>(null)
+    val location = liveLocation.asStateFlow()
     private fun preferences(context: Context) = context.applicationContext.getSharedPreferences(
         ApiClient.environment().storageName("taxi_tracking"), Context.MODE_PRIVATE)
     private val mutable = MutableStateFlow("Location sharing is off.")
     internal var finisher: Pair<TaxiTrackingSession, suspend (Map<String, Any>) -> Long>? = null
     val status = mutable.asStateFlow()
     fun report(value: String) { mutable.value = value }
+    fun publishLocation(value: TaxiTrackingSession, fix: Location) {
+        if (!current(value) || !usableTaxiFix(fix)) return
+        liveLocation.value = MobilityLocation(
+            fix.latitude, fix.longitude, taxiTimestamp(fix.time), fix.accuracy.toDouble()
+        )
+    }
     fun current(value: TaxiTrackingSession) = session?.let {
         it.target.driverId == value.target.driverId && it.target.vehicleId == value.target.vehicleId &&
             it.target.tripId == value.target.tripId && it.target.shared == value.target.shared &&
@@ -71,6 +79,9 @@ internal object TaxiTracking {
         }
         val next = TaxiTrackingSession(target, token, ApiClient.sessionScope())
         val old = session
+        if (old == null || old.target.driverId != next.target.driverId || old.target.vehicleId != next.target.vehicleId || old.token != next.token) {
+            liveLocation.value = null
+        }
         app = context.applicationContext
         saveTarget(context, target)
         session = next
@@ -107,7 +118,7 @@ internal object TaxiTracking {
     }
     fun stop(message: String = "Location sharing is off.") {
         app?.let(::preferences)?.edit()?.clear()?.apply()
-        session = null; finisher = null; report(message); app?.stopService(Intent(app, TaxiLocationService::class.java))
+        session = null; finisher = null; liveLocation.value = null; report(message); app?.stopService(Intent(app, TaxiLocationService::class.java))
     }
     suspend fun finishMeter(tripId: String, point: Map<String, Any>): Long {
         val value = finisher ?: error("Resume trip location sharing and reconnect before completing the meter.")
@@ -312,6 +323,7 @@ class TaxiLocationService : Service() {
                 if (!TaxiTracking.current(session) || !usableTaxiFix(location)) return
                 if (last?.time?.let { location.time <= it } == true) return
                 last = location
+                TaxiTracking.publishLocation(session, location)
                 if (session.target.tripId != null && !session.target.shared) {
                     sequence++
                     pending.add(TaxiGpsPoint(sequence, location.latitude, location.longitude, location.accuracy.toDouble(), taxiTimestamp(location.time)))

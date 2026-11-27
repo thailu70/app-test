@@ -45,6 +45,16 @@ async function initRidesSchema(db = require("../db").DB) {
       );
       CREATE INDEX IF NOT EXISTS ride_sms_delivery ON ride_sms_outbox(status,next_attempt_at);
     `);
+          const performanceIndexes = [
+            'CREATE INDEX IF NOT EXISTS ride_availability_dispatch ON ride_availability(online,recorded_at)',
+            'CREATE INDEX IF NOT EXISTS ride_shared_driver_status_date ON ride_shared_trips(driver_id,status,departure_at)',
+            'CREATE INDEX IF NOT EXISTS ride_shared_passenger_status_date ON ride_shared_trips(passenger_id,status,departure_at)',
+            'CREATE INDEX IF NOT EXISTS ride_shared_booking_trip_status ON ride_shared_bookings(trip_id,status)',
+            'CREATE INDEX IF NOT EXISTS ride_shared_booking_passenger_status ON ride_shared_bookings(passenger_id,status,created_at)',
+          ];
+          for (const index of performanceIndexes) {
+            await db.exec(db.isPostgres ? index.replace('CREATE INDEX IF NOT EXISTS', 'CREATE INDEX CONCURRENTLY IF NOT EXISTS') : index);
+          }
           if (db.isPostgres) {
             await db.prepare('ALTER TABLE ride_jobs ADD COLUMN IF NOT EXISTS street_passenger_phone TEXT NOT NULL DEFAULT \'\'').run();
           } else {

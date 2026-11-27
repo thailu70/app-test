@@ -152,13 +152,15 @@ function createRidesService({
     await tx.prepare("INSERT INTO ride_sms_outbox(id,event_key,ride_id,phone,message,next_attempt_at,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(event_key) DO NOTHING")
       .run(id("rsms_"), eventKey, rideId, recipient, message, instant(), instant());
   }
-  async function queueTaxiSms(tx, ride, event) {
+  async function queueTaxiSms(tx, ride, event, finalFareEtb = null) {
     const route = parse(ride.route_json);
     const account = ride.passenger_id ? await tx.prepare("SELECT phone FROM users WHERE id=?").get(ride.passenger_id) : null;
     const phone = account?.phone || route.streetPassengerPhone;
-    const label = event === "start" ? "started" : "completed";
+    const message = event === "complete"
+      ? `PASSO: Your trip is complete from ${route.origin} to ${route.destination}. Total amount: ${Number(finalFareEtb).toFixed(2)} Birr. Thank you for using Passo Mobility.`
+      : `PASSO taxi trip started: ${route.origin} to ${route.destination}. Open Passo to view your trip.`;
     await queueRideSms(tx, ride.id, `ride-${event}`, phone,
-      `PASSO taxi trip ${label}: ${route.origin} to ${route.destination}. Open Passo to view your trip.`);
+      message);
   }
   async function flushRideSms({ limit = 20 } = {}) {
     if (smsFlush) return smsFlush;
@@ -1654,9 +1656,17 @@ function createRidesService({
         const waitingSampleEligible =
           !r.waiting_since ||
           Date.parse(p.timestamp) >= Date.parse(r.waiting_since);
+        // Phone GPS can drift by more than half its reported accuracy while a
+        // vehicle is parked. Use a bounded noise radius so a real traffic stop
+        // is still detected without treating broad, low-accuracy fixes as proof.
         const stationaryThreshold = Math.max(
-          5,
-          (p.accuracyMeters + Number(r.last_accuracy || p.accuracyMeters)) / 2,
+          12,
+          Math.min(
+            30,
+            ((p.accuracyMeters + Number(r.last_accuracy || p.accuracyMeters)) /
+              2) *
+              1.25,
+          ),
         );
         const gpsUploadSeconds = Number(parse(r.tariff_json).gpsUploadSeconds) || 10;
         const stopDetectionMaxGapSeconds = Math.max(
@@ -1697,6 +1707,12 @@ function createRidesService({
           plausible &&
           waitingSampleEligible
         ) {
+          // Require movement beyond ordinary urban GPS drift before closing a
+          // stop. The cap keeps the meter responsive once the vehicle moves.
+          const resumeThreshold = Math.max(
+            25,
+            Math.min(35, p.accuracyMeters * 1.5),
+          );
           const moved =
             km(
               Number(r.waiting_latitude),
@@ -1705,7 +1721,7 @@ function createRidesService({
               p.longitude,
             ) *
               1000 >
-            Math.max(20, p.accuracyMeters * 1.5);
+            resumeThreshold;
           if (moved) {
             await tx
               .prepare(
@@ -1895,7 +1911,7 @@ function createRidesService({
           "UPDATE ride_jobs SET status='COMPLETED',pin_hash=NULL,pin_cipher=NULL,waiting_seconds=waiting_seconds+?,waiting_since=NULL,waiting_kind=NULL,completed_at=? WHERE id=?",
         )
         .run(liveWaiting(r), instant(), key);
-      await queueTaxiSms(tx, r, "complete");
+      await queueTaxiSms(tx, r, "complete", fare(r));
       await settle(tx, r, "ride_jobs", true);
       await saveAvailability(tx, user.id, r.vehicle_id, true, p);
     });

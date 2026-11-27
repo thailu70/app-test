@@ -27,6 +27,16 @@ import java.io.File
 class WelcomeLayoutTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
+    private fun assertNoOverflowingScroll() {
+        // Material's collapsed language menu contributes a zero-range scroll node.
+        // The requirement is that the page has no scrollable overflow, not that
+        // every hidden component in the semantics tree lacks scroll semantics.
+        val ranges = compose.onAllNodes(
+            SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)
+        ).fetchSemanticsNodes().map { it.config[SemanticsProperties.VerticalScrollAxisRange] }
+        assertTrue("Welcome content must fit without vertical scrolling", ranges.all { it.maxValue() <= 1f })
+    }
+
     @Test
     @Config(qualifiers = "w320dp-h640dp-xhdpi")
     fun `privacy remains reachable without scrolling or hiding Continue on a compact phone`() {
@@ -42,7 +52,7 @@ class WelcomeLayoutTest {
             val viewport = compose.onNodeWithTag("welcome_viewport").fetchSemanticsNode().boundsInWindow
             val policy = compose.onNodeWithTag("welcome_privacy").fetchSemanticsNode().boundsInWindow
             assertTrue(policy.bottom <= viewport.bottom + 1.5f)
-            compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
+            assertNoOverflowingScroll()
         }
         compose.onNodeWithTag("welcome_privacy").performClick()
         assertTrue(opened)
@@ -89,7 +99,7 @@ class WelcomeLayoutTest {
             assertEquals("${language.code}: translated service cards share one bottom edge", cards.first().bottom, card.bottom, tolerance)
             assertTrue("${language.code}: service card is fully on screen", card.top >= viewport.top - tolerance && card.bottom <= button.top + tolerance)
         }
-        compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
+        assertNoOverflowingScroll()
         compose.onNodeWithTag("welcome_language_menu").assertIsDisplayed().performClick()
         AppLanguage.entries.forEach { item ->
             val option = compose.onNodeWithTag("welcome_language_${item.code}").assertIsDisplayed().fetchSemanticsNode().boundsInWindow
@@ -193,7 +203,7 @@ class WelcomeLayoutTest {
             }
             capturePreview("welcome-360x640-${item.code}.png")
         }
-        compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
+        assertNoOverflowingScroll()
         val dir = File("build/welcome-previews").apply { mkdirs() }
         captureWindow().let { bitmap ->
             File(dir, "welcome-short-phone.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }

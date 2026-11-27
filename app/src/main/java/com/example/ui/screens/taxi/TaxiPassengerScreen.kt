@@ -128,6 +128,16 @@ internal fun taxiPickupPinLabel(point: Pair<Double, Double>, language: AppLangua
     String.format(Locale.US, "የመነሻ ነጥብ · %.5f, %.5f", point.first, point.second),
     String.format(Locale.US, "Bakka ka'umsaa · %.5f, %.5f", point.first, point.second))
 
+internal fun taxiFareStatusText(hasDestination: Boolean, busy: Boolean, error: String?, language: AppLanguage): String = when {
+    busy -> taxiText(language, "Calculating…", "በማስላት ላይ…", "Shallagamaa jira…")
+    !error.isNullOrBlank() -> error
+    hasDestination -> taxiText(language,
+        "Fare unavailable",
+        "የታሪፍ ግምት የለም",
+        "Tilmaamni gatii hin jiru")
+    else -> ""
+}
+
 /** Public destination-first discovery; only requesting a ride or booking a seat requires sign-in. */
 @Composable fun TaxiPassengerScreen(main: MainViewModel, onDailyCommute: () -> Unit,
     onSignIn: () -> Unit, onBack: (() -> Unit)?, onPrivacy: () -> Unit = {},
@@ -319,7 +329,7 @@ internal fun taxiPickupPinLabel(point: Pair<Double, Double>, language: AppLangua
         while (recentDestinations.size > 5) recentDestinations.removeAt(recentDestinations.lastIndex)
         showDestinationSearch = false
         model.clearEstimate()
-        if (pickup == null) localNotice = "Turn on location to calculate your fare."
+        if (pickup == null) localNotice = "Location unavailable"
     }
     if (showDestinationSearch) TaxiDestinationSearchDialog(
         query = destinationQuery,
@@ -381,7 +391,6 @@ internal fun taxiPickupPinLabel(point: Pair<Double, Double>, language: AppLangua
                 }
                 page == "payments" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                     Text("Ride fares", color = CommuteInk, fontWeight = FontWeight.ExtraBold, fontSize = 25.sp)
-                    Text("Taxi and Group Ride fares are paid directly to your driver. Passo has not collected these amounts.", color = Color(0xFF627385), fontSize = 14.sp)
                     state.rides.filter { it.status == "COMPLETED" }.forEach { ride -> Text("${ride.origin} → ${ride.destination}\n${taxiMoney(ride.fareEtb ?: 0.0)}", color = CommuteInk, fontSize = 15.sp); HorizontalDivider() }
                     TextButton(onClick = onDailyCommute) { Text("Open Daily Commute for pass payments") }
                 }
@@ -439,7 +448,6 @@ internal fun taxiPickupPinLabel(point: Pair<Double, Double>, language: AppLangua
                         Icon(Icons.Default.Close, "Close", tint = Color(0xFF55656C))
                     }
                 }
-                Text("Choose how you use Passo.", color = Color(0xFF586870), fontSize = 14.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     SignInRoleCard("Passenger", "Book rides", Icons.Default.PersonOutline,
                         selected = selectedSignInRole == AppRole.PASSENGER, tag = "taxi_sign_in_passenger",
@@ -821,13 +829,13 @@ private fun TaxiPassengerHome(
                     }
                     TaxiTierTiles(state.tiers, tier, state.settings, !state.busy && configuredRates && state.settings.enabled, onTier, language, estimate)
                 }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Route, null, tint = CommuteTeal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
-                    Text(estimate?.let { "${"%.1f".format(it.distanceKm)} km · about ${it.durationMinutes.toInt()} min" }
-                        ?: if (state.busy) taxiText(language, "Calculating route…", "መንገዱ በማስላት ላይ…", "Karaa shallagamaa jira…")
-                        else if (state.message != null) taxiText(language, "Could not calculate fare. Check your connection and retry.", "ዋጋውን ማስላት አልተቻለም። ግንኙነትዎን ያረጋግጡና እንደገና ይሞክሩ።", "Gatiin hin shallagamne. Walqunnamtii mirkaneessii irra deebi'i.")
-                        else taxiText(language, "Choose a destination to estimate your fare", "ዋጋውን ለማስላት መድረሻ ይምረጡ", "Gatii tilmaamuuf bakka ga'umsaa filadhu"),
-                        color = Color(0xFF627385), fontSize = 12.sp, maxLines = 2)
+                if (estimate != null || state.busy || state.message != null) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Route, null, tint = CommuteTeal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                        Text(estimate?.let { "${"%.1f".format(it.distanceKm)} km · about ${it.durationMinutes.toInt()} min" }
+                            ?: taxiFareStatusText(destination != null, state.busy, state.message, language),
+                            color = Color(0xFF627385), fontSize = 12.sp, maxLines = 2)
+                    }
                 }
                 if (state.estimate == null && !state.busy && state.message != null) {
                     TextButton(onClick = onRetryEstimate, modifier = Modifier.align(Alignment.End).heightIn(min = 38.dp)) {
@@ -987,7 +995,6 @@ private fun TaxiDestinationSearchDialog(
                             if (searching) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 7.dp), color = CommuteTeal)
                             places.take(6).forEach { place -> TaxiPlaceRow(place, Icons.Default.Search, onSelect) }
                             message?.let { Text(it, Modifier.padding(top = 9.dp), color = Color(0xFF627385), fontSize = 12.sp) }
-                            if (query.trim().length < 2 && recentDestinations.isEmpty()) Text(taxiText(language, "Type a landmark or address to see matching places.", "ተዛማጅ ቦታዎችን ለማየት ምልክት ወይም አድራሻ ያስገቡ።", "Bakka walfakkaataa argachuuf mallattoo ykn teessoo barreessaa."), Modifier.padding(top = 9.dp), color = Color(0xFF627385), fontSize = 12.sp)
                         }
                     }
                 }
@@ -1066,7 +1073,6 @@ private fun TaxiGuestTopMenu(expanded: Boolean, onExpandedChange: (Boolean) -> U
 
 @Composable internal fun PassengerCurrentRide(ride: TaxiRide, busy: Boolean, model: TaxiViewModel, mapTiles: Boolean = true, mapApi: MobilityApi? = null, nearbyCars: List<TaxiNearbyCar> = emptyList()) {
     val context = LocalContext.current
-    val freeWaiting = taxiFreeWaitingSeconds(ride, mapTiles)
     val connecting = ride.status == "REQUESTED"
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(if (connecting) 10.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(if (connecting) 8.dp else 13.dp)) {
         TaxiMap(ride.originLatitude to ride.originLongitude, ride.destinationLatitude to ride.destinationLongitude, ride.location,
@@ -1093,7 +1099,6 @@ private fun TaxiGuestTopMenu(expanded: Boolean, onExpandedChange: (Boolean) -> U
             }
             if (ride.status in setOf("ACCEPTED", "AT_PICKUP")) ride.boardingQrToken?.let { token ->
                 Surface(color = CommuteMint, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Show your boarding QR to the driver", color = CommuteInk, fontSize = 13.sp)
                     QrCodeCanvas(token, Modifier.size(176.dp).padding(top = 8.dp).testTag("taxi_boarding_qr"), moduleColor = Color.Black)
                 } }
             }
@@ -1101,18 +1106,7 @@ private fun TaxiGuestTopMenu(expanded: Boolean, onExpandedChange: (Boolean) -> U
                 Text(if (ride.status in setOf("IN_PROGRESS", "COMPLETED")) "Meter fare" else "Estimated fare", color = PassoMobilityPalette.muted)
                 Text(taxiMoney(ride.fareEtb ?: ride.estimatedFareEtb), color = PassoMobilityPalette.brand, fontSize = if (connecting) 20.sp else 24.sp, fontWeight = FontWeight.ExtraBold)
             }
-            if (ride.status == "IN_PROGRESS") Text("${"%.2f".format(ride.meterDistanceKm)} km · Billable waiting ${taxiDuration(ride.billableWaitingSeconds)}", color = PassoMobilityPalette.muted, fontSize = 13.sp)
-            if (!connecting) Text(if (ride.status == "COMPLETED") "Pay this fare directly to your driver. The app has not collected payment." else "Pay your driver directly.", color = PassoMobilityPalette.muted, fontSize = 12.sp)
-            if (taxiGpsWaiting(ride)) Surface(color = CommuteMint, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().testTag("taxi_traffic_wait")) {
-                Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("Traffic stop detected automatically", color = CommuteInk, fontWeight = FontWeight.Bold)
-                    Text(taxiStopSummary(ride, freeWaiting), color = CommuteInk, fontSize = 13.sp)
-                    ride.waitingRateEtbPerMinute?.let { Text("Each stop has ${taxiDuration(ride.waitingFreeAllowanceSeconds)} free; then ${taxiMoney(it)}/min. Only GPS-confirmed stationary time is counted.", color = CommuteInk, fontSize = 12.sp) }
-                }
-            }
-            if (ride.status == "IN_PROGRESS" && !taxiGpsWaiting(ride)) ride.waitingRateEtbPerMinute?.let { rate ->
-                Text("Traffic waiting is measured automatically from GPS. For each stop, ${taxiDuration(ride.waitingFreeAllowanceSeconds)} is free, then ${taxiMoney(rate)}/min. GPS gaps are not counted.", color = PassoMobilityPalette.muted, fontSize = 12.sp)
-            }
+            if (ride.status == "IN_PROGRESS") Text("${"%.2f".format(ride.meterDistanceKm)} km", color = PassoMobilityPalette.muted, fontSize = 13.sp)
             if (ride.status in setOf("REQUESTED", "ACCEPTED", "AT_PICKUP")) TextButton(onClick = { model.cancelRide() }, enabled = !busy, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColors(contentColor = PassoMobilityPalette.brand)) { Text("Cancel ride") }
             if (ride.status in setOf("COMPLETED", "CANCELLED")) TaxiPrimary("Done", !busy) { model.dismissRide() }
         } }
@@ -1139,7 +1133,7 @@ private fun TaxiGuestTopMenu(expanded: Boolean, onExpandedChange: (Boolean) -> U
                     Column(Modifier.padding(15.dp)) { Text("${ride.origin} → ${ride.destination}", fontWeight = FontWeight.Bold, color = CommuteInk); Text("${ride.status.replace('_', ' ')} · ${taxiMoney(ride.fareEtb ?: ride.estimatedFareEtb)}", color = CommuteTeal) }
                 }
             }
-            if (state.rides.isEmpty() && state.bookings.isEmpty() && state.myTrips.isEmpty()) Text("Your taxi and shared-seat trips will appear here.", color = Color(0xFF627385))
+            if (state.rides.isEmpty() && state.bookings.isEmpty() && state.myTrips.isEmpty()) Text("No trips yet.", color = Color(0xFF627385))
         }
         TextButton(onClick = onShared) { Text("Find a Group Ride") }
     }

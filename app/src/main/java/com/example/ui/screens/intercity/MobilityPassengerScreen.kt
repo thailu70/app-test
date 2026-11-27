@@ -114,7 +114,6 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
                                 Icon(if (kind == "GROUP") Icons.Default.Groups else Icons.Default.LocalShipping, null, tint = Color.White, modifier = Modifier.size(42.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(if (kind == "GROUP") t("Go together.", "አብረን እንጓዝ።", "Waliin haa imallu.") else t("Cargo, made simple.", "ቀላል የጭነት መጓጓዣ።", "Fe'umsa salphaa."), color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Bold)
-                                    Text(if (kind == "GROUP") t("Choose a trip or plan your own group journey.", "ጉዞ ይምረጡ ወይም የቡድን ጉዞ ይጠይቁ።", "Imala filadhu yookaan imala garee gaafadhu.") else t("Tell us what you need to move and where.", "ጭነቱን እና መንገዱን ይግለጹ።", "Fe'umsa kee fi karaa isaa nuuf ibsi."), color = Color.White, fontSize = 12.sp)
                                 }
                             }
                         }
@@ -147,7 +146,7 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
                 } }
                 MobilityPhase.HISTORY -> {
                     item { Text(t("Your tickets & requests", "ቲኬቶች እና ጥያቄዎችዎ", "Tikkeettii fi gaaffilee kee"), color = CommuteInk, fontSize = 23.sp, fontWeight = FontWeight.Bold) }
-                    if (state.bookings.isEmpty() && state.requests.isEmpty()) item { Text(t("Bookings and requests made on this device appear here.", "በዚህ ስልክ የተደረጉ ጥያቄዎች እዚህ ይታያሉ።", "Ajajnii fi gaaffileen bilbila kana irratti taasifaman as mul'atu."), color = CommuteInk) }
+                    if (state.bookings.isEmpty() && state.requests.isEmpty()) item { Text(t("No tickets or requests", "ቲኬቶች ወይም ጥያቄዎች የሉም", "Tikkeettii ykn gaaffiin hin jiru."), color = CommuteInk) }
                     items(state.bookings, key = { "booking:${it.id}" }) { booking -> MobilityCard {
                         Text("${booking.trip.origin} → ${booking.trip.destination}", fontWeight = FontWeight.Bold, color = PassoMobilityPalette.text)
                         Text("${booking.travelers.size} travelers · ${booking.paymentStatus} · ETB ${formatIntercityFare(booking.amountEtb)}", fontSize = 12.sp)
@@ -304,7 +303,7 @@ internal fun MobilityPassengerScreen(kind: String, language: AppLanguage, onBack
             }
         }
         if (!paid && booking.status !in setOf("EXPIRED", "CANCELLED")) {
-            Text("Seats remain reserved until ${formatIntercityTime(booking.expiresAt)}. Boarding passes appear only after the provider confirms payment.", fontSize = 12.sp)
+        Text("Seat hold · ${formatIntercityTime(booking.expiresAt)}", fontSize = 12.sp)
             MobilityAdult(adult, !busy, onAdult)
             MobilityButton("Pay with Telebirr", !busy && adult, "group_checkout", checkout)
         }
@@ -402,7 +401,7 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
                             send(input, photo.bytes, photo.type)
                         }
                     } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-                    catch (failure: Exception) { otpMessage = failure.message ?: "Phone verification failed. Try again." }
+                    catch (failure: Exception) { otpMessage = com.example.core.network.userFacingNetworkError(failure) }
                     finally { otpBusy = false }
                 }
             }, enabled = !otpBusy && (!otpSent || phoneCode.length >= 4), modifier = Modifier.fillMaxWidth(),
@@ -415,7 +414,6 @@ internal fun trustedMobilityPassLink(value: String): Boolean = runCatching {
     )
     MobilityCard {
         Text(if (kind == "GROUP") intercityText(language, "Plan a group journey", "የቡድን ጉዞ ይጠይቁ", "Imala garee karoorsi") else intercityText(language, "Tell us about your cargo", "ስለ ጭነትዎ ይግለጹ", "Waa'ee fe'umsa kee ibsi"), color = PassoMobilityPalette.text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Text("Nearby available drivers can send quotes. Compare their offers and choose your driver. Sending a request does not collect payment.", color = PassoMobilityPalette.muted, fontSize = 12.sp)
         if (signedIn) {
             Surface(color = CommuteMint, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp)) {

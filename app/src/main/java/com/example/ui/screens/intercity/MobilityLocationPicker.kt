@@ -4,6 +4,7 @@ import android.Manifest
 import android.graphics.Canvas
 import android.os.SystemClock
 import android.view.MotionEvent
+import android.view.WindowManager
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -30,6 +31,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -85,7 +88,7 @@ internal fun MobilityLocationPicker(
     title: String, initial: Pair<Double, Double>?, onDismiss: () -> Unit, onChoose: (Pair<Double, Double>) -> Unit,
     onPlaceName: (String) -> Unit = {}, language: AppLanguage = AppLanguage.ENGLISH, initialLabel: String = "",
     providedApi: MobilityApi? = null, tileDownloadsEnabled: Boolean = true,
-    contentInsets: WindowInsets = WindowInsets.safeDrawing
+    contentInsets: WindowInsets = WindowInsets.safeDrawing, simpleUi: Boolean = true
 ) {
     val context = LocalContext.current
     var clearSearchFocus by remember { mutableStateOf<() -> Unit>({}) }
@@ -94,7 +97,9 @@ internal fun MobilityLocationPicker(
     var activeLanguage by remember(language) { mutableStateOf(language) }
     fun t(en: String, am: String, om: String) = intercityText(activeLanguage, en, am, om)
     val destination = remember(title) { title.contains("destination", true) || title.contains("መድረሻ") || title.contains("Ga'umsa", true) }
-    val chooseTitle = if (destination) t("Choose destination location", "መድረሻ ቦታ ይምረጡ", "Bakka ga'umsaa filadhu")
+    val chooseTitle = if (simpleUi) {
+        if (destination) t("Where to?", "ወዴት?", "Eessa?") else t("Pickup location", "የመነሻ ቦታ", "Bakka ka'umsaa")
+    } else if (destination) t("Choose destination location", "መድረሻ ቦታ ይምረጡ", "Bakka ga'umsaa filadhu")
         else t("Choose pickup location", "መነሻ ቦታ ይምረጡ", "Bakka ka'umsaa filadhu")
     val fallbackName = if (destination) t("Selected destination location", "የተመረጠ መድረሻ ቦታ", "Bakka ga'umsaa filatame") else t("Selected pickup location", "የተመረጠ መነሻ ቦታ", "Bakka ka'umsaa filatame")
     var query by remember { mutableStateOf("") }
@@ -123,9 +128,10 @@ internal fun MobilityLocationPicker(
             controller.setCenter(initial?.let { GeoPoint(it.first, it.second) } ?: GeoPoint(9.03, 38.75))
         }
     }
-    fun choosePoint(point: Pair<Double, Double>, name: String) {
+    fun choosePoint(point: Pair<Double, Double>, name: String, keepKeyboardOpen: Boolean = false) {
         selected = point; selectedName = name; dismissedQuery = query; mapGestureActive = false
-        suggestions = emptyList(); searchMessage = null; clearSearchFocus()
+        suggestions = emptyList(); searchMessage = null
+        if (!keepKeyboardOpen) clearSearchFocus()
         ignoreMapEventsUntil = SystemClock.uptimeMillis() + 350
         map.controller.setCenter(GeoPoint(point.first, point.second)); map.invalidate()
     }
@@ -136,7 +142,7 @@ internal fun MobilityLocationPicker(
             choosePoint(fix.latitude to fix.longitude, t("Current location", "አሁን ያሉበት ቦታ", "Bakka amma jirtu"))
             map.controller.setZoom(16.0)
         } catch (e: CancellationException) { throw e }
-        catch (e: Exception) { searchMessage = e.message ?: t("Location unavailable. Search for a place or tap the map.", "ቦታውን ይፈልጉ ወይም ካርታውን ይንኩ።", "Bakka barbaadi yookaan kaartaa tuqi.") }
+        catch (e: Exception) { searchMessage = com.example.core.network.userFacingNetworkError(e) }
         finally { locating = false }
     } }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -218,9 +224,17 @@ internal fun MobilityLocationPicker(
         val dialogFocus = LocalFocusManager.current
         val landscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         val density = LocalDensity.current
+        val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
+        DisposableEffect(dialogWindow, simpleUi) {
+            val previousSoftInputMode = dialogWindow?.attributes?.softInputMode
+            if (simpleUi) dialogWindow?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            onDispose {
+                if (simpleUi && previousSoftInputMode != null) dialogWindow?.setSoftInputMode(previousSoftInputMode)
+            }
+        }
         DisposableEffect(dialogFocus) { clearSearchFocus = { dialogFocus.clearFocus() }; onDispose { clearSearchFocus = {} } }
         Surface(color = CommuteCream, modifier = Modifier.fillMaxSize().testTag("mobility_location_picker")) {
-            BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(contentInsets)) {
+            BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(contentInsets).then(if (simpleUi) Modifier.imePadding().padding(bottom = 12.dp) else Modifier)) {
                 Column(Modifier.fillMaxSize()) {
                     Row(Modifier.fillMaxWidth().padding(start = 3.dp, end = 14.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = onDismiss, modifier = Modifier.testTag("mobility_location_back")) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("Back", "ተመለስ", "Deebi'i"), tint = CommuteInk) }
@@ -233,11 +247,24 @@ internal fun MobilityLocationPicker(
                     Row(Modifier.weight(1f).fillMaxWidth()) {
                         if (landscape) {
                             Column(Modifier.weight(0.85f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                LocationSearch(query, { query = it.take(120); dismissedQuery = null }, searching, locating, ::locate, suggestions, searchMessage, { choosePoint(it.latitude to it.longitude, it.name) }, ::t,
-                                    onFocus = { searchFocused = it; if (it) mapGestureActive = false }, resultsCurrent = resultsForQuery == query.trim() && query != dismissedQuery)
-                                LocationConfirmation(selected != null, selectedName, destination, { selected?.let { onPlaceName(selectedName.ifBlank { fallbackName }); onChoose(it) } }, ::t)
+                                LocationSearch(query, { query = it.take(120); dismissedQuery = null }, searching, locating, ::locate, suggestions, searchMessage, { choosePoint(it.latitude to it.longitude, it.name, keepKeyboardOpen = simpleUi) }, ::t,
+                                    onFocus = { searchFocused = it; if (it) mapGestureActive = false }, resultsCurrent = resultsForQuery == query.trim() && query != dismissedQuery, showCurrentLocation = !simpleUi || !searchFocused)
+                                LocationConfirmation(selected != null, selectedName, destination, { selected?.let { onPlaceName(selectedName.ifBlank { fallbackName }); onChoose(it) } }, ::t, simpleUi)
                             }
                             LocationMap(map, selected != null, locating, ::locate, Modifier.weight(1.15f).fillMaxHeight())
+                        } else if (simpleUi) {
+                            Column(Modifier.weight(1f).fillMaxHeight()) {
+                                Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
+                                    LocationSearch(query, { query = it.take(120); dismissedQuery = null }, searching, locating, ::locate, suggestions, searchMessage,
+                                        { choosePoint(it.latitude to it.longitude, it.name, keepKeyboardOpen = true) }, ::t,
+                                        onFocus = { searchFocused = it; if (it) mapGestureActive = false },
+                                        resultsCurrent = resultsForQuery == query.trim() && query != dismissedQuery,
+                                        showCurrentLocation = !searchFocused)
+                                }
+                                LocationMap(map, selected != null, locating, ::locate, Modifier.weight(1f).fillMaxWidth().heightIn(min = 72.dp))
+                                LocationConfirmation(selected != null, selectedName, destination,
+                                    { selected?.let { onPlaceName(selectedName.ifBlank { fallbackName }); onChoose(it) } }, ::t, simpleUi = true)
+                            }
                         } else {
                             // Keep the text field in one composition slot while the IME changes height.
                             // Moving it between the old tall/short layouts destroyed focus and hid the IME,
@@ -253,7 +280,7 @@ internal fun MobilityLocationPicker(
                                     }
                                     LocationMap(map, selected != null, locating, ::locate, Modifier.fillMaxWidth().height(mapHeight))
                                     Box(Modifier.fillMaxWidth().onSizeChanged { confirmationHeight = with(density) { it.height.toDp() } }) {
-                                        LocationConfirmation(selected != null, selectedName, destination, { selected?.let { onPlaceName(selectedName.ifBlank { fallbackName }); onChoose(it) } }, ::t)
+                                        LocationConfirmation(selected != null, selectedName, destination, { selected?.let { onPlaceName(selectedName.ifBlank { fallbackName }); onChoose(it) } }, ::t, simpleUi = false)
                                     }
                                 }
                             }
@@ -268,7 +295,7 @@ internal fun MobilityLocationPicker(
 @Composable
 private fun LocationSearch(query: String, onQuery: (String) -> Unit, searching: Boolean, locating: Boolean, onLocate: () -> Unit,
     suggestions: List<MobilityPlace>, message: String?, onSelect: (MobilityPlace) -> Unit, t: (String, String, String) -> String,
-    onFocus: (Boolean) -> Unit = {}, resultsCurrent: Boolean = true) {
+    onFocus: (Boolean) -> Unit = {}, resultsCurrent: Boolean = true, showCurrentLocation: Boolean = true) {
     OutlinedTextField(query, onQuery, singleLine = true, modifier = Modifier.fillMaxWidth().onFocusChanged { onFocus(it.isFocused) }.testTag("mobility_location_search"), shape = RoundedCornerShape(14.dp),
         placeholder = { Text(t("Search city, area or landmark", "ከተማ፣ አካባቢ ወይም ምልክት ይፈልጉ", "Magaalaa, naannoo yookaan mallattoo"), fontSize = 14.sp) },
         leadingIcon = { Icon(Icons.Default.Search, null, tint = Color(0xFF4D6577)) },
@@ -280,10 +307,12 @@ private fun LocationSearch(query: String, onQuery: (String) -> Unit, searching: 
             Text(place.name, color = CommuteInk, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
         } }
     }
-    TextButton(onClick = onLocate, enabled = !locating, contentPadding = PaddingValues(horizontal = 0.dp, vertical = 8.dp), modifier = Modifier.fillMaxWidth().testTag("mobility_location_current")) {
-        Surface(shape = CircleShape, color = CommuteMint, modifier = Modifier.size(34.dp)) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.MyLocation, null, tint = CommuteTeal, modifier = Modifier.size(23.dp)) } }
-        Spacer(Modifier.width(10.dp))
-        Text(if (locating) t("Finding your location…", "ቦታዎን በማግኘት ላይ…", "Bakka kee barbaadaa…") else t("Use my current location", "አሁን ያለሁበትን ቦታ ተጠቀም", "Bakka amma jiru fayyadami"), color = CommuteTeal, modifier = Modifier.weight(1f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+    if (showCurrentLocation) {
+        TextButton(onClick = onLocate, enabled = !locating, contentPadding = PaddingValues(horizontal = 0.dp, vertical = 8.dp), modifier = Modifier.fillMaxWidth().testTag("mobility_location_current")) {
+            Surface(shape = CircleShape, color = CommuteMint, modifier = Modifier.size(34.dp)) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.MyLocation, null, tint = CommuteTeal, modifier = Modifier.size(23.dp)) } }
+            Spacer(Modifier.width(10.dp))
+            Text(if (locating) t("Finding your location…", "ቦታዎን በማግኘት ላይ…", "Bakka kee barbaadaa…") else t("Use my current location", "አሁን ያለሁበትን ቦታ ተጠቀም", "Bakka amma jiru fayyadami"), color = CommuteTeal, modifier = Modifier.weight(1f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
     }
     message?.let { Text(it, color = Color(0xFF596D7B), fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(bottom = 8.dp).testTag("mobility_location_message")) }
 }
@@ -302,15 +331,30 @@ private fun LocationMap(map: MapView, selected: Boolean, locating: Boolean, onLo
 }
 
 @Composable
-private fun LocationConfirmation(selected: Boolean, selectedName: String, destination: Boolean, onConfirm: () -> Unit, t: (String, String, String) -> String) {
+private fun LocationConfirmation(selected: Boolean, selectedName: String, destination: Boolean, onConfirm: () -> Unit,
+    t: (String, String, String) -> String, simpleUi: Boolean) {
     Surface(color = PassoMobilityPalette.card, contentColor = PassoMobilityPalette.text, shape = RoundedCornerShape(topStart = 23.dp, topEnd = 23.dp), modifier = Modifier.fillMaxWidth().testTag("mobility_location_confirmation")) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 21.dp, vertical = 15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(if (destination) t("Selected destination", "የተመረጠ መድረሻ", "Ga'umsa filatame") else t("Selected pickup", "የተመረጠ መነሻ", "Ka'umsa filatame"), color = PassoMobilityPalette.muted, fontSize = 12.sp)
-            Text(selectedName.ifBlank { if (selected) t("Selected map point", "በካርታ የተመረጠ ቦታ", "Bakka kaartaa filatame") else t("Choose a place on the map", "በካርታው ላይ ቦታ ይምረጡ", "Kaartaa irratti bakka filadhu") }, color = PassoMobilityPalette.text,
-                fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("mobility_location_selected_name"))
-            Text(t("Check the pickup or delivery entrance.", "የመነሻ ወይም የማድረሻ መግቢያውን ያረጋግጡ።", "Balbala ka'umsaa yookaan geejjibaa mirkaneessi."), color = PassoMobilityPalette.muted, fontSize = 12.sp, lineHeight = 16.sp)
-            Button(onClick = onConfirm, enabled = selected, modifier = Modifier.fillMaxWidth().padding(top = 10.dp).heightIn(min = 52.dp).testTag("mobility_location_confirm"), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = CommuteTeal)) {
-                Text(if (destination) t("Use this destination", "ይህን መድረሻ ተጠቀም", "Ga'umsa kana fayyadami") else t("Use this pickup", "ይህን መነሻ ተጠቀም", "Ka'umsa kana fayyadami"), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        if (simpleUi) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Icon(Icons.Default.LocationOn, null, tint = CommuteTeal, modifier = Modifier.size(22.dp))
+                    Text(selectedName.ifBlank { t("Select a place", "ቦታ ይምረጡ", "Bakka filadhu") }, color = PassoMobilityPalette.text,
+                        fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("mobility_location_selected_name"))
+                }
+                Button(onClick = onConfirm, enabled = selected, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("mobility_location_confirm"), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = CommuteTeal)) {
+                    Text(t("Proceed", "ቀጥል", "Itti fufi"), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        } else {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 21.dp, vertical = 15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(if (destination) t("Selected destination", "የተመረጠ መድረሻ", "Ga'umsa filatame") else t("Selected pickup", "የተመረጠ መነሻ", "Ka'umsa filatame"), color = PassoMobilityPalette.muted, fontSize = 12.sp)
+                Text(selectedName.ifBlank { if (selected) t("Selected map point", "በካርታ የተመረጠ ቦታ", "Bakka kaartaa filatame") else t("Choose a place on the map", "በካርታው ላይ ቦታ ይምረጡ", "Kaartaa irratti bakka filadhu") }, color = PassoMobilityPalette.text,
+                    fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("mobility_location_selected_name"))
+                Text(t("Check the pickup or delivery entrance.", "የመነሻ ወይም የማድረሻ መግቢያውን ያረጋግጡ።", "Balbala ka'umsaa yookaan geejjibaa mirkaneessi."), color = PassoMobilityPalette.muted, fontSize = 12.sp, lineHeight = 16.sp)
+                Button(onClick = onConfirm, enabled = selected, modifier = Modifier.fillMaxWidth().padding(top = 10.dp).heightIn(min = 52.dp).testTag("mobility_location_confirm"), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = CommuteTeal)) {
+                    Text(if (destination) t("Use this destination", "ይህን መድረሻ ተጠቀም", "Ga'umsa kana fayyadami") else t("Use this pickup", "ይህን መነሻ ተጠቀም", "Ka'umsa kana fayyadami"), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }

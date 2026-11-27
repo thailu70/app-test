@@ -84,6 +84,7 @@ class DriverAssignmentsLoadingTest {
     """.trimIndent()
 
     @Before fun isolatedDriverInstallation() {
+        com.example.core.location.DriverLocationSharing.stop()
         ApiClient.setAuthToken(null)
         response = assignmentJson()
         compose.activity.runOnUiThread {
@@ -163,9 +164,35 @@ class DriverAssignmentsLoadingTest {
                 else -> error("No photo or document requests belong in this fixture")
             }
         } as ProfileApi
+        val mapApi = Proxy.newProxyInstance(MobilityApi::class.java.classLoader,
+            arrayOf(MobilityApi::class.java)) { proxy, method, args ->
+            when (method.name) {
+                "equals" -> proxy === args?.firstOrNull()
+                "hashCode" -> System.identityHashCode(proxy)
+                "toString" -> "IsolatedDriverMap"
+                "road" -> Response.success(MobilityRoadResponse(
+                    success = true,
+                    distanceKm = 2.0,
+                    durationMinutes = 8.0,
+                    geometry = MobilityRoadGeometry("LineString", listOf(listOf(38.74, 9.03), listOf(38.75, 9.04))),
+                    geometryQuality = "DETAILED"
+                ))
+                else -> unavailable<Any>()
+            }
+        } as MobilityApi
         compose.setContent {
             CompositionLocalProvider(LocalActivityResultRegistryOwner provides (registryOwner ?: compose.activity)) {
-                MyApplicationTheme { DriverTripScreen(model, operationsApi = operations, providedProfileApi = profile) }
+            MyApplicationTheme {
+                DriverTripScreen(
+                    model,
+                    operationsApi = operations,
+                    providedProfileApi = profile,
+                    providedMobilityApi = mapApi,
+                    mapTileDownloadsEnabled = false,
+                    assignmentRefreshIntervalMs = null,
+                    clockTickIntervalMs = null
+                )
+            }
             }
         }
     }
@@ -207,6 +234,7 @@ class DriverAssignmentsLoadingTest {
             compose.activity.viewModelStore.clear()
         }
         database.close()
+        com.example.core.location.DriverLocationSharing.stop()
         ApiClient.setAuthToken(null)
     }
 

@@ -60,6 +60,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.time.EthiopianDateTime
+import com.example.core.network.userFacingNetworkError
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.core.localization.AppLanguage
@@ -76,6 +77,7 @@ import com.example.ui.viewmodel.NetworkStatus
 
 private fun <T> driverBody(response: retrofit2.Response<T>): T {
     if (!response.isSuccessful) {
+        if (response.code() >= 500) throw java.io.IOException("service unavailable")
         val error = response.errorBody()?.string().orEmpty()
         val message = runCatching { org.json.JSONObject(error).optString("error") }.getOrNull()
         throw IllegalStateException(message?.takeIf { it.isNotBlank() } ?: "The request failed. Refresh and try again.")
@@ -83,14 +85,20 @@ private fun <T> driverBody(response: retrofit2.Response<T>): T {
     return response.body() ?: throw IllegalStateException("The server returned an empty response.")
 }
 
+internal fun driverUserError(error: Throwable?): String = userFacingNetworkError(error)
+
 @Composable
 fun DriverTripScreen(
     viewModel: MainViewModel,
     modifier: Modifier = Modifier,
     operationsApi: com.example.data.api.DriverOperationsApi? = null,
     providedProfileApi: com.example.data.api.ProfileApi? = null,
+    providedMobilityApi: com.example.data.api.MobilityApi? = null,
+    mapTileDownloadsEnabled: Boolean = true,
     onPrivacy: (() -> Unit)? = null,
-    onSignOut: (() -> Unit)? = null
+    onSignOut: (() -> Unit)? = null,
+    assignmentRefreshIntervalMs: Long? = 20_000L,
+    clockTickIntervalMs: Long? = 30_000L
 ) {
     val locationContext = LocalContext.current
     var locationPermissionGranted by remember { mutableStateOf(
@@ -159,8 +167,10 @@ fun DriverTripScreen(
             finally { profileLoading = false }
         }
     }
-    LaunchedEffect(Unit) {
-        while (true) { clockNow = System.currentTimeMillis(); kotlinx.coroutines.delay(30_000) }
+    LaunchedEffect(clockTickIntervalMs) {
+        clockNow = System.currentTimeMillis()
+        val interval = clockTickIntervalMs ?: return@LaunchedEffect
+        while (true) { kotlinx.coroutines.delay(interval); clockNow = System.currentTimeMillis() }
     }
     BackHandler(enabled = documentsOpen || section != "Home") {
         if (documentsOpen) documentsOpen = false else section = "Home"
@@ -191,7 +201,7 @@ fun DriverTripScreen(
             selectAssignedJourney()
             true
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-        catch (error: Exception) { notice = error.message ?: "Could not refresh driver assignments."; false }
+        catch (error: Exception) { notice = driverUserError(error); false }
         val commuteUpdate = async {
             update {
                 val result = driverBody(api.assignments())
@@ -217,7 +227,7 @@ fun DriverTripScreen(
         scope.launch {
             try { action() }
             catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-            catch (error: Exception) { notice = error.message ?: "Could not connect. Try again." }
+            catch (error: Exception) { notice = driverUserError(error) }
             finally { busy = false }
         }
     }
@@ -250,12 +260,13 @@ fun DriverTripScreen(
         refreshAssignments()
     }
     fun openScanner() { scanResult = null; boardingNotice = null; scanOpen = true }
-    LaunchedEffect(currentUser?.id, api) {
+    LaunchedEffect(currentUser?.id, api, assignmentRefreshIntervalMs) {
         while (true) {
             try { refreshAssignments() }
             catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-            catch (error: Exception) { notice = error.message ?: "Could not load driver assignments." }
-            kotlinx.coroutines.delay(20000)
+            catch (error: Exception) { notice = driverUserError(error) }
+            val interval = assignmentRefreshIntervalMs ?: break
+            kotlinx.coroutines.delay(interval)
         }
     }
     LaunchedEffect(currentUser?.id, api, selectedKey, rosterRouteId, rosterVersion) {
@@ -277,7 +288,7 @@ fun DriverTripScreen(
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             roster = refreshedRoster
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-        catch (error: Exception) { notice = error.message ?: "Could not load passenger roster." }
+        catch (error: Exception) { notice = driverUserError(error) }
     }
     if (documentsOpen) {
         com.example.ui.screens.profile.ProfileCompletionScreen(role = "DRIVER", onBack = { documentsOpen = false }, onPrivacy = onPrivacy)
@@ -306,20 +317,19 @@ fun DriverTripScreen(
             } }
             if (section == "More") {
                 item { com.example.core.notifications.MobilityAlertToneSettings(driver = true, language = language) }
-                item { com.example.ui.components.EnvironmentSettingsButton() }
-                item { DriverMenuRow(driverText(language, "My assignments", "የእኔ ምደባዎች", "Ramaddii koo"), driverText(language, "Daily commute and intercity journeys", "የዕለት እና የከተማ መካከል ጉዞዎች", "Imala guyyaa fi magaalaa gidduu"), Icons.Default.Route) { section = "My Trips" } }
+                item { DriverMenuRow(driverText(language, "My assignments", "የእኔ ምደባዎች", "Ramaddii koo"), Icons.Default.Route) { section = "My Trips" } }
                 item { DriverDocumentsOverview(completionProfile, profileLoading, profileError, language) { documentsOpen = true } }
-                item { DriverMenuRow(driverText(language, "Emergency contact", "የአደጋ ጊዜ ተጠሪ", "Nama yeroo balaa"), driverText(language, "Name, phone and profile details", "ስም፣ ስልክ እና የግል መረጃ", "Maqaa, bilbilaa fi odeeffannoo dhuunfaa"), Icons.Default.ContactPhone) { documentsOpen = true } }
-                item { DriverMenuRow(driverText(language, "Refresh assignments", "ምደባዎችን አድስ", "Ramaddii haaromsi"), driverText(language, "Update your route, vehicle and roster", "መስመር፣ ተሽከርካሪ እና ዝርዝር አድስ", "Karaa, konkolaataa fi tarree haaromsi"), Icons.Default.Refresh) { runAction { if (refreshAssignments()) notice = "Assignments and roster refreshed." } } }
-                onSignOut?.let { signOut -> item { DriverMenuRow(driverText(language, "Sign out", "ውጣ", "Ba'i"), driverText(language, "Sign out of this driver account", "ከዚህ የአሽከርካሪ መለያ ይውጡ", "Herrega oofaa kana keessaa ba'i"), Icons.Default.Logout, signOut) } }
+                item { DriverMenuRow(driverText(language, "Emergency contact", "የአደጋ ጊዜ ተጠሪ", "Nama yeroo balaa"), Icons.Default.ContactPhone) { documentsOpen = true } }
+                item { DriverMenuRow(driverText(language, "Refresh assignments", "ምደባዎችን አድስ", "Ramaddii haaromsi"), Icons.Default.Refresh) { runAction { if (refreshAssignments()) notice = "Assignments and roster refreshed." } } }
+                onSignOut?.let { signOut -> item { DriverMenuRow(driverText(language, "Sign out", "ውጣ", "Ba'i"), Icons.Default.Logout, signOut) } }
             } else {
                 if (section == "Home" && selectedKey.isNotBlank()) item {
                     DriverBoardingBanner(boardingEnabled, journey?.status == "COMPLETED", driverHasPreciseFix(freshFix, clockNow), busy,
                         validation, scheduled, clockNow, language, onConfirm = { confirmArrival() }, onScan = { openScanner() })
                 }
                 if (vehicles.size + journeys.size > 1 || section == "My Trips" || selectedKey.isBlank()) item {
-                    DriverSectionCard(driverText(language, "Your assignments", "የእርስዎ ምደባዎች", "Ramaddii kee"), driverText(language, "Choose the journey you are driving", "የሚነዱትን ጉዞ ይምረጡ", "Imala oofuu filadhu"), Icons.Default.Route) {
-                        if (vehicles.isEmpty() && journeys.isEmpty()) Text(driverText(language, "Your route and vehicle will appear after your operator assigns them.", "ኦፕሬተሩ ሲመድብ መስመሩ እና ተሽከርካሪው ይታያሉ።", "Karaa fi konkolaataan erga ramadamee booda mul'ata."), color = Slate600)
+                    DriverSectionCard(driverText(language, "Your assignments", "የእርስዎ ምደባዎች", "Ramaddii kee"), Icons.Default.Route) {
+                        if (vehicles.isEmpty() && journeys.isEmpty()) Text(driverText(language, "No active assignments", "ንቁ ምደባ የለም", "Ramaddiin hojii irra jiru hin jiru"), color = Slate600)
                         Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             vehicles.forEach { assignment ->
                                 FilterChip(selected = selectedKey == "commute:${assignment.id}", onClick = { selectedKey = "commute:${assignment.id}" }, label = { Text("${assignment.routeName} · ${assignment.plateNumber}") })
@@ -350,7 +360,8 @@ fun DriverTripScreen(
                         boarding = boardingEnabled, onComplete = { completeRoute() }, busy = busy,
                         routeId = vehicle?.assignedRouteId,
                         departurePoint = vehicle?.departureLatitude?.let { lat -> vehicle.departureLongitude?.let { lat to it } },
-                        destinationPoint = vehicle?.destinationLatitude?.let { lat -> vehicle.destinationLongitude?.let { lat to it } })
+                        destinationPoint = vehicle?.destinationLatitude?.let { lat -> vehicle.destinationLongitude?.let { lat to it } },
+                        providedMapApi = providedMobilityApi, mapTileDownloadsEnabled = mapTileDownloadsEnabled)
                     if (section == "My Trips") DriverBoardingBanner(boardingEnabled, journey?.status == "COMPLETED", driverHasPreciseFix(freshFix, clockNow), busy,
                         validation, scheduled, clockNow, language, onConfirm = { confirmArrival() }, onScan = { openScanner() })
                 }
@@ -571,7 +582,6 @@ private fun DriverLocationReporter(
 @Composable
 private fun DriverSectionCard(
     title: String,
-    subtitle: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -583,7 +593,6 @@ private fun DriverSectionCard(
                 }
                 Column(Modifier.weight(1f)) {
                     Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Slate900)
-                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Slate600)
                 }
             }
             content()
@@ -594,7 +603,6 @@ private fun DriverSectionCard(
 @Composable
 private fun DriverMenuRow(
     title: String,
-    subtitle: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit
 ) {
@@ -608,7 +616,6 @@ private fun DriverMenuRow(
             Icon(icon, contentDescription = null, tint = TransportGreenPrimary, modifier = Modifier.size(26.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(title, fontWeight = FontWeight.SemiBold, color = Slate900)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Slate600)
             }
             Icon(Icons.Default.ChevronRight, contentDescription = "Open", tint = Slate600)
         }

@@ -203,7 +203,7 @@ internal fun IntercityPassengerScreen(
                             else Surface(color = CommuteMint, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
                                 Row(Modifier.padding(18.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Icon(Icons.Default.ConfirmationNumber, null, tint = CommuteTeal)
-                                    Text(intercityText(language, "Your bookings on this phone will appear here.", "በዚህ ስልክ የተያዙ ቲኬቶች እዚህ ይታያሉ።", "Ajajni bilbila kana irratti taasifame asitti mul'ata."), fontSize = 12.sp, color = CommuteInk)
+                                    Text(intercityText(language, "No bookings yet", "ገና ቲኬት የለም", "Ammaaf ajajni hin jiru."), fontSize = 12.sp, color = CommuteInk)
                                 }
                             }
                         }

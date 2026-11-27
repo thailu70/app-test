@@ -516,6 +516,31 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       assert.ok(done.fareEtb > 30, "fare is settled from the meter distance at the actual stop");
     },
   );
+  await t.test(
+    "completed street pickup SMS includes the route, final Birr fare and English thank-you",
+    async () => {
+      const street = (await service.street(drivers[0], {
+        ...route,
+        ...position(),
+        vehicleId: drivers[0].id + "vehicle",
+        passengerPhone: "+251900000001",
+        idempotencyKey: "street-completion-sms",
+        passengerConsent: true,
+      })).ride;
+      const stop = position(9.01, 38.76);
+      const sequence = (await service.get(drivers[0], street.id)).ride.lastSequence + 1;
+      await service.samples(drivers[0], street.id, { points: [{ ...stop, sequence }] });
+      const done = (await service.complete(drivers[0], street.id, stop)).ride;
+      await service.flushSms();
+      const completionSms = smsDeliveries.find((item) => item.eventKey.startsWith("ride-complete:" + street.id + ":"));
+      assert.ok(completionSms, "completion queues an SMS to the entered passenger number");
+      assert.equal(completionSms.phone, "+251900000001");
+      assert.match(completionSms.message, /Your trip is complete from Fixture Pickup to Fixture Destination\./);
+      assert.match(completionSms.message, new RegExp(`Total amount: ${done.fareEtb.toFixed(2)} Birr\\.`));
+      assert.match(completionSms.message, /Thank you for using Passo Mobility\./);
+      assert.doesNotMatch(completionSms.message, /ምስጋና|አማርኛ/u);
+    },
+  );
   let shared, booking;
   await t.test(
     "shared requests need driver offer and explicit passenger fare acceptance",
@@ -767,6 +792,43 @@ test("ride lifecycle, metering, shared seats, privacy and credit are transaction
       await service.resolve(admin, r.id, {
         action: "CANCEL",
         note: "Fixture one-minute GPS stop checked",
+      });
+      await service.updateSettings(admin.id, {
+        gpsUploadSeconds: 10,
+        stopGraceMinutes: 1,
+        waitingPerMinuteEtb: 2,
+      });
+    },
+  );
+  await t.test(
+    "stationary traffic GPS drift does not reset waiting into repeated free periods",
+    async () => {
+      await service.updateSettings(admin.id, {
+        gpsUploadSeconds: 60,
+        stopGraceMinutes: 1,
+        waitingPerMinuteEtb: 2,
+      });
+      const r = await appTrip("stationary-gps-drift-stop");
+      // Simulate urban GPS jitter while the vehicle stays in one place: each
+      // minute-to-minute fix moves about 10–11 m, then oscillates around the
+      // same stop. This used to miss every stationary pair at 8 m accuracy.
+      const offsets = [0.00012, 0.00022, 0.00013, 0.00022, 0.00013, 0.00022, 0.00013];
+      for (let index = 0; index < offsets.length; index++) {
+        clock += 60000;
+        const fix = position(9 + offsets[index], 38.75);
+        fix.accuracyMeters = 8;
+        await service.samples(drivers[0], r.id, {
+          points: [{ ...fix, sequence: index + 1 }],
+        });
+      }
+      const view = (await service.get(passenger, r.id)).ride;
+      assert.equal(view.waiting, "TRAFFIC");
+      assert.equal(view.waitingState, "BILLABLE_WAITING");
+      assert.equal(view.billableWaitingSeconds, 4 * 60);
+      assert.equal(view.waitingFareEtb, 8);
+      await service.resolve(admin, r.id, {
+        action: "CANCEL",
+        note: "Fixture GPS-jitter traffic wait checked",
       });
       await service.updateSettings(admin.id, {
         gpsUploadSeconds: 10,

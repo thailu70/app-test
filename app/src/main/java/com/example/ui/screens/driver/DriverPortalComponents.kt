@@ -133,7 +133,7 @@ fun DriverBoardingBanner(boarding: Boolean, completed: Boolean, preciseGps: Bool
         completed -> driverText(language, "Boarding is closed", "ማሳፈር ተዘግቷል", "Yaabbachuun cufame")
         boarding -> driverText(language, "Boarding open · Scan a QR pass", "ማሳፈር ተከፍቷል · QR ስካን ያድርጉ", "Yaabbachuun banaa · QR dubbisi")
         busy -> driverText(language, "Checking your request…", "ጥያቄዎ እየተፈተሸ ነው…", "Gaaffii kee sakatta'aa jira…")
-        !preciseGps -> driverText(language, "Waiting for a fresh, precise GPS fix", "ትክክለኛ የGPS ቦታ ይጠበቃል", "Bakka GPS sirrii eeggachaa")
+        !preciseGps -> "LOADING…"
         validation?.allowed == true -> driverText(language, "Departure verified · Confirm to open", "መነሻ ተረጋግጧል · ለመክፈት ያረጋግጡ", "Ka'umsi mirkanaa'e · Mirkaneessi")
         validation != null -> validation.message
         else -> driverWindowInfo(schedule, now).message
@@ -160,7 +160,9 @@ fun DriverRouteOverview(routeName: String, vehiclePlate: String, vehicleType: St
                         validation: DriverDepartureValidation?, now: Long, language: AppLanguage,
                         onDirection: (String) -> Unit, onReadiness: (() -> Unit)?, boarding: Boolean,
                         onComplete: () -> Unit, busy: Boolean, routeId: String? = null,
-                        departurePoint: Pair<Double, Double>? = null, destinationPoint: Pair<Double, Double>? = null) {
+                        departurePoint: Pair<Double, Double>? = null, destinationPoint: Pair<Double, Double>? = null,
+                        providedMapApi: com.example.data.api.MobilityApi? = null,
+                        mapTileDownloadsEnabled: Boolean = true) {
     val assignedRouteId = routeId ?: stops.map { it.routeId }.distinct().singleOrNull()
     val scopedStops = stops.filter { it.routeId == assignedRouteId }
     val locations = assignedRouteLocations(assignedRouteId, routeName, scopedStops, language,
@@ -193,8 +195,8 @@ fun DriverRouteOverview(routeName: String, vehiclePlate: String, vehicleType: St
             DriverRouteMap(fix, Modifier.fillMaxWidth(), language,
                 pickup = if (direction == "INBOUND") last else first,
                 destination = if (direction == "INBOUND") first else last,
-                pickupLabel = locations.departure ?: "Departure", destinationLabel = locations.destination ?: "Destination", inProgress = boarding)
-            Text(gpsStatus, fontSize = 10.sp, lineHeight = 14.sp, color = PassoMobilityPalette.muted)
+                pickupLabel = locations.departure ?: "Departure", destinationLabel = locations.destination ?: "Destination", inProgress = boarding,
+                providedApi = providedMapApi, tileDownloadsEnabled = mapTileDownloadsEnabled)
             validation?.let { Text(it.message, color = if (it.allowed) CommuteTeal else Color(0xFF9A302F), fontSize = 12.sp) }
             if (boarding) OutlinedButton(onClick = onComplete, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("driver_complete_route"), shape = CircleShape) {
                 Icon(Icons.Default.Flag, null, Modifier.size(17.dp)); Spacer(Modifier.width(7.dp))
@@ -235,7 +237,6 @@ fun DriverDocumentsOverview(profile: CompletionProfile?, loading: Boolean, loadE
                     Text(driverText(language, when { loading -> "Loading"; profile == null -> "Review"; uploaded -> "Uploaded"; else -> "Upload" }, when { uploaded -> "ተጭኗል"; else -> "ጫን" }, when { uploaded -> "Ol fe'ame"; else -> "Ol fe'i" }), fontSize = 10.sp, color = CommuteTeal)
                 }
             }
-            if (loadError) Text(driverText(language, "Open documents to refresh your upload status.", "የሰነድ መረጃ ለማደስ ክፈት።", "Odeeffannoo haaromsuuf bani."), fontSize = 11.sp, color = PassoMobilityPalette.muted)
             Text(driverText(language, "Photo and emergency contact →", "ፎቶ እና የአደጋ ጊዜ ተጠሪ →", "Suuraa fi nama balaa yeroo →"), fontSize = 11.sp, color = CommuteTeal)
         }
     }

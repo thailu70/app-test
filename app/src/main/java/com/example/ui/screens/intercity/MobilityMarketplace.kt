@@ -106,14 +106,14 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
             tab = if (target.eventType == "NEW_REQUEST") "Requests" else "Current"
             try { reload(); onChanged() }
             catch (e: CancellationException) { throw e }
-            catch (e: Exception) { message = e.message ?: "Could not refresh this update." }
+            catch (e: Exception) { message = com.example.core.network.userFacingNetworkError(e) }
         }
         MobilityNotificationNavigation.consumeDriverFocus()
     }
     LaunchedEffect(dashboard.serviceType) {
         while (true) {
             if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-                try { reload(); onChanged() } catch (e: CancellationException) { throw e } catch (e: Exception) { message = e.message }
+                try { reload(); onChanged() } catch (e: CancellationException) { throw e } catch (e: Exception) { message = com.example.core.network.userFacingNetworkError(e) }
             }
             delay(30000)
         }
@@ -127,14 +127,14 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
                 ownLocation = position
                 val response = mobilityBody(api.updateRequestLocation(active.id, position))
                 check(response.success) { response.error ?: "Location update failed." }
-            } catch (e: CancellationException) { throw e } catch (e: Exception) { message = e.message ?: "Location could not be shared." }
+            } catch (e: CancellationException) { throw e } catch (e: Exception) { message = com.example.core.network.userFacingNetworkError(e) }
             delay(15000)
         }
     }
     fun act(block: suspend () -> Unit) {
         if (working) return
         working = true; message = null
-        scope.launch { try { block(); reload(); onChanged() } catch (e: CancellationException) { throw e } catch (e: Exception) { message = e.message } finally { working = false } }
+        scope.launch { try { block(); reload(); onChanged() } catch (e: CancellationException) { throw e } catch (e: Exception) { message = com.example.core.network.userFacingNetworkError(e) } finally { working = false } }
     }
     quoting?.let { job ->
         val matchingVehicles = dashboard.vehicles.filter { it.vehicleType == job.vehicleType && (job.people == null || it.capacityLimit >= job.people) }
@@ -163,8 +163,6 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
                 Text("Available: ETB ${formatIntercityFare(wallet.availableEtb)}", fontWeight = FontWeight.Bold, color = CommuteInk)
                 Text("Held: ETB ${formatIntercityFare(wallet.heldEtb)}", color = CommuteTeal)
             }
-            Text("The Passo fee is held when a customer selects your quote. It is collected from your credit after completion is confirmed. A cancellation before pickup releases the hold.", fontSize = 14.sp)
-            Text("To add credit, contact Passo for payment instructions. Your balance is updated after the actual payment is verified.", fontSize = 14.sp)
             OutlinedButton(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:info@passo.live?subject=Driver%20credit"))) }.onFailure { message = "Contact info@passo.live for driver credit." } }) { Icon(Icons.Default.Email, null); Spacer(Modifier.width(8.dp)); Text("Contact Passo") }
         }
     }, confirmButton = { TextButton(onClick = { creditOpen = false }) { Text("Done") } })
@@ -203,17 +201,17 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text("Available requests", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = CommuteInk, modifier = Modifier.weight(1f)); TextButton(onClick = { tab = "Requests" }) { Text("View all"); Icon(Icons.Default.ArrowForward, null, Modifier.size(16.dp)) } }
                     result?.requests?.take(2)?.forEach { job -> DriverOpportunityCard(api, job, !working && dashboard.vehicles.isNotEmpty(), compact = true, onPhoto = onPhoto, language = language) { quoting = job } }
                     if (result == null) Text("Finding available requests…", fontSize = 13.sp, color = CommuteInk)
-                    else if (result?.requests?.isEmpty() == true) Text("No matching requests yet. We’ll refresh this list automatically.", fontSize = 13.sp, color = CommuteInk)
+                    else if (result?.requests?.isEmpty() == true) Text("No matching requests", fontSize = 13.sp, color = CommuteInk)
                 }
                 val otherPending = pending.size - if (current?.status in setOf("AWAITING_CONFIRMATION", "DISPUTED")) 1 else 0
                 if (otherPending > 0) TextButton(onClick = { tab = "History" }) { Text("$otherPending more awaiting resolution") }
             }
             "Requests" -> {
                 if (!permission) TextButton(onClick = { permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }) { Icon(Icons.Default.MyLocation, null, Modifier.size(19.dp)); Spacer(Modifier.width(7.dp)); Text("Enable location for nearby requests") }
-                if (active != null || result?.busy == true) MobilityCard { Text("Finish your current task first", fontWeight = FontWeight.Bold, color = CommuteInk); Text("New request alerts pause while you are on a job.", fontSize = 13.sp, color = CommuteInk) }
+                if (active != null || result?.busy == true) MobilityCard { Text("Finish your current task first", fontWeight = FontWeight.Bold, color = CommuteInk) }
                 else {
                     if (result == null) Text("Finding available requests…", color = CommuteInk)
-                    else if (result?.requests?.isEmpty() == true) MobilityCard { Text("No matching requests yet", fontWeight = FontWeight.Bold, color = CommuteInk); Text("Your matching requests will appear here automatically.", fontSize = 13.sp, color = CommuteInk) }
+                    else if (result?.requests?.isEmpty() == true) MobilityCard { Text("No matching requests", fontWeight = FontWeight.Bold, color = CommuteInk) }
                     result?.requests?.forEach { job -> DriverOpportunityCard(api, job, !working && dashboard.vehicles.isNotEmpty(), onPhoto = onPhoto, language = language) { quoting = job } }
                 }
                 TextButton(enabled = !working, onClick = { act {} }) { Icon(Icons.Default.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Refresh requests") }
@@ -221,7 +219,7 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
             "History" -> {
                 pending.forEach { job -> DriverJobCard(api, job, working, permission, onPhoto, {}, {}, compact = true, language = language) }
                 history.forEach { job -> DriverJobCard(api, job, working, permission, onPhoto, {}, {}, compact = true, language = language) }
-                if (pending.isEmpty() && history.isEmpty()) MobilityCard { Text("Your completed jobs will appear here", color = CommuteInk, fontWeight = FontWeight.Bold); Text("You can open any job to see its customer, agreed price and service details.", fontSize = 13.sp, color = CommuteInk) }
+                if (pending.isEmpty() && history.isEmpty()) MobilityCard { Text("No jobs yet", color = CommuteInk, fontWeight = FontWeight.Bold) }
             }
         }
     }
@@ -318,15 +316,12 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
                 if (job.originLatitude != null && job.originLongitude != null) TextButton(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:${job.originLatitude},${job.originLongitude}?q=${job.originLatitude},${job.originLongitude}"))) } }, contentPadding = PaddingValues(horizontal = 6.dp)) { Icon(Icons.Default.LocationOn, null, Modifier.size(17.dp)); Spacer(Modifier.width(3.dp)); Text("Pickup", fontSize = 12.sp) }
                 if (job.destinationLatitude != null && job.destinationLongitude != null) TextButton(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:${job.destinationLatitude},${job.destinationLongitude}?q=${job.destinationLatitude},${job.destinationLongitude}"))) } }, contentPadding = PaddingValues(horizontal = 6.dp)) { Icon(Icons.Default.Flag, null, Modifier.size(17.dp)); Spacer(Modifier.width(3.dp)); Text("Destination", fontSize = 12.sp) }
             }
-            if (job.status == "DISPUTED") Text("The service is finished. Passo will review the issue before settling the fee.", fontSize = 12.sp, color = CommuteInk)
             if (inProgress) {
                 if (!permission) MobilityButton("Enable live location", !working, "market_location", enableLocation)
-                else Text("Live location is shared while this screen is open. Keep Passo open during the service.", fontSize = 11.sp, color = CommuteTeal)
                 mobilityNextAction(job.status)?.let { (action, label) ->
                     val actionLabel = if (action == "LOADED") { if (job.kind == "CARGO") "Confirm cargo loaded" else "Confirm passengers boarded" } else label
                     MobilityButton(actionLabel, !working, "market_progress") { progress(action) }
                 }
-                Text("New request alerts pause until this task is finished.", fontSize = 11.sp, color = Color(0xFF61768A))
             }
         }
     }
@@ -343,7 +338,7 @@ internal fun mobilityDriverStatus(status: String): String = when (status) {
     MobilityCard {
         if (request.status == "REQUESTED") {
             Text("Driver offers", fontWeight = FontWeight.Bold, color = CommuteInk, fontSize = 21.sp)
-            if (state.quotes.isEmpty()) Text("Waiting for available drivers to quote. Offers update automatically.")
+            if (state.quotes.isEmpty()) Text("Waiting for quotes")
             state.quotes.filter { it.status !in setOf("WITHDRAWN", "REJECTED", "EXPIRED") }.forEach { quote ->
                 HorizontalDivider(color = CommuteMint)
                 Text(quote.driverName, fontWeight = FontWeight.Bold)

@@ -80,7 +80,7 @@ internal class IntercityPassengerViewModel(
         catch (_: Exception) { mutable.update { it.copy(message = "Saved tickets could not be opened on this device.") } }
         try { loadDepartures() }
         catch (cancelled: CancellationException) { throw cancelled }
-        catch (error: Exception) { mutable.update { it.copy(message = error.message ?: "Routes could not be loaded.") } }
+        catch (error: Exception) { mutable.update { it.copy(message = com.example.core.network.userFacingNetworkError(error)) } }
         loadRecent()
     } }
 
@@ -100,7 +100,7 @@ internal class IntercityPassengerViewModel(
             try { block(expectedEpoch) }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
-                if (expectedEpoch == navigationEpoch) mutable.update { it.copy(message = error.message ?: "Could not complete this request.") }
+                if (expectedEpoch == navigationEpoch) mutable.update { it.copy(message = com.example.core.network.userFacingNetworkError(error)) }
             }
             finally { mutable.update { it.copy(busy = false) } }
         }

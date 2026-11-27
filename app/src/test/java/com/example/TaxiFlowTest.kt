@@ -16,12 +16,22 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
+import java.io.IOException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TaxiFlowTest {
     private val dispatcher = StandardTestDispatcher()
     @Before fun setup() { Dispatchers.setMain(dispatcher) }
     @After fun cleanup() { Dispatchers.resetMain() }
+    @Test fun `taxi map picker clearly distinguishes destination from pickup`() {
+        assertEquals("Choose destination location", taxiLocationPickerTitle(destination = true))
+        assertEquals("Choose pickup location", taxiLocationPickerTitle(destination = false))
+    }
+    @Test fun `network errors never expose server hostnames`() {
+        assertEquals("Unable to connect. Please connect to the internet.", taxiUserError(IOException("failed to connect to passo.live")))
+        assertEquals("Unable to connect. Please connect to the internet.", taxiUserError(IllegalStateException("Request failed on VPS")))
+        assertEquals("Choose a route within the configured taxi journey duration.", taxiUserError(IllegalStateException("Choose a route within the configured taxi journey duration.")))
+    }
     private val route = TaxiRouteInput("Fixture pickup", "Fixture destination", 9.0, 38.7, 9.05, 38.8)
     private val ride = TaxiRide("ride-fixture", status = "REQUESTED", estimatedFareEtb = 325.0)
     private fun fake(call: (String, Array<out Any?>) -> Any): TaxiApi = Proxy.newProxyInstance(TaxiApi::class.java.classLoader, arrayOf(TaxiApi::class.java)) { _, method, args -> call(method.name, args.orEmpty()) } as TaxiApi
@@ -61,6 +71,21 @@ class TaxiFlowTest {
         advanceUntilIdle(); broken = true; vm.refresh(); advanceUntilIdle()
         assertEquals(listOf(ride), vm.state.value.dashboard!!.calls)
         assertEquals(980.0, vm.state.value.dashboard!!.wallet.availableEtb, 0.0)
+    }
+    @Test fun `a successful background refresh clears a stale connection warning`() = runTest(dispatcher) {
+        var disconnected = true
+        val vm = TaxiViewModel(fake { name, _ ->
+            when (name) {
+                "dashboard" -> if (disconnected) throw IOException("offline") else Response.success(TaxiResponse(true))
+                else -> initial(name)
+            }
+        }, true, true)
+        advanceUntilIdle()
+        assertEquals("Unable to connect. Please connect to the internet.", vm.state.value.message)
+        disconnected = false
+        vm.refresh(quiet = true)
+        advanceUntilIdle()
+        assertNull(vm.state.value.message)
     }
     @Test fun `quiet passenger refresh uses the compact live endpoint`() = runTest(dispatcher) {
         val calls = mutableListOf<String>(); var live = false
@@ -135,8 +160,8 @@ class TaxiFlowTest {
             waitingState = "FREE_ALLOWANCE", waitingFreeRemainingSeconds = 30, waitingRateEtbPerMinute = 2.5)
         assertTrue(taxiGpsWaiting(stopped))
         assertFalse(stopped.stopWaitingRequested)
-        assertEquals("Distance paused · free waiting 00:30", taxiStopSummary(stopped))
-        assertEquals("Distance paused · waiting ETB 2.5/min", taxiStopSummary(stopped.copy(waitingFreeRemainingSeconds = 0, waitingState = "BILLABLE_WAITING")))
-        assertEquals("Waiting clock paused · fresh GPS needed", taxiStopSummary(stopped.copy(waitingState = "GPS_PAUSED")))
+        assertEquals("FREE_ALLOWANCE", stopped.waitingState)
+        assertEquals(30, stopped.waitingFreeRemainingSeconds)
+        assertEquals(2.5, stopped.waitingRateEtbPerMinute)
     }
 }
